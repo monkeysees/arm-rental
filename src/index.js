@@ -31,6 +31,7 @@ try {
           discoveredCount: result.discoveredCount,
           notifiedCount: result.notifiedCount,
           skippedCount: result.skippedCount,
+          filteredCount: result.filteredCount,
           totalCount: result.totalCount,
           lastKnownDate: result.lastKnownDate,
           stoppedAtKnownDate: result.stoppedAtKnownDate,

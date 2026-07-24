@@ -21,8 +21,9 @@ Telegram notifications are sent by date ascending: earlier apartments first,
 then later apartments.
 
 When no delivery history exists, all discovered apartments are stored but only
-the latest `INITIAL_DELIVERY_LIMIT` are sent. The default is 10. Older initial
-apartments are marked as skipped and will not be sent after a restart.
+the latest `INITIAL_DELIVERY_LIMIT` matching apartments are sent. The default
+is 10. Older matching apartments are marked as skipped and non-matching ones
+as filtered; neither group will be sent after a restart or filter change.
 
 ## Requirements
 
@@ -52,7 +53,26 @@ npm start
 
 Send `/start` to the bot in a private chat from the configured owner account.
 Messages and commands from every other account, and commands in group chats,
-are ignored. Activation survives process restarts.
+are ignored. Activation survives process restarts. The start response includes
+a **Настроить фильтры** button; `/filters` opens the same controls directly and
+also works before monitoring is activated.
+
+Every filter is optional:
+
+- price accepts a closed range (`100000-250000`), an open range (`100000-` or
+  `-250000`), or one exact value;
+- rooms use the same range syntax;
+- locations can combine several individual places and whole regions. Ереван is
+  first, followed by its districts, then the other regions.
+
+Send `нет` while entering a range to remove that restriction. **Сбросить всё**
+removes all filters. A whole-region selection matches the region name and all
+of its listed places; choosing an individual place replaces a whole-region
+selection for that region. Every change is persisted and applied immediately;
+there is no separate save step.
+
+Price bounds compare the numeric amount shown in each listing's own currency;
+the bot does not perform exchange-rate conversion.
 
 If List.am requests security verification, stop the bot and run:
 
@@ -91,8 +111,8 @@ details.
 | `TELEGRAM_BOT_TOKEN`            | required                         | Token issued by BotFather                       |
 | `TELEGRAM_OWNER_ID`             | required                         | Only user allowed to activate the bot           |
 | `APARTMENTS_STATE_FILE`         | `.data/apartments.json`          | Apartment database                              |
-| `DELIVERY_STATE_FILE`           | `.data/telegram-deliveries.json` | Sent and initially skipped apartments           |
-| `TELEGRAM_STATE_FILE`           | `.data/telegram-bot.json`        | Bot activation and update offset                |
+| `DELIVERY_STATE_FILE`           | `.data/telegram-deliveries.json` | Sent, skipped, and filtered apartments          |
+| `TELEGRAM_STATE_FILE`           | `.data/telegram-bot.json`        | Bot activation, filters, and update offset      |
 | `TELEGRAM_POLL_TIMEOUT_SECONDS` | `25`                             | Telegram long-poll duration                     |
 | `POLL_INTERVAL_MS`              | `60000`                          | Delay between crawls                            |
 | `INITIAL_PAGE_COUNT`            | `10`                             | Pages parsed with an empty apartment database   |

@@ -52,7 +52,7 @@ export class TelegramApi {
       {
         offset,
         timeout: timeoutSeconds,
-        allowed_updates: ["message"],
+        allowed_updates: ["message", "callback_query"],
       },
       {
         signal,
@@ -61,14 +61,42 @@ export class TelegramApi {
     );
   }
 
-  sendMessage(chatId, text, signal) {
+  sendMessage(chatId, text, signal, replyMarkup) {
     return this.call(
       "sendMessage",
       {
         chat_id: chatId,
         text,
         disable_web_page_preview: true,
+        ...(replyMarkup ? { reply_markup: replyMarkup } : {}),
       },
+      { signal },
+    );
+  }
+
+  editMessageText(chatId, messageId, text, signal, replyMarkup) {
+    return this.call(
+      "editMessageText",
+      {
+        chat_id: chatId,
+        message_id: messageId,
+        text,
+        disable_web_page_preview: true,
+        ...(replyMarkup ? { reply_markup: replyMarkup } : {}),
+      },
+      { signal },
+    ).catch((error) => {
+      // Replayed callbacks can request an already-rendered menu after filter
+      // state was persisted but before the Telegram update offset was saved.
+      if (/message is not modified/iu.test(error.message)) return undefined;
+      throw error;
+    });
+  }
+
+  answerCallbackQuery(callbackQueryId, signal) {
+    return this.call(
+      "answerCallbackQuery",
+      { callback_query_id: callbackQueryId },
       { signal },
     );
   }
@@ -79,20 +107,19 @@ export function isStartCommand(text) {
 }
 
 export function formatApartmentMessage(apartment) {
-  const unavailable = "Не указано";
   const amount = apartment.price.amount?.toLocaleString("ru-RU");
   const price =
     amount && apartment.price.currency
       ? `${amount} ${apartment.price.currency}`
-      : unavailable;
+      : "не указана";
 
   return [
     apartment.title || `Квартира ${apartment.itemId}`,
     `Цена: ${price}`,
-    `Местоположение: ${apartment.location || unavailable}`,
-    `Комнат: ${apartment.rooms ?? unavailable}`,
-    `Площадь: ${apartment.areaSqM == null ? unavailable : `${apartment.areaSqM} м²`}`,
-    `Этаж: ${apartment.floor || unavailable}`,
+    `Местоположение: ${apartment.location || "не указано"}`,
+    `Количество комнат: ${apartment.rooms ?? "не указано"}`,
+    `Площадь: ${apartment.areaSqM == null ? "не указана" : `${apartment.areaSqM} м²`}`,
+    `Этаж: ${apartment.floor || "не указан"}`,
     apartment.url,
   ].join("\n");
 }

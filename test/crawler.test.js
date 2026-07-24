@@ -204,3 +204,59 @@ test("a failed Telegram delivery remains pending without losing discovery", asyn
 
   assert.deepEqual(retried, ["2", "3"]);
 });
+
+test("delivery filters skip non-matching apartments without losing discovery", async () => {
+  const state = memoryState();
+  const delivered = [];
+  const html = `
+    <div id="contentr">
+      <a class="fav-item-info-container" href="/ru/item/4">
+        <div class="pt">Apartment 4</div><div class="p">220000 ֏</div>
+        <div class="at">Гюмри, 2 ком., 50 кв.м., 3/5 этаж</div>
+        <div class="d">Пятница, Июль 24, 2026, 14:34</div>
+      </a>
+      <a class="fav-item-info-container" href="/ru/item/3">
+        <div class="pt">Apartment 3</div><div class="p">240000 ֏</div>
+        <div class="at">Кентрон, 4 ком., 50 кв.м., 3/5 этаж</div>
+        <div class="d">Пятница, Июль 24, 2026, 14:33</div>
+      </a>
+      <a class="fav-item-info-container" href="/ru/item/2">
+        <div class="pt">Apartment 2</div><div class="p">200000 ֏</div>
+        <div class="at">Арабкир, 2 ком., 50 кв.м., 3/5 этаж</div>
+        <div class="d">Пятница, Июль 24, 2026, 14:32</div>
+      </a>
+      <a class="fav-item-info-container" href="/ru/item/1">
+        <div class="pt">Apartment 1</div><div class="p">180000 ֏</div>
+        <div class="at">Арабкир, 1 ком., 50 кв.м., 3/5 этаж</div>
+        <div class="d">Пятница, Июль 24, 2026, 14:31</div>
+      </a>
+    </div>`;
+
+  const result = await crawlApartments(
+    { ...config, initialPageCount: 1 },
+    {
+      ...state,
+      fetchPage: async () => new Response(html),
+      filters: {
+        price: { min: 190_000, max: 230_000 },
+        rooms: { min: 2, max: 3 },
+        locations: ["r:0"],
+      },
+      deliverApartment: async ({ itemId }) => delivered.push(itemId),
+      now: () => new Date("2026-07-24T12:00:00Z"),
+    },
+  );
+
+  assert.deepEqual(delivered, ["2"]);
+  assert.equal(result.discoveredCount, 4);
+  assert.equal(result.notifiedCount, 1);
+  assert.equal(result.filteredCount, 3);
+  assert.deepEqual(
+    Object.keys(state.files.get(config.deliveryStateFile).filtered).sort(),
+    ["1", "3", "4"],
+  );
+  assert.equal(
+    Object.keys(state.files.get(config.apartmentsStateFile).apartments).length,
+    4,
+  );
+});

@@ -16,7 +16,10 @@ ordering.
    page fetcher, and runs the Telegram bot.
 2. `src/bot.js` long-polls Telegram. A private `/start` from
    `TELEGRAM_OWNER_ID` activates the persistent monitoring loop; all other
-   users and group chats are ignored.
+   users and group chats are ignored. `/filters` and the inline start button
+   expose persistent price, room, and hierarchical location controls. Range
+   values are collected from the owner's next text message; `/cancel` abandons
+   pending input.
 3. `src/crawler.js` fetches List.am category pages sequentially through
    `src/browser-fetch.js`, which requests the `ru-RU` browser locale, and parses
    each page with `src/list-am.js`.
@@ -29,11 +32,32 @@ ordering.
    crawler also stops on an empty page or a repeated page signature to avoid an
    unbounded loop if pagination changes.
 5. Newly discovered apartment records are atomically committed before Telegram
-   delivery begins. When delivery history is empty, only the latest
-   `INITIAL_DELIVERY_LIMIT` records are selected and older initial records are
+   delivery begins. `src/filters.js` evaluates the current optional ranges and
+   location selection without restricting discovery. Non-matching records are
+   durably classified as filtered, so changing filters does not release an old
+   backlog. When delivery history is empty, the latest matching
+   `INITIAL_DELIVERY_LIMIT` records are selected and older matching records are
    durably marked as skipped. The source's newest-first order is then reversed
    so selected messages are delivered by date ascending (earlier first), then
    acknowledged one at a time.
+
+## Filter model
+
+Filters live in Telegram bot state and default to no restrictions. Price and
+room filters each have nullable inclusive `min` and `max` bounds. Price compares
+the parsed numeric amount in the listing's displayed currency; there is no
+exchange-rate conversion. Each range submission, location toggle, and reset is
+persisted immediately; the interface has no deferred save action.
+
+Location configuration is a static ordered hierarchy in `src/filters.js`.
+Ереван is deliberately the first region and its districts are the first
+place-level choices. Stable compact IDs (`r:<region>` and
+`p:<region>:<place>`) keep Telegram callback data well below its size limit and
+make multiple selections inexpensive to persist. Selecting a whole region
+matches both the region name and all children. Selecting a child removes the
+whole-region choice for that region, while selections in other regions remain
+intact. `src/filter-ui.js` owns the Russian inline-keyboard presentation and
+keeps matching rules independent of Telegram.
 
 ## Persistence
 
@@ -45,12 +69,13 @@ The `.data` directory must be mounted on persistent storage in production.
   price currency, location, rooms, area in square metres, combined
   current/total floor, posting date, and first-seen timestamp.
 - `telegram-deliveries.json` tracks successfully sent item IDs and the
-  intentionally skipped portion of the initial history. Discovery is therefore
-  durable even if Telegram is unavailable, while selected unsent messages
-  remain retryable. Keeping this index separate also avoids rewriting the much
-  larger apartment database after every message.
-- `telegram-bot.json` stores owner identity, activation, private chat ID, and
-  Telegram update offset.
+  intentionally skipped portion of the initial history. Its `filtered` index
+  records listings rejected by the filters active when they first reach
+  delivery. Discovery is therefore durable even if Telegram is unavailable,
+  while selected unsent messages remain retryable. Keeping this index separate
+  also avoids rewriting the much larger apartment database after every message.
+- `telegram-bot.json` stores owner identity, activation, private chat ID,
+  Telegram update offset, optional filters, and any pending range-input mode.
 - `chrome-profile/` stores cookies from List.am security verification.
 
 State files include a schema version, type discriminator, and target URL. An
@@ -75,6 +100,11 @@ List.am.
   times.
 - A successful Telegram delivery is persisted immediately. If a later message
   fails, only the remaining messages are retried.
+- Filter classification is persisted before matching messages are sent. A
+  restart cannot turn previously rejected listings into an unexpected backlog.
+- Replayed Telegram callbacks that render an already-current menu are treated
+  as successful, covering the window between saving filter state and the update
+  offset.
 - SIGINT and SIGTERM abort both Telegram polling and browser work, then close
   Chrome cleanly.
 
@@ -83,5 +113,8 @@ List.am.
 Parser tests verify field normalization and Top Ads exclusion. Crawler
 integration tests exercise multi-page initial discovery, the posting-date
 watermark (including refreshed IDs and equal-minute listings), persistence, and
-delivery retry behavior. Telegram tests cover admin-only activation, Russian
-message formatting and fallbacks, and rate-limit retries.
+delivery retry and filter-classification behavior. Filter tests cover optional
+and open ranges, whole regions, multiple places, and composed criteria.
+Telegram tests cover admin-only activation, interactive filter configuration,
+Yerevan-first selection, Russian message formatting and fallbacks, and
+rate-limit retries.

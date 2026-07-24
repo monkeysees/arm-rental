@@ -1,4 +1,5 @@
 import { extractRegularApartments } from "./list-am.js";
+import { apartmentMatchesFilters, emptyFilters } from "./filters.js";
 import { readState, writeState } from "./state.js";
 import { pageUrl } from "./target.js";
 
@@ -132,6 +133,7 @@ export async function crawlApartments(
     loadState = readState,
     saveState = writeState,
     deliverApartment,
+    filters = emptyFilters(),
     now = () => new Date(),
   } = {},
 ) {
@@ -228,6 +230,7 @@ export async function crawlApartments(
 
   let notifiedCount = 0;
   let skippedCount = 0;
+  let filteredCount = 0;
   if (deliverApartment) {
     const storedDeliveries = await loadState(config.deliveryStateFile);
     let deliveryState = compatibleDeliveryState(
@@ -237,6 +240,7 @@ export async function crawlApartments(
       ? {
           ...storedDeliveries,
           skipped: storedDeliveries.skipped || {},
+          filtered: storedDeliveries.filtered || {},
           initialSelectionApplied:
             storedDeliveries.initialSelectionApplied ??
             Object.keys(storedDeliveries.notified).length > 0,
@@ -247,17 +251,31 @@ export async function crawlApartments(
           urlTemplate: config.listUrlTemplate,
           notified: {},
           skipped: {},
+          filtered: {},
           initialSelectionApplied: false,
         };
 
     if (!deliveryState.initialSelectionApplied && apartmentOrder.length > 0) {
-      const skippedAt = now().toISOString();
+      const classifiedAt = now().toISOString();
+      const matchingIds = apartmentOrder.filter((itemId) =>
+        apartmentMatchesFilters(apartments[itemId], filters),
+      );
+      const matchingIdSet = new Set(matchingIds);
+      const selectedIds = new Set(
+        matchingIds.slice(0, config.initialDeliveryLimit),
+      );
       const skipped = Object.fromEntries(
+        matchingIds
+          .filter((itemId) => !selectedIds.has(itemId))
+          .map((itemId) => [itemId, classifiedAt]),
+      );
+      const filtered = Object.fromEntries(
         apartmentOrder
-          .slice(config.initialDeliveryLimit)
-          .map((itemId) => [itemId, skippedAt]),
+          .filter((itemId) => !matchingIdSet.has(itemId))
+          .map((itemId) => [itemId, classifiedAt]),
       );
       skippedCount = Object.keys(skipped).length;
+      filteredCount = Object.keys(filtered).length;
       deliveryState = {
         ...deliveryState,
         initialSelectionApplied: true,
@@ -265,9 +283,37 @@ export async function crawlApartments(
           ...deliveryState.skipped,
           ...skipped,
         },
+        filtered: {
+          ...deliveryState.filtered,
+          ...filtered,
+        },
       };
       // Persist the initial selection before delivery so restarts cannot enqueue
-      // the intentionally omitted historical apartments.
+      // omitted historical or non-matching apartments.
+      await saveState(config.deliveryStateFile, deliveryState);
+    }
+
+    const unclassifiedIds = apartmentOrder.filter(
+      (itemId) =>
+        !deliveryState.notified[itemId] &&
+        !deliveryState.skipped[itemId] &&
+        !deliveryState.filtered[itemId],
+    );
+    const newlyFilteredIds = unclassifiedIds.filter(
+      (itemId) => !apartmentMatchesFilters(apartments[itemId], filters),
+    );
+    if (newlyFilteredIds.length > 0) {
+      const filteredAt = now().toISOString();
+      deliveryState = {
+        ...deliveryState,
+        filtered: {
+          ...deliveryState.filtered,
+          ...Object.fromEntries(
+            newlyFilteredIds.map((itemId) => [itemId, filteredAt]),
+          ),
+        },
+      };
+      filteredCount += newlyFilteredIds.length;
       await saveState(config.deliveryStateFile, deliveryState);
     }
 
@@ -276,7 +322,9 @@ export async function crawlApartments(
       .reverse()
       .filter(
         (itemId) =>
-          !deliveryState.notified[itemId] && !deliveryState.skipped[itemId],
+          !deliveryState.notified[itemId] &&
+          !deliveryState.skipped[itemId] &&
+          !deliveryState.filtered[itemId],
       )
       .map((itemId) => apartments[itemId])
       .filter(Boolean);
@@ -307,6 +355,7 @@ export async function crawlApartments(
     discoveredCount: discovered.length,
     notifiedCount,
     skippedCount,
+    filteredCount,
     totalCount: Object.keys(apartments).length,
     lastKnownDate: lastKnownPostingDate.date,
     stoppedAtKnownDate,

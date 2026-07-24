@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { lstat, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -17,6 +17,7 @@ test("state is atomically persisted and malformed JSON is reported clearly", asy
     version: 1,
     value: "saved",
   });
+  assert.equal((await lstat(filename)).mode & 0o777, 0o600);
 
   await writeFile(filename, "{invalid", "utf8");
   await assert.rejects(readState(filename), /State file is not valid JSON/);

@@ -14,15 +14,14 @@ export async function readState(filename) {
 }
 
 export async function writeState(filename, state) {
-  await mkdir(path.dirname(filename), { recursive: true });
+  await mkdir(path.dirname(filename), { recursive: true, mode: 0o700 });
   const temporaryFile = `${filename}.${process.pid}.${Date.now()}.tmp`;
 
   try {
-    await writeFile(
-      temporaryFile,
-      `${JSON.stringify(state, null, 2)}\n`,
-      "utf8",
-    );
+    await writeFile(temporaryFile, `${JSON.stringify(state, null, 2)}\n`, {
+      encoding: "utf8",
+      mode: 0o600,
+    });
     await rename(temporaryFile, filename);
   } catch (error) {
     await rm(temporaryFile, { force: true }).catch(() => {});

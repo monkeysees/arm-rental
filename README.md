@@ -179,6 +179,7 @@ details.
 
 | Variable                        | Default                                  | Purpose                                        |
 | ------------------------------- | ---------------------------------------- | ---------------------------------------------- |
+| `NODE_ENV`                      | `development`                            | Runtime mode: development, test, or production |
 | `TELEGRAM_BOT_TOKEN`            | required                                 | Token issued by BotFather                      |
 | `TELEGRAM_OWNER_ID`             | required                                 | Only user allowed to activate the private bot  |
 | `TELEGRAM_CHANNEL_ID`           | blank                                    | Public `@username`; blank disables channel     |
@@ -235,6 +236,15 @@ The image sets production Chrome to headless mode and stores its profile under
 storage when the service is deployed. No Node, npm package, Chrome, or browser
 library installation is required on the host.
 
+Production startup is fail-closed. `NODE_ENV=production` requires an explicit
+absolute `DATA_DIRECTORY`, `BROWSER_HEADLESS=true`, and an absolute
+`CHROME_EXECUTABLE_PATH`. Every state file and the Chrome profile must resolve
+to a distinct path below `DATA_DIRECTORY`; symlink redirection outside that
+tree is rejected. Startup creates or verifies the data tree, proves it is
+writable, sets the data/profile/state directories to mode `0700`, and tightens
+existing state files to `0600` before the singleton lock, Telegram polling, or
+crawling starts. New state files are always written with mode `0600`.
+
 Local environment files, `.data` (including developer Chrome profiles),
 dependencies, coverage, Git metadata, logs, and development caches are excluded
 from the container build context. The image runs as the unprivileged `node`
@@ -246,8 +256,18 @@ by Compose on the deployment host.
 configuration in a host-only `.env.production`, then start it with:
 
 ```sh
+chmod 0600 .env.production
 docker compose --file compose.production.yaml up --detach
 ```
+
+Keep `.env.production` outside source control, image build contexts, backups
+that lack equivalent access controls, and deployment output. Supply
+`TELEGRAM_BOT_TOKEN` through the deployment platform's secret entry mechanism;
+the host-only file is the dedicated-host fallback. Never put the token in a
+command argument, image `ENV` instruction, Compose YAML value, support ticket,
+or diagnostic command. Structured application logging defensively redacts
+Telegram token shapes, Telegram Bot API URLs, and authorization-like values,
+but redaction is not a substitute for keeping secrets out of inputs.
 
 Compose makes the image filesystem read-only. The durable `/app/.data` volume
 is the only persistent writable location; `/tmp` and `/dev/shm` are bounded
@@ -278,3 +298,6 @@ docker compose --file compose.production.yaml stop
 If startup reports `ERR_SINGLETON_LOCKED`, do not remove lock files while the
 reported process is alive. A socket left by an unclean exit is detected and
 recovered automatically.
+
+See [Telegram token rotation](docs/token-rotation.md) for the stop/rotate/start
+procedure that retains private and channel delivery acknowledgements.

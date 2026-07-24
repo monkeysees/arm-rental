@@ -7,6 +7,15 @@ const dataDirectory = path.resolve(process.argv[2]);
 const browserProfileDir = path.join(dataDirectory, "chrome-profile");
 const chromeLockFile = path.join(browserProfileDir, "SingletonLock");
 const deliveryStateFile = path.join(dataDirectory, "fixture-deliveries.json");
+const baseConfig = {
+  dataDirectory,
+  browserProfileDir,
+  apartmentsStateFile: path.join(dataDirectory, "apartments.json"),
+  deliveryStateFile,
+  channelDeliveryStateFile: path.join(dataDirectory, "channel.json"),
+  exchangeRatesStateFile: path.join(dataDirectory, "exchange-rates.json"),
+  telegramStateFile: path.join(dataDirectory, "telegram.json"),
+};
 
 async function readDeliveries() {
   try {
@@ -21,10 +30,7 @@ async function readDeliveries() {
 
 try {
   await runApplication({
-    config: {
-      dataDirectory,
-      browserProfileDir,
-    },
+    config: baseConfig,
     logger: {
       info: (message, context) =>
         console.log(JSON.stringify({ message, ...context })),

@@ -122,6 +122,34 @@ disable the sandbox. Puppeteer's production control channel uses a pipe; the
 interactive macOS verification path is the only TCP debugging mode and
 explicitly binds it to `127.0.0.1`.
 
+### Configuration and secret boundary
+
+`src/config.js` is the fail-fast boundary before the singleton lease and all
+long-running loops. It accepts only the `development`, `test`, and `production`
+runtime modes and validates numeric and filter ranges while building the
+configuration. Production has no implicit storage or browser choices:
+`NODE_ENV=production`, `DATA_DIRECTORY`, `BROWSER_HEADLESS=true`, and an
+absolute `CHROME_EXECUTABLE_PATH` must all be explicit.
+
+Apartment, private-delivery, channel-delivery, exchange-rate, Telegram bot, and
+Chrome-profile paths are normalized and must be distinct children of
+`DATA_DIRECTORY`. Startup rejects filesystem-root storage, paths outside the
+configured tree, non-regular state files, and symlinked managed paths. Before
+the lease is acquired it creates and probes the persistent tree, restricts
+managed directories to `0700`, and restricts existing state files to `0600`.
+Atomic state replacements create their temporary files as `0600`, so the final
+file does not inherit a permissive process umask.
+
+The Telegram bot token is accepted only from the process environment populated
+by a deployment secret facility or, on a dedicated host, a host-only mode-0600
+environment file. No CLI option or image build argument accepts it. The
+structured logger recursively redacts token-shaped strings, Telegram Bot API
+and file URLs, sensitive-key values, authorization headers, and Bearer/Basic
+credentials in normal context and serialized errors. Rotation changes only the
+external secret and deliberately preserves every file in the persistent data
+directory; the operator runbook is
+[`docs/token-rotation.md`](token-rotation.md).
+
 ## Runtime flow
 
 1. `src/index.js` validates private and channel configuration, acquires the

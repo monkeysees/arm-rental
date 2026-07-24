@@ -1,7 +1,26 @@
 import path from "node:path";
+import {
+  access,
+  chmod,
+  lstat,
+  mkdir,
+  open,
+  realpath,
+  rename,
+  rm,
+} from "node:fs/promises";
+import { constants as filesystemConstants } from "node:fs";
+import { randomUUID } from "node:crypto";
 
 import { parseChannelFilters } from "./channel.js";
 import { LIST_AM_URL_TEMPLATE } from "./target.js";
+
+const SUPPORTED_RUNTIME_MODES = new Set(["development", "test", "production"]);
+const RESERVED_DATA_PATHS = new Set([
+  ".singleton.json",
+  ".singleton.sock",
+  ".singleton-recovery",
+]);
 
 function requireValue(value, name) {
   if (!value?.trim()) throw new Error(`${name} is required`);
@@ -40,11 +59,90 @@ function optionalChannelId(value) {
   return channelId;
 }
 
+function runtimeMode(value) {
+  const mode = value?.trim() || "development";
+  if (!SUPPORTED_RUNTIME_MODES.has(mode)) {
+    throw new Error(
+      `NODE_ENV must be one of: ${[...SUPPORTED_RUNTIME_MODES].join(", ")}`,
+    );
+  }
+  return mode;
+}
+
+function isInside(parent, candidate) {
+  const relative = path.relative(parent, candidate);
+  return (
+    relative !== "" &&
+    relative !== ".." &&
+    !relative.startsWith(`..${path.sep}`)
+  );
+}
+
+function validatePersistentPaths(config) {
+  if (path.parse(config.dataDirectory).root === config.dataDirectory) {
+    throw new Error("DATA_DIRECTORY must not be the filesystem root");
+  }
+
+  const paths = new Map([
+    ["APARTMENTS_STATE_FILE", config.apartmentsStateFile],
+    ["DELIVERY_STATE_FILE", config.deliveryStateFile],
+    ["CHANNEL_DELIVERY_STATE_FILE", config.channelDeliveryStateFile],
+    ["EXCHANGE_RATES_STATE_FILE", config.exchangeRatesStateFile],
+    ["TELEGRAM_STATE_FILE", config.telegramStateFile],
+    ["BROWSER_PROFILE_DIR", config.browserProfileDir],
+  ]);
+  const usedPaths = new Map();
+
+  for (const [name, statePath] of paths) {
+    if (!isInside(config.dataDirectory, statePath)) {
+      throw new Error(
+        `${name} must resolve inside DATA_DIRECTORY (${config.dataDirectory})`,
+      );
+    }
+
+    const priorName = usedPaths.get(statePath);
+    if (priorName) {
+      throw new Error(`${name} must not use the same path as ${priorName}`);
+    }
+    for (const [usedPath, usedName] of usedPaths) {
+      if (isInside(usedPath, statePath) || isInside(statePath, usedPath)) {
+        throw new Error(
+          `${name} must not overlap the path used by ${usedName}`,
+        );
+      }
+    }
+    if (
+      path.dirname(statePath) === config.dataDirectory &&
+      RESERVED_DATA_PATHS.has(path.basename(statePath))
+    ) {
+      throw new Error(`${name} conflicts with a reserved runtime path`);
+    }
+    usedPaths.set(statePath, name);
+  }
+}
+
+function validateProductionConfig(env, config) {
+  if (config.environmentName !== "production") return;
+
+  requireValue(env.DATA_DIRECTORY, "DATA_DIRECTORY");
+  requireValue(env.CHROME_EXECUTABLE_PATH, "CHROME_EXECUTABLE_PATH");
+  requireValue(env.BROWSER_HEADLESS, "BROWSER_HEADLESS");
+
+  if (!path.isAbsolute(config.chromeExecutablePath)) {
+    throw new Error("CHROME_EXECUTABLE_PATH must be absolute in production");
+  }
+  if (!config.browserHeadless) {
+    throw new Error("BROWSER_HEADLESS must be true in production");
+  }
+}
+
 export function getConfig(env = process.env, cwd = process.cwd()) {
   const telegramChannelId = optionalChannelId(env.TELEGRAM_CHANNEL_ID);
   const dataDirectory = path.resolve(cwd, env.DATA_DIRECTORY || ".data");
+  const environmentName = runtimeMode(env.NODE_ENV);
 
-  return {
+  const config = {
+    environmentName,
     dataDirectory,
     listUrlTemplate: LIST_AM_URL_TEMPLATE,
     initialPageCount: positiveInteger(
@@ -106,7 +204,7 @@ export function getConfig(env = process.env, cwd = process.cwd()) {
       "POLL_INTERVAL_MS",
     ),
     timeoutMs: positiveInteger(env.TIMEOUT_MS, 30_000, "TIMEOUT_MS"),
-    chromeExecutablePath: env.CHROME_EXECUTABLE_PATH || undefined,
+    chromeExecutablePath: env.CHROME_EXECUTABLE_PATH?.trim() || undefined,
     browserProfileDir: path.resolve(
       cwd,
       env.BROWSER_PROFILE_DIR || path.join(dataDirectory, "chrome-profile"),
@@ -128,4 +226,100 @@ export function getConfig(env = process.env, cwd = process.cwd()) {
       "BROWSER_DEBUG_PORT",
     ),
   };
+
+  validatePersistentPaths(config);
+  validateProductionConfig(env, config);
+  return config;
+}
+
+async function secureDirectory(directory, canonicalDataDirectory) {
+  await mkdir(directory, { recursive: true, mode: 0o700 });
+  const details = await lstat(directory);
+  if (!details.isDirectory() || details.isSymbolicLink()) {
+    throw new Error(`Persistent path is not a safe directory: ${directory}`);
+  }
+  const canonicalDirectory = await realpath(directory);
+  if (
+    canonicalDataDirectory &&
+    canonicalDirectory !== canonicalDataDirectory &&
+    !isInside(canonicalDataDirectory, canonicalDirectory)
+  ) {
+    throw new Error(
+      `Persistent directory resolves outside DATA_DIRECTORY: ${directory}`,
+    );
+  }
+  await chmod(directory, 0o700);
+  await access(
+    directory,
+    filesystemConstants.R_OK |
+      filesystemConstants.W_OK |
+      filesystemConstants.X_OK,
+  );
+}
+
+async function secureExistingStateFile(filename) {
+  let details;
+  try {
+    details = await lstat(filename);
+  } catch (error) {
+    if (error.code === "ENOENT") return;
+    throw error;
+  }
+
+  if (!details.isFile() || details.isSymbolicLink()) {
+    throw new Error(`State path is not a safe regular file: ${filename}`);
+  }
+  await chmod(filename, 0o600);
+}
+
+export async function validateStartupConfig(config) {
+  // Recheck callers that construct configuration without getConfig, including
+  // operational scripts, before granting them access to persistent storage.
+  validatePersistentPaths(config);
+
+  const stateFiles = [
+    config.apartmentsStateFile,
+    config.deliveryStateFile,
+    config.channelDeliveryStateFile,
+    config.exchangeRatesStateFile,
+    config.telegramStateFile,
+  ];
+  const stateDirectories = new Set([
+    config.dataDirectory,
+    config.browserProfileDir,
+    ...stateFiles.map((filename) => path.dirname(filename)),
+  ]);
+
+  await secureDirectory(config.dataDirectory);
+  const canonicalDataDirectory = await realpath(config.dataDirectory);
+  for (const directory of stateDirectories) {
+    await secureDirectory(directory, canonicalDataDirectory);
+  }
+  for (const filename of stateFiles) {
+    await secureExistingStateFile(filename);
+  }
+
+  const probePath = path.join(
+    config.dataDirectory,
+    `.configuration-write-probe.${process.pid}.${randomUUID()}`,
+  );
+  const renamedProbePath = `${probePath}.renamed`;
+  let probe;
+  try {
+    probe = await open(probePath, "wx", 0o600);
+    await probe.writeFile("persistent storage probe\n", "utf8");
+    await probe.close();
+    probe = undefined;
+    await rename(probePath, renamedProbePath);
+    await rm(renamedProbePath);
+  } catch (error) {
+    throw new Error(
+      `Persistent data directory is not writable: ${config.dataDirectory}`,
+      { cause: error },
+    );
+  } finally {
+    await probe?.close().catch(() => {});
+    await rm(probePath, { force: true }).catch(() => {});
+    await rm(renamedProbePath, { force: true }).catch(() => {});
+  }
 }

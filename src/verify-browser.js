@@ -1,5 +1,5 @@
 import { BrowserPageFetcher } from "./browser-fetch.js";
-import { getConfig } from "./config.js";
+import { getConfig, validateStartupConfig } from "./config.js";
 import { createLogger } from "./logger.js";
 import { pageUrl } from "./target.js";
 
@@ -12,6 +12,7 @@ for (const signal of ["SIGINT", "SIGTERM"]) {
 
 try {
   const config = getConfig();
+  await validateStartupConfig(config);
   const browserFetcher = new BrowserPageFetcher(
     {
       ...config,

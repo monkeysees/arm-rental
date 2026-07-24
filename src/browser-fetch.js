@@ -76,7 +76,7 @@ async function launchHiddenMacChrome(
   chromeArgs,
   signal,
 ) {
-  await mkdir(config.browserProfileDir, { recursive: true });
+  await mkdir(config.browserProfileDir, { recursive: true, mode: 0o700 });
   const browserURL = `http://127.0.0.1:${config.browserDebugPort}`;
   const connect = async () => {
     try {

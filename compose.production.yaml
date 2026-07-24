@@ -12,6 +12,8 @@ services:
     environment:
       NODE_ENV: production
       DATA_DIRECTORY: /app/.data
+      BROWSER_HEADLESS: "true"
+      CHROME_EXECUTABLE_PATH: /opt/chrome/chrome/linux-150.0.7871.24/chrome-linux64/chrome
     volumes:
       - rental-apartments-data:/app/.data
     tmpfs:

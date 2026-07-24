@@ -1,4 +1,5 @@
 import { acquireSingletonLock } from "./singleton-lock.js";
+import { validateStartupConfig } from "./config.js";
 
 export async function runApplication({
   config,
@@ -8,9 +9,11 @@ export async function runApplication({
   browserFetcherFactory,
   exchangeRateServiceFactory,
   runBot,
+  validateConfig = validateStartupConfig,
 }) {
-  // The persistent-directory lease is intentionally the first runtime side
-  // effect. A contender cannot reach Telegram polling or browser crawling.
+  // Configuration and persistent-storage checks must finish before acquiring
+  // runtime resources or entering any long-running loop.
+  await validateConfig(config);
   const singletonLock = await acquireLock(config.dataDirectory);
   const controller = new AbortController();
   let receivedSignal;

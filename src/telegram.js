@@ -93,7 +93,6 @@ export function formatApartmentMessage(apartment) {
     `Комнат: ${apartment.rooms ?? unavailable}`,
     `Площадь: ${apartment.areaSqM == null ? unavailable : `${apartment.areaSqM} м²`}`,
     `Этаж: ${apartment.floor || unavailable}`,
-    `Дата: ${apartment.date || unavailable}`,
     apartment.url,
   ].join("\n");
 }

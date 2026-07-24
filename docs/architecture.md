@@ -6,7 +6,9 @@ The application is a private Telegram bot that discovers long-term apartment
 rentals from List.am. It reads only the site's **Regular Ads** section and
 ignores **Top Ads**. The configured Telegram owner is the only account allowed
 to activate the bot. All bot-generated Telegram replies, notification labels,
-and missing-value fallbacks are in Russian.
+and missing-value fallbacks are in Russian. Apartment notifications omit the
+posting date, although it remains part of the stored record and delivery
+ordering.
 
 ## Runtime flow
 

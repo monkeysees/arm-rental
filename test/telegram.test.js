@@ -79,7 +79,6 @@ test("Telegram helpers format normalized apartment data", () => {
       "Комнат: 2",
       "Площадь: 50 м²",
       "Этаж: 3/5",
-      "Дата: Friday, July 24, 2026, 14:31",
       "https://www.list.am/ru/item/200",
     ].join("\n"),
   );
@@ -105,7 +104,6 @@ test("Telegram helpers use Russian fallbacks for missing apartment data", () => 
       "Комнат: Не указано",
       "Площадь: Не указано",
       "Этаж: Не указано",
-      "Дата: Не указано",
       "https://www.list.am/ru/item/201",
     ].join("\n"),
   );

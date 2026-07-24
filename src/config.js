@@ -1,5 +1,6 @@
 import path from "node:path";
 
+import { parseChannelFilters } from "./channel.js";
 import { LIST_AM_URL_TEMPLATE } from "./target.js";
 
 function requireValue(value, name) {
@@ -30,7 +31,18 @@ function port(value, fallback, name) {
   return parsed;
 }
 
+function optionalChannelId(value) {
+  const channelId = value?.trim();
+  if (!channelId) return null;
+  if (!/^@[a-z][a-z0-9_]{4,31}$/iu.test(channelId)) {
+    throw new Error("TELEGRAM_CHANNEL_ID must be a public Telegram @username");
+  }
+  return channelId;
+}
+
 export function getConfig(env = process.env, cwd = process.cwd()) {
+  const telegramChannelId = optionalChannelId(env.TELEGRAM_CHANNEL_ID);
+
   return {
     listUrlTemplate: LIST_AM_URL_TEMPLATE,
     initialPageCount: positiveInteger(
@@ -51,6 +63,11 @@ export function getConfig(env = process.env, cwd = process.cwd()) {
       cwd,
       env.DELIVERY_STATE_FILE || ".data/telegram-deliveries.json",
     ),
+    channelDeliveryStateFile: path.resolve(
+      cwd,
+      env.CHANNEL_DELIVERY_STATE_FILE ||
+        ".data/telegram-channel-deliveries.json",
+    ),
     exchangeRatesStateFile: path.resolve(
       cwd,
       env.EXCHANGE_RATES_STATE_FILE || ".data/exchange-rates.json",
@@ -64,6 +81,12 @@ export function getConfig(env = process.env, cwd = process.cwd()) {
       undefined,
       "TELEGRAM_OWNER_ID",
     ),
+    telegramChannelId,
+    channelFilters: parseChannelFilters({
+      price: env.CHANNEL_FILTER_PRICE_AMD,
+      rooms: env.CHANNEL_FILTER_ROOMS,
+      locations: env.CHANNEL_FILTER_LOCATIONS,
+    }),
     telegramStateFile: path.resolve(
       cwd,
       env.TELEGRAM_STATE_FILE || ".data/telegram-bot.json",

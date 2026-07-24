@@ -399,3 +399,126 @@ test("exchange rates refresh without private monitoring activation", async () =>
 
   assert.equal(refreshCalls, 1);
 });
+
+test("an enabled channel crawls and publishes without private activation", async () => {
+  const controller = new AbortController();
+  let crawlCalls = 0;
+  let channelCalls = 0;
+  let privateDelivery;
+  const api = {
+    getUpdates: async (_offset, _timeout, signal) =>
+      new Promise((resolve) => {
+        signal.addEventListener("abort", () => resolve([]), { once: true });
+      }),
+  };
+
+  await runTelegramBot(
+    {
+      telegramBotToken: "token",
+      telegramOwnerId: 42,
+      telegramChannelId: "@rentals",
+      telegramStateFile: "/state/bot.json",
+      telegramPollTimeoutSeconds: 25,
+      timeoutMs: 1_000,
+      pollIntervalMs: 60_000,
+    },
+    {
+      api,
+      signal: controller.signal,
+      loadState: async () => initialState,
+      saveState: async () => {},
+      crawl: async (_config, options) => {
+        crawlCalls += 1;
+        privateDelivery = options.deliverApartment;
+        await options.afterStateSaved({
+          apartments: {},
+          apartmentOrder: [],
+        });
+        return { status: "unchanged", discoveredCount: 0, notifiedCount: 0 };
+      },
+      publishChannel: async () => {
+        channelCalls += 1;
+        controller.abort();
+        return {
+          sentCount: 0,
+          editedCount: 0,
+          filteredCount: 0,
+          skippedCount: 0,
+        };
+      },
+    },
+  );
+
+  assert.equal(crawlCalls, 1);
+  assert.equal(channelCalls, 1);
+  assert.equal(privateDelivery, undefined);
+});
+
+test("a channel failure does not prevent an active private delivery", async () => {
+  const controller = new AbortController();
+  const sent = [];
+  const errors = [];
+  const activeState = {
+    ...initialState,
+    active: true,
+    chatId: 42,
+  };
+  const api = {
+    getUpdates: async (_offset, _timeout, signal) =>
+      new Promise((resolve) => {
+        signal.addEventListener("abort", () => resolve([]), { once: true });
+      }),
+    sendMessage: async (chatId, text) => {
+      sent.push([chatId, text]);
+    },
+  };
+
+  await runTelegramBot(
+    {
+      telegramBotToken: "token",
+      telegramOwnerId: 42,
+      telegramChannelId: "@rentals",
+      telegramStateFile: "/state/bot.json",
+      telegramPollTimeoutSeconds: 25,
+      timeoutMs: 1_000,
+      pollIntervalMs: 60_000,
+    },
+    {
+      api,
+      signal: controller.signal,
+      loadState: async () => activeState,
+      saveState: async () => {},
+      crawl: async (_config, options) => {
+        await Promise.all([
+          options.deliverApartment({
+            itemId: "100",
+            title: "Apartment 100",
+            price: { amount: 200_000, currency: "֏" },
+            location: "Арабкир",
+            rooms: 2,
+            areaSqM: 50,
+            floor: "3/5",
+            url: "https://www.list.am/ru/item/100",
+          }),
+          options.afterStateSaved({ apartments: {}, apartmentOrder: [] }),
+        ]);
+        controller.abort();
+        return {
+          status: "new-apartments",
+          discoveredCount: 1,
+          notifiedCount: 1,
+        };
+      },
+      publishChannel: async () => {
+        throw new Error("Channel state unavailable");
+      },
+      onError: async (error, context) => errors.push([error, context]),
+    },
+  );
+
+  assert.equal(sent.length, 1);
+  assert.equal(sent[0][0], 42);
+  assert.match(sent[0][1], /^Apartment 100/u);
+  assert.equal(errors.length, 1);
+  assert.equal(errors[0][1].component, "telegram-channel");
+});

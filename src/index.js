@@ -43,14 +43,46 @@ try {
           status: result.status,
           pagesParsed: result.pagesParsed,
           discoveredCount: result.discoveredCount,
+          updatedCount: result.updatedCount,
           notifiedCount: result.notifiedCount,
           skippedCount: result.skippedCount,
           filteredCount: result.filteredCount,
           totalCount: result.totalCount,
           lastKnownDate: result.lastKnownDate,
           stoppedAtKnownDate: result.stoppedAtKnownDate,
+          channelSentCount: result.channel.sentCount,
+          channelEditedCount: result.channel.editedCount,
+          channelFilteredCount: result.channel.filteredCount,
+          channelSkippedCount: result.channel.skippedCount,
         }),
-      onError: (error) => logger.error("Apartment crawl failed", error),
+      onError: (error, context) =>
+        logger.error(
+          context?.component === "telegram-channel"
+            ? "Telegram channel publication failed"
+            : "Apartment crawl failed",
+          error,
+          context,
+        ),
+      onChannelOperation: (event) => {
+        const context = {
+          operation: event.operation,
+          itemId: event.itemId,
+          channelId: event.channelId,
+          ...(event.messageId ? { messageId: event.messageId } : {}),
+          outcome: event.outcome,
+        };
+        if (event.outcome === "failed") {
+          logger.error(
+            "Telegram channel operation failed",
+            event.error,
+            context,
+          );
+        } else {
+          logger.info("Telegram channel operation completed", context);
+        }
+      },
+      onChannelFilterFingerprintChange: (event) =>
+        logger.info("Telegram channel filter fingerprint changed", event),
     });
   } finally {
     await browserFetcher.close();

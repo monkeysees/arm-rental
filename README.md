@@ -1,7 +1,9 @@
 # Rental apartments Telegram bot
 
 An admin-only Telegram bot that discovers long-term apartment rentals from
-List.am and stores normalized apartment records locally.
+List.am and stores normalized apartment records locally. It can also publish
+eligible apartments to a public Telegram channel and keep those posts current
+when List.am card data changes.
 
 Bot replies and apartment notification labels are in Russian. Apartment
 messages retain the price and currency shown by List.am. Internally, all prices
@@ -20,8 +22,8 @@ newest posting date already in the database, including every listing from the
 same minute. This prevents a refreshed known ad from hiding newer apartments
 that follow it.
 
-Telegram notifications are sent by date ascending: earlier apartments first,
-then later apartments.
+Telegram notifications and new channel posts are sent by date ascending:
+earlier apartments first, then later apartments.
 
 When no delivery history exists, all discovered apartments are stored but only
 the latest `INITIAL_DELIVERY_LIMIT` matching apartments are sent. The default
@@ -78,6 +80,54 @@ Price bounds are Armenian drams. USD, EUR, and RUB listings are converted to AMD
 before filtering, while Telegram notifications continue to show their original
 price and currency.
 
+## Public channel publishing
+
+Channel publishing is optional and independent of the private conversation. To
+enable it:
+
+1. Create or select a public Telegram channel with an `@username`.
+2. Add the bot as an administrator with **Post Messages** and **Edit Messages**
+   permissions.
+3. Set the channel username, for example
+   `TELEGRAM_CHANNEL_ID=@yerevan_rentals`.
+
+The channel crawler runs without the owner's `/start` activation. Private
+commands, filters, activation, notifications, and delivery history remain
+separate. Leaving `TELEGRAM_CHANNEL_ID` blank preserves private-only behavior.
+
+Channel filters are configured only through the environment:
+
+```dotenv
+CHANNEL_FILTER_PRICE_AMD=150000-300000
+CHANNEL_FILTER_ROOMS=1-3
+CHANNEL_FILTER_LOCATIONS=region:Ереван
+```
+
+Price and room values accept an exact value, a closed range (`150000-300000`),
+or an open range (`150000-` or `-300000`). Location selectors are
+case-insensitive configured Russian names, such as
+`region:Котайк,place:Кентрон`; dimensions are combined with AND and multiple
+locations with OR. `all` removes the location restriction. Blank locations
+default to all configured Yerevan localities. Invalid, unknown, ambiguous, or
+conflicting selectors stop startup with an error.
+
+Channel posts reuse the private apartment message, including the original source
+price, then append Russian hashtags for region, locality, the canonical AMD
+50,000-dram price band, and rooms. Channel filter changes apply only to
+apartments not yet classified; they never release a historical filtered or
+initially skipped backlog.
+
+On the first compatible run, every stored apartment is classified atomically.
+Only the latest `INITIAL_DELIVERY_LIMIT` matches are posted, oldest first.
+Changing the channel username starts a fresh classification for that channel.
+Successful channel message IDs and content hashes are saved immediately. Later
+card changes edit the existing post when rendered content changes; a deleted
+channel message is posted again and its saved message ID is replaced.
+
+Telegram does not provide an idempotency key for `sendMessage`. There is a small
+at-least-once duplicate risk if the process exits after Telegram accepts a post
+but before the local acknowledgement is persisted.
+
 ## Exchange rates
 
 The bot retrieves USD, EUR, and RUB rates from the Central Bank of Armenia when
@@ -120,31 +170,37 @@ limits are respected, so an interruption safely resumes the unsent portion.
 - floor as current/total, for example `6/18`
 - List.am posting date
 - first-seen timestamp
+- last source-update timestamp, when a known card changes
 
 See [docs/architecture.md](docs/architecture.md) for component and persistence
 details.
 
 ## Configuration
 
-| Variable                        | Default                          | Purpose                                         |
-| ------------------------------- | -------------------------------- | ----------------------------------------------- |
-| `TELEGRAM_BOT_TOKEN`            | required                         | Token issued by BotFather                       |
-| `TELEGRAM_OWNER_ID`             | required                         | Only user allowed to activate the bot           |
-| `APARTMENTS_STATE_FILE`         | `.data/apartments.json`          | Apartment database                              |
-| `DELIVERY_STATE_FILE`           | `.data/telegram-deliveries.json` | Sent, skipped, and filtered apartments          |
-| `EXCHANGE_RATES_STATE_FILE`     | `.data/exchange-rates.json`      | Last validated CBA exchange-rate snapshot       |
-| `TELEGRAM_STATE_FILE`           | `.data/telegram-bot.json`        | Bot activation, filters, and update offset      |
-| `TELEGRAM_POLL_TIMEOUT_SECONDS` | `25`                             | Telegram long-poll duration                     |
-| `POLL_INTERVAL_MS`              | `60000`                          | Delay between crawls                            |
-| `INITIAL_PAGE_COUNT`            | `10`                             | Pages parsed with an empty apartment database   |
-| `INITIAL_DELIVERY_LIMIT`        | `10`                             | Latest apartments sent without delivery history |
-| `TIMEOUT_MS`                    | `30000`                          | Browser navigation and API timeout              |
-| `BROWSER_PROFILE_DIR`           | `.data/chrome-profile`           | Persistent Chrome profile                       |
-| `BROWSER_HEADLESS`              | `false`                          | Run Chrome headlessly                           |
-| `BROWSER_CHALLENGE_TIMEOUT_MS`  | `120000`                         | Verification wait duration                      |
-| `BROWSER_PROTOCOL_TIMEOUT_MS`   | `30000`                          | Chrome command timeout                          |
-| `BROWSER_DEBUG_PORT`            | `49222`                          | Local background-Chrome control port            |
-| `CHROME_EXECUTABLE_PATH`        | auto-detected                    | Chrome/Chromium executable                      |
+| Variable                        | Default                                  | Purpose                                        |
+| ------------------------------- | ---------------------------------------- | ---------------------------------------------- |
+| `TELEGRAM_BOT_TOKEN`            | required                                 | Token issued by BotFather                      |
+| `TELEGRAM_OWNER_ID`             | required                                 | Only user allowed to activate the private bot  |
+| `TELEGRAM_CHANNEL_ID`           | blank                                    | Public `@username`; blank disables channel     |
+| `CHANNEL_FILTER_PRICE_AMD`      | blank                                    | Optional channel AMD price range               |
+| `CHANNEL_FILTER_ROOMS`          | blank                                    | Optional channel room-count range              |
+| `CHANNEL_FILTER_LOCATIONS`      | `region:Ереван`                          | Comma-separated channel location selectors     |
+| `CHANNEL_DELIVERY_STATE_FILE`   | `.data/telegram-channel-deliveries.json` | Channel admission and publication state        |
+| `APARTMENTS_STATE_FILE`         | `.data/apartments.json`                  | Apartment database                             |
+| `DELIVERY_STATE_FILE`           | `.data/telegram-deliveries.json`         | Private sent, skipped, and filtered apartments |
+| `EXCHANGE_RATES_STATE_FILE`     | `.data/exchange-rates.json`              | Last validated CBA rate snapshot               |
+| `TELEGRAM_STATE_FILE`           | `.data/telegram-bot.json`                | Private activation, filters, and update offset |
+| `TELEGRAM_POLL_TIMEOUT_SECONDS` | `25`                                     | Telegram long-poll duration                    |
+| `POLL_INTERVAL_MS`              | `60000`                                  | Delay between crawls                           |
+| `INITIAL_PAGE_COUNT`            | `10`                                     | Pages parsed with an empty apartment database  |
+| `INITIAL_DELIVERY_LIMIT`        | `10`                                     | Latest initial private/channel selection size  |
+| `TIMEOUT_MS`                    | `30000`                                  | Browser navigation and API timeout             |
+| `BROWSER_PROFILE_DIR`           | `.data/chrome-profile`                   | Persistent Chrome profile                      |
+| `BROWSER_HEADLESS`              | `false`                                  | Run Chrome headlessly                          |
+| `BROWSER_CHALLENGE_TIMEOUT_MS`  | `120000`                                 | Verification wait duration                     |
+| `BROWSER_PROTOCOL_TIMEOUT_MS`   | `30000`                                  | Chrome command timeout                         |
+| `BROWSER_DEBUG_PORT`            | `49222`                                  | Local background-Chrome control port           |
+| `CHROME_EXECUTABLE_PATH`        | auto-detected                            | Chrome/Chromium executable                     |
 
 ## Quality checks
 

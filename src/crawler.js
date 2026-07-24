@@ -1,6 +1,10 @@
 import { extractRegularApartments } from "./list-am.js";
 import { apartmentMatchesFilters, emptyFilters } from "./filters.js";
-import { normalizeApartmentPrice } from "./prices.js";
+import {
+  currencyCode,
+  normalizeApartmentPrice,
+  originalPrice,
+} from "./prices.js";
 import { readState, writeState } from "./state.js";
 import { pageUrl } from "./target.js";
 
@@ -127,6 +131,36 @@ function latestKnownPostingDate(apartments) {
   return { date: latestDate, value: latestValue };
 }
 
+const SOURCE_FIELDS = [
+  "title",
+  "location",
+  "rooms",
+  "areaSqM",
+  "floor",
+  "url",
+  "date",
+];
+
+function originalPriceValues(price) {
+  const original = originalPrice(price);
+  return {
+    amount: original.amount,
+    currency: currencyCode(original.currency),
+  };
+}
+
+function sourceDataChanged(previous, observed) {
+  if (SOURCE_FIELDS.some((field) => previous[field] !== observed[field])) {
+    return true;
+  }
+  const previousPrice = originalPriceValues(previous.price);
+  const observedPrice = originalPriceValues(observed.price);
+  return (
+    previousPrice.amount !== observedPrice.amount ||
+    previousPrice.currency !== observedPrice.currency
+  );
+}
+
 export async function crawlApartments(
   config,
   {
@@ -137,6 +171,7 @@ export async function crawlApartments(
     exchangeRates,
     filters = emptyFilters(),
     now = () => new Date(),
+    afterStateSaved,
   } = {},
 ) {
   const stored = await loadState(config.apartmentsStateFile);
@@ -156,7 +191,9 @@ export async function crawlApartments(
   const initialRun = Object.keys(previousApartments).length === 0;
   const lastKnownPostingDate = latestKnownPostingDate(previousApartments);
   const discovered = [];
-  const discoveredIdSet = new Set();
+  const observedKnown = new Map();
+  const encounteredIdSet = new Set();
+  const encounteredOrder = [];
   const pageSignatures = new Set();
   let pagesParsed = 0;
   let stoppedAtKnownDate = null;
@@ -200,28 +237,63 @@ export async function crawlApartments(
         stoppedAtKnownDate = lastKnownPostingDate.date;
         break pageLoop;
       }
-      if (Object.hasOwn(previousApartments, apartment.itemId)) continue;
-      if (discoveredIdSet.has(apartment.itemId)) continue;
+      if (encounteredIdSet.has(apartment.itemId)) continue;
+      encounteredIdSet.add(apartment.itemId);
+      encounteredOrder.push(apartment.itemId);
+      if (Object.hasOwn(previousApartments, apartment.itemId)) {
+        observedKnown.set(apartment.itemId, apartment);
+        continue;
+      }
       discovered.push({
         ...apartment,
         price: normalizeApartmentPrice(apartment.price, exchangeRates),
       });
-      discoveredIdSet.add(apartment.itemId);
     }
   }
 
   const checkedAt = now().toISOString();
   const apartments = { ...previousApartments };
+  const updated = [];
+  for (const [itemId, observed] of observedKnown) {
+    const previous = previousApartments[itemId];
+    if (!sourceDataChanged(previous, observed)) continue;
+
+    const priceChanged =
+      originalPriceValues(previous.price).amount !==
+        originalPriceValues(observed.price).amount ||
+      originalPriceValues(previous.price).currency !==
+        originalPriceValues(observed.price).currency;
+    const apartment = {
+      ...observed,
+      price: priceChanged
+        ? normalizeApartmentPrice(observed.price, exchangeRates)
+        : previous.price,
+      firstSeenAt: previous.firstSeenAt,
+      updatedAt: checkedAt,
+    };
+    apartments[itemId] = apartment;
+    updated.push(apartment);
+  }
   for (const apartment of discovered) {
     apartments[apartment.itemId] = {
       ...apartment,
       firstSeenAt: checkedAt,
     };
   }
-  const discoveredIds = discovered.map(({ itemId }) => itemId);
+  const orderedIds = new Set(encounteredOrder);
+  const takeUnorderedId = (itemId) => {
+    if (!Object.hasOwn(apartments, itemId) || orderedIds.has(itemId)) {
+      return false;
+    }
+    orderedIds.add(itemId);
+    return true;
+  };
+  const retainedOrder = previousOrder.filter(takeUnorderedId);
+  const missingFromOrder = Object.keys(apartments).filter(takeUnorderedId);
   const apartmentOrder = [
-    ...discoveredIds,
-    ...previousOrder.filter((itemId) => !discoveredIdSet.has(itemId)),
+    ...encounteredOrder,
+    ...retainedOrder,
+    ...missingFromOrder,
   ];
 
   const state = {
@@ -233,6 +305,7 @@ export async function crawlApartments(
       initialRun,
       pagesParsed,
       discoveredCount: discovered.length,
+      updatedCount: updated.length,
       lastKnownDate: lastKnownPostingDate.date,
       stoppedAtKnownDate,
       exhausted,
@@ -243,10 +316,15 @@ export async function crawlApartments(
 
   await saveState(config.apartmentsStateFile, state);
 
+  const channelPublication = afterStateSaved
+    ? Promise.resolve().then(() => afterStateSaved(state))
+    : Promise.resolve();
+
   let notifiedCount = 0;
   let skippedCount = 0;
   let filteredCount = 0;
-  if (deliverApartment) {
+  const privateDelivery = async () => {
+    if (!deliverApartment) return;
     const storedDeliveries = await loadState(config.deliveryStateFile);
     let deliveryState = compatibleDeliveryState(
       storedDeliveries,
@@ -356,18 +434,29 @@ export async function crawlApartments(
       await saveState(config.deliveryStateFile, deliveryState);
       notifiedCount += 1;
     }
-  }
+  };
+
+  const [privateOutcome, channelOutcome] = await Promise.allSettled([
+    privateDelivery(),
+    channelPublication,
+  ]);
+  if (privateOutcome.status === "rejected") throw privateOutcome.reason;
+  if (channelOutcome.status === "rejected") throw channelOutcome.reason;
 
   return {
     status: initialRun
       ? "initial-crawl"
       : discovered.length > 0
         ? "new-apartments"
-        : "unchanged",
+        : updated.length > 0
+          ? "updated-apartments"
+          : "unchanged",
     initialRun,
     pagesParsed,
     discovered,
     discoveredCount: discovered.length,
+    updated,
+    updatedCount: updated.length,
     notifiedCount,
     skippedCount,
     filteredCount,

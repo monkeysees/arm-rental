@@ -1,5 +1,6 @@
 import { setTimeout as delay } from "node:timers/promises";
 
+import { publishChannelApartments } from "./channel.js";
 import { crawlApartments } from "./crawler.js";
 import {
   filtersMenu,
@@ -314,10 +315,13 @@ export async function runTelegramBot(
     loadState = readState,
     saveState = writeState,
     crawl = crawlApartments,
+    publishChannel = publishChannelApartments,
     pageFetch = globalThis.fetch,
     sleep = delay,
     onResult = () => {},
     onError = () => {},
+    onChannelOperation = () => {},
+    onChannelFilterFingerprintChange = () => {},
     exchangeRateService,
     signal,
   } = {},
@@ -375,7 +379,7 @@ export async function runTelegramBot(
 
   const monitorLoop = async () => {
     while (!signal?.aborted) {
-      if (!state.active) {
+      if (!state.active && !config.telegramChannelId) {
         await waitForActivation(signal, (resolve) => {
           activationWaiter = resolve;
         });
@@ -384,18 +388,50 @@ export async function runTelegramBot(
 
       try {
         const exchangeRates = await exchangeRateService?.getSnapshot(signal);
+        const privateChatId = state.active ? state.chatId : null;
+        let channelResult = {
+          sentCount: 0,
+          editedCount: 0,
+          filteredCount: 0,
+          skippedCount: 0,
+        };
         const result = await crawl(config, {
           fetchPage: pageFetch,
           filters: state.filters,
           exchangeRates,
-          deliverApartment: (apartment) =>
-            api.sendMessage(
-              state.chatId,
-              formatApartmentMessage(apartment),
-              signal,
-            ),
+          ...(privateChatId
+            ? {
+                deliverApartment: (apartment) =>
+                  api.sendMessage(
+                    privateChatId,
+                    formatApartmentMessage(apartment),
+                    signal,
+                  ),
+              }
+            : {}),
+          ...(config.telegramChannelId
+            ? {
+                afterStateSaved: async (apartmentState) => {
+                  try {
+                    channelResult = await publishChannel(
+                      config,
+                      apartmentState,
+                      {
+                        api,
+                        signal,
+                        onOperation: onChannelOperation,
+                        onFilterFingerprintChange:
+                          onChannelFilterFingerprintChange,
+                      },
+                    );
+                  } catch (error) {
+                    await onError(error, { component: "telegram-channel" });
+                  }
+                },
+              }
+            : {}),
         });
-        await onResult(result);
+        await onResult({ ...result, channel: channelResult });
       } catch (error) {
         if (signal?.aborted) return;
         await onError(error);

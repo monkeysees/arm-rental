@@ -20,8 +20,12 @@ ordering.
 3. `src/crawler.js` fetches List.am category pages sequentially through
    `src/browser-fetch.js`, which requests the `ru-RU` browser locale, and parses
    each page with `src/list-am.js`.
-4. On an empty database, pages 1 through 10 are parsed. On later crawls, cards
-   are read newest-first until the first stored item ID is encountered. The
+4. On an empty database, pages 1 through 10 are parsed. On later crawls, the
+   newest posting date in the database is the temporal watermark. Cards are
+   read newest-first through every card sharing that minute, and parsing stops
+   when an older posting date is reached. Known IDs above the watermark (for
+   example, refreshed ads) do not stop discovery. If stored dates cannot be
+   parsed, the crawl falls back to the configured initial page count. The
    crawler also stops on an empty page or a repeated page signature to avoid an
    unbounded loop if pagination changes.
 5. Newly discovered apartment records are atomically committed before Telegram
@@ -77,7 +81,7 @@ List.am.
 ## Testing boundaries
 
 Parser tests verify field normalization and Top Ads exclusion. Crawler
-integration tests exercise multi-page initial discovery, the first-known-item
-stop rule, persistence, and delivery retry behavior. Telegram tests cover
-admin-only activation, Russian message formatting and fallbacks, and rate-limit
-retries.
+integration tests exercise multi-page initial discovery, the posting-date
+watermark (including refreshed IDs and equal-minute listings), persistence, and
+delivery retry behavior. Telegram tests cover admin-only activation, Russian
+message formatting and fallbacks, and rate-limit retries.

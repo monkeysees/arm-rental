@@ -12,8 +12,10 @@ https://www.list.am/ru/category/56/{page}?n=0&cmtype=0&crc=0&gl=2&srt=3
 ```
 
 Only **Regular Ads** are parsed; **Top Ads** are excluded. The first crawl reads
-pages 1 through 10. Every later crawl starts at page 1 and stops immediately
-when it encounters an apartment already in the database.
+pages 1 through 10. Every later crawl starts at page 1 and reads through the
+newest posting date already in the database, including every listing from the
+same minute. This prevents a refreshed known ad from hiding newer apartments
+that follow it.
 
 Telegram notifications are sent by date ascending: earlier apartments first,
 then later apartments.

@@ -13,16 +13,20 @@ const config = {
 };
 
 function page(...ids) {
+  return datedPage(...ids.map((id) => [id, "Пятница, Июль 24, 2026, 14:31"]));
+}
+
+function datedPage(...apartments) {
   return `
     <div id="contentr">
-      ${ids
+      ${apartments
         .map(
-          (id) => `
+          ([id, date]) => `
             <a class="fav-item-info-container" href="/ru/item/${id}">
               <div class="dltitle"><div class="pt">Apartment ${id}</div></div>
               <div class="p">${id},000 ֏ monthly</div>
               <div class="at">Arabkir, 2 rm., 50 sq.m., 3/5 floor</div>
-              <div class="d">Friday, July 24, 2026, 14:31</div>
+              <div class="d">${date}</div>
             </a>`,
         )
         .join("")}
@@ -85,7 +89,14 @@ test("initial crawl parses pages 1 through 10 and stores every apartment", async
     { ...config, initialDeliveryLimit: 3 },
     {
       ...state,
-      fetchPage: async () => new Response(page("11", "1")),
+      fetchPage: async () =>
+        new Response(
+          datedPage(
+            ["11", "Пятница, Июль 24, 2026, 14:32"],
+            ["1", "Пятница, Июль 24, 2026, 14:31"],
+            ["0", "Пятница, Июль 24, 2026, 14:30"],
+          ),
+        ),
       deliverApartment: async ({ itemId }) => delivered.push(itemId),
       now: () => new Date("2026-07-24T12:01:00Z"),
     },
@@ -96,15 +107,24 @@ test("initial crawl parses pages 1 through 10 and stores every apartment", async
   assert.deepEqual(delivered, ["3", "2", "1", "11"]);
 });
 
-test("later crawl stops inside a page at the first known apartment", async () => {
+test("later crawl continues past known IDs until the latest known date", async () => {
   const known = {
     version: 1,
     type: "list-am-apartments",
     urlTemplate: LIST_AM_URL_TEMPLATE,
     apartments: {
-      90: { itemId: "90", firstSeenAt: "2026-07-24T10:00:00.000Z" },
+      95: {
+        itemId: "95",
+        date: "Пятница, Июль 24, 2026, 14:00",
+        firstSeenAt: "2026-07-24T10:00:00.000Z",
+      },
+      90: {
+        itemId: "90",
+        date: "Пятница, Июль 24, 2026, 14:31",
+        firstSeenAt: "2026-07-24T10:00:00.000Z",
+      },
     },
-    apartmentOrder: ["90"],
+    apartmentOrder: ["90", "95"],
   };
   const state = memoryState({
     [config.apartmentsStateFile]: known,
@@ -115,16 +135,28 @@ test("later crawl stops inside a page at the first known apartment", async () =>
     ...state,
     fetchPage: async () => {
       fetchCount += 1;
-      return new Response(page("101", "100", "90", "80"));
+      return new Response(
+        datedPage(
+          ["101", "Пятница, Июль 24, 2026, 15:00"],
+          // A known ad may be refreshed above the previous date watermark.
+          ["95", "Пятница, Июль 24, 2026, 14:50"],
+          ["100", "Пятница, Июль 24, 2026, 14:40"],
+          // Unseen IDs sharing the boundary minute must still be captured.
+          ["91", "Пятница, Июль 24, 2026, 14:31"],
+          ["90", "Пятница, Июль 24, 2026, 14:31"],
+          ["80", "Пятница, Июль 24, 2026, 14:30"],
+        ),
+      );
     },
     now: () => new Date("2026-07-24T12:00:00Z"),
   });
 
   assert.equal(fetchCount, 1);
-  assert.equal(result.stoppedAtKnownId, "90");
+  assert.equal(result.lastKnownDate, "Пятница, Июль 24, 2026, 14:31");
+  assert.equal(result.stoppedAtKnownDate, "Пятница, Июль 24, 2026, 14:31");
   assert.deepEqual(
     result.discovered.map(({ itemId }) => itemId),
-    ["101", "100"],
+    ["101", "100", "91"],
   );
   assert.equal(
     state.files.get(config.apartmentsStateFile).apartments["80"],

@@ -2,6 +2,48 @@ import { extractRegularApartments } from "./list-am.js";
 import { readState, writeState } from "./state.js";
 import { pageUrl } from "./target.js";
 
+const MONTH_NUMBERS = new Map(
+  [
+    ["январь", 0],
+    ["января", 0],
+    ["февраль", 1],
+    ["февраля", 1],
+    ["март", 2],
+    ["марта", 2],
+    ["апрель", 3],
+    ["апреля", 3],
+    ["май", 4],
+    ["мая", 4],
+    ["mай", 4],
+    ["июнь", 5],
+    ["июня", 5],
+    ["июль", 6],
+    ["июля", 6],
+    ["август", 7],
+    ["августа", 7],
+    ["сентябрь", 8],
+    ["сентября", 8],
+    ["октябрь", 9],
+    ["октября", 9],
+    ["ноябрь", 10],
+    ["ноября", 10],
+    ["декабрь", 11],
+    ["декабря", 11],
+    ["january", 0],
+    ["february", 1],
+    ["march", 2],
+    ["april", 3],
+    ["may", 4],
+    ["june", 5],
+    ["july", 6],
+    ["august", 7],
+    ["september", 8],
+    ["october", 9],
+    ["november", 10],
+    ["december", 11],
+  ].map(([month, number]) => [month, number]),
+);
+
 function compatibleState(state, template) {
   return Boolean(
     state &&
@@ -34,6 +76,55 @@ async function fetchHtml(url, fetchPage) {
   return response.text();
 }
 
+function dateSortValue(value) {
+  const match = value?.match(
+    /^[^,]+,\s*([^,\s]+)\s+(\d{1,2}),\s*(\d{4}),\s*(\d{1,2}):(\d{2})$/u,
+  );
+  if (!match) return null;
+
+  const month = MONTH_NUMBERS.get(match[1].toLocaleLowerCase("ru-RU"));
+  if (month === undefined) return null;
+
+  const [, , dayText, yearText, hourText, minuteText] = match;
+  const [day, year, hour, minute] = [
+    dayText,
+    yearText,
+    hourText,
+    minuteText,
+  ].map(Number);
+  const sortValue = Date.UTC(year, month, day, hour, minute);
+  const parsed = new Date(sortValue);
+
+  if (
+    parsed.getUTCFullYear() !== year ||
+    parsed.getUTCMonth() !== month ||
+    parsed.getUTCDate() !== day ||
+    parsed.getUTCHours() !== hour ||
+    parsed.getUTCMinutes() !== minute
+  ) {
+    return null;
+  }
+
+  // UTC is only a stable way to compare the displayed calendar components;
+  // the source date remains stored verbatim and is not treated as UTC.
+  return sortValue;
+}
+
+function latestKnownPostingDate(apartments) {
+  let latestDate = null;
+  let latestValue = null;
+
+  for (const apartment of Object.values(apartments)) {
+    const value = dateSortValue(apartment?.date);
+    if (value !== null && (latestValue === null || value > latestValue)) {
+      latestDate = apartment.date;
+      latestValue = value;
+    }
+  }
+
+  return { date: latestDate, value: latestValue };
+}
+
 export async function crawlApartments(
   config,
   {
@@ -49,15 +140,21 @@ export async function crawlApartments(
   const previousApartments = compatible ? stored.apartments : {};
   const previousOrder = compatible ? stored.apartmentOrder || [] : [];
   const initialRun = Object.keys(previousApartments).length === 0;
+  const lastKnownPostingDate = latestKnownPostingDate(previousApartments);
   const discovered = [];
   const discoveredIdSet = new Set();
   const pageSignatures = new Set();
   let pagesParsed = 0;
-  let stoppedAtKnownId = null;
+  let stoppedAtKnownDate = null;
   let exhausted = false;
 
   pageLoop: for (let page = 1; ; page += 1) {
-    if (initialRun && page > config.initialPageCount) break;
+    if (
+      (initialRun || lastKnownPostingDate.value === null) &&
+      page > config.initialPageCount
+    ) {
+      break;
+    }
 
     const html = await fetchHtml(
       pageUrl(page, config.listUrlTemplate),
@@ -79,10 +176,17 @@ export async function crawlApartments(
     pageSignatures.add(signature);
 
     for (const apartment of apartments) {
-      if (!initialRun && Object.hasOwn(previousApartments, apartment.itemId)) {
-        stoppedAtKnownId = apartment.itemId;
+      const postingDateValue = dateSortValue(apartment.date);
+      if (
+        !initialRun &&
+        lastKnownPostingDate.value !== null &&
+        postingDateValue !== null &&
+        postingDateValue < lastKnownPostingDate.value
+      ) {
+        stoppedAtKnownDate = lastKnownPostingDate.date;
         break pageLoop;
       }
+      if (Object.hasOwn(previousApartments, apartment.itemId)) continue;
       if (discoveredIdSet.has(apartment.itemId)) continue;
       discovered.push(apartment);
       discoveredIdSet.add(apartment.itemId);
@@ -112,7 +216,8 @@ export async function crawlApartments(
       initialRun,
       pagesParsed,
       discoveredCount: discovered.length,
-      stoppedAtKnownId,
+      lastKnownDate: lastKnownPostingDate.date,
+      stoppedAtKnownDate,
       exhausted,
     },
     apartments,
@@ -203,7 +308,8 @@ export async function crawlApartments(
     notifiedCount,
     skippedCount,
     totalCount: Object.keys(apartments).length,
-    stoppedAtKnownId,
+    lastKnownDate: lastKnownPostingDate.date,
+    stoppedAtKnownDate,
     exhausted,
   };
 }

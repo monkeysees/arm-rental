@@ -32,7 +32,8 @@ try {
           notifiedCount: result.notifiedCount,
           skippedCount: result.skippedCount,
           totalCount: result.totalCount,
-          stoppedAtKnownId: result.stoppedAtKnownId,
+          lastKnownDate: result.lastKnownDate,
+          stoppedAtKnownDate: result.stoppedAtKnownDate,
         }),
       onError: (error) => logger.error("Apartment crawl failed", error),
     });

@@ -18,6 +18,7 @@ import { LIST_AM_URL_TEMPLATE } from "./target.js";
 
 const SUPPORTED_RUNTIME_MODES = new Set(["development", "test", "production"]);
 const RESERVED_DATA_PATHS = new Set([
+  ".maintenance-history.json",
   ".singleton.json",
   ".singleton.sock",
   ".singleton-recovery",
@@ -250,6 +251,11 @@ export function getConfig(env = process.env, cwd = process.cwd()) {
       env.BROWSER_PROTOCOL_TIMEOUT_MS,
       30_000,
       "BROWSER_PROTOCOL_TIMEOUT_MS",
+    ),
+    browserCacheMaxBytes: positiveInteger(
+      env.BROWSER_CACHE_MAX_BYTES,
+      64 * 1024 * 1024,
+      "BROWSER_CACHE_MAX_BYTES",
     ),
     browserDebugPort: port(
       env.BROWSER_DEBUG_PORT,

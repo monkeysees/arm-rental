@@ -2,6 +2,7 @@ import { acquireSingletonLock } from "./singleton-lock.js";
 import { validateStartupConfig } from "./config.js";
 import { runStartupPreflight, startupFailureResult } from "./preflight.js";
 import { classifyRuntimeFailure } from "./health.js";
+import { observeStateWrites } from "./state.js";
 
 export async function runApplication({
   config,
@@ -24,6 +25,9 @@ export async function runApplication({
   let receivedSignal;
   const signalHandlers = new Map();
   let browserFetcher;
+  const stopObservingStateWrites = observeStateWrites((event) =>
+    logger.info("State write metric", event),
+  );
 
   try {
     await validateConfig(config);
@@ -236,6 +240,7 @@ export async function runApplication({
     }
     throw error;
   } finally {
+    stopObservingStateWrites();
     for (const [signal, handler] of signalHandlers) {
       signalEmitter.removeListener(signal, handler);
     }

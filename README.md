@@ -203,6 +203,7 @@ details.
 | `BROWSER_HEADLESS`              | `false`                                  | Run Chrome headlessly                          |
 | `BROWSER_CHALLENGE_TIMEOUT_MS`  | `120000`                                 | Verification wait duration                     |
 | `BROWSER_PROTOCOL_TIMEOUT_MS`   | `30000`                                  | Chrome command timeout                         |
+| `BROWSER_CACHE_MAX_BYTES`       | `67108864`                               | Chrome HTTP disk-cache cap in bytes            |
 | `BROWSER_DEBUG_PORT`            | `49222`                                  | Local background-Chrome control port           |
 | `CHROME_EXECUTABLE_PATH`        | auto-detected                            | Chrome/Chromium executable                     |
 | `BACKUP_DIRECTORY`              | blank                                    | Independent snapshot destination               |
@@ -218,6 +219,10 @@ not share the application volume.
 
 Production log collection, retention, alert routing, and response checks are
 documented in [docs/observability.md](docs/observability.md).
+
+Weekly state growth reporting, lease-safe Chrome cache maintenance, and the
+no-deletion retention policy are documented in
+[docs/state-maintenance.md](docs/state-maintenance.md).
 
 ## Quality checks
 

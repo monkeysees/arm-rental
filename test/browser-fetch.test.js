@@ -72,6 +72,7 @@ test("launch failure removes the isolated Chrome runtime directory", async (t) =
 
   assert.equal(launchOptions.userDataDir, config.browserProfileDir);
   assert.equal(launchOptions.headless, true);
+  assert.ok(launchOptions.args.includes("--disk-cache-size=67108864"));
   assert.equal(launchOptions.env.TMPDIR, launchOptions.env.XDG_RUNTIME_DIR);
   await assertMissing(path.dirname(launchOptions.env.TMPDIR));
 });

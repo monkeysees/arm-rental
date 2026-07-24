@@ -12,6 +12,7 @@
     "backup:validate": "node --env-file-if-exists=.env src/recovery-cli.js validate",
     "restore": "node --env-file-if-exists=.env src/recovery-cli.js restore",
     "storage:check": "node --env-file-if-exists=.env src/recovery-cli.js disk-check",
+    "maintenance:report": "node --env-file-if-exists=.env src/maintenance-cli.js report",
     "test": "node --test",
     "test:coverage": "node --test --experimental-test-coverage",
     "lint": "eslint .",

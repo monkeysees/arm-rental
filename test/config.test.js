@@ -68,6 +68,7 @@ test("configuration uses the requested target and ten initial pages", () => {
   assert.equal(config.healthPort, 8_787);
   assert.equal(config.externalRetryBaseMs, 1_000);
   assert.equal(config.externalRetryMaxMs, 60_000);
+  assert.equal(config.browserCacheMaxBytes, 64 * 1024 * 1024);
 });
 
 test("configuration relocates default persistent files together", () => {

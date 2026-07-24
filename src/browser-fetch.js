@@ -12,6 +12,7 @@ const executeFile = promisify(execFile);
 
 const LOOPBACK_DEBUG_ADDRESS = "127.0.0.1";
 const PROCESS_EXIT_TIMEOUT_MS = 2_000;
+const DEFAULT_DISK_CACHE_MAX_BYTES = 64 * 1024 * 1024;
 export const BROWSER_VERIFICATION_COMMAND = "npm run browser:verify";
 export const BROWSER_CHALLENGE_EVENT = "browser.challenge";
 
@@ -262,6 +263,7 @@ export class BrowserPageFetcher {
     this.runtimeRoot = runtime.root;
     const args = [
       `--crash-dumps-dir=${runtime.directory}`,
+      `--disk-cache-size=${this.config.browserCacheMaxBytes || DEFAULT_DISK_CACHE_MAX_BYTES}`,
       "--disable-blink-features=AutomationControlled",
       "--disable-backgrounding-occluded-windows",
       "--disable-renderer-backgrounding",

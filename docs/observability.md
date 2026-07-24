@@ -34,6 +34,11 @@ Useful event-backed metrics stay in the private diagnostic stream:
   jitter; `EXTERNAL_RETRY_MAX_MS` cannot exceed 300000 ms. A success resets the
   sequence. Telegram HTTP 429 uses Telegram's exact `retry_after` instead.
 - Channel operation events contain their crawl ID and elapsed duration.
+- `state.write.completed` and `state.write.failed` contain the state basename,
+  serialized bytes, outcome, and end-to-end `durationMs`. Aggregate p95 by
+  state file; a sustained p95 above 500 ms triggers SQLite evaluation.
+- The weekly `maintenance.report` contains every state file's bytes and entry
+  count, Chrome profile/cache bytes, managed-storage growth, and disk capacity.
 - Repeated identical warnings/errors are emitted once per five-minute window.
   The next emitted occurrence has `suppressedCount`.
 
@@ -54,6 +59,8 @@ is the stable routing key. The application directly emits these alert names:
 | `backup_failure`                       | `npm run backup` exits unsuccessfully                                   | on-call, immediate             |
 | `restore_test_failure`                 | `npm run backup:validate -- <snapshot>` exits unsuccessfully            | on-call, immediate             |
 | `low_disk`                             | `npm run storage:check` finds less than configured free-space threshold | on-call before free space <20% |
+| `state_file_growth`                    | any state file is at least 25 MiB                                       | daytime early warning          |
+| `state_sqlite_migration`               | any state file is at least 50 MiB                                       | migration planning, immediate  |
 
 Configure one collector-side alert, `process_restart_loop`, because a process
 cannot reliably observe its own restarts: fire when more than three
@@ -64,9 +71,15 @@ checks to `readiness_failure`; requesting `/ready` also causes the in-process
 transition event. Keep `/ready` accessible only through the host's protected
 monitoring path.
 
+Configure a second collector-side alert, `state_write_latency`, when a rolling
+state-file write p95 exceeds 500 ms. Route it to migration planning and keep it
+active until the rolling window recovers or the persistence migration is
+complete.
+
 Run `npm run storage:check` at least hourly, `npm run backup` daily, and
 `npm run backup:validate -- <latest-snapshot>` on an isolated restore-test host
-weekly. The scheduler must alert on a missing run as well as a non-zero exit;
+weekly. Run `npm run maintenance:report` weekly with the bot stopped, after a
+successful backup. The scheduler must alert on a missing run as well as a non-zero exit;
 absence of an expected success record is not observable from inside this
 process.
 

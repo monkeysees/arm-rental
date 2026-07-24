@@ -297,6 +297,12 @@ sync failure restores the prior link (or removes a newly created target) before
 the error returns. This makes a successful call a durable replacement while a
 failed call leaves the last committed JSON state readable.
 
+The same primitive emits `state.write.completed` or `state.write.failed` with
+the state basename, serialized byte count, outcome, and end-to-end duration.
+The application lifecycle installs the structured-log observer and removes it
+on shutdown. Observer errors are isolated from persistence, so unavailable
+telemetry cannot change the result of a durable write.
+
 Every successful interactive verification, production browser smoke, and
 startup List.am preflight writes a versioned verification record inside the
 persistent Chrome profile. It binds the profile to the configured List.am
@@ -332,6 +338,24 @@ generalized health and alert policy reserved for later production-readiness
 work. Daily automation, the 24-hour RPO, one-hour RTO, quarterly drill, and
 operator escalation are documented in
 [`docs/state-recovery.md`](state-recovery.md).
+
+`src/maintenance.js` is the weekly state-growth boundary. After startup storage
+validation, `src/maintenance-cli.js` acquires the same singleton lease before
+reading state or touching the browser profile. It validates and reports the six
+state documents (the five configured files plus browser verification), applies
+25 MiB early-warning and 50 MiB SQLite-migration thresholds to those files, and
+measures the Chrome profile and total managed bytes. A small versioned history
+file stores only the prior aggregate byte sample for week-over-week growth; it
+is neither an application state input nor included in its own growth total.
+
+Chrome receives a disk-cache byte cap at every launch. Under the stopped-service
+lease, weekly maintenance removes only enumerated reconstructible HTTP,
+bytecode, GPU, Dawn, Graphite, and shader cache directories. Cookie, local
+storage, IndexedDB, Service Worker, preference, and browser-verification data
+are outside the cleanup set. Cache targets that are not real directories fail
+closed. There is no apartment or delivery deletion path. Future coordinated
+archive/prune rules and their mandatory restart/redelivery tests are specified
+in [`docs/state-maintenance.md`](state-maintenance.md).
 
 ## Runtime flow
 
@@ -465,6 +489,9 @@ The `.data` directory must be mounted on persistent storage in production.
   when applicable. Compatibility binds state to both the List.am URL template
   and channel username; changing the channel starts a fresh classification.
 - `chrome-profile/` stores cookies from List.am security verification.
+- `.maintenance-history.json` stores only the previous successful maintenance
+  timestamp and aggregate managed byte count. It is excluded from application
+  state thresholds, entry counts, and managed-growth totals.
 
 State files include a schema version and type discriminator. Apartment state
 also binds to the target URL. Incompatible or target-mismatched state fails

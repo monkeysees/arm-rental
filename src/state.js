@@ -1,6 +1,7 @@
 import { link, mkdir, open, readFile, rename, rm } from "node:fs/promises";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
+import { performance } from "node:perf_hooks";
 
 const UNSUPPORTED_DIRECTORY_SYNC_CODES = new Set([
   "EINVAL",
@@ -15,6 +16,32 @@ const defaultOperations = {
   rename,
   rm,
 };
+
+let stateWriteObserver = () => {};
+
+/**
+ * Installs the process-level sink for state-write metrics. The returned
+ * function restores the previous sink so lifecycle owners cannot leak it into
+ * a later application run in the same process.
+ */
+export function observeStateWrites(observer) {
+  if (typeof observer !== "function") {
+    throw new TypeError("State-write observer must be a function");
+  }
+  const previous = stateWriteObserver;
+  stateWriteObserver = observer;
+  return () => {
+    if (stateWriteObserver === observer) stateWriteObserver = previous;
+  };
+}
+
+function emitWriteMetric(observer, metric) {
+  try {
+    observer(metric);
+  } catch {
+    // Telemetry must never turn a durable write into an application failure.
+  }
+}
 
 async function syncDirectory(directory, operations) {
   let handle;
@@ -57,12 +84,18 @@ export async function readState(filename) {
 export async function writeState(
   filename,
   state,
-  { validateSerialized, operations: operationOverrides = {} } = {},
+  {
+    validateSerialized,
+    operations: operationOverrides = {},
+    onMetric = stateWriteObserver,
+    monotonicNow = () => performance.now(),
+  } = {},
 ) {
+  const startedAt = monotonicNow();
   const operations = { ...defaultOperations, ...operationOverrides };
   const directory = path.dirname(filename);
-  const serialized = serializeState(state, validateSerialized);
-  await operations.mkdir(directory, { recursive: true, mode: 0o700 });
+  let serialized;
+  let outcome = "failed";
   const suffix = `${process.pid}.${randomUUID()}`;
   const temporaryFile = `${filename}.${suffix}.tmp`;
   const rollbackFile = `${filename}.${suffix}.previous`;
@@ -71,6 +104,8 @@ export async function writeState(
   let replacementInstalled = false;
 
   try {
+    serialized = serializeState(state, validateSerialized);
+    await operations.mkdir(directory, { recursive: true, mode: 0o700 });
     temporaryHandle = await operations.open(temporaryFile, "wx", 0o600);
     await temporaryHandle.chmod(0o600);
     await temporaryHandle.writeFile(serialized, "utf8");
@@ -88,6 +123,7 @@ export async function writeState(
     await operations.rename(temporaryFile, filename);
     replacementInstalled = true;
     await syncDirectory(directory, operations);
+    outcome = "completed";
   } catch (error) {
     await temporaryHandle?.close().catch(() => {});
 
@@ -111,11 +147,20 @@ export async function writeState(
     await operations.rm(temporaryFile, { force: true }).catch(() => {});
     await operations.rm(rollbackFile, { force: true }).catch(() => {});
     throw error;
-  }
-
-  // Once the renamed entry is directory-synced the write is committed.
-  // A leftover hard link is harmless and recoverable if cleanup itself fails.
-  if (priorStateLinked) {
-    await operations.rm(rollbackFile, { force: true }).catch(() => {});
+  } finally {
+    if (outcome === "completed" && priorStateLinked) {
+      // The renamed entry is already committed; cleanup is deliberately best
+      // effort but remains part of the observed write-call duration.
+      await operations.rm(rollbackFile, { force: true }).catch(() => {});
+      priorStateLinked = false;
+    }
+    emitWriteMetric(onMetric, {
+      name: `state.write.${outcome}`,
+      component: "storage",
+      stateFile: path.basename(filename),
+      bytes: serialized === undefined ? 0 : Buffer.byteLength(serialized),
+      durationMs: Math.max(0, monotonicNow() - startedAt),
+      outcome,
+    });
   }
 }

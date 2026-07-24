@@ -217,6 +217,10 @@ Production backup and recovery commands are documented in
 [docs/state-recovery.md](docs/state-recovery.md). The backup destination must
 not share the application volume.
 
+Production-focused browser and persistence coverage, the dedicated staging
+smoke, and the minimum 24-hour resource soak are documented in
+[docs/production-testing.md](docs/production-testing.md).
+
 Production log collection, retention, alert routing, and response checks are
 documented in [docs/observability.md](docs/observability.md).
 

@@ -8,6 +8,8 @@
     "start": "node --env-file-if-exists=.env src/index.js",
     "browser:verify": "node --env-file-if-exists=.env src/verify-browser.js",
     "browser:smoke": "node --env-file-if-exists=.env src/browser-smoke.js",
+    "staging:smoke": "node --env-file-if-exists=.env src/staging-smoke-cli.js",
+    "staging:soak": "node --env-file-if-exists=.env src/staging-soak-cli.js",
     "backup": "node --env-file-if-exists=.env src/recovery-cli.js backup",
     "backup:validate": "node --env-file-if-exists=.env src/recovery-cli.js validate",
     "restore": "node --env-file-if-exists=.env src/recovery-cli.js restore",

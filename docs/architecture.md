@@ -309,6 +309,36 @@ operator remediation command. Startup additionally retains its distinct
 hook for production alert routing without coupling browser operation to the
 later monitoring implementation.
 
+### Production-focused test boundary
+
+Deployment-boundary coverage is split between deterministic integration tests
+and explicitly provisioned staging exercises. Browser integration tests cover
+executable discovery, partial-launch cleanup, challenge detection, fresh
+launch after failure, protocol-close failure, and graceful child termination.
+Persistence integration tests use the real filesystem and child processes to
+cover restrictive modes, flush and rename rollback, schema rejection,
+singleton contention, and intact snapshot restore.
+
+`src/staging-guard.js` requires production runtime behavior plus explicit
+staging markers before either live command can act. A mode-`0600` marker in the
+dedicated volume binds the command to the expected dedicated bot and numeric
+private-channel IDs. The ordinary public `TELEGRAM_CHANNEL_ID` must be absent.
+
+`src/staging-smoke.js` performs two separately leased passes. Each constructs
+new Telegram, browser, and exchange-rate clients, verifies the expected bot and
+private-channel permissions, and parses live List.am Regular Ads. The first
+pass forces a real CBA retrieval and persists rate, browser, and smoke evidence;
+the restarted pass loads and validates it. Chrome close and lease release are
+required at both boundaries.
+
+`src/staging-soak.js` launches the normal application, waits for readiness, and
+observes it for no less than 24 hours. It bounds process-tree RSS growth, Chrome
+child count, profile/cache growth, and captured-log growth. It always requests
+SIGTERM and treats forced, signaled, or nonzero exit as failure. The complete
+sample series and summary form a versioned JSON artifact. Provisioning,
+thresholds, and commands are documented in
+[`docs/production-testing.md`](production-testing.md).
+
 ### Durable state and recovery boundary
 
 `src/state.js` is the only JSON replacement primitive. It serializes and parses

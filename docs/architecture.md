@@ -219,6 +219,54 @@ operator remediation command. Startup additionally retains its distinct
 hook for production alert routing without coupling browser operation to the
 later monitoring implementation.
 
+### Durable state and recovery boundary
+
+`src/state.js` is the only JSON replacement primitive. It serializes and parses
+the complete next value before touching the existing path, creates an exclusive
+mode-`0600` temporary file, flushes its contents, and retains a hard-linked
+rollback entry for an existing state file. The temporary file is atomically
+renamed only after validation. The containing directory is then synced on
+filesystems that support directory sync. A flush, link, rename, or directory
+sync failure restores the prior link (or removes a newly created target) before
+the error returns. This makes a successful call a durable replacement while a
+failed call leaves the last committed JSON state readable.
+
+Every successful interactive verification, production browser smoke, and
+startup List.am preflight writes a versioned verification record inside the
+persistent Chrome profile. It binds the profile to the configured List.am
+target and records the verification time and parsed Regular Ads count. The
+record is evidence for offline snapshot validation; a post-restore browser
+smoke remains the required live verification before polling is enabled.
+
+`src/recovery.js` is the maintenance boundary for the complete persistence set.
+Backup and restore acquire the application singleton lease, so the service must
+be stopped and no browser can mutate the profile. A backup first validates the
+apartment, private-delivery, bot, exchange-rate, optional configured channel,
+and browser schemas against their runtime compatibility functions. It copies
+all managed state and profile files except transient Chrome singleton links
+into an unpublished staging directory, restricts copied permissions,
+revalidates counts and Telegram update offset, hashes every file, and only then
+renames the staged directory into the daily recovery set. Sunday UTC snapshots
+are also retained as weekly points. Configuration enforces at least seven daily
+and four weekly points and rejects any backup destination that contains or is
+contained by the application data directory.
+
+Restore accepts only a snapshot beneath the independently configured backup
+destination. It verifies the manifest, hashes, schemas, target identities,
+record counts, update offset, and browser record before acquiring the lease.
+Managed live entries are moved into a private rollback directory and the staged
+snapshot entries are renamed into place. Any failed install or post-install
+validation moves the prior entries back. A successful restore deliberately
+reports that live browser verification is still required.
+
+`src/recovery-cli.js` exposes backup, snapshot validation, restore, and the
+20%-free-space check. Its structured `backup.*`, `restore.*`, and
+`storage.low_disk` events are stable alert hooks without introducing the
+generalized health and alert policy reserved for later production-readiness
+work. Daily automation, the 24-hour RPO, one-hour RTO, quarterly drill, and
+operator escalation are documented in
+[`docs/state-recovery.md`](state-recovery.md).
+
 ## Runtime flow
 
 1. `src/index.js` validates private and channel configuration, acquires the

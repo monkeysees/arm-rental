@@ -203,6 +203,14 @@ details.
 | `BROWSER_PROTOCOL_TIMEOUT_MS`   | `30000`                                  | Chrome command timeout                         |
 | `BROWSER_DEBUG_PORT`            | `49222`                                  | Local background-Chrome control port           |
 | `CHROME_EXECUTABLE_PATH`        | auto-detected                            | Chrome/Chromium executable                     |
+| `BACKUP_DIRECTORY`              | blank                                    | Independent snapshot destination               |
+| `BACKUP_DAILY_RETENTION`        | `7`                                      | Daily recovery points to retain (minimum 7)    |
+| `BACKUP_WEEKLY_RETENTION`       | `4`                                      | Weekly recovery points to retain (minimum 4)   |
+| `DISK_FREE_WARNING_PERCENT`     | `20`                                     | Low-disk warning threshold                     |
+
+Production backup and recovery commands are documented in
+[docs/state-recovery.md](docs/state-recovery.md). The backup destination must
+not share the application volume.
 
 ## Quality checks
 

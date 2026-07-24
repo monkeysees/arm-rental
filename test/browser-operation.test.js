@@ -51,6 +51,7 @@ test("interactive verification persists in the profile consumed by a restarted h
     acquireLock,
     browserFetcherFactory,
     validateConfig: async () => events.push("config:validate"),
+    recordVerification: async () => events.push("verification:record"),
   };
 
   const verification = await runBrowserOperation(config(), {
@@ -77,10 +78,12 @@ test("interactive verification persists in the profile consumed by a restarted h
   assert.deepEqual(events, [
     "config:validate",
     "browser:fetch",
+    "verification:record",
     "browser:close",
     "lock:release",
     "config:validate",
     "browser:fetch",
+    "verification:record",
     "browser:close",
     "lock:release",
   ]);

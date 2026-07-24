@@ -60,6 +60,10 @@ test("configuration uses the requested target and ten initial pages", () => {
     config.channelDeliveryStateFile,
     "/app/.data/telegram-channel-deliveries.json",
   );
+  assert.equal(config.backupDirectory, undefined);
+  assert.equal(config.backupDailyRetention, 7);
+  assert.equal(config.backupWeeklyRetention, 4);
+  assert.equal(config.diskFreeWarningFraction, 0.2);
 });
 
 test("configuration relocates default persistent files together", () => {
@@ -164,6 +168,34 @@ test("configuration rejects unsupported modes, unsafe paths, and collisions", ()
         "/app",
       ),
     /conflicts with a reserved runtime path/u,
+  );
+  assert.throws(
+    () =>
+      getConfig(
+        {
+          ...requiredEnvironment,
+          DATA_DIRECTORY: "/app/data",
+          BACKUP_DIRECTORY: "/app/data/backups",
+        },
+        "/app",
+      ),
+    /BACKUP_DIRECTORY must be independent/u,
+  );
+  assert.throws(
+    () =>
+      getConfig({
+        ...requiredEnvironment,
+        BACKUP_DAILY_RETENTION: "6",
+      }),
+    /at least 7/u,
+  );
+  assert.throws(
+    () =>
+      getConfig({
+        ...requiredEnvironment,
+        DISK_FREE_WARNING_PERCENT: "100",
+      }),
+    /less than 100/u,
   );
 });
 

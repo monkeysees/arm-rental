@@ -15,6 +15,7 @@ import { extractRegularApartments } from "./list-am.js";
 import { readState } from "./state.js";
 import { pageUrl } from "./target.js";
 import { TelegramApi, TelegramApiError } from "./telegram.js";
+import { recordBrowserVerification } from "./browser-verification-state.js";
 
 const CHECK_NAMES = [
   "storage",
@@ -324,6 +325,7 @@ export async function runStartupPreflight(
       timeoutMs: config.timeoutMs,
     }),
     loadState = readState,
+    recordVerification = recordBrowserVerification,
     signal,
   } = {},
 ) {
@@ -380,7 +382,8 @@ export async function runStartupPreflight(
           `List.am returned HTTP ${response?.status || "unknown"}`,
         );
       }
-      extractRegularApartments(await response.text());
+      const apartments = extractRegularApartments(await response.text());
+      await recordVerification(config, apartments.length);
     } catch (error) {
       if (
         error instanceof BrowserVerificationRequiredError ||

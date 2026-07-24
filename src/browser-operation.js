@@ -3,6 +3,7 @@ import { BrowserPageFetcher } from "./browser-fetch.js";
 import { validateStartupConfig } from "./config.js";
 import { extractRegularApartments } from "./list-am.js";
 import { pageUrl } from "./target.js";
+import { recordBrowserVerification } from "./browser-verification-state.js";
 
 export async function runBrowserOperation(
   config,
@@ -15,6 +16,7 @@ export async function runBrowserOperation(
     validateConfig = validateStartupConfig,
     browserFetcherFactory = (browserConfig, options) =>
       new BrowserPageFetcher(browserConfig, options),
+    recordVerification = recordBrowserVerification,
   } = {},
 ) {
   await validateConfig(config);
@@ -53,6 +55,7 @@ export async function runBrowserOperation(
       throw new Error(`List.am returned HTTP ${response?.status || "unknown"}`);
     }
     const apartments = extractRegularApartments(await response.text());
+    await recordVerification(config, apartments.length);
     return {
       targetUrl,
       regularAdsCount: apartments.length,

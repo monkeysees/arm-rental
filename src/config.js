@@ -37,6 +37,15 @@ function positiveInteger(value, fallback, name) {
   return parsed;
 }
 
+function percentage(value, fallback, name) {
+  if (value === undefined || value === "") return fallback;
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed) || parsed <= 0 || parsed >= 100) {
+    throw new Error(`${name} must be greater than 0 and less than 100`);
+  }
+  return parsed;
+}
+
 function boolean(value, fallback, name) {
   if (value === undefined || value === "") return fallback;
   if (value === "true") return true;
@@ -118,6 +127,17 @@ function validatePersistentPaths(config) {
       throw new Error(`${name} conflicts with a reserved runtime path`);
     }
     usedPaths.set(statePath, name);
+  }
+
+  if (
+    config.backupDirectory &&
+    (isInside(config.dataDirectory, config.backupDirectory) ||
+      isInside(config.backupDirectory, config.dataDirectory) ||
+      config.backupDirectory === config.dataDirectory)
+  ) {
+    throw new Error(
+      "BACKUP_DIRECTORY must be independent of DATA_DIRECTORY and may not contain it",
+    );
   }
 }
 
@@ -225,7 +245,33 @@ export function getConfig(env = process.env, cwd = process.cwd()) {
       49_222,
       "BROWSER_DEBUG_PORT",
     ),
+    backupDirectory: env.BACKUP_DIRECTORY?.trim()
+      ? path.resolve(cwd, env.BACKUP_DIRECTORY)
+      : undefined,
+    backupDailyRetention: positiveInteger(
+      env.BACKUP_DAILY_RETENTION,
+      7,
+      "BACKUP_DAILY_RETENTION",
+    ),
+    backupWeeklyRetention: positiveInteger(
+      env.BACKUP_WEEKLY_RETENTION,
+      4,
+      "BACKUP_WEEKLY_RETENTION",
+    ),
+    diskFreeWarningFraction:
+      percentage(
+        env.DISK_FREE_WARNING_PERCENT,
+        20,
+        "DISK_FREE_WARNING_PERCENT",
+      ) / 100,
   };
+
+  if (config.backupDailyRetention < 7) {
+    throw new Error("BACKUP_DAILY_RETENTION must be at least 7");
+  }
+  if (config.backupWeeklyRetention < 4) {
+    throw new Error("BACKUP_WEEKLY_RETENTION must be at least 4");
+  }
 
   validatePersistentPaths(config);
   validateProductionConfig(env, config);

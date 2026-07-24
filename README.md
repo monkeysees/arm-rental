@@ -185,6 +185,7 @@ details.
 | `CHANNEL_FILTER_PRICE_AMD`      | blank                                    | Optional channel AMD price range               |
 | `CHANNEL_FILTER_ROOMS`          | blank                                    | Optional channel room-count range              |
 | `CHANNEL_FILTER_LOCATIONS`      | `region:Ереван`                          | Comma-separated channel location selectors     |
+| `DATA_DIRECTORY`                | `.data`                                  | Persistent state, profile, and singleton lease |
 | `CHANNEL_DELIVERY_STATE_FILE`   | `.data/telegram-channel-deliveries.json` | Channel admission and publication state        |
 | `APARTMENTS_STATE_FILE`         | `.data/apartments.json`                  | Apartment database                             |
 | `DELIVERY_STATE_FILE`           | `.data/telegram-deliveries.json`         | Private sent, skipped, and filtered apartments |
@@ -233,3 +234,24 @@ The image sets production Chrome to headless mode and stores its profile under
 `/app/.data`. Supply the required environment and mount `/app/.data` on durable
 storage when the service is deployed. No Node, npm package, Chrome, or browser
 library installation is required on the host.
+
+`compose.production.yaml` is the supported singleton supervisor definition. Set
+`RENTAL_APARTMENTS_IMAGE` to an immutable image reference, place the required
+configuration in a host-only `.env.production`, then start it with:
+
+```sh
+docker compose --file compose.production.yaml up --detach
+```
+
+The fixed container name prevents scaling, and updates and rollbacks stop the
+old process before starting its replacement. Unexpected failures restart at
+most five times. Planned stops send SIGTERM and allow 45 seconds for polling,
+state writes, and Chrome to close:
+
+```sh
+docker compose --file compose.production.yaml stop
+```
+
+If startup reports `ERR_SINGLETON_LOCKED`, do not remove lock files while the
+reported process is alive. A socket left by an unclean exit is detected and
+recovered automatically.

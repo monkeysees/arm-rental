@@ -58,10 +58,52 @@ against the Debian snapshot dated 2026-07-13, making the browser libraries part
 of the image build rather than undocumented host state. OCI image labels expose
 the exact Node and browser versions for deployment inventory and verification.
 
+### Singleton lease and supervision
+
+`DATA_DIRECTORY` identifies the persistent storage root and defaults to
+`.data`. The default apartment, delivery, exchange-rate, Telegram, channel, and
+Chrome-profile paths are resolved beneath it. Explicit per-file overrides
+remain available, but the process-wide singleton lease always lives directly in
+this directory.
+
+Before constructing the browser integration or entering Telegram polling,
+`src/index.js` starts the lifecycle in `src/application.js`, which calls
+`src/singleton-lock.js`. The lock is a Unix-domain socket at
+`.singleton.sock`, with operator-readable owner metadata in `.singleton.json`.
+A socket provides a kernel-owned live lease: it cannot be acquired by a second
+process, and the kernel releases its listener when the owner exits even if no
+shutdown handler runs. A contender connects to prove the owner is live and
+exits with a message containing its PID and hostname. It does not rely on a PID
+file alone, avoiding PID reuse and cross-container PID namespace ambiguity.
+
+An abrupt exit can leave the socket pathname behind even though its listener is
+gone. Startup distinguishes this connection-refused state from a live owner,
+serializes cleanup through `.singleton-recovery`, removes only the stale socket,
+and retries the atomic bind. Recovery ownership itself has a short stale
+threshold so a crash during cleanup cannot permanently prevent restart. Lock
+release compares the socket inode and metadata lease identifier before deleting
+either path, preventing an old owner from removing a successor's lease.
+
+[`compose.production.yaml`](../compose.production.yaml) is the production
+supervision definition. It combines a fixed container name and one declared
+replica, so explicit scaling is rejected, with stop-first update and rollback
+ordering, so old and new releases do not overlap. Planned replacement sends
+SIGTERM and allows 45 seconds for shutdown. Unexpected failure is retried at
+five-second intervals with at most five attempts; this bounds restart loops
+while stale socket recovery permits a crash restart on the same volume.
+
+Node runs directly under a minimal init process. On SIGINT or SIGTERM the
+application aborts Telegram long polling, crawl and exchange-rate work, waits
+for their awaited state writes to finish, closes Chrome, and only then releases
+the lease. Delivery acknowledgements remain the backlog boundary: an
+acknowledged item is not re-enqueued after restart, while an interrupted
+unacknowledged send retains the documented at-least-once behavior.
+
 ## Runtime flow
 
-1. `src/index.js` validates private and channel configuration, starts the
-   reusable Chrome-backed page fetcher, and runs the Telegram bot.
+1. `src/index.js` validates private and channel configuration, acquires the
+   persistent-directory singleton lease, starts the reusable Chrome-backed page
+   fetcher, and runs the Telegram bot.
 2. One loop in `src/bot.js` long-polls Telegram. A private `/start` from
    `TELEGRAM_OWNER_ID` activates persistent private monitoring; all other users
    and group chats are ignored. `/filters` and the inline start button expose
@@ -229,7 +271,7 @@ is retained as displayed by List.am.
   as successful, covering the window between saving filter state and the update
   offset.
 - SIGINT and SIGTERM abort Telegram polling and browser work, then close Chrome
-  cleanly.
+  cleanly before the application lease is released.
 
 ## Testing boundaries
 
@@ -246,3 +288,9 @@ and fallbacks, rate-limit retries, and channel/private runtime isolation.
 Channel integration tests cover configuration validation and composition,
 initial classification/order, partial-send restart recovery, canonical-AMD
 hashtags, edits and retries, and missing-message replacement.
+Process integration tests start real child processes against one temporary
+persistent directory. They prove that a live second process fails before
+polling, an unclean exit is recoverable, and SIGTERM flushes delivery state,
+closes the Chrome-profile lock, releases the application lease, and permits a
+backlog-free restart. Deployment contract tests pin the one-replica,
+stop-before-start, bounded-restart, and 45-second grace settings.

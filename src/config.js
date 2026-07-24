@@ -42,8 +42,10 @@ function optionalChannelId(value) {
 
 export function getConfig(env = process.env, cwd = process.cwd()) {
   const telegramChannelId = optionalChannelId(env.TELEGRAM_CHANNEL_ID);
+  const dataDirectory = path.resolve(cwd, env.DATA_DIRECTORY || ".data");
 
   return {
+    dataDirectory,
     listUrlTemplate: LIST_AM_URL_TEMPLATE,
     initialPageCount: positiveInteger(
       env.INITIAL_PAGE_COUNT,
@@ -57,20 +59,22 @@ export function getConfig(env = process.env, cwd = process.cwd()) {
     ),
     apartmentsStateFile: path.resolve(
       cwd,
-      env.APARTMENTS_STATE_FILE || ".data/apartments.json",
+      env.APARTMENTS_STATE_FILE || path.join(dataDirectory, "apartments.json"),
     ),
     deliveryStateFile: path.resolve(
       cwd,
-      env.DELIVERY_STATE_FILE || ".data/telegram-deliveries.json",
+      env.DELIVERY_STATE_FILE ||
+        path.join(dataDirectory, "telegram-deliveries.json"),
     ),
     channelDeliveryStateFile: path.resolve(
       cwd,
       env.CHANNEL_DELIVERY_STATE_FILE ||
-        ".data/telegram-channel-deliveries.json",
+        path.join(dataDirectory, "telegram-channel-deliveries.json"),
     ),
     exchangeRatesStateFile: path.resolve(
       cwd,
-      env.EXCHANGE_RATES_STATE_FILE || ".data/exchange-rates.json",
+      env.EXCHANGE_RATES_STATE_FILE ||
+        path.join(dataDirectory, "exchange-rates.json"),
     ),
     telegramBotToken: requireValue(
       env.TELEGRAM_BOT_TOKEN,
@@ -89,7 +93,7 @@ export function getConfig(env = process.env, cwd = process.cwd()) {
     }),
     telegramStateFile: path.resolve(
       cwd,
-      env.TELEGRAM_STATE_FILE || ".data/telegram-bot.json",
+      env.TELEGRAM_STATE_FILE || path.join(dataDirectory, "telegram-bot.json"),
     ),
     telegramPollTimeoutSeconds: positiveInteger(
       env.TELEGRAM_POLL_TIMEOUT_SECONDS,
@@ -105,7 +109,7 @@ export function getConfig(env = process.env, cwd = process.cwd()) {
     chromeExecutablePath: env.CHROME_EXECUTABLE_PATH || undefined,
     browserProfileDir: path.resolve(
       cwd,
-      env.BROWSER_PROFILE_DIR || ".data/chrome-profile",
+      env.BROWSER_PROFILE_DIR || path.join(dataDirectory, "chrome-profile"),
     ),
     browserHeadless: boolean(env.BROWSER_HEADLESS, false, "BROWSER_HEADLESS"),
     browserChallengeTimeoutMs: positiveInteger(

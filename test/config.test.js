@@ -23,11 +23,37 @@ test("configuration uses the requested target and ten initial pages", () => {
   assert.equal(config.telegramOwnerId, 42);
   assert.equal(config.telegramChannelId, null);
   assert.deepEqual(config.channelFilters.locations, ["r:0"]);
+  assert.equal(config.dataDirectory, "/app/.data");
   assert.equal(config.apartmentsStateFile, "/app/.data/apartments.json");
   assert.equal(config.exchangeRatesStateFile, "/app/.data/exchange-rates.json");
   assert.equal(
     config.channelDeliveryStateFile,
     "/app/.data/telegram-channel-deliveries.json",
+  );
+});
+
+test("configuration relocates default persistent files together", () => {
+  const config = getConfig(
+    {
+      TELEGRAM_BOT_TOKEN: "token",
+      TELEGRAM_OWNER_ID: "42",
+      DATA_DIRECTORY: "/var/lib/rental-apartments",
+    },
+    "/app",
+  );
+
+  assert.equal(config.dataDirectory, "/var/lib/rental-apartments");
+  assert.equal(
+    config.apartmentsStateFile,
+    "/var/lib/rental-apartments/apartments.json",
+  );
+  assert.equal(
+    config.deliveryStateFile,
+    "/var/lib/rental-apartments/telegram-deliveries.json",
+  );
+  assert.equal(
+    config.browserProfileDir,
+    "/var/lib/rental-apartments/chrome-profile",
   );
 });
 

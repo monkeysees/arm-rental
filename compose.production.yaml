@@ -1,0 +1,34 @@
+services:
+  bot:
+    image: ${RENTAL_APARTMENTS_IMAGE:?set RENTAL_APARTMENTS_IMAGE to an immutable image reference}
+    # A fixed container name makes an accidental `docker compose --scale`
+    # invocation fail instead of starting a second writer.
+    container_name: rental-apartments-bot
+    init: true
+    env_file:
+      - .env.production
+    environment:
+      NODE_ENV: production
+      DATA_DIRECTORY: /app/.data
+    volumes:
+      - rental-apartments-data:/app/.data
+    restart: "on-failure:5"
+    stop_grace_period: 45s
+    deploy:
+      replicas: 1
+      update_config:
+        parallelism: 1
+        order: stop-first
+        failure_action: rollback
+      rollback_config:
+        parallelism: 1
+        order: stop-first
+      restart_policy:
+        condition: on-failure
+        delay: 5s
+        max_attempts: 5
+        window: 120s
+
+volumes:
+  rental-apartments-data:
+    name: rental-apartments-data

@@ -1,0 +1,59 @@
+name: Quality
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  quality:
+    name: Node 24 quality suite
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+
+      - name: Use pinned Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+
+      - name: Record runtime
+        run: node --version
+
+      - name: Install locked dependencies
+        run: npm ci
+
+      - name: Run quality suite
+        run: npm run check
+
+  production-image:
+    name: Production image
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+
+      - name: Build clean production image
+        run: >-
+          docker build
+          --platform linux/amd64
+          --target production
+          --tag rental-apartments-bot:ci
+          .
+
+      - name: Verify deployment runtime metadata
+        run: |
+          test "$(docker image inspect --format '{{ index .Config.Labels "org.opencontainers.image.node.version" }}' rental-apartments-bot:ci)" = "24.18.0"
+          test "$(docker image inspect --format '{{ index .Config.Labels "org.opencontainers.image.chrome.version" }}' rental-apartments-bot:ci)" = "150.0.7871.24"
+          test "$(docker run --rm --entrypoint node rental-apartments-bot:ci --version)" = "v24.18.0"
+          test "$(docker run --rm --entrypoint /opt/chrome/chrome/linux-150.0.7871.24/chrome-linux64/chrome rental-apartments-bot:ci --version)" = "Google Chrome for Testing 150.0.7871.24"

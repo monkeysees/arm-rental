@@ -32,8 +32,8 @@ as filtered; neither group will be sent after a restart or filter change.
 
 ## Requirements
 
-- Node.js 22.12 or newer
-- Google Chrome or Chromium
+- Node.js 24.18.0 (use `.nvmrc` locally)
+- Google Chrome or Chromium for local development
 - A Telegram bot token and the numeric Telegram user ID of its owner
 
 ## Set up
@@ -208,3 +208,28 @@ details.
 npm run check
 npm run test:coverage
 ```
+
+## Production image
+
+The production image pins Node.js 24.18.0 and the Chrome for Testing
+150.0.7871.24 build supported by Puppeteer. It installs browser libraries from
+a dated Debian snapshot and installs application packages with
+`npm ci --omit=dev`; a host only needs a Linux AMD64 OCI runtime.
+
+Build and inspect the deployment versions:
+
+```sh
+docker build --platform linux/amd64 --target production \
+  --tag rental-apartments-bot:local .
+docker image inspect --format '{{json .Config.Labels}}' \
+  rental-apartments-bot:local
+docker run --rm --entrypoint node rental-apartments-bot:local --version
+docker run --rm \
+  --entrypoint /opt/chrome/chrome/linux-150.0.7871.24/chrome-linux64/chrome \
+  rental-apartments-bot:local --version
+```
+
+The image sets production Chrome to headless mode and stores its profile under
+`/app/.data`. Supply the required environment and mount `/app/.data` on durable
+storage when the service is deployed. No Node, npm package, Chrome, or browser
+library installation is required on the host.

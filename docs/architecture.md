@@ -42,6 +42,22 @@ The complete requirements, acceptance criteria, rollout procedure, and
 operational runbooks are defined in
 [`docs/production-readiness-spec.md`](production-readiness-spec.md).
 
+### Reproducible runtime packaging
+
+Node.js 24.18.0 is the single supported runtime release. `package.json`,
+`.nvmrc`, GitHub Actions, and the production container use that exact patch
+version. CI installs the full locked dependency graph with `npm ci` before
+running linting, formatting, and tests. The production image performs a
+separate `npm ci --omit=dev`, so development-only tooling is not deployed.
+
+The Linux AMD64 production image is based on the immutable multi-platform
+digest of the official Node.js 24.18.0 Bookworm Slim image. It installs Chrome
+for Testing 150.0.7871.24, the revision declared by Puppeteer Core 25.3.0, using
+Puppeteer's browser installer. Chrome's own `deb.deps` manifest is resolved
+against the Debian snapshot dated 2026-07-13, making the browser libraries part
+of the image build rather than undocumented host state. OCI image labels expose
+the exact Node and browser versions for deployment inventory and verification.
+
 ## Runtime flow
 
 1. `src/index.js` validates private and channel configuration, starts the

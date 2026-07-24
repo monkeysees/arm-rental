@@ -182,7 +182,7 @@ export class BrowserPageFetcher {
       "--disable-blink-features=AutomationControlled",
       "--disable-backgrounding-occluded-windows",
       "--disable-renderer-backgrounding",
-      "--lang=en-US",
+      "--lang=ru-RU",
       "--no-default-browser-check",
       "--no-first-run",
       ...(this.config.browserStartMinimized === false

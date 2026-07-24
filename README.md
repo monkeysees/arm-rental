@@ -3,6 +3,8 @@
 An admin-only Telegram bot that discovers long-term apartment rentals from
 List.am and stores normalized apartment records locally.
 
+Bot replies and apartment notification labels are in Russian.
+
 It monitors:
 
 ```text

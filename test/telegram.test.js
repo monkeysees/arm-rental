@@ -37,6 +37,7 @@ test("only a private /start from the configured owner activates the bot", async 
       update(10, 99, "/start"),
       update(11, 42, "/start", "group"),
       update(12, 42, "/start"),
+      update(13, 42, "/start"),
     ],
     config,
     initialState,
@@ -48,9 +49,12 @@ test("only a private /start from the configured owner activates the bot", async 
 
   assert.equal(state.active, true);
   assert.equal(state.chatId, 42);
-  assert.equal(state.updateOffset, 13);
-  assert.deepEqual(sent, [[42, "Apartment monitoring started."]]);
-  assert.equal(saved.at(-1).updateOffset, 13);
+  assert.equal(state.updateOffset, 14);
+  assert.deepEqual(sent, [
+    [42, "Мониторинг квартир запущен."],
+    [42, "Мониторинг квартир уже запущен."],
+  ]);
+  assert.equal(saved.at(-1).updateOffset, 14);
 });
 
 test("Telegram helpers format normalized apartment data", () => {
@@ -70,13 +74,39 @@ test("Telegram helpers format normalized apartment data", () => {
     }),
     [
       "Apartment on Komitas",
-      "Price: 220,000 ֏",
-      "Location: Arabkir",
-      "Rooms: 2",
-      "Area: 50 sq m",
-      "Floor: 3/5",
-      "Date: Friday, July 24, 2026, 14:31",
+      "Цена: 220 000 ֏",
+      "Местоположение: Arabkir",
+      "Комнат: 2",
+      "Площадь: 50 м²",
+      "Этаж: 3/5",
+      "Дата: Friday, July 24, 2026, 14:31",
       "https://www.list.am/ru/item/200",
+    ].join("\n"),
+  );
+});
+
+test("Telegram helpers use Russian fallbacks for missing apartment data", () => {
+  assert.equal(
+    formatApartmentMessage({
+      itemId: "201",
+      title: "",
+      price: { amount: null, currency: null },
+      location: "",
+      rooms: null,
+      areaSqM: null,
+      floor: null,
+      date: null,
+      url: "https://www.list.am/ru/item/201",
+    }),
+    [
+      "Квартира 201",
+      "Цена: Не указано",
+      "Местоположение: Не указано",
+      "Комнат: Не указано",
+      "Площадь: Не указано",
+      "Этаж: Не указано",
+      "Дата: Не указано",
+      "https://www.list.am/ru/item/201",
     ].join("\n"),
   );
 });

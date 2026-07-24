@@ -58,8 +58,8 @@ export async function processUpdates(
       await sendMessage(
         current.chatId,
         wasActive
-          ? "Apartment monitoring is already running."
-          : "Apartment monitoring started.",
+          ? "Мониторинг квартир уже запущен."
+          : "Мониторинг квартир запущен.",
       );
     }
   }

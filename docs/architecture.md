@@ -5,7 +5,8 @@
 The application is a private Telegram bot that discovers long-term apartment
 rentals from List.am. It reads only the site's **Regular Ads** section and
 ignores **Top Ads**. The configured Telegram owner is the only account allowed
-to activate the bot.
+to activate the bot. All bot-generated Telegram replies, notification labels,
+and missing-value fallbacks are in Russian.
 
 ## Runtime flow
 
@@ -15,7 +16,8 @@ to activate the bot.
    `TELEGRAM_OWNER_ID` activates the persistent monitoring loop; all other
    users and group chats are ignored.
 3. `src/crawler.js` fetches List.am category pages sequentially through
-   `src/browser-fetch.js` and parses each page with `src/list-am.js`.
+   `src/browser-fetch.js`, which requests the `ru-RU` browser locale, and parses
+   each page with `src/list-am.js`.
 4. On an empty database, pages 1 through 10 are parsed. On later crawls, cards
    are read newest-first until the first stored item ID is encountered. The
    crawler also stops on an empty page or a repeated page signature to avoid an
@@ -75,4 +77,5 @@ List.am.
 Parser tests verify field normalization and Top Ads exclusion. Crawler
 integration tests exercise multi-page initial discovery, the first-known-item
 stop rule, persistence, and delivery retry behavior. Telegram tests cover
-admin-only activation, message formatting, and rate-limit retries.
+admin-only activation, Russian message formatting and fallbacks, and rate-limit
+retries.

@@ -79,20 +79,21 @@ export function isStartCommand(text) {
 }
 
 export function formatApartmentMessage(apartment) {
-  const amount = apartment.price.amount?.toLocaleString("en-US");
+  const unavailable = "Не указано";
+  const amount = apartment.price.amount?.toLocaleString("ru-RU");
   const price =
     amount && apartment.price.currency
       ? `${amount} ${apartment.price.currency}`
-      : "Unavailable";
+      : unavailable;
 
   return [
-    apartment.title || `Apartment ${apartment.itemId}`,
-    `Price: ${price}`,
-    `Location: ${apartment.location || "Unavailable"}`,
-    `Rooms: ${apartment.rooms ?? "Unavailable"}`,
-    `Area: ${apartment.areaSqM == null ? "Unavailable" : `${apartment.areaSqM} sq m`}`,
-    `Floor: ${apartment.floor || "Unavailable"}`,
-    `Date: ${apartment.date || "Unavailable"}`,
+    apartment.title || `Квартира ${apartment.itemId}`,
+    `Цена: ${price}`,
+    `Местоположение: ${apartment.location || unavailable}`,
+    `Комнат: ${apartment.rooms ?? unavailable}`,
+    `Площадь: ${apartment.areaSqM == null ? unavailable : `${apartment.areaSqM} м²`}`,
+    `Этаж: ${apartment.floor || unavailable}`,
+    `Дата: ${apartment.date || unavailable}`,
     apartment.url,
   ].join("\n");
 }

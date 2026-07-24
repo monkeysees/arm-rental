@@ -51,6 +51,10 @@ export function getConfig(env = process.env, cwd = process.cwd()) {
       cwd,
       env.DELIVERY_STATE_FILE || ".data/telegram-deliveries.json",
     ),
+    exchangeRatesStateFile: path.resolve(
+      cwd,
+      env.EXCHANGE_RATES_STATE_FILE || ".data/exchange-rates.json",
+    ),
     telegramBotToken: requireValue(
       env.TELEGRAM_BOT_TOKEN,
       "TELEGRAM_BOT_TOKEN",

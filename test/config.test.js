@@ -22,6 +22,7 @@ test("configuration uses the requested target and ten initial pages", () => {
   );
   assert.equal(config.telegramOwnerId, 42);
   assert.equal(config.apartmentsStateFile, "/app/.data/apartments.json");
+  assert.equal(config.exchangeRatesStateFile, "/app/.data/exchange-rates.json");
 });
 
 test("configuration rejects invalid owner and page values", () => {

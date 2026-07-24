@@ -102,7 +102,7 @@ async function processFilterCallback(query, state, actions) {
     current = { ...current, pendingFilterInput: action };
     const instruction =
       action === "price"
-        ? "Введите точную цену или диапазон."
+        ? "Введите точную цену или диапазон в армянских драмах."
         : "Введите точное количество комнат или диапазон.";
     const examples =
       action === "price"
@@ -318,6 +318,7 @@ export async function runTelegramBot(
     sleep = delay,
     onResult = () => {},
     onError = () => {},
+    exchangeRateService,
     signal,
   } = {},
 ) {
@@ -382,9 +383,11 @@ export async function runTelegramBot(
       }
 
       try {
+        const exchangeRates = await exchangeRateService?.getSnapshot(signal);
         const result = await crawl(config, {
           fetchPage: pageFetch,
           filters: state.filters,
+          exchangeRates,
           deliverApartment: (apartment) =>
             api.sendMessage(
               state.chatId,
@@ -406,5 +409,25 @@ export async function runTelegramBot(
     }
   };
 
-  await Promise.all([updateLoop(), monitorLoop()]);
+  const exchangeRateLoop = async () => {
+    if (!exchangeRateService) return;
+
+    while (!signal?.aborted) {
+      try {
+        await exchangeRateService.getSnapshot(signal);
+      } catch {
+        if (signal?.aborted) return;
+        // The service reports fallback and cold-start failures through its
+        // dedicated onFetchError callback.
+      }
+
+      try {
+        await sleep(60_000, undefined, { signal });
+      } catch (error) {
+        if (error.name !== "AbortError") throw error;
+      }
+    }
+  };
+
+  await Promise.all([updateLoop(), monitorLoop(), exchangeRateLoop()]);
 }

@@ -1,3 +1,5 @@
+import { amdPriceAmount } from "./prices.js";
+
 export const LOCATION_REGIONS = [
   {
     name: "Ереван",
@@ -211,7 +213,9 @@ function selectedLocationNames(locationIds) {
 
 export function apartmentMatchesFilters(apartment, rawFilters) {
   const filters = normalizeFilters(rawFilters);
-  if (!matchesRange(apartment?.price?.amount, filters.price)) return false;
+  if (!matchesRange(amdPriceAmount(apartment?.price), filters.price)) {
+    return false;
+  }
   if (!matchesRange(apartment?.rooms, filters.rooms)) return false;
   if (filters.locations.length === 0) return true;
 

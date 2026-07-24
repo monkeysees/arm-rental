@@ -1,5 +1,6 @@
 import { extractRegularApartments } from "./list-am.js";
 import { apartmentMatchesFilters, emptyFilters } from "./filters.js";
+import { normalizeApartmentPrice } from "./prices.js";
 import { readState, writeState } from "./state.js";
 import { pageUrl } from "./target.js";
 
@@ -48,7 +49,7 @@ const MONTH_NUMBERS = new Map(
 function compatibleState(state, template) {
   return Boolean(
     state &&
-      state.version === 1 &&
+      [1, 2].includes(state.version) &&
       state.type === "list-am-apartments" &&
       state.urlTemplate === template &&
       state.apartments &&
@@ -133,13 +134,24 @@ export async function crawlApartments(
     loadState = readState,
     saveState = writeState,
     deliverApartment,
+    exchangeRates,
     filters = emptyFilters(),
     now = () => new Date(),
   } = {},
 ) {
   const stored = await loadState(config.apartmentsStateFile);
   const compatible = compatibleState(stored, config.listUrlTemplate);
-  const previousApartments = compatible ? stored.apartments : {};
+  const previousApartments = compatible
+    ? Object.fromEntries(
+        Object.entries(stored.apartments).map(([itemId, apartment]) => [
+          itemId,
+          {
+            ...apartment,
+            price: normalizeApartmentPrice(apartment.price, exchangeRates),
+          },
+        ]),
+      )
+    : {};
   const previousOrder = compatible ? stored.apartmentOrder || [] : [];
   const initialRun = Object.keys(previousApartments).length === 0;
   const lastKnownPostingDate = latestKnownPostingDate(previousApartments);
@@ -190,7 +202,10 @@ export async function crawlApartments(
       }
       if (Object.hasOwn(previousApartments, apartment.itemId)) continue;
       if (discoveredIdSet.has(apartment.itemId)) continue;
-      discovered.push(apartment);
+      discovered.push({
+        ...apartment,
+        price: normalizeApartmentPrice(apartment.price, exchangeRates),
+      });
       discoveredIdSet.add(apartment.itemId);
     }
   }
@@ -210,7 +225,7 @@ export async function crawlApartments(
   ];
 
   const state = {
-    version: 1,
+    version: 2,
     type: "list-am-apartments",
     urlTemplate: config.listUrlTemplate,
     checkedAt,

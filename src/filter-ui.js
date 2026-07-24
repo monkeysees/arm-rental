@@ -18,13 +18,13 @@ export function filtersMenu(filters) {
     text: [
       "Фильтры объявлений",
       "",
-      `Цена: ${formatRange(normalized.price)}`,
+      `Цена (֏): ${formatRange(normalized.price)}`,
       `Комнаты: ${formatRange(normalized.rooms)}`,
       `Местоположение: ${formatLocations(normalized.locations)}`,
     ].join("\n"),
     replyMarkup: {
       inline_keyboard: [
-        [button("💰 Цена", "f:price"), button("🚪 Комнаты", "f:rooms")],
+        [button("💰 Цена, ֏", "f:price"), button("🚪 Комнаты", "f:rooms")],
         [button("📍 Местоположение", "f:locations")],
         [button("Сбросить всё", "f:reset")],
       ],

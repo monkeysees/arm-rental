@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import { crawlApartments } from "../src/crawler.js";
+import { emptyFilters } from "../src/filters.js";
 import { LIST_AM_URL_TEMPLATE } from "../src/target.js";
 
 const config = {
@@ -258,5 +259,116 @@ test("delivery filters skip non-matching apartments without losing discovery", a
   assert.equal(
     Object.keys(state.files.get(config.apartmentsStateFile).apartments).length,
     4,
+  );
+});
+
+test("crawler stores converted AMD prices and delivers the original price data", async () => {
+  const state = memoryState();
+  const delivered = [];
+  const exchangeRates = {
+    fetchedAt: "2026-07-24T09:15:00.000Z",
+    effectiveDate: "2026-07-24",
+    rates: {
+      USD: { amount: 1, rate: 365.87 },
+      EUR: { amount: 1, rate: 416.43 },
+      RUB: { amount: 1, rate: 4.6763 },
+    },
+  };
+  const html = `
+    <div id="contentr">
+      <a class="fav-item-info-container" href="/ru/item/20">
+        <div class="pt">Apartment 20</div><div class="p">$1,600</div>
+        <div class="at">Кентрон, 2 ком., 75 кв.м., 11/14 этаж</div>
+        <div class="d">Пятница, Июль 24, 2026, 14:31</div>
+      </a>
+    </div>`;
+
+  const result = await crawlApartments(
+    { ...config, initialPageCount: 1 },
+    {
+      ...state,
+      exchangeRates,
+      fetchPage: async () => new Response(html),
+      filters: {
+        ...emptyFilters(),
+        price: { min: 580_000, max: 590_000 },
+      },
+      deliverApartment: async (apartment) =>
+        delivered.push(structuredClone(apartment)),
+      now: () => new Date("2026-07-24T12:00:00Z"),
+    },
+  );
+
+  const stored = state.files.get(config.apartmentsStateFile).apartments["20"];
+  assert.equal(result.notifiedCount, 1);
+  assert.equal(state.files.get(config.apartmentsStateFile).version, 2);
+  assert.deepEqual(stored.price, {
+    amountAmd: 585_392,
+    originalAmount: 1_600,
+    originalCurrency: "USD",
+    exchangeRate: 365.87,
+    exchangeRateFetchedAt: "2026-07-24T09:15:00.000Z",
+    exchangeRateEffectiveDate: "2026-07-24",
+  });
+  assert.deepEqual(delivered[0].price, stored.price);
+});
+
+test("crawler migrates legacy foreign prices with the current persisted rate", async () => {
+  const legacyApartment = {
+    itemId: "30",
+    title: "Legacy apartment",
+    price: { amount: 1_000, currency: "€" },
+    location: "Кентрон",
+    rooms: 2,
+    areaSqM: 60,
+    floor: "4/9",
+    date: "Пятница, Июль 24, 2026, 14:31",
+    firstSeenAt: "2026-07-24T08:00:00.000Z",
+    url: "https://www.list.am/ru/item/30",
+  };
+  const state = memoryState({
+    [config.apartmentsStateFile]: {
+      version: 1,
+      type: "list-am-apartments",
+      urlTemplate: LIST_AM_URL_TEMPLATE,
+      apartments: { 30: legacyApartment },
+      apartmentOrder: ["30"],
+    },
+  });
+
+  await crawlApartments(config, {
+    ...state,
+    exchangeRates: {
+      fetchedAt: "2026-07-24T09:15:00.000Z",
+      effectiveDate: "2026-07-24",
+      rates: {
+        USD: { amount: 1, rate: 365.87 },
+        EUR: { amount: 1, rate: 416.43 },
+        RUB: { amount: 1, rate: 4.6763 },
+      },
+    },
+    fetchPage: async () =>
+      new Response(
+        datedPage(
+          ["30", "Пятница, Июль 24, 2026, 14:31"],
+          ["29", "Пятница, Июль 24, 2026, 14:30"],
+        ),
+      ),
+    now: () => new Date("2026-07-24T12:00:00Z"),
+  });
+
+  const migrated = state.files.get(config.apartmentsStateFile);
+  assert.equal(migrated.version, 2);
+  assert.deepEqual(migrated.apartments["30"].price, {
+    amountAmd: 416_430,
+    originalAmount: 1_000,
+    originalCurrency: "EUR",
+    exchangeRate: 416.43,
+    exchangeRateFetchedAt: "2026-07-24T09:15:00.000Z",
+    exchangeRateEffectiveDate: "2026-07-24",
+  });
+  assert.equal(
+    migrated.apartments["30"].firstSeenAt,
+    "2026-07-24T08:00:00.000Z",
   );
 });

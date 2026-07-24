@@ -3,7 +3,10 @@
 An admin-only Telegram bot that discovers long-term apartment rentals from
 List.am and stores normalized apartment records locally.
 
-Bot replies and apartment notification labels are in Russian.
+Bot replies and apartment notification labels are in Russian. Apartment
+messages retain the price and currency shown by List.am. Internally, all prices
+are converted to Armenian drams using the latest persisted Central Bank of
+Armenia rate, so private price filters are always entered and evaluated in AMD.
 
 It monitors:
 
@@ -71,8 +74,22 @@ of its listed places; choosing an individual place replaces a whole-region
 selection for that region. Every change is persisted and applied immediately;
 there is no separate save step.
 
-Price bounds compare the numeric amount shown in each listing's own currency;
-the bot does not perform exchange-rate conversion.
+Price bounds are Armenian drams. USD, EUR, and RUB listings are converted to AMD
+before filtering, while Telegram notifications continue to show their original
+price and currency.
+
+## Exchange rates
+
+The bot retrieves USD, EUR, and RUB rates from the Central Bank of Armenia when
+no saved snapshot exists and every 24 hours after a successful retrieval. The
+three quotes are validated and atomically persisted together. If refresh fails,
+the bot logs the error, continues using the last persisted snapshot, and retries
+after one hour. A fresh persisted snapshot is reused after a restart.
+
+If the CBA is unavailable before any snapshot has been stored, apartment
+crawling waits rather than persisting a foreign-currency listing without an AMD
+price. CBA quote dates may remain unchanged across non-business days; both the
+effective date and the time the bot fetched the snapshot are retained.
 
 If List.am requests security verification, stop the bot and run:
 
@@ -93,7 +110,10 @@ limits are respected, so an interruption safely resumes the unsent portion.
 
 - canonical URL and List.am item ID
 - title
-- price as numeric `amount` and `currency`
+- canonical price rounded to whole AMD
+- original price amount and ISO currency
+- for non-AMD prices, the applied exchange rate, its fetch timestamp, and the
+  CBA effective date
 - location
 - number of rooms
 - area in square metres
@@ -112,6 +132,7 @@ details.
 | `TELEGRAM_OWNER_ID`             | required                         | Only user allowed to activate the bot           |
 | `APARTMENTS_STATE_FILE`         | `.data/apartments.json`          | Apartment database                              |
 | `DELIVERY_STATE_FILE`           | `.data/telegram-deliveries.json` | Sent, skipped, and filtered apartments          |
+| `EXCHANGE_RATES_STATE_FILE`     | `.data/exchange-rates.json`      | Last validated CBA exchange-rate snapshot       |
 | `TELEGRAM_STATE_FILE`           | `.data/telegram-bot.json`        | Bot activation, filters, and update offset      |
 | `TELEGRAM_POLL_TIMEOUT_SECONDS` | `25`                             | Telegram long-poll duration                     |
 | `POLL_INTERVAL_MS`              | `60000`                          | Delay between crawls                            |

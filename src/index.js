@@ -1,6 +1,7 @@
 import { runTelegramBot } from "./bot.js";
 import { BrowserPageFetcher } from "./browser-fetch.js";
 import { getConfig } from "./config.js";
+import { ExchangeRateService } from "./exchange-rates.js";
 import { createLogger } from "./logger.js";
 
 const logger = createLogger();
@@ -11,6 +12,18 @@ try {
   const browserFetcher = new BrowserPageFetcher(config, {
     signal: controller.signal,
     onStatus: (message) => logger.info(message),
+  });
+  const exchangeRateService = new ExchangeRateService(config, {
+    onRefresh: (snapshot) =>
+      logger.info("CBA exchange rates refreshed", {
+        fetchedAt: snapshot.fetchedAt,
+        effectiveDate: snapshot.effectiveDate,
+      }),
+    onFetchError: (error, snapshot) =>
+      logger.error("CBA exchange-rate refresh failed", error, {
+        usingStoredRates: Boolean(snapshot),
+        storedRatesFetchedAt: snapshot?.fetchedAt,
+      }),
   });
 
   for (const signal of ["SIGINT", "SIGTERM"]) {
@@ -23,6 +36,7 @@ try {
   try {
     await runTelegramBot(config, {
       signal: controller.signal,
+      exchangeRateService,
       pageFetch: (url) => browserFetcher.fetch(url),
       onResult: (result) =>
         logger.info("Apartment crawl completed", {

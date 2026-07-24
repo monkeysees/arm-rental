@@ -11,7 +11,11 @@ import {
 
 function apartment({ amount = 220_000, rooms = 2, location = "Кентрон" } = {}) {
   return {
-    price: { amount, currency: "֏" },
+    price: {
+      amountAmd: amount,
+      originalAmount: amount,
+      originalCurrency: "AMD",
+    },
     rooms,
     location,
   };
@@ -45,6 +49,33 @@ test("optional ranges and multiple hierarchical locations compose", () => {
     false,
   );
   assert.equal(apartmentMatchesFilters(apartment(), emptyFilters()), true);
+});
+
+test("price filters compare converted AMD rather than the original amount", () => {
+  const foreignApartment = {
+    price: {
+      amountAmd: 585_392,
+      originalAmount: 1_600,
+      originalCurrency: "USD",
+    },
+    rooms: 2,
+    location: "Кентрон",
+  };
+
+  assert.equal(
+    apartmentMatchesFilters(foreignApartment, {
+      ...emptyFilters(),
+      price: { min: 500_000, max: 600_000 },
+    }),
+    true,
+  );
+  assert.equal(
+    apartmentMatchesFilters(foreignApartment, {
+      ...emptyFilters(),
+      price: { min: 1_500, max: 2_000 },
+    }),
+    false,
+  );
 });
 
 test("range input supports exact and open ranges with clear validation", () => {

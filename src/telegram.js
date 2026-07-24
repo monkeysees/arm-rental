@@ -1,5 +1,7 @@
 import { setTimeout as delay } from "node:timers/promises";
 
+import { originalPrice } from "./prices.js";
+
 const TELEGRAM_API_URL = "https://api.telegram.org";
 
 function requestSignal(signal, timeoutMs) {
@@ -107,10 +109,11 @@ export function isStartCommand(text) {
 }
 
 export function formatApartmentMessage(apartment) {
-  const amount = apartment.price.amount?.toLocaleString("ru-RU");
+  const sourcePrice = originalPrice(apartment.price);
+  const amount = sourcePrice.amount?.toLocaleString("ru-RU");
   const price =
-    amount && apartment.price.currency
-      ? `${amount} ${apartment.price.currency}`
+    amount && sourcePrice.currency
+      ? `${amount} ${sourcePrice.currency}`
       : "не указана";
 
   return [

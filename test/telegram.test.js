@@ -113,7 +113,7 @@ test("owner configures ranges and multiple locations through Telegram", async ()
     entry[2].startsWith("Выбор местоположения"),
   );
   assert.match(locationsView[3].inline_keyboard[0][0].text, /Ереван/);
-  assert.match(sent.at(-1)[1], /Цена: 150\u00a0000–300\u00a0000/);
+  assert.match(sent.at(-1)[1], /Цена \(֏\): 150\u00a0000–300\u00a0000/);
   assert.doesNotMatch(sent.at(-1)[1], /валюте объявления/);
   assert.equal(
     sent
@@ -194,6 +194,29 @@ test("Telegram helpers use Russian fallbacks for missing apartment data", () => 
       "https://www.list.am/ru/item/201",
     ].join("\n"),
   );
+});
+
+test("Telegram messages show the original foreign-currency price", () => {
+  const message = formatApartmentMessage({
+    itemId: "202",
+    title: "Apartment in Kentron",
+    price: {
+      amountAmd: 585_392,
+      originalAmount: 1_600,
+      originalCurrency: "USD",
+      exchangeRate: 365.87,
+      exchangeRateFetchedAt: "2026-07-24T09:15:00.000Z",
+      exchangeRateEffectiveDate: "2026-07-24",
+    },
+    location: "Кентрон",
+    rooms: 2,
+    areaSqM: 75,
+    floor: "11/14",
+    url: "https://www.list.am/ru/item/202",
+  });
+
+  assert.match(message, /Цена: 1\u00a0600 \$/u);
+  assert.doesNotMatch(message, /585/u);
 });
 
 test("TelegramApi obeys retry_after when Telegram rate limits delivery", async () => {
@@ -336,4 +359,43 @@ test("/start wakes the monitor and sends apartments to the owner chat", async ()
     [42, 42],
   );
   assert.equal(sent[1][1].startsWith("Apartment 100"), true);
+});
+
+test("exchange rates refresh without private monitoring activation", async () => {
+  const controller = new AbortController();
+  let refreshCalls = 0;
+  const api = {
+    getUpdates: async (_offset, _timeout, signal) =>
+      new Promise((resolve) => {
+        signal.addEventListener("abort", () => resolve([]), { once: true });
+      }),
+  };
+
+  await runTelegramBot(
+    {
+      telegramBotToken: "token",
+      telegramOwnerId: 42,
+      telegramStateFile: "/state/bot.json",
+      telegramPollTimeoutSeconds: 25,
+      timeoutMs: 1_000,
+      pollIntervalMs: 60_000,
+    },
+    {
+      api,
+      signal: controller.signal,
+      loadState: async () => initialState,
+      saveState: async () => {},
+      exchangeRateService: {
+        getSnapshot: async () => {
+          refreshCalls += 1;
+          controller.abort();
+        },
+      },
+      crawl: async () => {
+        throw new Error("Inactive monitoring must not crawl");
+      },
+    },
+  );
+
+  assert.equal(refreshCalls, 1);
 });

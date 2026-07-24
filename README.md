@@ -235,12 +235,35 @@ The image sets production Chrome to headless mode and stores its profile under
 storage when the service is deployed. No Node, npm package, Chrome, or browser
 library installation is required on the host.
 
+Local environment files, `.data` (including developer Chrome profiles),
+dependencies, coverage, Git metadata, logs, and development caches are excluded
+from the container build context. The image runs as the unprivileged `node`
+account and does not read `.env` at runtime; `.env.production` is consumed only
+by Compose on the deployment host.
+
 `compose.production.yaml` is the supported singleton supervisor definition. Set
 `RENTAL_APARTMENTS_IMAGE` to an immutable image reference, place the required
 configuration in a host-only `.env.production`, then start it with:
 
 ```sh
 docker compose --file compose.production.yaml up --detach
+```
+
+Compose makes the image filesystem read-only. The durable `/app/.data` volume
+is the only persistent writable location; `/tmp` and `/dev/shm` are bounded
+128 MiB and 256 MiB in-memory filesystems. The service publishes no ports.
+Chrome runs with its normal sandbox, and its control channel is not externally
+routable. Do not disable the Chrome sandbox, publish a Chrome debugging port,
+or mount a developer `.data` tree into production.
+
+Confirm these platform-enforced settings before rollout:
+
+```sh
+docker compose --file compose.production.yaml config
+docker inspect --format \
+  'user={{.Config.User}} readonly={{.HostConfig.ReadonlyRootfs}} ports={{json .NetworkSettings.Ports}}' \
+  rental-apartments-bot
+docker inspect --format '{{json .HostConfig.Tmpfs}}' rental-apartments-bot
 ```
 
 The fixed container name prevents scaling, and updates and rollbacks stop the

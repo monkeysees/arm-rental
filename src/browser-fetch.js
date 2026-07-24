@@ -8,6 +8,8 @@ import puppeteer from "puppeteer-core";
 
 const executeFile = promisify(execFile);
 
+const LOOPBACK_DEBUG_ADDRESS = "127.0.0.1";
+
 const CHROME_PATHS = {
   darwin: [
     "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
@@ -123,6 +125,7 @@ async function launchHiddenMacChrome(
     "--args",
     ...args,
     `--remote-debugging-port=${config.browserDebugPort}`,
+    `--remote-debugging-address=${LOOPBACK_DEBUG_ADDRESS}`,
   ]);
 
   const deadline = Date.now() + config.timeoutMs;
@@ -185,6 +188,7 @@ export class BrowserPageFetcher {
       "--lang=ru-RU",
       "--no-default-browser-check",
       "--no-first-run",
+      `--remote-debugging-address=${LOOPBACK_DEBUG_ADDRESS}`,
       ...(this.config.browserStartMinimized === false
         ? []
         : ["--start-minimized"]),

@@ -5,6 +5,8 @@ services:
     # invocation fail instead of starting a second writer.
     container_name: rental-apartments-bot
     init: true
+    user: "node"
+    read_only: true
     env_file:
       - .env.production
     environment:
@@ -12,6 +14,9 @@ services:
       DATA_DIRECTORY: /app/.data
     volumes:
       - rental-apartments-data:/app/.data
+    tmpfs:
+      - /tmp:size=134217728,mode=1777,nosuid,nodev,noexec
+      - /dev/shm:size=268435456,mode=1777,nosuid,nodev,noexec
     restart: "on-failure:5"
     stop_grace_period: 45s
     deploy:

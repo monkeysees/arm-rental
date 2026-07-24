@@ -38,6 +38,10 @@ RUN sed -i \
       --install-deps \
     && test "$("${CHROME_EXECUTABLE_PATH}" --version)" = \
       "Google Chrome for Testing ${CHROME_VERSION}" \
+    && chown root:root \
+      "/opt/chrome/chrome/linux-${CHROME_VERSION}/chrome-linux64/chrome_sandbox" \
+    && chmod 4755 \
+      "/opt/chrome/chrome/linux-${CHROME_VERSION}/chrome-linux64/chrome_sandbox" \
     && rm -rf /var/lib/apt/lists/*
 
 COPY --chown=node:node src ./src
@@ -45,4 +49,4 @@ RUN install -d -o node -g node -m 0700 /app/.data
 
 USER node
 
-CMD ["node", "--env-file-if-exists=.env", "src/index.js"]
+CMD ["node", "src/index.js"]

@@ -1,0 +1,17 @@
+.env
+.env.*
+.data/
+node_modules/
+coverage/
+.git/
+.github/
+*.log
+logs/
+npm-debug.log*
+.cache/
+.npm/
+.eslintcache
+.DS_Store
+.idea/
+.vscode/
+chrome-profile/

@@ -99,6 +99,29 @@ the lease. Delivery acknowledgements remain the backlog boundary: an
 acknowledged item is not re-enqueued after restart, while an interrupted
 unacknowledged send retains the documented at-least-once behavior.
 
+### Deployment artifact isolation
+
+The container build context excludes local environment files, the complete
+`.data` tree (including any developer Chrome profile), dependency and coverage
+trees, Git metadata, logs, and common development caches. The Dockerfile copies
+only the locked package manifests and `src`, and its runtime command does not
+load a local environment file. Production configuration therefore enters at
+container creation rather than becoming an image layer.
+
+The final process runs as the official Node image's dedicated, unprivileged
+`node` account. The production Compose definition repeats that user boundary
+and makes the image root filesystem read-only. Its only application-persistent
+writable path is `/app/.data`; `/tmp` and `/dev/shm` are explicit in-memory
+filesystems capped at 128 MiB and 256 MiB respectively, with device, set-user-ID,
+and executable-file behavior disabled. The service publishes no inbound ports.
+
+Chrome retains its Linux sandbox. The pinned `chrome_sandbox` helper is owned by
+root with its required mode in the image, while Chrome itself is launched by
+the unprivileged application account. Application launch arguments never
+disable the sandbox. Puppeteer's production control channel uses a pipe; the
+interactive macOS verification path is the only TCP debugging mode and
+explicitly binds it to `127.0.0.1`.
+
 ## Runtime flow
 
 1. `src/index.js` validates private and channel configuration, acquires the
@@ -294,3 +317,6 @@ polling, an unclean exit is recoverable, and SIGTERM flushes delivery state,
 closes the Chrome-profile lock, releases the application lease, and permits a
 backlog-free restart. Deployment contract tests pin the one-replica,
 stop-before-start, bounded-restart, and 45-second grace settings.
+Artifact-isolation tests also verify the build-context denylist, immutable
+non-root container contract, bounded writable mounts, sandbox configuration,
+and loopback-only remote debugging.

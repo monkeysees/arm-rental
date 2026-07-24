@@ -1,6 +1,7 @@
 import { acquireSingletonLock } from "./singleton-lock.js";
 import { validateStartupConfig } from "./config.js";
 import { runStartupPreflight, startupFailureResult } from "./preflight.js";
+import { classifyRuntimeFailure } from "./health.js";
 
 export async function runApplication({
   config,
@@ -12,6 +13,7 @@ export async function runApplication({
   runBot,
   preflight = runStartupPreflight,
   validateConfig = validateStartupConfig,
+  healthMonitor,
 }) {
   // Configuration and persistent-storage checks must finish before acquiring
   // runtime resources or entering any long-running loop.
@@ -25,6 +27,7 @@ export async function runApplication({
 
   try {
     await validateConfig(config);
+    healthMonitor?.setConfigurationValid();
     startupComponent = "singleton";
     singletonLock = await acquireLock(config.dataDirectory);
     startupComponent = "preflight";
@@ -48,6 +51,7 @@ export async function runApplication({
       onStatus: (message) => logger.info(message),
       onEvent: (event) => {
         if (event.name === "browser.challenge") {
+          healthMonitor?.recordBrowserChallenge();
           logger.warn("Browser challenge detected", {
             eventName: event.name,
             component: event.component,
@@ -58,16 +62,20 @@ export async function runApplication({
       },
     });
     const exchangeRateService = exchangeRateServiceFactory(config, {
-      onRefresh: (snapshot) =>
+      onRefresh: (snapshot) => {
+        healthMonitor?.recordExchangeRateSnapshot(snapshot);
         logger.info("CBA exchange rates refreshed", {
           fetchedAt: snapshot.fetchedAt,
           effectiveDate: snapshot.effectiveDate,
-        }),
-      onFetchError: (error, snapshot) =>
+        });
+      },
+      onFetchError: (error, snapshot) => {
+        healthMonitor?.recordExchangeRateFailure(snapshot);
         logger.error("CBA exchange-rate refresh failed", error, {
           usingStoredRates: Boolean(snapshot),
           storedRatesFetchedAt: snapshot?.fetchedAt,
-        }),
+        });
+      },
     });
 
     const preflightResult = await preflight(config, {
@@ -80,6 +88,10 @@ export async function runApplication({
     logger.info("Startup preflight completed", {
       preflight: preflightResult,
     });
+    healthMonitor?.setPreflight(preflightResult);
+    healthMonitor?.recordExchangeRateSnapshot(
+      exchangeRateService.currentSnapshot?.(),
+    );
     preflightLogged = true;
 
     logger.info(
@@ -89,7 +101,8 @@ export async function runApplication({
       signal: controller.signal,
       exchangeRateService,
       pageFetch: (url) => browserFetcher.fetch(url),
-      onResult: (result) =>
+      onResult: (result) => {
+        healthMonitor?.recordCrawlSuccess();
         logger.info("Apartment crawl completed", {
           status: result.status,
           pagesParsed: result.pagesParsed,
@@ -105,15 +118,31 @@ export async function runApplication({
           channelEditedCount: result.channel.editedCount,
           channelFilteredCount: result.channel.filteredCount,
           channelSkippedCount: result.channel.skippedCount,
-        }),
-      onError: (error, context) =>
+        });
+      },
+      onError: (error, context) => {
+        const component = classifyRuntimeFailure(error, context);
+        if (context?.crawlFailure) {
+          healthMonitor?.recordCrawlFailure(component, error.code);
+        } else {
+          healthMonitor?.recordComponentFailure(
+            component === "browser_challenge" ? "browser" : component,
+            component === "browser_challenge"
+              ? "ERR_BROWSER_VERIFICATION_REQUIRED"
+              : error.code,
+          );
+        }
         logger.error(
           context?.component === "telegram-channel"
             ? "Telegram channel publication failed"
             : "Apartment crawl failed",
           error,
           context,
-        ),
+        );
+      },
+      onMonitoringState: (state) => healthMonitor?.setMonitoringState(state),
+      onTelegramSuccess: () =>
+        healthMonitor?.recordComponentSuccess("telegram"),
       onChannelOperation: (event) => {
         const context = {
           operation: event.operation,
@@ -123,12 +152,17 @@ export async function runApplication({
           outcome: event.outcome,
         };
         if (event.outcome === "failed") {
+          healthMonitor?.recordComponentFailure(
+            "telegram",
+            event.error?.code || "ERR_TELEGRAM_CHANNEL",
+          );
           logger.error(
             "Telegram channel operation failed",
             event.error,
             context,
           );
         } else {
+          healthMonitor?.recordComponentSuccess("telegram");
           logger.info("Telegram channel operation completed", context);
         }
       },
@@ -148,6 +182,7 @@ export async function runApplication({
           preflight: preflightResult,
         });
       }
+      healthMonitor?.setPreflight(preflightResult);
       preflightLogged = true;
     }
     throw error;

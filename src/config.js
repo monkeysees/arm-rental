@@ -264,8 +264,15 @@ export function getConfig(env = process.env, cwd = process.cwd()) {
         20,
         "DISK_FREE_WARNING_PERCENT",
       ) / 100,
+    healthHost: env.HEALTH_HOST?.trim() || "127.0.0.1",
+    healthPort: port(env.HEALTH_PORT, 8_787, "HEALTH_PORT"),
   };
 
+  if (!["127.0.0.1", "::1"].includes(config.healthHost)) {
+    throw new Error(
+      "HEALTH_HOST must be a loopback address (127.0.0.1 or ::1)",
+    );
+  }
   if (config.backupDailyRetention < 7) {
     throw new Error("BACKUP_DAILY_RETENTION must be at least 7");
   }

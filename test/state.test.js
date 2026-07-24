@@ -27,7 +27,12 @@ test("state is atomically persisted and malformed JSON is reported clearly", asy
   assert.equal((await lstat(filename)).mode & 0o777, 0o600);
 
   await writeFile(filename, "{invalid", "utf8");
-  await assert.rejects(readState(filename), /State file is not valid JSON/);
+  await assert.rejects(
+    readState(filename),
+    (error) =>
+      error.code === "ERR_STATE_INVALID_JSON" &&
+      /State file is not valid JSON/u.test(error.message),
+  );
 });
 
 test("state write flushes a mode-0600 temporary file and containing directory", async (t) => {

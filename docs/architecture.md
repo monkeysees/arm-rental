@@ -42,6 +42,40 @@ The complete requirements, acceptance criteria, rollout procedure, and
 operational runbooks are defined in
 [`docs/production-readiness-spec.md`](production-readiness-spec.md).
 
+### Health and readiness boundary
+
+`src/health.js` owns a sanitized, in-memory operational projection. It does not
+read Telegram or apartment state and never retains errors, upstream bodies,
+credentials, owner/channel identifiers, apartment data, or stacks. Startup
+preflight results populate configuration, storage, Telegram, browser, List.am,
+and CBA component states. Runtime callbacks then record private activation,
+channel configuration, crawl outcomes, browser challenges, Telegram operations,
+and exchange-rate refreshes.
+
+The HTTP server binds to `127.0.0.1:8787` by default; configuration rejects
+non-loopback health addresses and production Compose publishes no inbound port.
+`/live` is deliberately narrow: answering the request proves the process event
+loop is responsive. `/ready` and `/health` require a ready preflight and, when
+private monitoring is active or a channel exists, a successful crawl less than
+ten minutes old with fewer than five consecutive failures. A success resets
+both failure and age gates. Browser verification has its own immediately
+visible challenge state.
+
+The current CBA snapshot timestamp is included without its quote contents. A
+snapshot older than 48 hours is a warning; no usable snapshot makes readiness
+false whenever the active crawl path requires currency conversion. Component
+and reason codes let private alerting distinguish Telegram, browser challenge,
+List.am, CBA, storage, and configuration remediation without exposing raw
+exceptions.
+
+The Docker and Compose healthcheck calls `src/health-check.js` from a separate
+process. Failure to receive `/live` within three seconds kills the container,
+which makes the bounded `on-failure` policy restart an unresponsive Node event
+loop. It never restarts on `/ready` failure because repeated restarts cannot
+repair upstream, permission, verification, or stale-crawl conditions. Probe
+behavior and private operator access are documented in
+[`docs/health-readiness.md`](health-readiness.md).
+
 ### Reproducible runtime packaging
 
 Node.js 24.18.0 is the single supported runtime release. `package.json`,

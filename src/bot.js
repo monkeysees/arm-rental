@@ -320,6 +320,8 @@ export async function runTelegramBot(
     sleep = delay,
     onResult = () => {},
     onError = () => {},
+    onMonitoringState = () => {},
+    onTelegramSuccess = () => {},
     onChannelOperation = () => {},
     onChannelFilterFingerprintChange = () => {},
     exchangeRateService,
@@ -340,6 +342,10 @@ export async function runTelegramBot(
         pendingFilterInput: null,
       };
   let activationWaiter;
+  await onMonitoringState({
+    active: state.active,
+    channelConfigured: Boolean(config.telegramChannelId),
+  });
 
   const activate = () => {
     activationWaiter?.();
@@ -365,11 +371,16 @@ export async function runTelegramBot(
           onActivated: (activatedState) => {
             state = activatedState;
             activate();
+            void onMonitoringState({
+              active: state.active,
+              channelConfigured: Boolean(config.telegramChannelId),
+            });
           },
         });
+        await onTelegramSuccess();
       } catch (error) {
         if (signal?.aborted) return;
-        await onError(error);
+        await onError(error, { component: "telegram" });
         await sleep(2_000, undefined, { signal }).catch((sleepError) => {
           if (sleepError.name !== "AbortError") throw sleepError;
         });
@@ -386,8 +397,10 @@ export async function runTelegramBot(
         if (signal?.aborted) return;
       }
 
+      let failureComponent = "cba";
       try {
         const exchangeRates = await exchangeRateService?.getSnapshot(signal);
+        failureComponent = "list_am";
         const privateChatId = state.active ? state.chatId : null;
         let channelResult = {
           sentCount: 0,
@@ -434,7 +447,10 @@ export async function runTelegramBot(
         await onResult({ ...result, channel: channelResult });
       } catch (error) {
         if (signal?.aborted) return;
-        await onError(error);
+        await onError(error, {
+          component: failureComponent,
+          crawlFailure: true,
+        });
       }
 
       try {

@@ -49,4 +49,7 @@ RUN install -d -o node -g node -m 0700 /app/.data
 
 USER node
 
+HEALTHCHECK --interval=30s --timeout=5s --start-period=60s --retries=2 \
+  CMD ["node", "src/health-check.js", "--restart-unresponsive"]
+
 CMD ["node", "src/index.js"]

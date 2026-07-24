@@ -3,14 +3,29 @@ import { runTelegramBot } from "./bot.js";
 import { BrowserPageFetcher } from "./browser-fetch.js";
 import { getConfig } from "./config.js";
 import { ExchangeRateService } from "./exchange-rates.js";
+import { HealthMonitor, startHealthServer } from "./health.js";
 import { createLogger } from "./logger.js";
+import packageMetadata from "../package.json" with { type: "json" };
 
 const logger = createLogger();
+const healthMonitor = new HealthMonitor({ version: packageMetadata.version });
+let healthServer;
 
 try {
+  const config = getConfig();
+  healthMonitor.setConfigurationValid();
+  healthServer = await startHealthServer(healthMonitor, {
+    host: config.healthHost,
+    port: config.healthPort,
+  });
+  logger.info("Private health endpoint started", {
+    host: config.healthHost,
+    port: config.healthPort,
+  });
   await runApplication({
-    config: getConfig(),
+    config,
     logger,
+    healthMonitor,
     browserFetcherFactory: (config, options) =>
       new BrowserPageFetcher(config, options),
     exchangeRateServiceFactory: (config, options) =>
@@ -18,6 +33,11 @@ try {
     runBot: runTelegramBot,
   });
 } catch (error) {
+  if (!healthServer) {
+    healthMonitor.setConfigurationFailure(error.code);
+  }
   logger.error("Application failed", error);
   process.exitCode = 1;
+} finally {
+  await healthServer?.close();
 }

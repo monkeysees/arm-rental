@@ -43,7 +43,12 @@ export async function readState(filename) {
   } catch (error) {
     if (error.code === "ENOENT") return undefined;
     if (error instanceof SyntaxError) {
-      throw new Error(`State file is not valid JSON: ${filename}`);
+      const invalidStateError = new Error(
+        `State file is not valid JSON: ${filename}`,
+        { cause: error },
+      );
+      invalidStateError.code = "ERR_STATE_INVALID_JSON";
+      throw invalidStateError;
     }
     throw error;
   }

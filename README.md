@@ -207,6 +207,8 @@ details.
 | `BACKUP_DAILY_RETENTION`        | `7`                                      | Daily recovery points to retain (minimum 7)    |
 | `BACKUP_WEEKLY_RETENTION`       | `4`                                      | Weekly recovery points to retain (minimum 4)   |
 | `DISK_FREE_WARNING_PERCENT`     | `20`                                     | Low-disk warning threshold                     |
+| `HEALTH_HOST`                   | `127.0.0.1`                              | Private health bind; loopback addresses only   |
+| `HEALTH_PORT`                   | `8787`                                   | Private liveness/readiness port                |
 
 Production backup and recovery commands are documented in
 [docs/state-recovery.md](docs/state-recovery.md). The backup destination must
@@ -313,6 +315,14 @@ is the only persistent writable location; `/tmp` and `/dev/shm` are bounded
 Chrome runs with its normal sandbox, and its control channel is not externally
 routable. Do not disable the Chrome sandbox, publish a Chrome debugging port,
 or mount a developer `.data` tree into production.
+
+The loopback-only health service exposes `/live` for process/event-loop
+liveness and `/ready` (also `/health`) for startup and crawl readiness. The
+container healthcheck terminates an unresponsive container so the bounded
+restart policy can recover it; readiness failures remain available to private
+monitoring without causing a restart loop. See
+[health and readiness operations](docs/health-readiness.md) for thresholds,
+component codes, access, and rollout checks.
 
 Confirm these platform-enforced settings before rollout:
 

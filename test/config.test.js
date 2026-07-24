@@ -64,6 +64,8 @@ test("configuration uses the requested target and ten initial pages", () => {
   assert.equal(config.backupDailyRetention, 7);
   assert.equal(config.backupWeeklyRetention, 4);
   assert.equal(config.diskFreeWarningFraction, 0.2);
+  assert.equal(config.healthHost, "127.0.0.1");
+  assert.equal(config.healthPort, 8_787);
 });
 
 test("configuration relocates default persistent files together", () => {
@@ -104,6 +106,14 @@ test("configuration rejects invalid owner and page values", () => {
 });
 
 test("configuration rejects unsupported modes, unsafe paths, and collisions", () => {
+  assert.throws(
+    () =>
+      getConfig({
+        ...requiredEnvironment,
+        HEALTH_HOST: "0.0.0.0",
+      }),
+    /HEALTH_HOST must be a loopback address/u,
+  );
   assert.throws(
     () => getConfig({ ...requiredEnvironment, NODE_ENV: "staging" }),
     /NODE_ENV must be one of/u,

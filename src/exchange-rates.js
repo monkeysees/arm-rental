@@ -180,4 +180,8 @@ export class ExchangeRateService {
     }
     return this.pending;
   }
+
+  currentSnapshot() {
+    return this.snapshot;
+  }
 }

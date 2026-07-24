@@ -14,12 +14,20 @@ services:
       DATA_DIRECTORY: /app/.data
       BROWSER_HEADLESS: "true"
       CHROME_EXECUTABLE_PATH: /opt/chrome/chrome/linux-150.0.7871.24/chrome-linux64/chrome
+      HEALTH_HOST: 127.0.0.1
+      HEALTH_PORT: "8787"
     volumes:
       - rental-apartments-data:/app/.data
     tmpfs:
       - /tmp:size=134217728,mode=1777,nosuid,nodev,noexec
       - /dev/shm:size=268435456,mode=1777,nosuid,nodev,noexec
     restart: "on-failure:5"
+    healthcheck:
+      test: ["CMD", "node", "src/health-check.js", "--restart-unresponsive"]
+      interval: 30s
+      timeout: 5s
+      start_period: 60s
+      retries: 2
     stop_grace_period: 45s
     deploy:
       replicas: 1

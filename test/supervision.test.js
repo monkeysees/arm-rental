@@ -26,4 +26,16 @@ test("production supervision prevents overlapping replicas and bounds restarts",
   assert.match(deployment, /stop_grace_period: 45s/u);
   assert.match(deployment, /DATA_DIRECTORY: \/app\/\.data/u);
   assert.match(deployment, /rental-apartments-data:\/app\/\.data/u);
+  assert.match(deployment, /HEALTH_HOST: 127\.0\.0\.1/u);
+  assert.match(
+    deployment,
+    /healthcheck:[\s\S]*?src\/health-check\.js[\s\S]*?--restart-unresponsive/u,
+  );
+  assert.doesNotMatch(deployment, /^\s+ports:/mu);
+
+  const dockerfile = await readProjectFile("Dockerfile");
+  assert.match(
+    dockerfile,
+    /HEALTHCHECK[\s\S]*?src\/health-check\.js[\s\S]*?--restart-unresponsive/u,
+  );
 });

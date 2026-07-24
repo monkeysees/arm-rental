@@ -43,7 +43,8 @@ RUN sed -i \
     && npx --no-install browsers install "chrome@${CHROME_VERSION}" \
       --path /opt/chrome \
       --install-deps \
-    && CHROME_RUNTIME_VERSION="$("${CHROME_EXECUTABLE_PATH}" --version)" \
+    && CHROME_RUNTIME_VERSION="$("${CHROME_EXECUTABLE_PATH}" --version \
+      | sed 's/[[:space:]]*$//')" \
     && printf '%s\n' "${CHROME_RUNTIME_VERSION}" \
     && { \
       test "${CHROME_RUNTIME_VERSION}" = "Google Chrome ${CHROME_VERSION}" \

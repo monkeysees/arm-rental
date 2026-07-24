@@ -73,7 +73,8 @@ jobs:
           SOURCE_REVISION: ${{ github.sha }}
         run: |
           PACKAGE_LOCK_SHA256="$(sha256sum package-lock.json | cut -d ' ' -f 1)"
-          CHROME_RUNTIME_VERSION="$(docker run --rm --entrypoint /opt/chrome/chrome/linux-150.0.7871.24/chrome-linux64/chrome rental-apartments-bot:ci --version)"
+          CHROME_RUNTIME_VERSION="$(docker run --rm --entrypoint /opt/chrome/chrome/linux-150.0.7871.24/chrome-linux64/chrome rental-apartments-bot:ci --version |
+            sed 's/[[:space:]]*$//')"
           test "$(docker image inspect --format '{{ index .Config.Labels "org.opencontainers.image.revision" }}' rental-apartments-bot:ci)" = "$SOURCE_REVISION"
           test "$(docker image inspect --format '{{ index .Config.Labels "org.opencontainers.image.node.version" }}' rental-apartments-bot:ci)" = "24.18.0"
           test "$(docker image inspect --format '{{ index .Config.Labels "org.opencontainers.image.chrome.version" }}' rental-apartments-bot:ci)" = "150.0.7871.24"

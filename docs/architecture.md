@@ -183,7 +183,8 @@ explicitly binds it to `127.0.0.1`.
 The image build and hosted artifact gate execute the installed browser and
 require its exact pinned numeric version. Chrome for Testing releases may
 report either the standard `Google Chrome` product prefix or the explicit
-`Google Chrome for Testing` prefix, so packaging accepts those two identities
+`Google Chrome for Testing` prefix and may append trailing whitespace, so
+packaging trims only trailing whitespace before accepting those two identities
 without weakening the version pin.
 
 ### Configuration and secret boundary

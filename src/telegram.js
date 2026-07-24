@@ -4,6 +4,17 @@ import { originalPrice } from "./prices.js";
 
 const TELEGRAM_API_URL = "https://api.telegram.org";
 
+export class TelegramApiError extends Error {
+  constructor(method, description, { httpStatus, telegramErrorCode } = {}) {
+    super(`Telegram ${method} failed: ${description}`);
+    this.name = "TelegramApiError";
+    this.code = "ERR_TELEGRAM_API";
+    this.method = method;
+    this.httpStatus = httpStatus;
+    this.telegramErrorCode = telegramErrorCode;
+  }
+}
+
 function requestSignal(signal, timeoutMs) {
   const timeoutSignal = AbortSignal.timeout(timeoutMs);
   return signal ? AbortSignal.any([signal, timeoutSignal]) : timeoutSignal;
@@ -39,7 +50,10 @@ export class TelegramApi {
       if (!response.ok || !body?.ok) {
         const description =
           body?.description || `${response.status} ${response.statusText}`;
-        throw new Error(`Telegram ${method} failed: ${description}`);
+        throw new TelegramApiError(method, description, {
+          httpStatus: response.status,
+          telegramErrorCode: body?.error_code,
+        });
       }
 
       return body.result;
@@ -60,6 +74,22 @@ export class TelegramApi {
         signal,
         timeoutMs: (timeoutSeconds + 10) * 1_000,
       },
+    );
+  }
+
+  getMe(signal) {
+    return this.call("getMe", {}, { signal });
+  }
+
+  getChat(chatId, signal) {
+    return this.call("getChat", { chat_id: chatId }, { signal });
+  }
+
+  getChatMember(chatId, userId, signal) {
+    return this.call(
+      "getChatMember",
+      { chat_id: chatId, user_id: userId },
+      { signal },
     );
   }
 

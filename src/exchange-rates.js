@@ -24,7 +24,7 @@ function numericValue(value) {
   return Number.isFinite(parsed) ? parsed : null;
 }
 
-function compatibleSnapshot(value) {
+export function compatibleExchangeRateSnapshot(value) {
   return Boolean(
     value &&
       value.version === 1 &&
@@ -83,7 +83,7 @@ export function parseCbaExchangeRates(xml, fetchedAt) {
     effectiveDate,
     rates,
   };
-  if (!compatibleSnapshot(snapshot)) {
+  if (!compatibleExchangeRateSnapshot(snapshot)) {
     throw new Error(
       "CBA exchange-rate response was missing valid USD, EUR, or RUB rates",
     );
@@ -124,7 +124,7 @@ export class ExchangeRateService {
   async load() {
     if (this.loaded) return;
     const stored = await this.loadState(this.stateFile);
-    this.snapshot = compatibleSnapshot(stored) ? stored : undefined;
+    this.snapshot = compatibleExchangeRateSnapshot(stored) ? stored : undefined;
     this.nextAttemptAt = this.snapshot
       ? Date.parse(this.snapshot.fetchedAt) + this.refreshMs
       : 0;

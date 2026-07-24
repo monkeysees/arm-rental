@@ -50,25 +50,27 @@ const MONTH_NUMBERS = new Map(
   ].map(([month, number]) => [month, number]),
 );
 
-function compatibleState(state, template) {
+export function compatibleApartmentState(state, template) {
   return Boolean(
     state &&
       [1, 2].includes(state.version) &&
       state.type === "list-am-apartments" &&
       state.urlTemplate === template &&
       state.apartments &&
-      typeof state.apartments === "object",
+      typeof state.apartments === "object" &&
+      !Array.isArray(state.apartments),
   );
 }
 
-function compatibleDeliveryState(state, template) {
+export function compatibleDeliveryState(state, template) {
   return Boolean(
     state &&
       state.version === 1 &&
       state.type === "telegram-deliveries" &&
       state.urlTemplate === template &&
       state.notified &&
-      typeof state.notified === "object",
+      typeof state.notified === "object" &&
+      !Array.isArray(state.notified),
   );
 }
 
@@ -175,7 +177,7 @@ export async function crawlApartments(
   } = {},
 ) {
   const stored = await loadState(config.apartmentsStateFile);
-  const compatible = compatibleState(stored, config.listUrlTemplate);
+  const compatible = compatibleApartmentState(stored, config.listUrlTemplate);
   const previousApartments = compatible
     ? Object.fromEntries(
         Object.entries(stored.apartments).map(([itemId, apartment]) => [

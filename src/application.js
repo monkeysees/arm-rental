@@ -1,5 +1,6 @@
 import { acquireSingletonLock } from "./singleton-lock.js";
 import { validateStartupConfig } from "./config.js";
+import { runStartupPreflight, startupFailureResult } from "./preflight.js";
 
 export async function runApplication({
   config,
@@ -9,28 +10,35 @@ export async function runApplication({
   browserFetcherFactory,
   exchangeRateServiceFactory,
   runBot,
+  preflight = runStartupPreflight,
   validateConfig = validateStartupConfig,
 }) {
   // Configuration and persistent-storage checks must finish before acquiring
   // runtime resources or entering any long-running loop.
-  await validateConfig(config);
-  const singletonLock = await acquireLock(config.dataDirectory);
+  let startupComponent = "storage";
+  let singletonLock;
+  let preflightLogged = false;
   const controller = new AbortController();
   let receivedSignal;
   const signalHandlers = new Map();
   let browserFetcher;
 
-  for (const signal of ["SIGINT", "SIGTERM"]) {
-    const handler = () => {
-      receivedSignal ??= signal;
-      logger.info("Graceful shutdown requested", { signal });
-      controller.abort();
-    };
-    signalHandlers.set(signal, handler);
-    signalEmitter.once(signal, handler);
-  }
-
   try {
+    await validateConfig(config);
+    startupComponent = "singleton";
+    singletonLock = await acquireLock(config.dataDirectory);
+    startupComponent = "preflight";
+
+    for (const signal of ["SIGINT", "SIGTERM"]) {
+      const handler = () => {
+        receivedSignal ??= signal;
+        logger.info("Graceful shutdown requested", { signal });
+        controller.abort();
+      };
+      signalHandlers.set(signal, handler);
+      signalEmitter.once(signal, handler);
+    }
+
     logger.info("Singleton lease acquired", {
       dataDirectory: singletonLock.dataDirectory,
       processId: singletonLock.owner.pid,
@@ -51,6 +59,18 @@ export async function runApplication({
           storedRatesFetchedAt: snapshot?.fetchedAt,
         }),
     });
+
+    const preflightResult = await preflight(config, {
+      storageValidated: true,
+      singletonLock,
+      browserFetcher,
+      exchangeRateService,
+      signal: controller.signal,
+    });
+    logger.info("Startup preflight completed", {
+      preflight: preflightResult,
+    });
+    preflightLogged = true;
 
     logger.info(
       "Telegram bot is running; send /start from the configured owner account",
@@ -105,6 +125,22 @@ export async function runApplication({
       onChannelFilterFingerprintChange: (event) =>
         logger.info("Telegram channel filter fingerprint changed", event),
     });
+  } catch (error) {
+    if (!preflightLogged) {
+      const preflightResult =
+        error.preflightResult || startupFailureResult(startupComponent, error);
+      if (preflightResult.status === "browser_verification_required") {
+        logger.warn?.("Startup preflight completed", {
+          preflight: preflightResult,
+        });
+      } else {
+        logger.error?.("Startup preflight completed", error, {
+          preflight: preflightResult,
+        });
+      }
+      preflightLogged = true;
+    }
+    throw error;
   } finally {
     for (const [signal, handler] of signalHandlers) {
       signalEmitter.removeListener(signal, handler);
@@ -113,7 +149,7 @@ export async function runApplication({
     try {
       await browserFetcher?.close();
     } finally {
-      await singletonLock.release();
+      await singletonLock?.release();
     }
 
     if (receivedSignal) {

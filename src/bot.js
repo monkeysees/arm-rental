@@ -23,7 +23,7 @@ import {
   TelegramApi,
 } from "./telegram.js";
 
-function compatibleBotState(state, ownerId) {
+export function compatibleBotState(state, ownerId) {
   return Boolean(
     state &&
       state.version === 1 &&

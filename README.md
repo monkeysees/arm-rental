@@ -245,6 +245,26 @@ writable, sets the data/profile/state directories to mode `0700`, and tightens
 existing state files to `0600` before the singleton lock, Telegram polling, or
 crawling starts. New state files are always written with mode `0600`.
 
+Before either long-running loop starts, preflight validates every existing
+state schema and its configured target, proves the singleton lease is held,
+authenticates the bot with Telegram, checks optional channel posting/editing
+permissions, launches the persistent Chrome profile, parses the List.am Regular
+Ads container, and obtains usable CBA rates. Unsupported or target-mismatched
+state fails closed without changing the file. Startup emits one secret-free
+structured preflight result; only `status: "ready"` starts the bot.
+
+List.am challenges report the distinct non-ready
+`browser_verification_required` status and remediation command:
+
+```sh
+npm run browser:verify
+```
+
+Stop the service and run the command against the same persistent Chrome profile
+on a secure interactive host, then restart. See
+[startup preflight remediation](docs/startup-preflight.md) for credential,
+permission, state, storage, browser, List.am, and CBA failures.
+
 Local environment files, `.data` (including developer Chrome profiles),
 dependencies, coverage, Git metadata, logs, and development caches are excluded
 from the container build context. The image runs as the unprivileged `node`

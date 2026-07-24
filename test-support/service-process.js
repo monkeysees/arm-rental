@@ -65,6 +65,14 @@ try {
       },
     }),
     exchangeRateServiceFactory: () => ({}),
+    // Singleton process tests isolate lease/shutdown behavior. PRD-005's real
+    // integration boundaries are covered in test/preflight.test.js.
+    preflight: async () => ({
+      status: "ready",
+      ready: true,
+      terminal: false,
+      checks: {},
+    }),
     runBot: async (_config, { pageFetch, signal }) => {
       console.log("POLLING_STARTED");
       await pageFetch("https://example.invalid/");

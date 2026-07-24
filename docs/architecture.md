@@ -150,11 +150,44 @@ external secret and deliberately preserves every file in the persistent data
 directory; the operator runbook is
 [`docs/token-rotation.md`](token-rotation.md).
 
+### Startup preflight boundary
+
+`src/application.js` does not enter Telegram polling or either monitoring loop
+until `src/preflight.js` returns `ready`. Storage validation first proves that
+the managed tree supports create, write, rename, and removal; the singleton
+lease is then acquired and remains held for the rest of preflight and runtime.
+Existing apartment, private-delivery, channel-delivery, exchange-rate, and bot
+files are parsed read-only and checked against the schema versions and target
+identities understood by their runtime consumers. The bindings include the
+List.am URL template, Telegram owner, channel username, and AMD rate base.
+Unsupported, malformed, and target-mismatched files produce
+`ERR_STATE_INCOMPATIBLE`, including the filename and observed type/version, and
+are never interpreted as empty state.
+
+External checks use Telegram `getMe`, `getChat`, and `getChatMember` to verify
+credentials, channel reachability, and the bot's Post Messages and Edit
+Messages administrator permissions. Preflight launches Chrome with the durable
+profile, loads and parses page one of the configured List.am target, and asks
+the exchange-rate service for either a compatible persisted snapshot or a
+successful CBA retrieval. Invalid credentials and channel configuration are
+terminal. A List.am challenge instead produces the distinct
+`browser_verification_required` non-ready state and the remediation command
+`npm run browser:verify`.
+
+Startup emits exactly one structured `Startup preflight completed` result. It
+contains component states, a stable failure code, terminal/readiness flags, and
+when applicable the state filename/schema or browser remediation command. It
+never contains the bot token, Telegram API URL, bot identity, or response
+payload. Chrome and the singleton lease are released on every failed preflight.
+Operational diagnosis and recovery are documented in
+[`docs/startup-preflight.md`](startup-preflight.md).
+
 ## Runtime flow
 
 1. `src/index.js` validates private and channel configuration, acquires the
-   persistent-directory singleton lease, starts the reusable Chrome-backed page
-   fetcher, and runs the Telegram bot.
+   persistent-directory singleton lease, and runs the startup preflight. Only a
+   ready result permits the reusable Chrome-backed page fetcher and Telegram bot
+   to enter their long-running loops.
 2. One loop in `src/bot.js` long-polls Telegram. A private `/start` from
    `TELEGRAM_OWNER_ID` activates persistent private monitoring; all other users
    and group chats are ignored. `/filters` and the inline start button expose
@@ -283,8 +316,9 @@ The `.data` directory must be mounted on persistent storage in production.
 - `chrome-profile/` stores cookies from List.am security verification.
 
 State files include a schema version and type discriminator. Apartment state
-also binds to the target URL. Incompatible or target-mismatched apartment state
-is treated as a fresh crawl rather than being merged silently.
+also binds to the target URL. Incompatible or target-mismatched state fails
+closed during startup and remains unchanged until an explicit migration or
+operator-approved reset.
 
 ## Parsing model
 
@@ -323,6 +357,9 @@ is retained as displayed by List.am.
   offset.
 - SIGINT and SIGTERM abort Telegram polling and browser work, then close Chrome
   cleanly before the application lease is released.
+- Startup preflight failures close Chrome and release the singleton lease before
+  exiting. State compatibility is checked before external calls, so invalid
+  state cannot be overwritten by a later initialization path.
 
 ## Testing boundaries
 
@@ -348,3 +385,7 @@ stop-before-start, bounded-restart, and 45-second grace settings.
 Artifact-isolation tests also verify the build-context denylist, immutable
 non-root container contract, bounded writable mounts, sandbox configuration,
 and loopback-only remote debugging.
+Preflight integration tests exercise the complete ready path across state,
+Telegram, channel, browser, List.am, and CBA boundaries; terminal credential
+and permission failures; unchanged incompatible state; the typed browser
+challenge; loop exclusion; cleanup; and secret-free structured results.

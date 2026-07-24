@@ -9,6 +9,18 @@ import puppeteer from "puppeteer-core";
 const executeFile = promisify(execFile);
 
 const LOOPBACK_DEBUG_ADDRESS = "127.0.0.1";
+export const BROWSER_VERIFICATION_COMMAND = "npm run browser:verify";
+
+export class BrowserVerificationRequiredError extends Error {
+  constructor(
+    message = `List.am requires security verification. Run ${BROWSER_VERIFICATION_COMMAND}.`,
+  ) {
+    super(message);
+    this.name = "BrowserVerificationRequiredError";
+    this.code = "ERR_BROWSER_VERIFICATION_REQUIRED";
+    this.remediationCommand = BROWSER_VERIFICATION_COMMAND;
+  }
+}
 
 const CHROME_PATHS = {
   darwin: [
@@ -249,7 +261,7 @@ export class BrowserPageFetcher {
       await this.onStatus(verificationMessage);
 
       if (this.config.browserHeadless) {
-        throw new Error(verificationMessage);
+        throw new BrowserVerificationRequiredError(verificationMessage);
       }
 
       try {

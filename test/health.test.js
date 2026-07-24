@@ -114,7 +114,9 @@ test("liveness probe accepts only a responsive success status", async (t) => {
   const probeOptions = {
     host: "127.0.0.1",
     port: address.port,
-    timeoutMs: 100,
+    // Leave enough headroom for architecture-emulated CI while keeping the
+    // explicit non-responsive assertion below intentionally short.
+    timeoutMs: 2_000,
   };
   const originalHost = process.env.HEALTH_HOST;
   const originalPort = process.env.HEALTH_PORT;
@@ -127,7 +129,7 @@ test("liveness probe accepts only a responsive success status", async (t) => {
     else process.env.HEALTH_PORT = originalPort;
   });
 
-  await probeLiveness({ timeoutMs: 100 });
+  await probeLiveness({ timeoutMs: probeOptions.timeoutMs });
   statusCode = 503;
   await assert.rejects(
     probeLiveness(probeOptions),

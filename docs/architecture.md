@@ -41,6 +41,9 @@ crawl operation rather than process existence alone.
 The complete requirements, acceptance criteria, rollout procedure, and
 operational runbooks are defined in
 [`docs/production-readiness-spec.md`](production-readiness-spec.md).
+The current implementation evidence and the hosted, staging, and production
+launch blockers are tracked in
+[`docs/production-readiness-status.md`](production-readiness-status.md).
 
 ### Health and readiness boundary
 

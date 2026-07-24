@@ -235,7 +235,7 @@ be proven or the restored previous staging artifact is not ready.
 The named operator records each item and its evidence location. Unchecked or
 verbal-only items block launch.
 
-- [ ] PRD-001 through PRD-013 acceptance criteria are mapped to passing tests,
+- [ ] Production-readiness acceptance criteria are mapped to passing tests,
       CI results, runbook evidence, or a documented external control.
 - [ ] Production configuration was peer-reviewed without rendering secrets;
       the secret file/facility and data directory modes are correct.

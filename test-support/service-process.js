@@ -65,7 +65,7 @@ try {
       },
     }),
     exchangeRateServiceFactory: () => ({}),
-    // Singleton process tests isolate lease/shutdown behavior. PRD-005's real
+    // Singleton process tests isolate lease/shutdown behavior. The real
     // integration boundaries are covered in test/preflight.test.js.
     preflight: async () => ({
       status: "ready",

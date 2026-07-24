@@ -15,6 +15,33 @@ date, although it remains part of the stored record and delivery ordering.
 Messages display the source price and currency, while a separately stored
 canonical AMD amount drives all price filtering and channel price-band hashtags.
 
+## Production deployment model
+
+The supported initial production topology is a singleton, long-running process
+on a Linux host or in one OCI container. Telegram long polling, local JSON state,
+and the persistent Chrome profile require one active writer and exclude
+serverless or automatically scaled deployment. A supervisor restarts the
+process, forwards SIGTERM for graceful shutdown, and mounts `.data` on durable
+local storage.
+
+JSON remains the initial production persistence format while the service has
+one writer and modest state volume. The deployment must enforce the singleton
+constraint, back up and monitor state, and fail closed on incompatible schemas.
+SQLite is the intended migration path if state size or write latency crosses the
+documented operational thresholds, cross-state transactions are required, or
+multiple replicas become necessary.
+
+Production runs on a pinned, supported Node.js LTS release with a reproducible
+Chrome or Chromium installation. Chrome normally runs headlessly with its
+profile on persistent storage; interactive List.am verification is performed
+only while the service is stopped. Secrets are supplied outside the application
+artifact, and readiness represents validated Telegram, browser, storage, and
+crawl operation rather than process existence alone.
+
+The complete requirements, acceptance criteria, rollout procedure, and
+operational runbooks are defined in
+[`docs/production-readiness-spec.md`](production-readiness-spec.md).
+
 ## Runtime flow
 
 1. `src/index.js` validates private and channel configuration, starts the

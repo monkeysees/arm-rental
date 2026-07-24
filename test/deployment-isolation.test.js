@@ -55,6 +55,29 @@ test("production container has a non-root immutable runtime with bounded writabl
     /^\s+- \/dev\/shm:size=268435456,mode=1777,nosuid,nodev,noexec$/mu,
   );
   assert.doesNotMatch(deployment, /^\s+ports:/mu);
+  assert.match(deployment, /^\s+driver: fluentd$/mu);
+  assert.match(deployment, /LOG_COLLECTOR_ADDRESS:\?/u);
+});
+
+test("production observability requires external retention and alert routing", async () => {
+  const runbook = await readProjectFile("docs/observability.md");
+
+  assert.match(runbook, /outside the application host/iu);
+  assert.match(runbook, /minimum\s+14-day/iu);
+  for (const alertName of [
+    "process_restart_loop",
+    "readiness_failure",
+    "browser_challenge",
+    "invalid_telegram_credentials",
+    "invalid_telegram_channel_permissions",
+    "five_consecutive_crawl_failures",
+    "stale_exchange_rates",
+    "backup_failure",
+    "restore_test_failure",
+    "low_disk",
+  ]) {
+    assert.match(runbook, new RegExp(`\\b${alertName}\\b`, "u"));
+  }
 });
 
 test("production browser launch keeps the sandbox and restricts debugging to loopback", async () => {

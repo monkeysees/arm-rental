@@ -8,10 +8,28 @@ import { createLogger } from "./logger.js";
 import packageMetadata from "../package.json" with { type: "json" };
 
 const logger = createLogger();
-const healthMonitor = new HealthMonitor({ version: packageMetadata.version });
+const healthMonitor = new HealthMonitor({
+  version: packageMetadata.version,
+  onAlert: (alert) =>
+    alert.status === "firing"
+      ? logger.warn("Production alert firing", {
+          event: "alert.firing",
+          alertName: alert.name,
+          ...alert,
+        })
+      : logger.info("Production alert resolved", {
+          event: "alert.resolved",
+          alertName: alert.name,
+          ...alert,
+        }),
+});
 let healthServer;
 
 try {
+  logger.info("Application process started", {
+    event: "application.started",
+    processId: process.pid,
+  });
   const config = getConfig();
   healthMonitor.setConfigurationValid();
   healthServer = await startHealthServer(healthMonitor, {

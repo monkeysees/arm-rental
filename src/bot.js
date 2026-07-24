@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { setTimeout as delay } from "node:timers/promises";
 
 import { publishChannelApartments } from "./channel.js";
@@ -22,6 +23,7 @@ import {
   isStartCommand,
   TelegramApi,
 } from "./telegram.js";
+import { ExponentialBackoff, isExpectedExternalFailure } from "./retry.js";
 
 export function compatibleBotState(state, ownerId) {
   return Boolean(
@@ -309,9 +311,7 @@ export async function processUpdates(
 export async function runTelegramBot(
   config,
   {
-    api = new TelegramApi(config.telegramBotToken, {
-      timeoutMs: config.timeoutMs,
-    }),
+    api,
     loadState = readState,
     saveState = writeState,
     crawl = crawlApartments,
@@ -324,10 +324,17 @@ export async function runTelegramBot(
     onTelegramSuccess = () => {},
     onChannelOperation = () => {},
     onChannelFilterFingerprintChange = () => {},
+    onRetry = () => {},
     exchangeRateService,
     signal,
   } = {},
 ) {
+  api ??= new TelegramApi(config.telegramBotToken, {
+    timeoutMs: config.timeoutMs,
+    retryBaseMs: config.externalRetryBaseMs,
+    retryMaxMs: config.externalRetryMaxMs,
+    onRetry,
+  });
   const stored = await loadState(config.telegramStateFile);
   let state = compatibleBotState(stored, config.telegramOwnerId)
     ? withFilterDefaults(stored)
@@ -351,6 +358,14 @@ export async function runTelegramBot(
     activationWaiter?.();
     activationWaiter = undefined;
   };
+  const updateBackoff = new ExponentialBackoff({
+    baseDelayMs: config.externalRetryBaseMs || 1_000,
+    maxDelayMs: config.externalRetryMaxMs || 60_000,
+  });
+  const crawlBackoff = new ExponentialBackoff({
+    baseDelayMs: config.externalRetryBaseMs || 1_000,
+    maxDelayMs: config.externalRetryMaxMs || 60_000,
+  });
 
   const updateLoop = async () => {
     while (!signal?.aborted) {
@@ -378,10 +393,20 @@ export async function runTelegramBot(
           },
         });
         await onTelegramSuccess();
+        updateBackoff.reset();
       } catch (error) {
         if (signal?.aborted) return;
         await onError(error, { component: "telegram" });
-        await sleep(2_000, undefined, { signal }).catch((sleepError) => {
+        if (error.terminal) throw error;
+        const retryDelayMs = isExpectedExternalFailure(error)
+          ? updateBackoff.nextDelay()
+          : 2_000;
+        await onRetry({
+          component: "telegram",
+          operation: "update-poll",
+          delayMs: retryDelayMs,
+        });
+        await sleep(retryDelayMs, undefined, { signal }).catch((sleepError) => {
           if (sleepError.name !== "AbortError") throw sleepError;
         });
       }
@@ -398,6 +423,8 @@ export async function runTelegramBot(
       }
 
       let failureComponent = "cba";
+      const crawlId = randomUUID();
+      const crawlStartedAt = Date.now();
       try {
         const exchangeRates = await exchangeRateService?.getSnapshot(signal);
         failureComponent = "list_am";
@@ -432,25 +459,69 @@ export async function runTelegramBot(
                       {
                         api,
                         signal,
-                        onOperation: onChannelOperation,
-                        onFilterFingerprintChange:
-                          onChannelFilterFingerprintChange,
+                        onOperation: (event) =>
+                          onChannelOperation({
+                            ...event,
+                            crawlId,
+                            durationMs: Date.now() - crawlStartedAt,
+                          }),
+                        onFilterFingerprintChange: (event) =>
+                          onChannelFilterFingerprintChange({
+                            ...event,
+                            crawlId,
+                            durationMs: Date.now() - crawlStartedAt,
+                          }),
                       },
                     );
                   } catch (error) {
-                    await onError(error, { component: "telegram-channel" });
+                    if (error.terminal) {
+                      error.channelPermissionFailure = true;
+                      throw error;
+                    }
+                    await onError(error, {
+                      component: "telegram-channel",
+                      crawlId,
+                      durationMs: Date.now() - crawlStartedAt,
+                    });
                   }
                 },
               }
             : {}),
         });
-        await onResult({ ...result, channel: channelResult });
+        crawlBackoff.reset();
+        await onResult({
+          ...result,
+          channel: channelResult,
+          crawlId,
+          durationMs: Date.now() - crawlStartedAt,
+        });
       } catch (error) {
         if (signal?.aborted) return;
         await onError(error, {
-          component: failureComponent,
+          component: error.channelPermissionFailure
+            ? "telegram-channel"
+            : failureComponent,
           crawlFailure: true,
+          crawlId,
+          durationMs: Date.now() - crawlStartedAt,
         });
+        if (error.terminal) throw error;
+        if (isExpectedExternalFailure(error)) {
+          const retryDelayMs = crawlBackoff.nextDelay();
+          await onRetry({
+            component: failureComponent,
+            operation: "crawl",
+            crawlId,
+            delayMs: retryDelayMs,
+          });
+          try {
+            await sleep(retryDelayMs, undefined, { signal });
+          } catch (sleepError) {
+            if (sleepError.name !== "AbortError") throw sleepError;
+            return;
+          }
+          continue;
+        }
       }
 
       try {

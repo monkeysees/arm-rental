@@ -119,6 +119,57 @@ test("readiness enforces crawl failure and elapsed-time thresholds", () => {
   assert.deepEqual(monitor.readiness().reasons, ["CRAWL_STALE"]);
 });
 
+test("health transitions emit each production alert once until resolved", () => {
+  const alerts = [];
+  let currentTime = new Date("2026-07-25T10:00:00.000Z");
+  const monitor = new HealthMonitor({
+    version: "1.0.0",
+    now: () => currentTime,
+    onAlert: (alert) => alerts.push(alert),
+  });
+  monitor.setPreflight(readyPreflight);
+  monitor.recordExchangeRateSnapshot(snapshot(currentTime.toISOString()));
+  monitor.setMonitoringState({ active: true, channelConfigured: false });
+  monitor.recordCrawlSuccess();
+
+  for (let attempt = 0; attempt < 5; attempt += 1) {
+    monitor.recordCrawlFailure("list_am", "ERR_LIST_AM");
+  }
+  monitor.readiness();
+  monitor.readiness();
+  assert.equal(
+    alerts.filter(
+      ({ name, status }) =>
+        name === "five_consecutive_crawl_failures" && status === "firing",
+    ).length,
+    1,
+  );
+  assert.equal(
+    alerts.filter(
+      ({ name, status }) => name === "readiness_failure" && status === "firing",
+    ).length,
+    1,
+  );
+
+  monitor.recordCrawlSuccess();
+  monitor.readiness();
+  assert.ok(
+    alerts.some(
+      ({ name, status }) =>
+        name === "five_consecutive_crawl_failures" && status === "resolved",
+    ),
+  );
+
+  currentTime = new Date("2026-07-27T10:00:00.001Z");
+  monitor.readiness();
+  assert.ok(
+    alerts.some(
+      ({ name, status }) =>
+        name === "stale_exchange_rates" && status === "firing",
+    ),
+  );
+});
+
 test("readiness reports challenges and exchange-rate availability without leaking data", () => {
   let currentTime = new Date("2026-07-25T10:00:00.000Z");
   const monitor = new HealthMonitor({

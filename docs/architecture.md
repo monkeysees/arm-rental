@@ -184,6 +184,38 @@ external secret and deliberately preserves every file in the persistent data
 directory; the operator runbook is
 [`docs/token-rotation.md`](token-rotation.md).
 
+### Observability boundary
+
+`src/logger.js` is the application logging boundary. Every newline JSON record
+has UTC timestamp, severity, environment, application version, stable event
+name, and message. Warning/error signatures exclude volatile crawl IDs, so
+identical failures are rate-limited for five minutes and the next emitted
+record reports the suppressed count. Redaction runs after the complete record
+is assembled, including generated event names, nested values, and error stacks.
+
+`src/retry.js` provides the shared expected-external-failure policy. Network
+errors and HTTP 5xx responses retry with exponential delay and jitter, bounded
+by the validated `EXTERNAL_RETRY_MAX_MS` value (at most five minutes). A
+successful operation resets its backoff object. Telegram's server-supplied
+`retry_after` is deliberately authoritative for HTTP 429. Terminal credential
+or permission errors, invalid configuration, and incompatible state escape to
+the supervisor instead of entering runtime retry loops.
+
+Crawl completion and failure events carry a random crawl ID and elapsed
+milliseconds. Successful crawl records also expose the page, discovery,
+update, notification, filtering, channel send/edit, and total counters as
+log-derived metrics. Retry and channel-operation records are correlated with
+the same crawl where applicable. There is no public metrics surface.
+
+`HealthMonitor` emits edge-triggered firing/resolved events for readiness,
+browser challenge, invalid Telegram access, five crawl failures, and stale
+rates. Recovery commands emit backup, restore-test, and low-disk firing events.
+The external collector derives restart-loop alerts from `application.started`
+because restart history outlives a process. Production Compose requires an
+external Fluentd-compatible collector. Retention, alert routes, scheduled
+operational checks, and staging exercises are specified in
+[`docs/observability.md`](observability.md).
+
 ### Startup preflight boundary
 
 `src/application.js` does not enter Telegram polling or either monitoring loop

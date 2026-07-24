@@ -83,11 +83,14 @@ export class HealthMonitor {
     now = () => new Date(),
     crawlStaleMs = TEN_MINUTES_MS,
     exchangeRateStaleMs = FORTY_EIGHT_HOURS_MS,
+    onAlert = () => {},
   }) {
     this.version = version;
     this.now = now;
     this.crawlStaleMs = crawlStaleMs;
     this.exchangeRateStaleMs = exchangeRateStaleMs;
+    this.onAlert = onAlert;
+    this.activeAlerts = new Set();
     this.startedAt = timestamp(now);
     this.preflight = {
       status: "pending",
@@ -124,6 +127,9 @@ export class HealthMonitor {
       status: "failed",
       completedAt: timestamp(this.now),
     };
+    this.#setAlert("readiness_failure", true, {
+      reason: "PREFLIGHT_FAILED",
+    });
   }
 
   setPreflight(result) {
@@ -164,6 +170,15 @@ export class HealthMonitor {
         updatedAt,
         safeCode(result.failure.code, "ERR_PREFLIGHT"),
       );
+      if (result.failure.code === "ERR_TELEGRAM_CREDENTIALS") {
+        this.#setAlert("invalid_telegram_credentials", true);
+      }
+      if (result.failure.code === "ERR_TELEGRAM_CHANNEL_PERMISSIONS") {
+        this.#setAlert("invalid_telegram_channel_permissions", true);
+      }
+      if (result.status === "browser_verification_required") {
+        this.#setAlert("browser_challenge", true);
+      }
     }
   }
 
@@ -191,12 +206,18 @@ export class HealthMonitor {
     if (this.components.browser.status !== "challenge") {
       this.#setComponent("browser", "ok", undefined, completedAt);
     }
+    this.#setAlert("five_consecutive_crawl_failures", false);
   }
 
   recordCrawlFailure(kind, code = "ERR_CRAWL") {
     const failedAt = timestamp(this.now);
     this.monitoring.lastFailureAt = failedAt;
     this.monitoring.consecutiveFailures += 1;
+    if (this.monitoring.consecutiveFailures >= 5) {
+      this.#setAlert("five_consecutive_crawl_failures", true, {
+        consecutiveFailures: this.monitoring.consecutiveFailures,
+      });
+    }
     if (kind === "browser_challenge") {
       this.recordBrowserChallenge(failedAt);
       return;
@@ -216,10 +237,15 @@ export class HealthMonitor {
       "ERR_BROWSER_VERIFICATION_REQUIRED",
       at,
     );
+    this.#setAlert("browser_challenge", true);
   }
 
   recordComponentSuccess(name) {
     if (COMPONENT_NAMES.includes(name)) this.#setComponent(name, "ok");
+    if (name === "telegram") {
+      this.#setAlert("invalid_telegram_credentials", false);
+      this.#setAlert("invalid_telegram_channel_permissions", false);
+    }
   }
 
   recordComponentFailure(name, code, { warning = false } = {}) {
@@ -229,6 +255,16 @@ export class HealthMonitor {
       warning ? "warning" : "failed",
       safeCode(code, `ERR_${name.toUpperCase()}`),
     );
+    if (code === "ERR_TELEGRAM_CREDENTIALS") {
+      this.#setAlert("invalid_telegram_credentials", true);
+    }
+    if (
+      ["ERR_TELEGRAM_CHANNEL_PERMISSIONS", "ERR_TELEGRAM_CHANNEL"].includes(
+        code,
+      )
+    ) {
+      this.#setAlert("invalid_telegram_channel_permissions", true);
+    }
   }
 
   recordExchangeRateSnapshot(snapshot) {
@@ -321,6 +357,18 @@ export class HealthMonitor {
     }
 
     const uniqueReasons = [...new Set(reasons)];
+    if (this.preflight.status !== "pending") {
+      this.#setAlert("readiness_failure", uniqueReasons.length > 0, {
+        reasons: uniqueReasons,
+      });
+    }
+    this.#setAlert(
+      "stale_exchange_rates",
+      warnings.includes("EXCHANGE_RATES_STALE"),
+      {
+        fetchedAt: this.exchangeRates.fetchedAt,
+      },
+    );
     return {
       status: uniqueReasons.length === 0 ? "ready" : "not_ready",
       ready: uniqueReasons.length === 0,
@@ -353,6 +401,18 @@ export class HealthMonitor {
 
   #setComponent(name, status, code, updatedAt = timestamp(this.now)) {
     this.components[name] = component(status, updatedAt, code);
+  }
+
+  #setAlert(name, firing, details = {}) {
+    const wasFiring = this.activeAlerts.has(name);
+    if (firing === wasFiring) return;
+    if (firing) this.activeAlerts.add(name);
+    else this.activeAlerts.delete(name);
+    this.onAlert({
+      name,
+      status: firing ? "firing" : "resolved",
+      ...details,
+    });
   }
 }
 

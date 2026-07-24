@@ -1,6 +1,7 @@
 import * as cheerio from "cheerio";
 
 import { readState, writeState } from "./state.js";
+import { ExponentialBackoff, retryOperation } from "./retry.js";
 
 const CBA_API_URL = "https://api.cba.am/exchangerates.asmx";
 const CBA_SOAP_ACTION = "http://www.cba.am/ExchangeRatesLatest";
@@ -103,6 +104,7 @@ export class ExchangeRateService {
       retryMs = HOUR_MS,
       onRefresh = () => {},
       onFetchError = () => {},
+      onRetry = () => {},
     } = {},
   ) {
     this.stateFile = config.exchangeRatesStateFile;
@@ -115,6 +117,9 @@ export class ExchangeRateService {
     this.retryMs = retryMs;
     this.onRefresh = onRefresh;
     this.onFetchError = onFetchError;
+    this.onRetry = onRetry;
+    this.retryBaseMs = config.externalRetryBaseMs || 1_000;
+    this.retryMaxMs = config.externalRetryMaxMs || 60_000;
     this.loaded = false;
     this.snapshot = undefined;
     this.nextAttemptAt = 0;
@@ -142,9 +147,11 @@ export class ExchangeRateService {
       signal: requestSignal(signal, this.timeoutMs),
     });
     if (!response.ok) {
-      throw new Error(
+      const error = new Error(
         `CBA exchange-rate request failed: ${response.status} ${response.statusText}`,
       );
+      error.httpStatus = response.status;
+      throw error;
     }
 
     const fetchedAt = this.now().toISOString();
@@ -157,7 +164,20 @@ export class ExchangeRateService {
     if (attemptedAt < this.nextAttemptAt) return this.snapshot;
 
     try {
-      const snapshot = await this.fetchSnapshot(signal);
+      const snapshot = await retryOperation(() => this.fetchSnapshot(signal), {
+        backoff: new ExponentialBackoff({
+          baseDelayMs: this.retryBaseMs,
+          maxDelayMs: this.retryMaxMs,
+        }),
+        signal,
+        onRetry: ({ attempt, delayMs }) =>
+          this.onRetry({
+            component: "cba",
+            operation: "exchange-rate-refresh",
+            attempt,
+            delayMs,
+          }),
+      });
       await this.saveState(this.stateFile, snapshot);
       this.snapshot = snapshot;
       this.nextAttemptAt = Date.parse(snapshot.fetchedAt) + this.refreshMs;

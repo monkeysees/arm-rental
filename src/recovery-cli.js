@@ -32,12 +32,16 @@ try {
       warningThreshold: config.diskFreeWarningFraction,
       onEvent: (event) =>
         event.status === "warning"
-          ? logger.warn("Persistent storage is low", event)
+          ? logger.warn("Persistent storage is low", {
+              event: "alert.firing",
+              alertName: "low_disk",
+              ...event,
+            })
           : logger.info("Persistent storage disk check passed", event),
     });
     if (disk.status === "warning") {
       logger.warn("Backup is continuing with low source disk space", {
-        eventName: "backup.low_source_disk",
+        event: "backup.low_source_disk",
         freeFraction: disk.freeFraction,
       });
     }
@@ -48,10 +52,18 @@ try {
         logger.info("Recovery operation event", { recovery: event }),
     });
     logger.info("Backup completed", result);
+    logger.info("Production alert resolved", {
+      event: "alert.resolved",
+      alertName: "backup_failure",
+    });
   } else if (command === "validate") {
     if (!argument) throw new Error(usage());
     const result = await validateSnapshot(config, path.resolve(argument));
     logger.info("Backup validation completed", result);
+    logger.info("Production alert resolved", {
+      event: "alert.resolved",
+      alertName: "restore_test_failure",
+    });
   } else if (command === "restore") {
     if (!argument) throw new Error(usage());
     await validateStartupConfig(config);
@@ -68,14 +80,38 @@ try {
       warningThreshold: config.diskFreeWarningFraction,
       onEvent: (event) =>
         event.status === "warning"
-          ? logger.warn("Persistent storage is low", event)
+          ? logger.warn("Persistent storage is low", {
+              event: "alert.firing",
+              alertName: "low_disk",
+              ...event,
+            })
           : logger.info("Persistent storage disk check passed", event),
     });
     if (result.status === "warning") process.exitCode = 2;
+    else {
+      logger.info("Production alert resolved", {
+        event: "alert.resolved",
+        alertName: "low_disk",
+      });
+    }
   } else {
     throw new Error(usage());
   }
 } catch (error) {
+  const alertName =
+    command === "backup"
+      ? "backup_failure"
+      : command === "validate"
+        ? "restore_test_failure"
+        : undefined;
+  if (alertName) {
+    logger.warn("Production alert firing", {
+      event: "alert.firing",
+      alertName,
+      command,
+      code: error.code,
+    });
+  }
   logger.error("Recovery command failed", error, {
     command: command || "missing",
   });

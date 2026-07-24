@@ -246,6 +246,42 @@ test("TelegramApi obeys retry_after when Telegram rate limits delivery", async (
   assert.deepEqual(sleeps, [2_000]);
 });
 
+test("TelegramApi retries network and 5xx failures but not invalid credentials", async () => {
+  const sleeps = [];
+  let calls = 0;
+  const api = new TelegramApi("secret", {
+    retryBaseMs: 1_000,
+    retryMaxMs: 5_000,
+    fetchImpl: async () => {
+      calls += 1;
+      if (calls === 1) throw new TypeError("fetch failed");
+      if (calls === 2) {
+        return Response.json(
+          { ok: false, description: "Bad Gateway" },
+          { status: 502 },
+        );
+      }
+      return Response.json({ ok: true, result: true });
+    },
+    sleep: async (milliseconds) => sleeps.push(milliseconds),
+  });
+
+  await api.getMe();
+  assert.equal(calls, 3);
+  assert.equal(sleeps.length, 2);
+  assert.ok(sleeps[1] > sleeps[0]);
+
+  const terminalApi = new TelegramApi("invalid", {
+    fetchImpl: async () =>
+      Response.json(
+        { ok: false, description: "Unauthorized", error_code: 401 },
+        { status: 401 },
+      ),
+    sleep: async () => assert.fail("terminal failures must not sleep"),
+  });
+  await assert.rejects(terminalApi.getMe(), (error) => error.terminal === true);
+});
+
 test("TelegramApi serializes interactive filter controls", async () => {
   const requests = [];
   const api = new TelegramApi("secret", {

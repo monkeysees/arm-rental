@@ -43,8 +43,9 @@ test("application lifecycle drives crawl and exchange-rate readiness", async () 
   const exchangeSnapshot = {
     fetchedAt: "2026-07-25T09:00:00.000Z",
   };
+  const infoRecords = [];
   const logger = {
-    info: () => {},
+    info: (message, context) => infoRecords.push({ message, context }),
     warn: () => {},
     error: () => {},
   };
@@ -86,6 +87,8 @@ test("application lifecycle drives crawl and exchange-rate readiness", async () 
         channelConfigured: true,
       });
       callbacks.onResult({
+        crawlId: "69a3b980-24ce-494b-a1e5-cdb4ff9dc659",
+        durationMs: 1_234,
         status: "unchanged",
         pagesParsed: 1,
         discoveredCount: 0,
@@ -109,4 +112,36 @@ test("application lifecycle drives crawl and exchange-rate readiness", async () 
   assert.equal(health.monitoring.channelConfigured, true);
   assert.equal(health.monitoring.lastSuccessAt, "2026-07-25T10:00:00.000Z");
   assert.equal(health.exchangeRates.fetchedAt, exchangeSnapshot.fetchedAt);
+  assert.deepEqual(
+    infoRecords.find(({ context }) => context?.event === "crawl.succeeded")
+      .context,
+    {
+      event: "crawl.succeeded",
+      crawlId: "69a3b980-24ce-494b-a1e5-cdb4ff9dc659",
+      durationMs: 1_234,
+      duration: 1_234,
+      pages: 1,
+      discovered: 0,
+      updated: 0,
+      notified: 0,
+      filtered: 0,
+      channelSent: 0,
+      channelEdited: 0,
+      total: 0,
+      status: "unchanged",
+      pagesParsed: 1,
+      discoveredCount: 0,
+      updatedCount: 0,
+      notifiedCount: 0,
+      skippedCount: 0,
+      filteredCount: 0,
+      totalCount: 0,
+      lastKnownDate: undefined,
+      stoppedAtKnownDate: undefined,
+      channelSentCount: 0,
+      channelEditedCount: 0,
+      channelFilteredCount: 0,
+      channelSkippedCount: 0,
+    },
+  );
 });

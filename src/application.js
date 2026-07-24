@@ -76,6 +76,11 @@ export async function runApplication({
           storedRatesFetchedAt: snapshot?.fetchedAt,
         });
       },
+      onRetry: (event) =>
+        logger.warn("External request retry scheduled", {
+          event: "retry.scheduled",
+          ...event,
+        }),
     });
 
     const preflightResult = await preflight(config, {
@@ -84,6 +89,11 @@ export async function runApplication({
       browserFetcher,
       exchangeRateService,
       signal: controller.signal,
+      onRetry: (event) =>
+        logger.warn("External request retry scheduled", {
+          event: "retry.scheduled",
+          ...event,
+        }),
     });
     logger.info("Startup preflight completed", {
       preflight: preflightResult,
@@ -104,6 +114,18 @@ export async function runApplication({
       onResult: (result) => {
         healthMonitor?.recordCrawlSuccess();
         logger.info("Apartment crawl completed", {
+          event: "crawl.succeeded",
+          crawlId: result.crawlId,
+          durationMs: result.durationMs,
+          duration: result.durationMs,
+          pages: result.pagesParsed,
+          discovered: result.discoveredCount,
+          updated: result.updatedCount,
+          notified: result.notifiedCount,
+          filtered: result.filteredCount,
+          channelSent: result.channel.sentCount,
+          channelEdited: result.channel.editedCount,
+          total: result.totalCount,
           status: result.status,
           pagesParsed: result.pagesParsed,
           discoveredCount: result.discoveredCount,
@@ -122,14 +144,20 @@ export async function runApplication({
       },
       onError: (error, context) => {
         const component = classifyRuntimeFailure(error, context);
+        const failureCode =
+          error.terminal && context?.component === "telegram-channel"
+            ? "ERR_TELEGRAM_CHANNEL_PERMISSIONS"
+            : error.terminal && component === "telegram"
+              ? "ERR_TELEGRAM_CREDENTIALS"
+              : error.code;
         if (context?.crawlFailure) {
-          healthMonitor?.recordCrawlFailure(component, error.code);
+          healthMonitor?.recordCrawlFailure(component, failureCode);
         } else {
           healthMonitor?.recordComponentFailure(
             component === "browser_challenge" ? "browser" : component,
             component === "browser_challenge"
               ? "ERR_BROWSER_VERIFICATION_REQUIRED"
-              : error.code,
+              : failureCode,
           );
         }
         logger.error(
@@ -137,7 +165,14 @@ export async function runApplication({
             ? "Telegram channel publication failed"
             : "Apartment crawl failed",
           error,
-          context,
+          {
+            event: context?.crawlFailure
+              ? "crawl.failed"
+              : context?.component === "telegram-channel"
+                ? "channel.operation.failed"
+                : "runtime.operation.failed",
+            ...context,
+          },
         );
       },
       onMonitoringState: (state) => healthMonitor?.setMonitoringState(state),
@@ -150,6 +185,12 @@ export async function runApplication({
           channelId: event.channelId,
           ...(event.messageId ? { messageId: event.messageId } : {}),
           outcome: event.outcome,
+          ...(event.crawlId
+            ? {
+                crawlId: event.crawlId,
+                durationMs: event.durationMs,
+              }
+            : {}),
         };
         if (event.outcome === "failed") {
           healthMonitor?.recordComponentFailure(
@@ -167,7 +208,15 @@ export async function runApplication({
         }
       },
       onChannelFilterFingerprintChange: (event) =>
-        logger.info("Telegram channel filter fingerprint changed", event),
+        logger.info("Telegram channel filter fingerprint changed", {
+          event: "channel.filter.changed",
+          ...event,
+        }),
+      onRetry: (retry) =>
+        logger.warn("External request retry scheduled", {
+          event: "retry.scheduled",
+          ...retry,
+        }),
     });
   } catch (error) {
     if (!preflightLogged) {

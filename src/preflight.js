@@ -321,15 +321,20 @@ export async function runStartupPreflight(
     singletonLock,
     browserFetcher,
     exchangeRateService,
-    api = new TelegramApi(config.telegramBotToken, {
-      timeoutMs: config.timeoutMs,
-    }),
+    api,
     loadState = readState,
     recordVerification = recordBrowserVerification,
+    onRetry = () => {},
     signal,
   } = {},
 ) {
   const result = emptyResult();
+  api ??= new TelegramApi(config.telegramBotToken, {
+    timeoutMs: config.timeoutMs,
+    retryBaseMs: config.externalRetryBaseMs,
+    retryMaxMs: config.externalRetryMaxMs,
+    onRetry,
+  });
 
   try {
     if (!storageValidated) {

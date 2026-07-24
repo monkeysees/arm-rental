@@ -22,6 +22,14 @@ services:
       - /tmp:size=134217728,mode=1777,nosuid,nodev,noexec
       - /dev/shm:size=268435456,mode=1777,nosuid,nodev,noexec
     restart: "on-failure:5"
+    # Production refuses a host-only logging configuration. The collector must
+    # forward these JSON records to durable storage with >=14-day retention.
+    logging:
+      driver: fluentd
+      options:
+        fluentd-address: ${LOG_COLLECTOR_ADDRESS:?set LOG_COLLECTOR_ADDRESS to an external Fluent Bit/Fluentd endpoint}
+        fluentd-async: "true"
+        tag: rental-apartments.production
     healthcheck:
       test: ["CMD", "node", "src/health-check.js", "--restart-unresponsive"]
       interval: 30s

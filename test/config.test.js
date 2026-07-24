@@ -66,6 +66,8 @@ test("configuration uses the requested target and ten initial pages", () => {
   assert.equal(config.diskFreeWarningFraction, 0.2);
   assert.equal(config.healthHost, "127.0.0.1");
   assert.equal(config.healthPort, 8_787);
+  assert.equal(config.externalRetryBaseMs, 1_000);
+  assert.equal(config.externalRetryMaxMs, 60_000);
 });
 
 test("configuration relocates default persistent files together", () => {
@@ -206,6 +208,23 @@ test("configuration rejects unsupported modes, unsafe paths, and collisions", ()
         DISK_FREE_WARNING_PERCENT: "100",
       }),
     /less than 100/u,
+  );
+  assert.throws(
+    () =>
+      getConfig({
+        ...requiredEnvironment,
+        EXTERNAL_RETRY_MAX_MS: "300001",
+      }),
+    /must not exceed 300000/u,
+  );
+  assert.throws(
+    () =>
+      getConfig({
+        ...requiredEnvironment,
+        EXTERNAL_RETRY_BASE_MS: "2000",
+        EXTERNAL_RETRY_MAX_MS: "1000",
+      }),
+    /must not exceed EXTERNAL_RETRY_MAX_MS/u,
   );
 });
 

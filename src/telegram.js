@@ -1,17 +1,32 @@
 import { setTimeout as delay } from "node:timers/promises";
 
 import { originalPrice } from "./prices.js";
+import {
+  ExponentialBackoff,
+  isExpectedExternalFailure,
+  retryOperation,
+} from "./retry.js";
 
 const TELEGRAM_API_URL = "https://api.telegram.org";
 
 export class TelegramApiError extends Error {
-  constructor(method, description, { httpStatus, telegramErrorCode } = {}) {
+  constructor(
+    method,
+    description,
+    { httpStatus, telegramErrorCode, retryAfterMs } = {},
+  ) {
     super(`Telegram ${method} failed: ${description}`);
     this.name = "TelegramApiError";
     this.code = "ERR_TELEGRAM_API";
     this.method = method;
     this.httpStatus = httpStatus;
     this.telegramErrorCode = telegramErrorCode;
+    this.retryAfterMs = retryAfterMs;
+    this.terminal =
+      [400, 401, 403].includes(telegramErrorCode || httpStatus) &&
+      /(?:unauthorized|forbidden|chat not found|not enough rights|bot was blocked|need administrator rights)/iu.test(
+        description,
+      );
   }
 }
 
@@ -23,43 +38,76 @@ function requestSignal(signal, timeoutMs) {
 export class TelegramApi {
   constructor(
     token,
-    { fetchImpl = globalThis.fetch, timeoutMs = 30_000, sleep = delay } = {},
+    {
+      fetchImpl = globalThis.fetch,
+      timeoutMs = 30_000,
+      retryBaseMs = 1_000,
+      retryMaxMs = 60_000,
+      sleep = delay,
+      onRetry = () => {},
+    } = {},
   ) {
     this.baseUrl = `${TELEGRAM_API_URL}/bot${token}`;
     this.fetchImpl = fetchImpl;
     this.timeoutMs = timeoutMs;
     this.sleep = sleep;
+    this.retryBaseMs = retryBaseMs;
+    this.retryMaxMs = retryMaxMs;
+    this.onRetry = onRetry;
   }
 
   async call(method, payload, { signal, timeoutMs = this.timeoutMs } = {}) {
-    for (let attempt = 1; attempt <= 4; attempt += 1) {
-      const response = await this.fetchImpl(`${this.baseUrl}/${method}`, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify(payload),
-        signal: requestSignal(signal, timeoutMs),
-      });
-      const body = await response.json().catch(() => undefined);
-
-      if (response.status === 429 && attempt < 4) {
-        const retryAfter = Math.max(1, body?.parameters?.retry_after || 1);
-        await this.sleep(retryAfter * 1_000, undefined, { signal });
-        continue;
-      }
-
-      if (!response.ok || !body?.ok) {
-        const description =
-          body?.description || `${response.status} ${response.statusText}`;
-        throw new TelegramApiError(method, description, {
-          httpStatus: response.status,
-          telegramErrorCode: body?.error_code,
+    return retryOperation(
+      async () => {
+        const response = await this.fetchImpl(`${this.baseUrl}/${method}`, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify(payload),
+          signal: requestSignal(signal, timeoutMs),
         });
-      }
+        const body = await response.json().catch(() => undefined);
 
-      return body.result;
-    }
+        if (!response.ok || !body?.ok) {
+          const description =
+            body?.description || `${response.status} ${response.statusText}`;
+          throw new TelegramApiError(method, description, {
+            httpStatus: response.status,
+            telegramErrorCode: body?.error_code,
+            retryAfterMs:
+              response.status === 429
+                ? Math.max(1, body?.parameters?.retry_after || 1) * 1_000
+                : undefined,
+          });
+        }
 
-    throw new Error(`Telegram ${method} failed after retries`);
+        return body.result;
+      },
+      {
+        maxAttempts: 4,
+        backoff: new ExponentialBackoff({
+          baseDelayMs: this.retryBaseMs,
+          maxDelayMs: this.retryMaxMs,
+        }),
+        shouldRetry: (error) =>
+          error?.httpStatus === 429 || isExpectedExternalFailure(error),
+        // Telegram's server-provided flood-control interval intentionally
+        // overrides the generic retry cap and jitter.
+        retryDelay: (error) => error?.retryAfterMs,
+        sleep: this.sleep,
+        signal,
+        onRetry: ({ attempt, delayMs, error }) =>
+          this.onRetry({
+            component: "telegram",
+            method,
+            attempt,
+            delayMs,
+            reason:
+              error.httpStatus === 429
+                ? "telegram_retry_after"
+                : "expected_external_failure",
+          }),
+      },
+    );
   }
 
   getUpdates(offset, timeoutSeconds, signal) {

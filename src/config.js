@@ -13,6 +13,7 @@ import { constants as filesystemConstants } from "node:fs";
 import { randomUUID } from "node:crypto";
 
 import { parseChannelFilters } from "./channel.js";
+import { MAX_RETRY_DELAY_MS } from "./retry.js";
 import { LIST_AM_URL_TEMPLATE } from "./target.js";
 
 const SUPPORTED_RUNTIME_MODES = new Set(["development", "test", "production"]);
@@ -224,6 +225,16 @@ export function getConfig(env = process.env, cwd = process.cwd()) {
       "POLL_INTERVAL_MS",
     ),
     timeoutMs: positiveInteger(env.TIMEOUT_MS, 30_000, "TIMEOUT_MS"),
+    externalRetryBaseMs: positiveInteger(
+      env.EXTERNAL_RETRY_BASE_MS,
+      1_000,
+      "EXTERNAL_RETRY_BASE_MS",
+    ),
+    externalRetryMaxMs: positiveInteger(
+      env.EXTERNAL_RETRY_MAX_MS,
+      60_000,
+      "EXTERNAL_RETRY_MAX_MS",
+    ),
     chromeExecutablePath: env.CHROME_EXECUTABLE_PATH?.trim() || undefined,
     browserProfileDir: path.resolve(
       cwd,
@@ -271,6 +282,14 @@ export function getConfig(env = process.env, cwd = process.cwd()) {
   if (!["127.0.0.1", "::1"].includes(config.healthHost)) {
     throw new Error(
       "HEALTH_HOST must be a loopback address (127.0.0.1 or ::1)",
+    );
+  }
+  if (config.externalRetryMaxMs > MAX_RETRY_DELAY_MS) {
+    throw new Error("EXTERNAL_RETRY_MAX_MS must not exceed 300000");
+  }
+  if (config.externalRetryBaseMs > config.externalRetryMaxMs) {
+    throw new Error(
+      "EXTERNAL_RETRY_BASE_MS must not exceed EXTERNAL_RETRY_MAX_MS",
     );
   }
   if (config.backupDailyRetention < 7) {

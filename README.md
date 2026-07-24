@@ -197,6 +197,8 @@ details.
 | `INITIAL_PAGE_COUNT`            | `10`                                     | Pages parsed with an empty apartment database  |
 | `INITIAL_DELIVERY_LIMIT`        | `10`                                     | Latest initial private/channel selection size  |
 | `TIMEOUT_MS`                    | `30000`                                  | Browser navigation and API timeout             |
+| `EXTERNAL_RETRY_BASE_MS`        | `1000`                                   | Initial network/5xx retry delay                |
+| `EXTERNAL_RETRY_MAX_MS`         | `60000`                                  | Retry cap; cannot exceed five minutes          |
 | `BROWSER_PROFILE_DIR`           | `.data/chrome-profile`                   | Persistent Chrome profile                      |
 | `BROWSER_HEADLESS`              | `false`                                  | Run Chrome headlessly                          |
 | `BROWSER_CHALLENGE_TIMEOUT_MS`  | `120000`                                 | Verification wait duration                     |
@@ -213,6 +215,9 @@ details.
 Production backup and recovery commands are documented in
 [docs/state-recovery.md](docs/state-recovery.md). The backup destination must
 not share the application volume.
+
+Production log collection, retention, alert routing, and response checks are
+documented in [docs/observability.md](docs/observability.md).
 
 ## Quality checks
 

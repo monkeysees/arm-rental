@@ -77,9 +77,11 @@ export function compatibleDeliveryState(state, template) {
 async function fetchHtml(url, fetchPage) {
   const response = await fetchPage(url);
   if (!response.ok) {
-    throw new Error(
+    const error = new Error(
       `List.am returned HTTP ${response.status} ${response.statusText}`,
     );
+    error.httpStatus = response.status;
+    throw error;
   }
   return response.text();
 }

@@ -8,11 +8,15 @@ FROM node:${NODE_VERSION}-bookworm-slim@sha256:6f7b03f7c2c8e2e784dcf9295400527b9
 ARG NODE_VERSION
 ARG CHROME_VERSION=150.0.7871.24
 ARG DEBIAN_SNAPSHOT=20260713T000000Z
+ARG SOURCE_REVISION
+ARG PACKAGE_LOCK_SHA256
 ARG DEBIAN_FRONTEND=noninteractive
 
 LABEL org.opencontainers.image.title="rental-apartments-bot" \
+      org.opencontainers.image.revision="${SOURCE_REVISION}" \
       org.opencontainers.image.node.version="${NODE_VERSION}" \
-      org.opencontainers.image.chrome.version="${CHROME_VERSION}"
+      org.opencontainers.image.chrome.version="${CHROME_VERSION}" \
+      org.opencontainers.image.package-lock.sha256="${PACKAGE_LOCK_SHA256}"
 
 ENV NODE_ENV=production \
     BROWSER_HEADLESS=true \
@@ -21,6 +25,9 @@ ENV NODE_ENV=production \
 WORKDIR /app
 
 COPY package.json package-lock.json ./
+RUN test "$(printf '%s' "${SOURCE_REVISION}" | wc -c)" -eq 40 \
+    && printf '%s' "${SOURCE_REVISION}" | grep --quiet --extended-regexp '^[a-f0-9]+$' \
+    && test "${PACKAGE_LOCK_SHA256}" = "$(sha256sum package-lock.json | cut -d ' ' -f 1)"
 RUN npm ci --omit=dev && npm cache clean --force
 
 # Chrome for Testing ships a deb.deps manifest. Installing it against a dated

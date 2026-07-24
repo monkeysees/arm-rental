@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { EventEmitter } from "node:events";
 import test from "node:test";
 
 import { runApplication } from "../src/application.js";
@@ -44,10 +45,14 @@ test("application lifecycle drives crawl and exchange-rate readiness", async () 
     fetchedAt: "2026-07-25T09:00:00.000Z",
   };
   const infoRecords = [];
+  const warningRecords = [];
+  const errorRecords = [];
+  const signalEmitter = new EventEmitter();
   const logger = {
     info: (message, context) => infoRecords.push({ message, context }),
-    warn: () => {},
-    error: () => {},
+    warn: (message, context) => warningRecords.push({ message, context }),
+    error: (message, error, context) =>
+      errorRecords.push({ message, error, context }),
   };
 
   await runApplication({
@@ -56,6 +61,7 @@ test("application lifecycle drives crawl and exchange-rate readiness", async () 
       telegramChannelId: "@rentals",
     },
     logger,
+    signalEmitter,
     healthMonitor: monitor,
     validateConfig: async () => {},
     acquireLock: async () => ({
@@ -63,24 +69,44 @@ test("application lifecycle drives crawl and exchange-rate readiness", async () 
       owner: { pid: 42 },
       release: async () => {},
     }),
-    browserFetcherFactory: () => ({
-      fetch: async () => {},
-      close: async () => {},
-    }),
-    exchangeRateServiceFactory: () => ({
-      currentSnapshot: () => exchangeSnapshot,
-    }),
-    preflight: async () => ({
-      status: "ready",
-      ready: true,
-      checks: {
-        storage: "passed",
-        telegram: "passed",
-        browser: "passed",
-        list_am: "passed",
-        exchange_rates: "passed",
-      },
-    }),
+    browserFetcherFactory: (_config, callbacks) => {
+      callbacks.onStatus("Browser is starting");
+      callbacks.onEvent({
+        name: "browser.challenge",
+        component: "browser",
+        code: "ERR_BROWSER_VERIFICATION_REQUIRED",
+        remediationCommand: "npm run browser:verify",
+      });
+      return {
+        fetch: async () => {},
+        close: async () => {},
+      };
+    },
+    exchangeRateServiceFactory: (_config, callbacks) => {
+      callbacks.onRefresh({
+        ...exchangeSnapshot,
+        effectiveDate: "2026-07-25",
+      });
+      callbacks.onFetchError(new Error("temporary CBA failure"), undefined);
+      callbacks.onRetry({ component: "cba", attempt: 1 });
+      return {
+        currentSnapshot: () => exchangeSnapshot,
+      };
+    },
+    preflight: async (_config, callbacks) => {
+      callbacks.onRetry({ component: "telegram", attempt: 1 });
+      return {
+        status: "ready",
+        ready: true,
+        checks: {
+          storage: "passed",
+          telegram: "passed",
+          browser: "passed",
+          list_am: "passed",
+          exchange_rates: "passed",
+        },
+      };
+    },
     runBot: async (_config, callbacks) => {
       callbacks.onMonitoringState({
         active: false,
@@ -104,6 +130,44 @@ test("application lifecycle drives crawl and exchange-rate readiness", async () 
           skippedCount: 0,
         },
       });
+      callbacks.onError(
+        Object.assign(new Error("channel forbidden"), { terminal: true }),
+        { component: "telegram-channel" },
+      );
+      callbacks.onError(
+        Object.assign(new Error("bot token rejected"), { terminal: true }),
+        { component: "telegram", crawlFailure: true },
+      );
+      callbacks.onError(
+        Object.assign(new Error("challenge"), {
+          code: "ERR_BROWSER_VERIFICATION_REQUIRED",
+        }),
+      );
+      callbacks.onTelegramSuccess();
+      callbacks.onChannelOperation({
+        operation: "edit",
+        itemId: "listing-1",
+        channelId: "@rentals",
+        messageId: 10,
+        outcome: "failed",
+        error: Object.assign(new Error("edit failed"), {
+          code: "ERR_TELEGRAM_API",
+        }),
+      });
+      callbacks.onChannelOperation({
+        operation: "send",
+        itemId: "listing-2",
+        channelId: "@rentals",
+        outcome: "sent",
+        crawlId: "69a3b980-24ce-494b-a1e5-cdb4ff9dc659",
+        durationMs: 12,
+      });
+      callbacks.onChannelFilterFingerprintChange({
+        previous: "old",
+        current: "new",
+      });
+      callbacks.onRetry({ component: "list_am", attempt: 2 });
+      signalEmitter.emit("SIGTERM");
     },
   });
 
@@ -112,6 +176,22 @@ test("application lifecycle drives crawl and exchange-rate readiness", async () 
   assert.equal(health.monitoring.channelConfigured, true);
   assert.equal(health.monitoring.lastSuccessAt, "2026-07-25T10:00:00.000Z");
   assert.equal(health.exchangeRates.fetchedAt, exchangeSnapshot.fetchedAt);
+  assert.equal(signalEmitter.listenerCount("SIGTERM"), 0);
+  assert.ok(
+    infoRecords.some(
+      ({ message, context }) =>
+        message === "Graceful shutdown completed" &&
+        context.signal === "SIGTERM",
+    ),
+  );
+  assert.ok(
+    warningRecords.some(({ context }) => context?.event === "retry.scheduled"),
+  );
+  assert.ok(
+    errorRecords.some(
+      ({ message }) => message === "Telegram channel publication failed",
+    ),
+  );
   assert.deepEqual(
     infoRecords.find(({ context }) => context?.event === "crawl.succeeded")
       .context,

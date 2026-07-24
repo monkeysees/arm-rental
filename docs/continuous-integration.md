@@ -1,0 +1,54 @@
+# Continuous integration
+
+`Required CI` runs for every pull request and every push to `main`. Repository
+branch protection must require both stable check names:
+
+- `Required CI / Required / quality`
+- `Required CI / Required / production artifact`
+
+The quality job uses the exact Node release in `.nvmrc`, installs the lockfile
+with `npm ci`, runs `npm run check`, independently runs the coverage gate, and
+audits production dependencies with
+`npm audit --omit=dev --audit-level=high`. The coverage command measures
+`src/**/*.js` and fails below 90% lines or 80% branches.
+
+Coverage thresholds and the measured source glob live in `package.json` so the
+same gate runs locally and in CI. Lowering either threshold or adding an
+exclusion is an exception: the pull request must state why the code cannot be
+measured, identify the compensating test, and receive explicit reviewer
+approval. `test/ci-contract.test.js` pins the current thresholds and source
+scope, so an exception cannot be introduced only by changing workflow YAML.
+Temporary exceptions must include a removal issue and expiry date in this
+document; there are currently no exceptions.
+
+The artifact job builds the Linux AMD64 production image with source revision
+and package-lock digest build arguments. The Docker build verifies those
+arguments before installing only production dependencies. It then verifies the
+pinned Node and Chrome executables and all image labels. Trivy 0.69.3 scans both
+OS packages and application libraries and fails on every high or critical
+finding, including unfixed findings. The job saves the successfully scanned
+image as a compressed Docker archive and uploads it with
+`release-metadata.json`; a scan failure therefore cannot produce a deployable
+artifact.
+
+The release manifest binds the archive to:
+
+- the full source Git revision;
+- the exact Node and Chrome versions;
+- the SHA-256 digest of `package-lock.json`; and
+- the SHA-256 digest and filename of the image archive.
+
+The source revision, runtime versions, and lock digest are duplicated as OCI
+labels so operators can verify metadata after loading the archive. The uploaded
+artifact is retained for 14 days. Deployment automation must consume that exact
+archive rather than rebuilding it.
+
+All GitHub Actions references use full commit SHAs, and the Trivy binary version
+is fixed. Dependabot opens monthly pull requests for npm, Docker, and GitHub
+Actions updates. Updates remain subject to both required checks and human
+review; no update workflow merges or mutates production automatically.
+
+The vulnerability database download, production image build, Trivy scan, and
+artifact upload require GitHub-hosted network and artifact services. They
+cannot be fully reproduced by `npm run check`; use the required hosted jobs as
+the release authority.

@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { request } from "node:http";
+import { createServer, request } from "node:http";
 import test from "node:test";
 
 import {
@@ -7,7 +7,7 @@ import {
   HealthMonitor,
   startHealthServer,
 } from "../src/health.js";
-import { isApplicationCommand } from "../src/health-check.js";
+import { isApplicationCommand, probeLiveness } from "../src/health-check.js";
 
 const readyPreflight = {
   status: "ready",
@@ -62,6 +62,14 @@ test("runtime failures use stable stage and error codes", () => {
   );
   assert.equal(
     classifyRuntimeFailure(
+      Object.assign(new Error("rates unavailable"), {
+        code: "ERR_PREFLIGHT_EXCHANGE_RATES",
+      }),
+    ),
+    "cba",
+  );
+  assert.equal(
+    classifyRuntimeFailure(
       Object.assign(new Error("write failed"), {
         code: "ENOSPC",
       }),
@@ -90,6 +98,46 @@ test("runtime failures use stable stage and error codes", () => {
 test("liveness supervision targets the application, not the probe process", () => {
   assert.equal(isApplicationCommand("node\0src/index.js\0"), true);
   assert.equal(isApplicationCommand("node\0/app/src/health-check.js\0"), false);
+});
+
+test("liveness probe accepts only a responsive success status", async (t) => {
+  let statusCode = 200;
+  let shouldRespond = true;
+  const server = createServer((_request, response) => {
+    if (!shouldRespond) return;
+    response.writeHead(statusCode);
+    response.end();
+  });
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  t.after(() => server.close());
+  const address = server.address();
+  const probeOptions = {
+    host: "127.0.0.1",
+    port: address.port,
+    timeoutMs: 100,
+  };
+  const originalHost = process.env.HEALTH_HOST;
+  const originalPort = process.env.HEALTH_PORT;
+  process.env.HEALTH_HOST = probeOptions.host;
+  process.env.HEALTH_PORT = String(probeOptions.port);
+  t.after(() => {
+    if (originalHost === undefined) delete process.env.HEALTH_HOST;
+    else process.env.HEALTH_HOST = originalHost;
+    if (originalPort === undefined) delete process.env.HEALTH_PORT;
+    else process.env.HEALTH_PORT = originalPort;
+  });
+
+  await probeLiveness({ timeoutMs: 100 });
+  statusCode = 503;
+  await assert.rejects(
+    probeLiveness(probeOptions),
+    /Liveness probe returned 503/u,
+  );
+  shouldRespond = false;
+  await assert.rejects(
+    probeLiveness({ ...probeOptions, timeoutMs: 10 }),
+    /Liveness probe timed out/u,
+  );
 });
 
 test("readiness enforces crawl failure and elapsed-time thresholds", () => {

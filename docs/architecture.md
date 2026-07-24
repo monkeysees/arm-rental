@@ -92,6 +92,30 @@ against the Debian snapshot dated 2026-07-13, making the browser libraries part
 of the image build rather than undocumented host state. OCI image labels expose
 the exact Node and browser versions for deployment inventory and verification.
 
+### Continuous integration and artifact provenance
+
+The two branch-protection boundaries are the stable `Required / quality` and
+`Required / production artifact` jobs. The first runs the complete repository
+checks, a separate 90%-line/80%-branch coverage gate, and a high-severity
+production dependency audit on the pinned Node runtime. The second builds the
+production image and scans its OS packages and application libraries before it
+can be packaged. Keeping the scan and packaging in one required job prevents an
+unscanned image from becoming the deployable output.
+
+Build arguments bind the image to the full Git revision and SHA-256 digest of
+`package-lock.json`; the Dockerfile validates both and records them alongside
+the pinned Node and Chrome versions as OCI labels. CI saves the exact scanned
+image and creates a release manifest that repeats those inputs and records the
+archive digest. This manifest is the handoff boundary for staging and
+production: later deployment must load the uploaded archive, not rebuild from
+source.
+
+Workflow actions are immutable commit pins. Dependabot proposes npm, base
+image, and workflow-action updates as reviewable pull requests and has no
+deployment capability. Coverage exception review, branch-protection setup,
+artifact contents, and hosted-only validation are documented in
+[`docs/continuous-integration.md`](continuous-integration.md).
+
 ### Singleton lease and supervision
 
 `DATA_DIRECTORY` identifies the persistent storage root and defaults to

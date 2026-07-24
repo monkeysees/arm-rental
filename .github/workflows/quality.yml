@@ -1,4 +1,4 @@
-name: Quality
+name: Required CI
 
 on:
   pull_request:
@@ -11,16 +11,16 @@ permissions:
 
 jobs:
   quality:
-    name: Node 24 quality suite
+    name: Required / quality
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 20
 
     steps:
       - name: Check out repository
-        uses: actions/checkout@v6
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
-      - name: Use pinned Node.js
-        uses: actions/setup-node@v6
+      - name: Use production Node.js
+        uses: actions/setup-node@395ad3262231945c25e8478fd5baf05154b1d79f # v6.1.0
         with:
           node-version-file: .nvmrc
           cache: npm
@@ -31,29 +31,81 @@ jobs:
       - name: Install locked dependencies
         run: npm ci
 
-      - name: Run quality suite
+      - name: Run lint, format, and test checks
         run: npm run check
 
-  production-image:
-    name: Production image
+      - name: Enforce coverage floors
+        run: npm run test:coverage
+
+      - name: Audit production dependencies
+        run: npm audit --omit=dev --audit-level=high
+
+  production-artifact:
+    name: Required / production artifact
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 30
 
     steps:
       - name: Check out repository
-        uses: actions/checkout@v6
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
-      - name: Build clean production image
-        run: >-
-          docker build
-          --platform linux/amd64
-          --target production
-          --tag rental-apartments-bot:ci
-          .
+      - name: Use production Node.js
+        uses: actions/setup-node@395ad3262231945c25e8478fd5baf05154b1d79f # v6.1.0
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+
+      - name: Build production image
+        env:
+          SOURCE_REVISION: ${{ github.sha }}
+        run: |
+          PACKAGE_LOCK_SHA256="$(sha256sum package-lock.json | cut -d ' ' -f 1)"
+          docker build \
+            --platform linux/amd64 \
+            --target production \
+            --build-arg SOURCE_REVISION="$SOURCE_REVISION" \
+            --build-arg PACKAGE_LOCK_SHA256="$PACKAGE_LOCK_SHA256" \
+            --tag rental-apartments-bot:ci \
+            .
 
       - name: Verify deployment runtime metadata
+        env:
+          SOURCE_REVISION: ${{ github.sha }}
         run: |
+          PACKAGE_LOCK_SHA256="$(sha256sum package-lock.json | cut -d ' ' -f 1)"
+          test "$(docker image inspect --format '{{ index .Config.Labels "org.opencontainers.image.revision" }}' rental-apartments-bot:ci)" = "$SOURCE_REVISION"
           test "$(docker image inspect --format '{{ index .Config.Labels "org.opencontainers.image.node.version" }}' rental-apartments-bot:ci)" = "24.18.0"
           test "$(docker image inspect --format '{{ index .Config.Labels "org.opencontainers.image.chrome.version" }}' rental-apartments-bot:ci)" = "150.0.7871.24"
+          test "$(docker image inspect --format '{{ index .Config.Labels "org.opencontainers.image.package-lock.sha256" }}' rental-apartments-bot:ci)" = "$PACKAGE_LOCK_SHA256"
           test "$(docker run --rm --entrypoint node rental-apartments-bot:ci --version)" = "v24.18.0"
           test "$(docker run --rm --entrypoint /opt/chrome/chrome/linux-150.0.7871.24/chrome-linux64/chrome rental-apartments-bot:ci --version)" = "Google Chrome for Testing 150.0.7871.24"
+
+      - name: Scan OS and application dependencies
+        uses: aquasecurity/trivy-action@57a97c7e7821a5776cebc9bb87c984fa69cba8f1 # 0.35.0
+        with:
+          image-ref: rental-apartments-bot:ci
+          scanners: vuln
+          vuln-type: os,library
+          severity: HIGH,CRITICAL
+          ignore-unfixed: false
+          exit-code: 1
+          version: v0.69.3
+
+      - name: Package immutable deployment artifact
+        env:
+          SOURCE_REVISION: ${{ github.sha }}
+        run: |
+          mkdir release
+          docker save rental-apartments-bot:ci | gzip --best > release/rental-apartments-bot.tar.gz
+          node scripts/create-release-metadata.js \
+            --source-revision "$SOURCE_REVISION" \
+            --image-archive release/rental-apartments-bot.tar.gz \
+            --output release/release-metadata.json
+
+      - name: Upload production artifact
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+        with:
+          name: rental-apartments-bot-${{ github.sha }}
+          path: release/
+          if-no-files-found: error
+          retention-days: 14

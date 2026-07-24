@@ -1,5 +1,7 @@
 import { execFile } from "node:child_process";
-import { access, mkdir, readlink } from "node:fs/promises";
+import { createHash } from "node:crypto";
+import { access, chmod, mkdir, mkdtemp, readlink, rm } from "node:fs/promises";
+import os from "node:os";
 import path from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import { promisify } from "node:util";
@@ -9,7 +11,9 @@ import puppeteer from "puppeteer-core";
 const executeFile = promisify(execFile);
 
 const LOOPBACK_DEBUG_ADDRESS = "127.0.0.1";
+const PROCESS_EXIT_TIMEOUT_MS = 2_000;
 export const BROWSER_VERIFICATION_COMMAND = "npm run browser:verify";
+export const BROWSER_CHALLENGE_EVENT = "browser.challenge";
 
 export class BrowserVerificationRequiredError extends Error {
   constructor(
@@ -59,6 +63,50 @@ async function activeProfileProcessId(profileDirectory) {
   }
 }
 
+function runtimeRoot(profileDirectory) {
+  const profileHash = createHash("sha256")
+    .update(path.resolve(profileDirectory))
+    .digest("hex")
+    .slice(0, 16);
+  return path.join(os.tmpdir(), `rental-apartments-browser-${profileHash}`);
+}
+
+async function createRuntimeDirectory(profileDirectory) {
+  const root = runtimeRoot(profileDirectory);
+
+  // The application singleton makes this root exclusive to one profile user.
+  // Clearing it before launch also removes resources left by a browser crash or
+  // supervisor restart.
+  await rm(root, { recursive: true, force: true });
+  await mkdir(root, { recursive: true, mode: 0o700 });
+  await chmod(root, 0o700);
+  const directory = await mkdtemp(path.join(root, "launch-"));
+  await chmod(directory, 0o700);
+  return { directory, root };
+}
+
+function childIsRunning(child) {
+  return child && child.exitCode === null && child.signalCode === null;
+}
+
+async function waitForChildExit(child, timeoutMs) {
+  const deadline = Date.now() + timeoutMs;
+  while (childIsRunning(child) && Date.now() < deadline) {
+    await delay(25);
+  }
+  return !childIsRunning(child);
+}
+
+async function terminateChromeProcess(child) {
+  if (!childIsRunning(child) || typeof child.kill !== "function") return;
+
+  child.kill("SIGTERM");
+  if (await waitForChildExit(child, PROCESS_EXIT_TIMEOUT_MS)) return;
+
+  child.kill("SIGKILL");
+  await waitForChildExit(child, PROCESS_EXIT_TIMEOUT_MS);
+}
+
 export async function findChromeExecutable(
   configuredPath,
   platform = process.platform,
@@ -87,6 +135,7 @@ async function launchHiddenMacChrome(
   config,
   chromeArgs,
   signal,
+  executeFileImpl,
 ) {
   await mkdir(config.browserProfileDir, { recursive: true, mode: 0o700 });
   const browserURL = `http://127.0.0.1:${config.browserDebugPort}`;
@@ -127,7 +176,7 @@ async function launchHiddenMacChrome(
       !argument.startsWith("--remote-debugging-"),
   );
 
-  await executeFile("open", [
+  await executeFileImpl("open", [
     "-g",
     "-j",
     "-F",
@@ -177,23 +226,42 @@ async function simulateUserActions(page) {
 export class BrowserPageFetcher {
   constructor(
     config,
-    { puppeteerImpl = puppeteer, signal, onStatus = () => {} } = {},
+    {
+      puppeteerImpl = puppeteer,
+      signal,
+      onStatus = () => {},
+      onEvent = () => {},
+      platform = process.platform,
+      executeFileImpl = executeFile,
+    } = {},
   ) {
     this.config = config;
     this.puppeteer = puppeteerImpl;
     this.signal = signal;
     this.onStatus = onStatus;
+    this.onEvent = onEvent;
+    this.platform = platform;
+    this.executeFile = executeFileImpl;
     this.browser = undefined;
+    this.browserProcess = undefined;
     this.page = undefined;
+    this.runtimeDirectory = undefined;
+    this.runtimeRoot = undefined;
+    this.cleanupPromise = undefined;
   }
 
   async start() {
     if (this.browser?.connected && this.page && !this.page.isClosed()) return;
 
+    await this.dispose({ suppressCloseError: true });
     const executablePath = await findChromeExecutable(
       this.config.chromeExecutablePath,
     );
+    const runtime = await createRuntimeDirectory(this.config.browserProfileDir);
+    this.runtimeDirectory = runtime.directory;
+    this.runtimeRoot = runtime.root;
     const args = [
+      `--crash-dumps-dir=${runtime.directory}`,
       "--disable-blink-features=AutomationControlled",
       "--disable-backgrounding-occluded-windows",
       "--disable-renderer-backgrounding",
@@ -207,89 +275,147 @@ export class BrowserPageFetcher {
       "--window-size=1365,900",
     ];
     const hiddenMacChrome =
-      process.platform === "darwin" &&
+      this.platform === "darwin" &&
       !this.config.browserHeadless &&
       this.config.browserStartMinimized !== false;
 
-    this.browser = hiddenMacChrome
-      ? await launchHiddenMacChrome(
-          this.puppeteer,
-          executablePath,
-          this.config,
-          args,
-          this.signal,
-        )
-      : await this.puppeteer.launch({
-          executablePath,
-          headless: this.config.browserHeadless,
-          userDataDir: this.config.browserProfileDir,
-          defaultViewport: null,
-          ignoreDefaultArgs: ["--enable-automation"],
-          args,
-          protocolTimeout: this.config.browserProtocolTimeoutMs,
-          signal: this.signal,
-        });
+    try {
+      this.browser = hiddenMacChrome
+        ? await launchHiddenMacChrome(
+            this.puppeteer,
+            executablePath,
+            this.config,
+            args,
+            this.signal,
+            this.executeFile,
+          )
+        : await this.puppeteer.launch({
+            executablePath,
+            headless: this.config.browserHeadless,
+            userDataDir: this.config.browserProfileDir,
+            defaultViewport: null,
+            ignoreDefaultArgs: ["--enable-automation"],
+            args,
+            env: {
+              ...process.env,
+              TMPDIR: runtime.directory,
+              XDG_RUNTIME_DIR: runtime.directory,
+            },
+            protocolTimeout: this.config.browserProtocolTimeoutMs,
+            signal: this.signal,
+          });
+      this.browserProcess = this.browser.process?.();
 
-    const pages = await this.browser.pages();
-    this.page =
-      pages.find((page) => page.url() !== "about:blank") ||
-      pages[0] ||
-      (await this.browser.newPage());
-    for (const page of pages) {
-      if (page !== this.page && page.url() === "about:blank") {
-        await page.close();
+      const pages = await this.browser.pages();
+      this.page =
+        pages.find((page) => page.url() !== "about:blank") ||
+        pages[0] ||
+        (await this.browser.newPage());
+      for (const page of pages) {
+        if (page !== this.page && page.url() === "about:blank") {
+          await page.close();
+        }
       }
-    }
 
-    this.page.setDefaultNavigationTimeout(this.config.timeoutMs);
-    await this.page.evaluateOnNewDocument(() => {
-      Object.defineProperty(navigator, "webdriver", {
-        configurable: true,
-        get: () => undefined,
+      this.page.setDefaultNavigationTimeout(this.config.timeoutMs);
+      await this.page.evaluateOnNewDocument(() => {
+        Object.defineProperty(navigator, "webdriver", {
+          configurable: true,
+          get: () => undefined,
+        });
       });
-    });
+    } catch (error) {
+      await this.dispose({ suppressCloseError: true });
+      throw error;
+    }
   }
 
   async fetch(url) {
-    await this.start();
-    await this.page.goto(url, { waitUntil: "domcontentloaded" });
+    try {
+      await this.start();
+      await this.page.goto(url, { waitUntil: "domcontentloaded" });
 
-    if (!(await this.page.$("#contentr"))) {
-      const verificationMessage = this.config.browserHeadless
-        ? "List.am requires security verification. Run npm run browser:verify."
-        : "List.am security verification is open in Chrome. Complete it there once.";
-      await this.onStatus(verificationMessage);
+      if (!(await this.page.$("#contentr"))) {
+        const verificationMessage = this.config.browserHeadless
+          ? "List.am requires security verification. Run npm run browser:verify."
+          : "List.am security verification is open in Chrome. Complete it there once.";
+        const challenge = new BrowserVerificationRequiredError(
+          verificationMessage,
+        );
+        await this.onStatus(verificationMessage);
+        await this.onEvent({
+          name: BROWSER_CHALLENGE_EVENT,
+          severity: "warning",
+          component: "browser",
+          code: challenge.code,
+          remediationCommand: challenge.remediationCommand,
+        });
 
-      if (this.config.browserHeadless) {
-        throw new BrowserVerificationRequiredError(verificationMessage);
+        if (this.config.browserHeadless) throw challenge;
+
+        try {
+          await this.page.waitForSelector("#contentr", {
+            timeout: this.config.browserChallengeTimeoutMs,
+            signal: this.signal,
+          });
+        } catch (error) {
+          if (this.signal?.aborted) throw error;
+          throw new BrowserVerificationRequiredError(
+            "List.am security verification was not completed in the Chrome window.",
+          );
+        }
       }
 
       try {
-        await this.page.waitForSelector("#contentr", {
-          timeout: this.config.browserChallengeTimeoutMs,
-          signal: this.signal,
-        });
+        await simulateUserActions(this.page);
       } catch (error) {
-        if (this.signal?.aborted) throw error;
-        throw new Error(
-          "List.am security verification was not completed in the Chrome window.",
-        );
+        await this.onStatus(`Browser interaction skipped: ${error.message}`);
       }
+
+      return new Response(await this.page.content(), {
+        status: 200,
+        headers: { "content-type": "text/html; charset=utf-8" },
+      });
+    } catch (error) {
+      await this.dispose({ suppressCloseError: true });
+      throw error;
     }
+  }
+
+  async dispose({ suppressCloseError = false } = {}) {
+    if (this.cleanupPromise) return this.cleanupPromise;
+
+    const browser = this.browser;
+    const browserProcess = this.browserProcess;
+    const temporaryRoot = this.runtimeRoot;
+    this.browser = undefined;
+    this.browserProcess = undefined;
+    this.page = undefined;
+    this.runtimeDirectory = undefined;
+    this.runtimeRoot = undefined;
+
+    this.cleanupPromise = (async () => {
+      let closeError;
+      try {
+        await browser?.close();
+      } catch (error) {
+        closeError = error;
+      }
+      await terminateChromeProcess(browserProcess);
+      if (temporaryRoot) {
+        await rm(temporaryRoot, { recursive: true, force: true });
+      }
+      if (closeError && !suppressCloseError) throw closeError;
+    })();
 
     try {
-      await simulateUserActions(this.page);
-    } catch (error) {
-      await this.onStatus(`Browser interaction skipped: ${error.message}`);
+      await this.cleanupPromise;
+    } finally {
+      this.cleanupPromise = undefined;
     }
-
-    return new Response(await this.page.content(), {
-      status: 200,
-      headers: { "content-type": "text/html; charset=utf-8" },
-    });
   }
 
   async close() {
-    if (this.browser?.connected) await this.browser.close();
+    await this.dispose();
   }
 }

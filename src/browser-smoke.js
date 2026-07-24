@@ -10,18 +10,17 @@ for (const signal of ["SIGINT", "SIGTERM"]) {
 }
 
 try {
-  const config = getConfig();
-  logger.info("Opening List.am for browser verification");
-  const result = await runBrowserOperation(config, {
-    interactive: true,
+  const result = await runBrowserOperation(getConfig(), {
+    requireProduction: true,
     logger,
     signal: controller.signal,
   });
-  logger.info("Browser verification succeeded", {
+  logger.info("Production browser smoke test passed", {
+    targetUrl: result.targetUrl,
     regularAdsCount: result.regularAdsCount,
     profileDirectory: result.profileDirectory,
   });
 } catch (error) {
-  logger.error("Browser verification failed", error);
+  logger.error("Production browser smoke test failed", error);
   process.exitCode = 1;
 }

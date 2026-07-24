@@ -328,9 +328,16 @@ test("application logs one safe preflight result and never enters loops on chall
   const config = await temporaryConfig(t);
   const events = [];
   const records = [];
+  let browserOptions;
   const fakeBrowser = {
     start: async () => {},
     fetch: async () => {
+      await browserOptions.onEvent({
+        name: "browser.challenge",
+        component: "browser",
+        code: "ERR_BROWSER_VERIFICATION_REQUIRED",
+        remediationCommand: "npm run browser:verify",
+      });
       throw new BrowserVerificationRequiredError();
     },
     close: async () => events.push("browser:close"),
@@ -348,7 +355,10 @@ test("application logs one safe preflight result and never enters loops on chall
       },
       validateConfig: async () => events.push("storage"),
       acquireLock: async () => singletonLock(config, events),
-      browserFetcherFactory: () => fakeBrowser,
+      browserFetcherFactory: (_browserConfig, options) => {
+        browserOptions = options;
+        return fakeBrowser;
+      },
       exchangeRateServiceFactory: () => ({
         getSnapshot: async () => ratesSnapshot(),
       }),
@@ -374,5 +384,19 @@ test("application logs one safe preflight result and never enters loops on chall
     JSON.stringify(preflightRecords[0]).includes(config.telegramBotToken),
     false,
   );
+  const challengeRecords = records.filter(
+    ({ message }) => message === "Browser challenge detected",
+  );
+  assert.deepEqual(challengeRecords, [
+    {
+      message: "Browser challenge detected",
+      context: {
+        eventName: "browser.challenge",
+        component: "browser",
+        code: "ERR_BROWSER_VERIFICATION_REQUIRED",
+        remediationCommand: "npm run browser:verify",
+      },
+    },
+  ]);
   assert.deepEqual(events, ["storage", "browser:close", "lock:release"]);
 });

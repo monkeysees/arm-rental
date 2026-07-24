@@ -182,6 +182,43 @@ payload. Chrome and the singleton lease are released on every failed preflight.
 Operational diagnosis and recovery are documented in
 [`docs/startup-preflight.md`](startup-preflight.md).
 
+### Browser operation and verification boundary
+
+Production, preflight, and production-host smoke launch Chrome headlessly from
+the pinned executable. They reuse `BROWSER_PROFILE_DIR` on the durable volume;
+the interactive verifier changes only the launch display mode and uses that
+same profile. Both maintenance commands validate the managed storage tree and
+acquire the application singleton lease before constructing Chrome, which
+enforces the requirement that the service is stopped and prevents the service
+from starting concurrently.
+
+`npm run browser:verify` opens the configured page-one List.am target in a
+private interactive Chrome session, waits for the Regular Ads container, parses
+it, closes Chrome, and releases the lease. `npm run browser:smoke` is restricted
+to production configuration, retains headless mode, loads the configured target
+through the persisted profile, and logs the parsed Regular Ads count. A
+successful verifier followed by smoke and restarted preflight proves that
+verification state survived Chrome and application restart. Profile state is
+mounted at runtime; it is never copied from a developer `.data` directory or
+baked into an artifact. Direct production-host verification and a restricted
+profile-only transfer fallback are documented in
+[`docs/browser-operations.md`](browser-operations.md).
+
+Each Chrome launch uses a profile-keyed, mode-`0700` runtime root beneath the
+bounded system temporary directory. Startup clears stale resources left by a
+prior failed browser/service run. Launch initialization, navigation, renderer,
+challenge, abort, and graceful shutdown paths close the Puppeteer browser,
+terminate its remaining owned child when necessary, and remove the runtime
+root. A later crawl starts a fresh Chrome process against the unchanged durable
+profile.
+
+Challenge detection emits the stable `browser.challenge` event with component
+`browser`, code `ERR_BROWSER_VERIFICATION_REQUIRED`, severity `warning`, and the
+operator remediation command. Startup additionally retains its distinct
+`browser_verification_required` preflight result. This event is the application
+hook for production alert routing without coupling browser operation to the
+later monitoring implementation.
+
 ## Runtime flow
 
 1. `src/index.js` validates private and channel configuration, acquires the

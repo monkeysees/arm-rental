@@ -46,6 +46,16 @@ export async function runApplication({
     browserFetcher = browserFetcherFactory(config, {
       signal: controller.signal,
       onStatus: (message) => logger.info(message),
+      onEvent: (event) => {
+        if (event.name === "browser.challenge") {
+          logger.warn("Browser challenge detected", {
+            eventName: event.name,
+            component: event.component,
+            code: event.code,
+            remediationCommand: event.remediationCommand,
+          });
+        }
+      },
     });
     const exchangeRateService = exchangeRateServiceFactory(config, {
       onRefresh: (snapshot) =>

@@ -36,6 +36,12 @@ confirm that preflight reports `ready`. Do not run the verifier while the
 service is active, copy a developer profile into production, expose Chrome's
 debugging endpoint, or disable the Chrome sandbox.
 
+The verifier takes the service singleton lease and fails before opening Chrome
+if the service is still active. Follow the complete
+[production browser operations](browser-operations.md) runbook, including the
+headless `npm run browser:smoke` check before restart and the restricted
+profile-transfer procedure when direct verification is impossible.
+
 If the challenge returns immediately, confirm that the verifier and service use
 the same persistent profile and outbound IP. Escalate repeated challenges or
 any request for credentials unrelated to List.am verification.

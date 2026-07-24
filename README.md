@@ -261,7 +261,17 @@ npm run browser:verify
 ```
 
 Stop the service and run the command against the same persistent Chrome profile
-on a secure interactive host, then restart. See
+on a secure interactive host. Before restart, confirm the configured target and
+persisted verification with the production-headless smoke command:
+
+```sh
+npm run browser:smoke
+```
+
+Both commands acquire the service singleton lease and refuse to open the
+profile while the service is running. See
+[production browser operations](docs/browser-operations.md) for the secure
+interactive and profile-transfer workflows, and
 [startup preflight remediation](docs/startup-preflight.md) for credential,
 permission, state, storage, browser, List.am, and CBA failures.
 

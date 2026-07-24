@@ -43,8 +43,13 @@ RUN sed -i \
     && npx --no-install browsers install "chrome@${CHROME_VERSION}" \
       --path /opt/chrome \
       --install-deps \
-    && test "$("${CHROME_EXECUTABLE_PATH}" --version)" = \
-      "Google Chrome for Testing ${CHROME_VERSION}" \
+    && CHROME_RUNTIME_VERSION="$("${CHROME_EXECUTABLE_PATH}" --version)" \
+    && printf '%s\n' "${CHROME_RUNTIME_VERSION}" \
+    && { \
+      test "${CHROME_RUNTIME_VERSION}" = "Google Chrome ${CHROME_VERSION}" \
+        || test "${CHROME_RUNTIME_VERSION}" = \
+          "Google Chrome for Testing ${CHROME_VERSION}"; \
+    } \
     && chown root:root \
       "/opt/chrome/chrome/linux-${CHROME_VERSION}/chrome-linux64/chrome_sandbox" \
     && chmod 4755 \

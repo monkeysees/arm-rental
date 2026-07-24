@@ -180,6 +180,12 @@ disable the sandbox. Puppeteer's production control channel uses a pipe; the
 interactive macOS verification path is the only TCP debugging mode and
 explicitly binds it to `127.0.0.1`.
 
+The image build and hosted artifact gate execute the installed browser and
+require its exact pinned numeric version. Chrome for Testing releases may
+report either the standard `Google Chrome` product prefix or the explicit
+`Google Chrome for Testing` prefix, so packaging accepts those two identities
+without weakening the version pin.
+
 ### Configuration and secret boundary
 
 `src/config.js` is the fail-fast boundary before the singleton lease and all

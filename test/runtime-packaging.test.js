@@ -46,6 +46,14 @@ test("production packaging installs only locked production dependencies and Pupp
   assert.match(dockerfile, /RUN npm ci --omit=dev\b/u);
   assert.doesNotMatch(dockerfile, /\bnpm install\b/u);
   assert.match(dockerfile, /--install-deps/u);
+  assert.match(
+    dockerfile,
+    /Google Chrome \$\{CHROME_VERSION\}[\s\S]*?Google Chrome for Testing \$\{CHROME_VERSION\}/u,
+  );
+  assert.match(
+    workflow,
+    /Google Chrome 150\.0\.7871\.24[\s\S]*?Google Chrome for Testing 150\.0\.7871\.24/u,
+  );
   assert.match(workflow, /run: npm ci/u);
   assert.match(workflow, /run: npm run check/u);
 });

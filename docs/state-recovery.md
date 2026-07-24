@@ -38,17 +38,23 @@ profile, so the bot **must be stopped**. The command also acquires the same
 singleton lease as the application and fails with `ERR_SINGLETON_LOCKED` if a
 live process remains. Never bypass this lease.
 
-Configure the production scheduler to run the equivalent sequence daily:
+For the supported production Compose deployment, configure the scheduler with a
+trap so restart happens even when backup fails:
 
 ```sh
-supervisor-stop rental-apartments
-npm run backup
-supervisor-start rental-apartments
+backup_status=0
+trap 'docker compose --file compose.production.yaml up --detach bot' EXIT
+docker compose --file compose.production.yaml stop bot
+docker compose --file compose.production.yaml run --rm --no-deps bot \
+  npm run backup || backup_status=$?
+docker compose --file compose.production.yaml up --detach bot
+trap - EXIT
+exit "$backup_status"
 ```
 
-Replace the `supervisor-*` placeholders with the deployment's reviewed
-stop/start commands. Preserve the start step in the scheduler's failure cleanup
-while still alerting on backup failure. Expected output includes
+`RENTAL_APARTMENTS_IMAGE` must remain the running immutable reference. Preserve
+the start step in the scheduler's failure cleanup while still alerting on
+backup failure. Expected output includes
 `storage.disk_ok`, `backup.started`, and `backup.completed`. A success identifies
 the immutable `daily/<timestamp>` recovery point and, on Sunday UTC, its weekly
 copy.
@@ -112,10 +118,14 @@ installation fails, it moves the prior files and profile back before returning
 an error.
 
 ```sh
-supervisor-stop rental-apartments
-npm run backup:validate -- "$BACKUP_DIRECTORY/daily/<timestamp>"
-npm run restore -- "$BACKUP_DIRECTORY/daily/<timestamp>"
-npm run browser:smoke
+export SNAPSHOT='/app-backups/daily/<timestamp>'
+docker compose --file compose.production.yaml stop bot
+docker compose --file compose.production.yaml run --rm --no-deps bot \
+  npm run backup:validate -- "$SNAPSHOT"
+docker compose --file compose.production.yaml run --rm --no-deps bot \
+  npm run restore -- "$SNAPSHOT"
+docker compose --file compose.production.yaml run --rm --no-deps bot \
+  npm run browser:smoke
 ```
 
 Do not start polling after `restore` alone. The structural verification record
@@ -135,7 +145,7 @@ Compare the restore output with the selected manifest:
 Only after all checks pass:
 
 ```sh
-supervisor-start rental-apartments
+docker compose --file compose.production.yaml up --detach bot
 ```
 
 Confirm startup preflight is ready and observe one normal crawl before closing

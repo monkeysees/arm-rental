@@ -411,6 +411,38 @@ closed. There is no apartment or delivery deletion path. Future coordinated
 archive/prune rules and their mandatory restart/redelivery tests are specified
 in [`docs/state-maintenance.md`](state-maintenance.md).
 
+### Release and rollback boundary
+
+`scripts/release-operations.js` is the non-interactive release contract. Before
+any Docker mutation it requires two immutable image IDs/digests, a named human
+operator, a published and validated recovery point, an explicit private/channel
+expectation, and an observation window no shorter than one configured crawl
+interval plus five minutes. Validation and dry-run modes perform no Docker call
+or write. Staging rehearsal is rejected unless the running container carries
+the staging environment label, preventing a rehearsal flag from mutating the
+production singleton.
+
+The runner verifies the fixed one-replica, stop-first Compose shape and existing
+named data volume, stops and confirms the old container before creating the new
+one, and never replaces or prunes the volume or image. Normal startup remains
+the only preflight implementation; application loops cannot begin until it is
+ready. Success additionally requires a ready preflight record, Telegram and
+expected channel checks, a successful crawl, and final readiness after the full
+observation window.
+
+A failed candidate is stopped before the verified snapshot is restored and the
+previous artifact is restarted, so browser/rate changes made during an
+ultimately failed preflight are reverted with JSON state. Rollback either uses
+a rehearsed backward-compatible schema or restores the snapshot before the old
+artifact starts. Staging rehearsal executes the candidate transition and
+snapshot-backed stop-first rollback, then leaves the previous staging artifact
+running. The independent backup volume is externally provisioned and mounted
+separately from application data. Procedures, evidence receipts, escalation,
+and the launch checklist are in
+[`docs/release-and-rollback.md`](release-and-rollback.md); all operator
+procedures are indexed in
+[`docs/operational-runbooks.md`](operational-runbooks.md).
+
 ## Runtime flow
 
 1. `src/index.js` validates private and channel configuration, acquires the

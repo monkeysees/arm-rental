@@ -53,13 +53,25 @@ whether the problem is an unsupported schema, malformed contents, invalid
 JSON, or target mismatch. Startup reads the file without writing it and leaves
 it unchanged.
 
-First preserve the reported file and inspect only its non-secret schema fields.
-For example, when the reported path is the default apartment file:
+### Prerequisites, safe checks, and commands
+
+Prerequisites are a stopped service, named operator, verified full snapshot,
+retained immutable image, and the target/owner/channel configuration that
+created the state. Confirm the container is stopped and hash the reported file
+before inspection:
 
 ```sh
+docker inspect --format '{{.State.Running}}' rental-apartments-bot
+sha256sum .data/apartments.json
 cp --archive .data/apartments.json .data/apartments.json.preflight-backup
 node -e 'const s=require("./.data/apartments.json"); console.log({type:s.type,version:s.version})'
 ```
+
+Expected output is `false`, a recorded hash, and only the non-secret
+`type`/`version`. If JSON parsing fails, keep the hash and copy; do not use a
+tool that rewrites the file merely by opening it.
+
+### Recovery, expected output, and escalation
 
 Restore the matching deployment artifact if it still supports that schema.
 Otherwise use a tested migration. If neither is possible, an operator may
@@ -73,6 +85,18 @@ For a target mismatch, correct the environment when the persisted owner,
 List.am target, or channel is still authoritative. Treat an intentional target
 change as a migration/reset decision; do not allow startup to silently
 reclassify existing apartments or delivery acknowledgements.
+
+After correction, run the stopped-service snapshot validator or restore the
+complete matching snapshot—never only the malformed file—then start the
+retained compatible image. Expected recovery is ready preflight with the
+original apartment/delivery counts and Telegram update offset, followed by one
+successful crawl without historical resend.
+
+Keep the service stopped and escalate when the source of corruption is unknown,
+the backup hash/schema/counts fail, related delivery state may be inconsistent,
+no retained artifact understands the schema, target identity genuinely
+changed, a migration has not passed staging, or reset could duplicate private
+or channel delivery.
 
 ## Telegram credentials or channel permissions
 

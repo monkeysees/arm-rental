@@ -224,6 +224,11 @@ smoke, and the minimum 24-hour resource soak are documented in
 Production log collection, retention, alert routing, and response checks are
 documented in [docs/observability.md](docs/observability.md).
 
+Production deploy/rollback commands, staging rehearsal, launch approval, and
+the complete operational runbook index are documented in
+[docs/release-and-rollback.md](docs/release-and-rollback.md) and
+[docs/operational-runbooks.md](docs/operational-runbooks.md).
+
 Weekly state growth reporting, lease-safe Chrome cache maintenance, and the
 no-deletion retention policy are documented in
 [docs/state-maintenance.md](docs/state-maintenance.md).

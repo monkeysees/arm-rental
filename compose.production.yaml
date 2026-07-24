@@ -4,6 +4,8 @@ services:
     # A fixed container name makes an accidental `docker compose --scale`
     # invocation fail instead of starting a second writer.
     container_name: rental-apartments-bot
+    labels:
+      com.rental-apartments.environment: ${DEPLOYMENT_ENVIRONMENT:-production}
     init: true
     user: "node"
     read_only: true
@@ -12,12 +14,16 @@ services:
     environment:
       NODE_ENV: production
       DATA_DIRECTORY: /app/.data
+      BACKUP_DIRECTORY: /app-backups
       BROWSER_HEADLESS: "true"
       CHROME_EXECUTABLE_PATH: /opt/chrome/chrome/linux-150.0.7871.24/chrome-linux64/chrome
       HEALTH_HOST: 127.0.0.1
       HEALTH_PORT: "8787"
     volumes:
       - rental-apartments-data:/app/.data
+      # Recovery points are on a separately provisioned volume. Compose cannot
+      # create or delete this independent backup boundary.
+      - rental-apartments-backups:/app-backups
     tmpfs:
       - /tmp:size=134217728,mode=1777,nosuid,nodev,noexec
       - /dev/shm:size=268435456,mode=1777,nosuid,nodev,noexec
@@ -55,3 +61,6 @@ services:
 volumes:
   rental-apartments-data:
     name: rental-apartments-data
+  rental-apartments-backups:
+    name: rental-apartments-backups
+    external: true

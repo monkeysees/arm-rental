@@ -10,6 +10,24 @@ Use the exact deployed release, Chrome build, production environment, service
 account, outbound IP, and persistent volume. Do not expose Chrome debugging,
 disable its sandbox, or put browser state in an image.
 
+## Prerequisites and safe checks
+
+Open a change/incident with a named operator, take and validate a complete
+snapshot, and retain the active immutable image. Confirm the service account,
+profile path, Chrome version, and outbound IP are the production values.
+
+```sh
+docker inspect --format \
+  'running={{.State.Running}} image={{.Config.Image}} user={{.Config.User}}' \
+  rental-apartments-bot
+docker ps --filter volume=rental-apartments-data \
+  --format 'container={{.ID}} name={{.Names}} status={{.Status}}'
+```
+
+Expected output identifies only the reviewed singleton. Stop and escalate if
+another container/process uses the volume or if the image, user, profile, or
+egress boundary differs from the release record.
+
 ## Verify List.am interactively
 
 1. Stop the service and confirm it is stopped:
@@ -105,3 +123,15 @@ commands are stopped. Do not delete Chrome singleton files belonging to a live
 process. A supervisor restart cleans stale application runtime directories
 before launch; repeated live contention requires process investigation rather
 than lock-file removal.
+
+Expected recovery is `Browser verification succeeded`, a passed
+`Production browser smoke test`, ready startup preflight, and one subsequent
+successful crawl. If a profile import or verification makes behavior worse,
+stop the service and restore the pre-change verified snapshot before restarting
+the retained image.
+
+Escalate when the service or another Chrome process cannot be proven stopped,
+the sandbox/debugging boundary differs, the profile has unexpected ownership or
+symlinks, the challenge immediately returns, smoke cannot parse Regular Ads,
+the profile cannot be restored, or List.am asks for credentials or actions
+outside its ordinary browser verification.

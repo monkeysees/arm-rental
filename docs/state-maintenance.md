@@ -122,3 +122,45 @@ Before any archive or prune code ships, integration tests must:
 Until those tests and a versioned state migration exist, operators must respond
 to growth alerts by preserving state and beginning the SQLite migration—not by
 manually deleting JSON entries.
+
+## Low disk and state growth response
+
+### Prerequisites and safe checks
+
+Prerequisites are a named operator, current snapshot, access to filesystem
+capacity and external log retention, and the active immutable artifact. Run
+safe checks without listing state contents:
+
+```sh
+npm run storage:check
+df -h .data
+du -x -h --max-depth=2 .data | sort -h
+docker compose --file compose.production.yaml stop bot
+docker compose --file compose.production.yaml run --rm --no-deps bot \
+  npm run maintenance:report
+```
+
+The bot must be stopped for the report. Expected healthy output is
+`storage.disk_ok`, a `maintenance.report`, more than 20% free space, state files
+below 25 MiB, and no `state_file_growth`/`state_sqlite_migration` firing event.
+Restart in a trap or immediately after the report even when it exits `2`;
+threshold exit `2` is an alert, not corruption.
+
+### Recovery, expected output, and escalation
+
+For low disk, preserve the independent backup mount, rotate only externally
+collected logs through their approved retention, remove only the reconstructible
+browser caches enumerated by maintenance, and expand/migrate the data volume.
+Do not delete JSON state, delivery acknowledgements, cookies, browser identity,
+snapshots within retention, or unknown files. For 25 MiB state growth, record
+weekly trend and plan capacity. At 50 MiB or write p95 above 500 ms, open the
+SQLite migration work and avoid ad hoc pruning.
+
+Expected recovery is free space safely above 20%, resolved alert events, ready
+restart, browser identity retained, and one successful crawl. Restore the
+verified pre-maintenance snapshot if an approved maintenance operation damages
+managed state. Escalate if free space cannot remain above 20% through the next
+crawl/backup, the backup destination is also constrained, growth is abrupt or
+unexplained, state validation/write latency fails, cache paths are symlinks or
+unexpected types, the 50 MiB threshold is reached, or the service cannot return
+to ready.

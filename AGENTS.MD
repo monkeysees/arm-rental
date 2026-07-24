@@ -1,0 +1,5 @@
+- Document architecture as you go in `./docs/architecture.md`
+- Ensure code quality with tests, linting, formatting, docs, comments.
+  - Integration tests are preferred. Tests should not be repetitive and test same thing multiple times.
+  - Comments should be used to add additional clarity, not just to describe the code.
+- Keep the app production ready with logging, error handling, etc.

@@ -8,6 +8,11 @@ services:
       com.rental-apartments.environment: production
     init: true
     user: "node"
+    # Puppeteer's sandboxed Chrome image requires SYS_ADMIN to create the
+    # browser's short-lived PID and network namespaces. Chrome drops it after
+    # establishing the sandbox; the app remains non-root and read-only.
+    cap_add:
+      - SYS_ADMIN
     read_only: true
     env_file:
       - /etc/rental-apartments/env

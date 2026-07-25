@@ -435,11 +435,16 @@ profile-only transfer fallback are documented in
 
 Each Chrome launch uses a profile-keyed, mode-`0700` runtime root beneath the
 bounded system temporary directory. Startup clears stale resources left by a
-prior failed browser/service run. Launch initialization, navigation, renderer,
-challenge, abort, and graceful shutdown paths close the Puppeteer browser,
-terminate its remaining owned child when necessary, and remove the runtime
-root. A later crawl starts a fresh Chrome process against the unchanged durable
-profile.
+prior failed browser/service run. HOME, XDG configuration/cache, crash dumps,
+and the XDG runtime path all resolve beneath this tmpfs-backed launch directory,
+so Chrome never needs to write to the immutable image home. The container has
+the `SYS_ADMIN` capability required by Puppeteer's sandboxed Docker runtime to
+create Chrome's short-lived PID and network namespaces; it remains non-root,
+read-only, portless, and uses Chrome's sandbox rather than `--no-sandbox`.
+Launch initialization, navigation, renderer, challenge, abort, and graceful
+shutdown paths close the Puppeteer browser, terminate its remaining owned child
+when necessary, and remove the runtime root. A later crawl starts a fresh
+Chrome process against the unchanged durable profile.
 
 Challenge detection emits the stable `browser.challenge` event with component
 `browser`, code `ERR_BROWSER_VERIFICATION_REQUIRED`, severity `warning`, and the

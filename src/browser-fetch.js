@@ -300,7 +300,12 @@ export class BrowserPageFetcher {
             args,
             env: {
               ...process.env,
+              // Chrome's crash reporter and XDG caches otherwise target the
+              // read-only image home. Keep them in the launch-scoped tmpfs.
+              HOME: runtime.directory,
               TMPDIR: runtime.directory,
+              XDG_CACHE_HOME: path.join(runtime.directory, "cache"),
+              XDG_CONFIG_HOME: path.join(runtime.directory, "config"),
               XDG_RUNTIME_DIR: runtime.directory,
             },
             protocolTimeout: this.config.browserProtocolTimeoutMs,

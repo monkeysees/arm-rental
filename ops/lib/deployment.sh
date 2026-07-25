@@ -347,6 +347,7 @@ deployment_validate_compose() {
         $bot.labels["com.rental-apartments.environment"] == "production" and
         $bot.environment.NODE_ENV == "production" and
         $bot.read_only == true and
+        $bot.cap_add == ["SYS_ADMIN"] and
         $bot.deploy.replicas == 1 and
         $bot.deploy.update_config.order == "stop-first" and
         (($bot.ports // []) | length == 0) and

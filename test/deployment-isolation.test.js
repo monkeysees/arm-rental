@@ -44,6 +44,7 @@ test("production container has a non-root immutable runtime with bounded writabl
   assert.doesNotMatch(dockerfile, /^COPY\s+\.\s/u);
   assert.doesNotMatch(dockerfile, /--env-file/u);
   assert.match(deployment, /^\s+user: "node"$/mu);
+  assert.match(deployment, /^\s+cap_add:\n\s+- SYS_ADMIN$/mu);
   assert.match(deployment, /^\s+read_only: true$/mu);
   assert.match(deployment, /^\s+- rental-apartments-data:\/app\/\.data$/mu);
   assert.match(

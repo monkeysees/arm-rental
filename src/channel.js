@@ -243,7 +243,9 @@ function validChannelEntry(entry) {
     !entry ||
     typeof entry !== "object" ||
     !CHANNEL_STATUSES.has(entry.status) ||
-    !validIsoDate(entry.classifiedAt)
+    !validIsoDate(entry.classifiedAt) ||
+    (entry.reencounteredAt !== undefined &&
+      !validIsoDate(entry.reencounteredAt))
   ) {
     return false;
   }
@@ -309,6 +311,13 @@ function operationEvent(onOperation, details) {
     ...(details.messageId ? { messageId: details.messageId } : {}),
     ...(details.error ? { error: details.error } : {}),
   });
+}
+
+function encounteredAfterClassification(apartment, entry) {
+  return (
+    validIsoDate(apartment?.lastSeenAt) &&
+    Date.parse(apartment.lastSeenAt) > Date.parse(entry.classifiedAt)
+  );
 }
 
 export async function publishChannelApartments(
@@ -384,6 +393,37 @@ export async function publishChannelApartments(
       });
       state.filterFingerprint = fingerprint;
       await saveState(config.channelDeliveryStateFile, state);
+    }
+
+    const reencountered = apartmentOrder.filter((itemId) => {
+      const entry = state.apartments[itemId];
+      const apartment = apartments[itemId];
+      return (
+        entry?.status === "skipped_initial" &&
+        encounteredAfterClassification(apartment, entry) &&
+        apartmentMatchesFilters(apartment, config.channelFilters)
+      );
+    });
+    if (reencountered.length > 0) {
+      for (const itemId of reencountered) {
+        state.apartments[itemId] = {
+          ...state.apartments[itemId],
+          status: "pending",
+          reencounteredAt: apartments[itemId].lastSeenAt,
+        };
+      }
+      // Persist admission before sending so a failed or interrupted Telegram
+      // request remains pending and is retried without depending on another
+      // List.am encounter.
+      await saveState(config.channelDeliveryStateFile, state);
+      for (const itemId of reencountered) {
+        operationEvent(onOperation, {
+          channelId: config.telegramChannelId,
+          itemId,
+          operation: "readmit",
+          outcome: "success",
+        });
+      }
     }
 
     const unclassified = apartmentOrder.filter(

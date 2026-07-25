@@ -114,15 +114,17 @@ conflicting selectors stop startup with an error.
 Channel posts reuse the private apartment message, including the original source
 price, then append Russian hashtags for region, locality, the canonical AMD
 50,000-dram price band, and rooms. Channel filter changes apply only to
-apartments not yet classified; they never release a historical filtered or
-initially skipped backlog.
+apartments not yet classified; they never release historical filtered listings.
+An initially skipped listing is admitted if a later crawl encounters it again
+while it still matches the channel filter.
 
 On the first compatible run, every stored apartment is classified atomically.
 Only the latest `INITIAL_DELIVERY_LIMIT` matches are posted, oldest first.
 Changing the channel username starts a fresh classification for that channel.
 Successful channel message IDs and content hashes are saved immediately. Later
-card changes edit the existing post when rendered content changes; a deleted
-channel message is posted again and its saved message ID is replaced.
+encounters publish initially skipped matches, while changes to already
+published cards edit the saved message in place. A deleted channel message is
+posted again and its saved message ID is replaced.
 
 Telegram does not provide an idempotency key for `sendMessage`. There is a small
 at-least-once duplicate risk if the process exits after Telegram accepts a post

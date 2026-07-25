@@ -254,6 +254,74 @@ test("initial channel classification is durable and sends only the latest limit 
   }
 });
 
+test("a later encounter posts an initial skip and edits an existing post in place", async () => {
+  const storage = memoryState();
+  const initialSent = [];
+  await publishChannelApartments(
+    channelConfig({ initialDeliveryLimit: 1 }),
+    apartmentState(
+      { ...apartment("2"), lastSeenAt: "2026-07-24T11:59:00.000Z" },
+      { ...apartment("1"), lastSeenAt: "2026-07-24T11:59:00.000Z" },
+    ),
+    {
+      ...storage,
+      api: {
+        sendMessage: async (_channelId, message) => {
+          initialSent.push(message.split("\n")[0]);
+          return { message_id: 20 };
+        },
+      },
+      now: () => new Date("2026-07-24T12:00:00Z"),
+    },
+  );
+
+  assert.deepEqual(initialSent, ["Apartment 2"]);
+  assert.equal(storage.value.apartments["1"].status, "skipped_initial");
+
+  const sent = [];
+  const edited = [];
+  const operations = [];
+  await publishChannelApartments(
+    channelConfig({ initialDeliveryLimit: 1 }),
+    apartmentState(
+      {
+        ...apartment("2", { title: "Updated Apartment 2" }),
+        lastSeenAt: "2026-07-24T12:01:00.000Z",
+      },
+      { ...apartment("1"), lastSeenAt: "2026-07-24T12:01:00.000Z" },
+    ),
+    {
+      ...storage,
+      api: {
+        sendMessage: async (_channelId, message) => {
+          sent.push(message.split("\n")[0]);
+          return { message_id: 21 };
+        },
+        editMessageText: async (_channelId, messageId, message) => {
+          edited.push({ messageId, title: message.split("\n")[0] });
+        },
+      },
+      onOperation: (event) => operations.push(event),
+      now: () => new Date("2026-07-24T12:02:00Z"),
+    },
+  );
+
+  assert.deepEqual(sent, ["Apartment 1"]);
+  assert.deepEqual(edited, [{ messageId: 20, title: "Updated Apartment 2" }]);
+  assert.equal(storage.value.apartments["1"].status, "published");
+  assert.equal(
+    storage.value.apartments["1"].reencounteredAt,
+    "2026-07-24T12:01:00.000Z",
+  );
+  assert.equal(
+    operations.some(
+      ({ itemId, operation, outcome }) =>
+        itemId === "1" && operation === "readmit" && outcome === "success",
+    ),
+    true,
+  );
+});
+
 test("partial channel sends resume pending posts without reselection or duplicates", async () => {
   const storage = memoryState();
   const source = apartmentState(apartment("2"), apartment("1"));

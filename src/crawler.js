@@ -232,19 +232,31 @@ export async function crawlApartments(
 
     for (const apartment of apartments) {
       const postingDateValue = dateSortValue(apartment.date);
+      const knownApartment = Object.hasOwn(
+        previousApartments,
+        apartment.itemId,
+      );
       if (
         !initialRun &&
         lastKnownPostingDate.value !== null &&
         postingDateValue !== null &&
         postingDateValue < lastKnownPostingDate.value
       ) {
+        // A renewed known ad can retain its old displayed date while moving
+        // back into the newest results. Record that encounter before applying
+        // the date watermark so delivery can re-admit an initially skipped ad.
+        if (!encounteredIdSet.has(apartment.itemId) && knownApartment) {
+          encounteredIdSet.add(apartment.itemId);
+          encounteredOrder.push(apartment.itemId);
+          observedKnown.set(apartment.itemId, apartment);
+        }
         stoppedAtKnownDate = lastKnownPostingDate.date;
         break pageLoop;
       }
       if (encounteredIdSet.has(apartment.itemId)) continue;
       encounteredIdSet.add(apartment.itemId);
       encounteredOrder.push(apartment.itemId);
-      if (Object.hasOwn(previousApartments, apartment.itemId)) {
+      if (knownApartment) {
         observedKnown.set(apartment.itemId, apartment);
         continue;
       }
@@ -260,7 +272,10 @@ export async function crawlApartments(
   const updated = [];
   for (const [itemId, observed] of observedKnown) {
     const previous = previousApartments[itemId];
-    if (!sourceDataChanged(previous, observed)) continue;
+    if (!sourceDataChanged(previous, observed)) {
+      apartments[itemId] = { ...previous, lastSeenAt: checkedAt };
+      continue;
+    }
 
     const priceChanged =
       originalPriceValues(previous.price).amount !==
@@ -273,6 +288,7 @@ export async function crawlApartments(
         ? normalizeApartmentPrice(observed.price, exchangeRates)
         : previous.price,
       firstSeenAt: previous.firstSeenAt,
+      lastSeenAt: checkedAt,
       updatedAt: checkedAt,
     };
     apartments[itemId] = apartment;
@@ -282,6 +298,7 @@ export async function crawlApartments(
     apartments[apartment.itemId] = {
       ...apartment,
       firstSeenAt: checkedAt,
+      lastSeenAt: checkedAt,
     };
   }
   const orderedIds = new Set(encounteredOrder);

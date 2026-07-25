@@ -165,6 +165,41 @@ test("later crawl continues past known IDs until the latest known date", async (
   );
 });
 
+test("a known ad encountered at the date watermark records a durable last-seen time", async () => {
+  const state = memoryState();
+  await crawlApartments(
+    { ...config, initialPageCount: 1 },
+    {
+      ...state,
+      fetchPage: async () =>
+        new Response(
+          datedPage(
+            ["2", "Пятница, Июль 24, 2026, 14:31"],
+            ["1", "Пятница, Июль 24, 2026, 14:30"],
+          ),
+        ),
+      now: () => new Date("2026-07-24T12:00:00Z"),
+    },
+  );
+
+  await crawlApartments(config, {
+    ...state,
+    // A renewed ad may be moved to the front without changing its displayed
+    // date or any other rendered source field.
+    fetchPage: async () =>
+      new Response(datedPage(["1", "Пятница, Июль 24, 2026, 14:30"])),
+    now: () => new Date("2026-07-24T12:01:00Z"),
+  });
+
+  const stored = state.files.get(config.apartmentsStateFile);
+  assert.equal(stored.apartments["1"].lastSeenAt, "2026-07-24T12:01:00.000Z");
+  assert.equal(stored.apartments["1"].updatedAt, undefined);
+  assert.equal(
+    stored.lastCrawl.stoppedAtKnownDate,
+    stored.lastCrawl.lastKnownDate,
+  );
+});
+
 test("a failed Telegram delivery remains pending without losing discovery", async () => {
   const state = memoryState();
   const firstAttempts = [];

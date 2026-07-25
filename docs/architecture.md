@@ -686,11 +686,13 @@ operator procedures are indexed in
    stop discovery. If stored dates cannot be parsed, the crawl falls back to the
    configured initial page count. Empty pages and repeated page signatures also
    stop the crawl.
-8. Known cards encountered before the watermark are compared across source
-   title, original price, location, rooms, area, floor, URL, and posting date. A
-   change replaces the source fields, preserves `firstSeenAt`, and records
-   `updatedAt`. An original amount or currency change is normalized with the
-   latest persisted rate and replaces its rate audit; otherwise the prior
+8. Known cards encountered before or at the stopping watermark are compared
+   across source title, original price, location, rooms, area, floor, URL, and
+   posting date. A change replaces the source fields, preserves `firstSeenAt`,
+   and records `updatedAt`. Every encounter records `lastSeenAt`, including
+   when a renewed ad retains an older displayed posting date and otherwise
+   unchanged content. An original amount or currency change is normalized with
+   the latest persisted rate and replaces its rate audit; otherwise the prior
    canonical price and audit remain unchanged.
 9. Newly discovered and updated records are atomically committed before
    Telegram delivery begins. Private `src/filters.js` admission remains
@@ -703,8 +705,11 @@ operator procedures are indexed in
     the latest matching `INITIAL_DELIVERY_LIMIT` become `pending`, older matches
     become `skipped_initial`, and non-matches become `filtered`. Pending posts
     are sent oldest first. Later unseen IDs are terminally admitted as `pending`
-    or `filtered`; a changed filter fingerprint is logged without reclassifying
-    history.
+    or `filtered`. An initially skipped match whose `lastSeenAt` advances beyond
+    its channel classification time is durably re-admitted as `pending`; this
+    lets a renewed historical ad publish without releasing the untouched
+    backlog. A changed filter fingerprint is logged without reclassifying
+    filtered history.
 11. Published channel entries retain Telegram message IDs and SHA-256 hashes of
     the complete rendered message. A changed hash triggers `editMessageText`;
     an unchanged hash, including a posting-date-only source update, makes no

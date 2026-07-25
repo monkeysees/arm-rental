@@ -673,7 +673,13 @@ operator procedures are indexed in
    persisted-user routing hook permits the deletion workflow to remain
    reachable for suspended users without allowing unknown users to create
    state. `/filters` opens the same per-user price, room, and hierarchical
-   location controls. The start callback first asks whether to send up to
+   location controls. Authorized private messages and callbacks share a
+   per-sender, continuously refilled in-memory token bucket. Denied `/start`
+   replies and excessive-request replies each have a separate five-minute
+   response gate; callbacks are acknowledged without editing their messages.
+   These process-local controls expire after inactivity and reset on restart,
+   while the service retains no admission capacity for persisted private
+   users. The start callback first asks whether to send up to
    `INITIAL_DELIVERY_LIMIT` existing matches or monitor new listings only;
    monitoring remains inactive until that choice is persisted. The final start
    and stop callbacks durably toggle only that user's delivery state before
@@ -686,6 +692,11 @@ operator procedures are indexed in
    run concurrently against separate state files. Channel state, formatting,
    and Telegram failures are isolated from private delivery and the update
    loop.
+   All users and the public channel share this one crawl. Activation may wake a
+   dormant loop only after the configured crawl interval has elapsed since its
+   last attempt; repeated controls, filter changes, denied updates, and future
+   deletion actions neither move that timestamp nor reset crawl-failure
+   backoff.
 4. A separate activation-independent loop asks `src/exchange-rates.js` for the
    persisted CBA snapshot. The service refreshes USD, EUR, and RUB together when
    it is at least 24 hours old. A failed refresh keeps the last snapshot active
@@ -824,6 +835,10 @@ The `.data` directory must be mounted on persistent storage in production.
   not persisted user attributes; policy narrowing therefore suspends records
   without rewriting activation, filters, initial-send choice, or delivery
   history.
+- Inbound token buckets and denial-response timestamps are deliberately absent
+  from JSON state. They use a monotonic process clock, evict entries after 15
+  minutes of inactivity, and start empty after restart. The maps grow with
+  recently active senders, not with the unlimited persisted-user population.
 - `telegram-channel-deliveries.json` is a separate channel state machine keyed
   by item ID. It stores terminal `filtered` and `skipped_initial` admissions,
   retryable `pending` entries, and `published` entries with Telegram message ID,
@@ -862,6 +877,11 @@ is retained as displayed by List.am.
   apartment state is written.
 - Telegram HTTP 429 responses honor `retry_after` and are retried up to three
   times.
+- Policy and inbound-rate rejections durably advance the global Telegram update
+  offset before any callback acknowledgement or user-facing response. Their
+  structured events contain only fixed reasons, access mode, and configured
+  rate; sender IDs, chat IDs, message text, and callback data stay inside the
+  operational Telegram request path and never become telemetry or health data.
 - Private and channel classifications are persisted before messages are sent.
   Successful deliveries are acknowledged immediately. A restart cannot turn a
   rejected listing into an unexpected backlog.
@@ -888,7 +908,11 @@ Parser tests verify field normalization and Top Ads exclusion. Crawler
 integration tests exercise multi-page initial discovery, the posting-date
 watermark (including refreshed IDs and equal-minute listings), known-card
 updates, persistence, new and updated private-delivery retry, and
-filter-classification behavior.
+filter-classification behavior. Telegram integration tests use a fake monotonic
+clock to cover inbound bursts, fractional refill, inactivity eviction, restart
+reset, bounded rejection responses, durable denial offsets, and the invariant
+that private actions cannot accelerate the singleton crawl or its failure
+backoff.
 Filter tests cover optional/open ranges, regions, places, composed criteria, and
 AMD comparison of foreign source prices. Exchange-rate tests cover SOAP parsing,
 atomic validation, daily refresh, hourly failure backoff, restart reuse, and

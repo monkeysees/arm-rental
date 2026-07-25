@@ -188,6 +188,17 @@ export async function runApplication({
           ...state,
         });
       },
+      onPrivateAccessDenied: ({ accessMode, reason }) =>
+        logger.info("Private Telegram access denied", {
+          event: "telegram.access.denied",
+          accessMode,
+          reason,
+        }),
+      onPrivateUserRateLimited: ({ updatesPerMinute }) =>
+        logger.info("Private Telegram user rate limited", {
+          event: "telegram.user.rate_limited",
+          updatesPerMinute,
+        }),
       onPrivateUserDeactivated: ({ reason }) =>
         logger.warn("Unavailable private subscription deactivated", {
           event: "telegram.private.deactivated",

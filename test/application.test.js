@@ -115,6 +115,11 @@ test("application lifecycle drives crawl and exchange-rate readiness", async () 
         suspendedUserCount: 1,
         activeUserCount: 1,
       });
+      callbacks.onPrivateAccessDenied({
+        accessMode: "owner",
+        reason: "not_authorized",
+      });
+      callbacks.onPrivateUserRateLimited({ updatesPerMinute: 5 });
       callbacks.onMonitoringState({
         active: false,
         channelConfigured: true,
@@ -201,6 +206,23 @@ test("application lifecycle drives crawl and exchange-rate readiness", async () 
       ({ message, context }) =>
         message === "Graceful shutdown completed" &&
         context.signal === "SIGTERM",
+    ),
+  );
+  assert.ok(
+    infoRecords.some(
+      ({ context }) =>
+        context?.event === "telegram.access.denied" &&
+        context.accessMode === "owner" &&
+        context.reason === "not_authorized" &&
+        Object.keys(context).length === 3,
+    ),
+  );
+  assert.ok(
+    infoRecords.some(
+      ({ context }) =>
+        context?.event === "telegram.user.rate_limited" &&
+        context.updatesPerMinute === 5 &&
+        Object.keys(context).length === 2,
     ),
   );
   assert.ok(

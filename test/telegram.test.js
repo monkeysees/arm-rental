@@ -13,6 +13,7 @@ import {
   isStartCommand,
   TelegramApi,
 } from "../src/telegram.js";
+import { createPrivateRateLimits } from "../src/rate-limit.js";
 
 const config = { telegramOwnerId: 42 };
 const initialState = {
@@ -139,8 +140,138 @@ test("restricted access advances offsets without creating or mutating users", as
   assert.equal(state.users[42].active, false);
 });
 
+test("denied users receive one bounded response without limiter or state entries", async () => {
+  let now = 0;
+  const senderId = 73_429_851;
+  const events = [];
+  const sent = [];
+  const answered = [];
+  const saves = [];
+  const limits = createPrivateRateLimits(5, {
+    monotonicNow: () => now,
+  });
+  const state = await processUpdates(
+    [
+      update(1, senderId, "/start private-payload"),
+      update(2, senderId, "/start"),
+      callback(3, "f:reset", 100, senderId),
+      update(4, senderId, "/start", "group"),
+    ],
+    { telegramOwnerId: 42, telegramAccessMode: "owner" },
+    initialState,
+    {
+      sendMessage: async (...arguments_) => sent.push(arguments_),
+      editMessage: async () => assert.fail("denied callbacks must not edit"),
+      answerCallback: async (id) => answered.push(id),
+      saveState: async (value) => saves.push(structuredClone(value)),
+      onAccessDenied: async (event) => events.push(event),
+      rateLimits: limits,
+    },
+  );
+
+  assert.equal(state.users[senderId], undefined);
+  assert.equal(state.updateOffset, 5);
+  assert.equal(limits.inboundUpdates.size, 0);
+  assert.equal(sent.length, 1);
+  assert.match(sent[0][1], new RegExp(String(senderId), "u"));
+  assert.deepEqual(answered, ["query-3"]);
+  assert.deepEqual(
+    events,
+    Array.from({ length: 3 }, () => ({
+      accessMode: "owner",
+      reason: "not_authorized",
+    })),
+  );
+  assert.ok(saves.some(({ updateOffset }) => updateOffset === 2));
+  assert.ok(saves.some(({ updateOffset }) => updateOffset === 3));
+  assert.ok(saves.some(({ updateOffset }) => updateOffset === 4));
+
+  now += 5 * 60_000;
+  await processUpdates(
+    [update(5, senderId, "/start")],
+    { telegramOwnerId: 42, telegramAccessMode: "owner" },
+    state,
+    {
+      sendMessage: async (...arguments_) => sent.push(arguments_),
+      saveState: async () => {},
+      rateLimits: limits,
+    },
+  );
+  assert.equal(sent.length, 2);
+});
+
+test("inbound limits are shared across messages and callbacks with durable offsets", async () => {
+  const senderId = 84_765_219;
+  const limits = createPrivateRateLimits(5, { monotonicNow: () => 0 });
+  const saves = [];
+  const sent = [];
+  const answered = [];
+  const edits = [];
+  const events = [];
+  const state = await processUpdates(
+    [
+      update(1, senderId, "/start"),
+      update(2, senderId, "plain-one"),
+      callback(3, "unknown", 100, senderId),
+      update(4, senderId, "plain-two"),
+      callback(5, "unknown", 100, senderId),
+      callback(6, "f:reset", 100, senderId),
+      update(7, senderId, "/filters"),
+    ],
+    {
+      telegramOwnerId: 42,
+      telegramAccessMode: "public",
+      telegramUserUpdatesPerMinute: 5,
+    },
+    initialState,
+    {
+      sendMessage: async (...arguments_) => sent.push(arguments_),
+      editMessage: async (...arguments_) => edits.push(arguments_),
+      answerCallback: async (id) => answered.push(id),
+      saveState: async (value) => saves.push(structuredClone(value)),
+      onUserRateLimited: async (event) => events.push(event),
+      rateLimits: limits,
+    },
+  );
+
+  assert.equal(state.updateOffset, 8);
+  assert.equal(state.users[senderId].active, false);
+  assert.equal(edits.length, 0);
+  assert.deepEqual(answered, ["query-3", "query-5", "query-6"]);
+  assert.equal(sent.length, 2);
+  assert.match(sent[1][1], /Слишком много запросов/u);
+  assert.deepEqual(events, [{ updatesPerMinute: 5 }]);
+  assert.ok(saves.some(({ updateOffset }) => updateOffset === 7));
+  assert.ok(saves.some(({ updateOffset }) => updateOffset === 8));
+});
+
+test("a failed rejection reply cannot roll back its durable update offset", async () => {
+  const saved = [];
+  await assert.rejects(
+    processUpdates(
+      [update(10, 77, "/start")],
+      { telegramOwnerId: 42, telegramAccessMode: "owner" },
+      initialState,
+      {
+        sendMessage: async () => {
+          throw new Error("reply unavailable");
+        },
+        saveState: async (value) => saved.push(structuredClone(value)),
+      },
+    ),
+    /reply unavailable/u,
+  );
+
+  assert.equal(saved.at(-1).updateOffset, 11);
+  assert.equal(saved.at(-1).users[77], undefined);
+});
+
 test("persisted suspended users have a reserved access-bypass route", async () => {
   const bypassed = [];
+  const limits = createPrivateRateLimits(5, { monotonicNow: () => 0 });
+  for (let count = 0; count < 5; count += 1) {
+    limits.inboundUpdates.tryConsume(99);
+  }
   const state = await processUpdates(
     [update(1, 99, "/future-delete")],
     { telegramOwnerId: 42, telegramAccessMode: "owner" },
@@ -158,6 +289,7 @@ test("persisted suspended users have a reserved access-bypass route", async () =
         bypassed.push(senderId);
         return true;
       },
+      rateLimits: limits,
     },
   );
 
@@ -621,6 +753,148 @@ test("the start button wakes the monitor after /start setup", async () => {
   assert.equal(sent[1][1].startsWith("Apartment 100"), true);
 });
 
+test("private controls cannot interrupt the singleton crawl interval", async () => {
+  const controller = new AbortController();
+  const crawlStarted = Promise.withResolvers();
+  const sleepDelays = [];
+  let updateCalls = 0;
+  let crawlCalls = 0;
+  const state = {
+    version: 2,
+    type: "telegram-bot",
+    updateOffset: 0,
+    users: {
+      42: { active: true, chatId: 42, filters: {} },
+    },
+  };
+  const api = {
+    getUpdates: async (_offset, _timeout, signal) => {
+      updateCalls += 1;
+      if (updateCalls === 1) {
+        await crawlStarted.promise;
+        return [
+          callback(1, "m:stop"),
+          callback(2, "m:start"),
+          callback(3, "m:start:new"),
+          callback(4, "f:reset"),
+        ];
+      }
+      return new Promise((resolve) => {
+        signal.addEventListener("abort", () => resolve([]), { once: true });
+      });
+    },
+    editMessageText: async () => {},
+    answerCallbackQuery: async () => {},
+  };
+
+  await runTelegramBot(
+    {
+      telegramBotToken: "token",
+      telegramOwnerId: 42,
+      telegramAccessMode: "public",
+      telegramUserUpdatesPerMinute: 30,
+      telegramStateFile: "/state/bot.json",
+      telegramPollTimeoutSeconds: 25,
+      timeoutMs: 1_000,
+      pollIntervalMs: 60_000,
+    },
+    {
+      api,
+      signal: controller.signal,
+      loadState: async () => state,
+      saveState: async () => {},
+      sleep: async (milliseconds, _value, { signal }) => {
+        sleepDelays.push(milliseconds);
+        if (signal.aborted) return;
+        return new Promise((resolve) => {
+          signal.addEventListener("abort", resolve, { once: true });
+        });
+      },
+      crawl: async () => {
+        crawlCalls += 1;
+        crawlStarted.resolve();
+        return {
+          status: "unchanged",
+          pagesParsed: 1,
+          discoveredCount: 0,
+          updatedCount: 0,
+          notifiedCount: 0,
+          skippedCount: 0,
+          filteredCount: 0,
+          totalCount: 0,
+        };
+      },
+      onTelegramSuccess: () => controller.abort(),
+    },
+  );
+
+  assert.equal(crawlCalls, 1);
+  assert.deepEqual(sleepDelays, [60_000]);
+});
+
+test("private controls cannot bypass crawl failure backoff", async () => {
+  const controller = new AbortController();
+  const crawlStarted = Promise.withResolvers();
+  const retries = [];
+  let crawlCalls = 0;
+  const state = {
+    version: 2,
+    type: "telegram-bot",
+    updateOffset: 0,
+    users: {
+      42: { active: true, chatId: 42, filters: {} },
+    },
+  };
+  const api = {
+    getUpdates: async () => {
+      await crawlStarted.promise;
+      return [callback(1, "f:reset")];
+    },
+    editMessageText: async () => {},
+    answerCallbackQuery: async () => {},
+  };
+
+  await runTelegramBot(
+    {
+      telegramBotToken: "token",
+      telegramOwnerId: 42,
+      telegramAccessMode: "public",
+      telegramUserUpdatesPerMinute: 30,
+      telegramStateFile: "/state/bot.json",
+      telegramPollTimeoutSeconds: 25,
+      timeoutMs: 1_000,
+      pollIntervalMs: 60_000,
+      externalRetryBaseMs: 1_000,
+      externalRetryMaxMs: 60_000,
+    },
+    {
+      api,
+      signal: controller.signal,
+      loadState: async () => state,
+      saveState: async () => {},
+      sleep: async (milliseconds, _value, { signal }) => {
+        retries.push(milliseconds);
+        if (signal.aborted) return;
+        return new Promise((resolve) => {
+          signal.addEventListener("abort", resolve, { once: true });
+        });
+      },
+      crawl: async () => {
+        crawlCalls += 1;
+        crawlStarted.resolve();
+        throw new TypeError("temporary upstream failure");
+      },
+      onError: async () => {},
+      onRetry: async () => {},
+      onTelegramSuccess: () => controller.abort(),
+    },
+  );
+
+  assert.equal(crawlCalls, 1);
+  assert.equal(retries.length, 1);
+  assert.ok(retries[0] >= 800 && retries[0] <= 1_000);
+});
+
 test("exchange rates refresh without private monitoring activation", async () => {
   const controller = new AbortController();
   let refreshCalls = 0;
@@ -778,6 +1052,17 @@ test("runtime crawls only authorized active users and exposes live predicates", 
     suspendedUserCount: 1,
     activeUserCount: 1,
   });
+  assert.deepEqual(accessStates[1], {
+    accessMode: "owner",
+    persistedUserCount: 2,
+    authorizedUserCount: 0,
+    suspendedUserCount: 2,
+    activeUserCount: 0,
+  });
+  assert.equal(
+    new Set(accessStates.map((summary) => JSON.stringify(summary))).size,
+    accessStates.length,
+  );
   assert.deepEqual(stored.users[99].sendInitialApartments, false);
 });
 

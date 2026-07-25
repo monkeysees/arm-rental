@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { performance } from "node:perf_hooks";
 import { setTimeout as delay } from "node:timers/promises";
 
 import { publishChannelApartments } from "./channel.js";
@@ -24,6 +25,12 @@ import {
   TelegramApi,
 } from "./telegram.js";
 import { ExponentialBackoff, isExpectedExternalFailure } from "./retry.js";
+import { createPrivateRateLimits } from "./rate-limit.js";
+
+const ACCESS_DENIED_TEXT = (senderId) =>
+  `Доступ к боту ограничен. Ваш Telegram ID: ${senderId}.`;
+const RATE_LIMITED_TEXT =
+  "Слишком много запросов. Пожалуйста, попробуйте ещё раз позже.";
 
 export function compatibleBotState(state) {
   return Boolean(
@@ -337,13 +344,25 @@ export async function processUpdates(
     answerCallback = async () => {},
     saveState,
     onSubscriptionChanged = async () => {},
+    onAccessDenied = async () => {},
+    onUserRateLimited = async () => {},
     isPersistedUserAccessBypass = () => false,
+    rateLimits,
   },
 ) {
   let current = withBotDefaults(state);
+  const effectiveRateLimits =
+    rateLimits ??
+    createPrivateRateLimits(config.telegramUserUpdatesPerMinute ?? 30);
 
   for (const update of updates) {
-    current = { ...current, updateOffset: update.update_id + 1 };
+    const nextOffset = Number.isSafeInteger(update.update_id)
+      ? update.update_id + 1
+      : current.updateOffset;
+    current = {
+      ...current,
+      updateOffset: Math.max(current.updateOffset, nextOffset),
+    };
     const query = update.callback_query;
     const context = privateUpdateContext(update);
 
@@ -360,7 +379,35 @@ export async function processUpdates(
       // A rejected update still advances durably before any later response or
       // callback acknowledgement can fail.
       await saveState(current);
+      await onAccessDenied({
+        accessMode: config.telegramAccessMode ?? "public",
+        reason: "not_authorized",
+      });
       if (query) await answerCallback(query.id);
+      if (
+        !query &&
+        isStartCommand(message.text) &&
+        effectiveRateLimits.accessDeniedResponses.tryAcquire(senderId)
+      ) {
+        await sendMessage(senderId, ACCESS_DENIED_TEXT(senderId));
+      }
+      continue;
+    }
+
+    if (
+      !accessBypass &&
+      !effectiveRateLimits.inboundUpdates.tryConsume(senderId)
+    ) {
+      await saveState(current);
+      if (effectiveRateLimits.rateLimitedEvents.tryAcquire("aggregate")) {
+        await onUserRateLimited({
+          updatesPerMinute: config.telegramUserUpdatesPerMinute ?? 30,
+        });
+      }
+      if (query) await answerCallback(query.id);
+      if (effectiveRateLimits.rateLimitedResponses.tryAcquire(senderId)) {
+        await sendMessage(senderId, RATE_LIMITED_TEXT);
+      }
       continue;
     }
 
@@ -505,6 +552,8 @@ export async function runTelegramBot(
     onError = () => {},
     onMonitoringState = () => {},
     onPrivateAccessState = () => {},
+    onPrivateAccessDenied = () => {},
+    onPrivateUserRateLimited = () => {},
     onPrivateMonitoringChanged = () => {},
     onPrivateUserDeactivated = () => {},
     onTelegramSuccess = () => {},
@@ -512,6 +561,7 @@ export async function runTelegramBot(
     onChannelFilterFingerprintChange = () => {},
     onRetry = () => {},
     exchangeRateService,
+    monotonicNow,
     signal,
   } = {},
 ) {
@@ -531,6 +581,11 @@ export async function runTelegramBot(
         users: {},
       };
   let activationWaiter;
+  let lastCrawlAttemptStartedAt;
+  const privateRateLimits = createPrivateRateLimits(
+    config.telegramUserUpdatesPerMinute ?? 30,
+    { ...(monotonicNow ? { monotonicNow } : {}) },
+  );
   let lastAccessSummary;
   const reportAccessState = async () => {
     const summary = privateAccessSummary(state, config);
@@ -573,6 +628,7 @@ export async function runTelegramBot(
   const updateLoop = async () => {
     while (!signal?.aborted) {
       try {
+        privateRateLimits.pruneInactive();
         const unavailableUsers = new Map();
         const updates = await api.getUpdates(
           state.updateOffset,
@@ -629,6 +685,9 @@ export async function runTelegramBot(
               sendInitialApartments,
             });
           },
+          onAccessDenied: onPrivateAccessDenied,
+          onUserRateLimited: onPrivateUserRateLimited,
+          rateLimits: privateRateLimits,
         });
         await reportAccessState();
         for (const [chatId, reason] of unavailableUsers) {
@@ -657,6 +716,7 @@ export async function runTelegramBot(
 
   const monitorLoop = async () => {
     while (!signal?.aborted) {
+      let wokeFromDormancy = false;
       if (
         effectiveActiveUsers(state, config).length === 0 &&
         !config.telegramChannelId
@@ -665,11 +725,29 @@ export async function runTelegramBot(
           activationWaiter = resolve;
         });
         if (signal?.aborted) return;
+        wokeFromDormancy = true;
+      }
+
+      if (wokeFromDormancy && lastCrawlAttemptStartedAt !== undefined) {
+        const now = monotonicNow?.() ?? performance.now();
+        const remainingIntervalMs = Math.max(
+          0,
+          config.pollIntervalMs - (now - lastCrawlAttemptStartedAt),
+        );
+        if (remainingIntervalMs > 0) {
+          try {
+            await sleep(remainingIntervalMs, undefined, { signal });
+          } catch (error) {
+            if (error.name !== "AbortError") throw error;
+            return;
+          }
+        }
       }
 
       let failureComponent = "cba";
       const crawlId = randomUUID();
       const crawlStartedAt = Date.now();
+      lastCrawlAttemptStartedAt = monotonicNow?.() ?? performance.now();
       try {
         const exchangeRates = await exchangeRateService?.getSnapshot(signal);
         failureComponent = "list_am";

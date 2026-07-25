@@ -497,6 +497,95 @@ test("published channel posts edit on rendered changes and republish when missin
   );
 });
 
+test("an apartment updated more than three days after publication is posted again", async () => {
+  const storage = memoryState();
+  const original = apartment("1");
+  await publishChannelApartments(channelConfig(), apartmentState(original), {
+    ...storage,
+    api: {
+      sendMessage: async () => ({ message_id: 10 }),
+    },
+    now: () => new Date("2026-07-24T12:00:00.000Z"),
+  });
+
+  const operations = [];
+  const updated = {
+    ...original,
+    title: "Updated after three days",
+    updatedAt: "2026-07-27T12:00:00.001Z",
+  };
+  const failedResult = await publishChannelApartments(
+    channelConfig(),
+    apartmentState(updated),
+    {
+      ...storage,
+      api: {
+        sendMessage: async () => {
+          throw new Error("Telegram unavailable");
+        },
+        editMessageText: async () => {
+          throw new Error("An old channel post must not be edited");
+        },
+      },
+      now: () => new Date("2026-07-27T12:00:00.001Z"),
+      onOperation: (event) => operations.push(event),
+    },
+  );
+
+  assert.equal(failedResult.sentCount, 0);
+  assert.equal(storage.value.apartments["1"].messageId, 10);
+  assert.equal(
+    storage.value.apartments["1"].contentHash,
+    channelContentHash(formatChannelApartmentMessage(original)),
+  );
+
+  const result = await publishChannelApartments(
+    channelConfig(),
+    apartmentState(updated),
+    {
+      ...storage,
+      api: {
+        sendMessage: async () => ({ message_id: 11 }),
+        editMessageText: async () => {
+          throw new Error("An old channel post must not be edited");
+        },
+      },
+      now: () => new Date("2026-07-27T12:00:00.001Z"),
+      onOperation: (event) => operations.push(event),
+    },
+  );
+
+  assert.equal(result.sentCount, 1);
+  assert.equal(result.editedCount, 0);
+  assert.deepEqual(storage.value.apartments["1"], {
+    status: "published",
+    classifiedAt: "2026-07-24T12:00:00.000Z",
+    messageId: 11,
+    contentHash: channelContentHash(formatChannelApartmentMessage(updated)),
+    publishedAt: "2026-07-27T12:00:00.001Z",
+  });
+  assert.equal(
+    operations.some(
+      ({ itemId, operation, outcome, messageId }) =>
+        itemId === "1" &&
+        operation === "repost" &&
+        outcome === "success" &&
+        messageId === 11,
+    ),
+    true,
+  );
+  assert.equal(
+    operations.some(
+      ({ itemId, operation, outcome, messageId }) =>
+        itemId === "1" &&
+        operation === "repost" &&
+        outcome === "failed" &&
+        messageId === 10,
+    ),
+    true,
+  );
+});
+
 test("failed channel edits retain the acknowledged hash for a later retry", async () => {
   const original = apartment("1");
   const originalMessage = formatChannelApartmentMessage(original);

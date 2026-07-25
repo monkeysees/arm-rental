@@ -711,11 +711,14 @@ operator procedures are indexed in
     backlog. A changed filter fingerprint is logged without reclassifying
     filtered history.
 11. Published channel entries retain Telegram message IDs and SHA-256 hashes of
-    the complete rendered message. A changed hash triggers `editMessageText`;
-    an unchanged hash, including a posting-date-only source update, makes no
-    request. If Telegram reports a missing message, the publisher sends a
-    replacement and stores its new ID. Published posts remain managed even when
-    later data would not match the current channel filters.
+    the complete rendered message. A changed hash within three days of channel
+    publication triggers `editMessageText`; once the post is strictly older
+    than 72 hours, the publisher sends the updated apartment as a new message
+    and manages that new message ID and publication timestamp. An unchanged
+    hash, including a posting-date-only source update, makes no request. If
+    Telegram reports a missing message, the publisher sends a replacement and
+    stores its new ID. Published posts remain managed even when later data would
+    not match the current channel filters.
 
 ## Filter model
 
@@ -819,10 +822,11 @@ is retained as displayed by List.am.
 - Private and channel classifications are persisted before messages are sent.
   Successful deliveries are acknowledged immediately. A restart cannot turn a
   rejected listing into an unexpected backlog.
-- Channel sends fail independently and leave entries pending. Failed edits
-  retain their prior acknowledged content hash. Per-operation structured logs
-  include operation, item ID, channel ID, known message ID, outcome, and error,
-  without including the bot token.
+- Channel sends fail independently and leave entries pending. Failed edits and
+  age-based reposts retain their prior acknowledged message metadata for a
+  later retry. Per-operation structured logs distinguish send, edit, and repost
+  operations and include item ID, channel ID, known message ID, outcome, and
+  error without including the bot token.
 - Telegram `sendMessage` has no idempotency key. A process exit after Telegram
   accepts a channel post but before local acknowledgement is atomically renamed
   into place carries a small at-least-once duplicate risk.

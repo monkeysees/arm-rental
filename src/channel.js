@@ -14,6 +14,7 @@ import { formatApartmentMessage } from "./telegram.js";
 
 const CHANNEL_STATE_VERSION = 1;
 const CHANNEL_STATE_TYPE = "telegram-channel-deliveries";
+const CHANNEL_REPOST_AGE_MS = 3 * 24 * 60 * 60 * 1000;
 const CHANNEL_STATUSES = new Set([
   "pending",
   "published",
@@ -320,6 +321,13 @@ function encounteredAfterClassification(apartment, entry) {
   );
 }
 
+function shouldRepost(entry, currentTime) {
+  return (
+    currentTime.getTime() - Date.parse(entry.publishedAt) >
+    CHANNEL_REPOST_AGE_MS
+  );
+}
+
 export async function publishChannelApartments(
   config,
   apartmentState,
@@ -505,10 +513,47 @@ export async function publishChannelApartments(
 
     let message;
     let contentHash;
+    let operation = "edit";
     try {
       message = formatChannelApartmentMessage(apartment);
       contentHash = channelContentHash(message);
       if (contentHash === entry.contentHash) continue;
+
+      if (shouldRepost(entry, now())) {
+        operation = "repost";
+        const result = await api.sendMessage(
+          config.telegramChannelId,
+          message,
+          signal,
+        );
+        if (
+          !Number.isSafeInteger(result?.message_id) ||
+          result.message_id <= 0
+        ) {
+          throw new Error(
+            "Telegram sendMessage returned an invalid message_id",
+          );
+        }
+
+        const replacement = {
+          ...entry,
+          messageId: result.message_id,
+          contentHash,
+          publishedAt: now().toISOString(),
+        };
+        delete replacement.updatedAt;
+        state.apartments[itemId] = replacement;
+        await saveState(config.channelDeliveryStateFile, state);
+        sentCount += 1;
+        operationEvent(onOperation, {
+          channelId: config.telegramChannelId,
+          itemId,
+          operation,
+          outcome: "success",
+          messageId: result.message_id,
+        });
+        continue;
+      }
 
       try {
         await api.editMessageText(
@@ -544,7 +589,7 @@ export async function publishChannelApartments(
       operationEvent(onOperation, {
         channelId: config.telegramChannelId,
         itemId,
-        operation: "edit",
+        operation,
         outcome: "success",
         messageId: entry.messageId,
       });
@@ -552,7 +597,7 @@ export async function publishChannelApartments(
       operationEvent(onOperation, {
         channelId: config.telegramChannelId,
         itemId,
-        operation: "edit",
+        operation,
         outcome: "failed",
         messageId: entry.messageId,
         error,

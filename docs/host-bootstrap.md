@@ -105,7 +105,10 @@ All version-controlled timers are enabled and started. The application service
 is enabled but its systemd path conditions prevent startup until both the
 root-only secret and an approved immutable image record exist. The stable
 `/usr/local/sbin/rental-deploy` launcher uses the bootstrap operations bundle
-for the first release and the verified current release thereafter.
+for the first release and the verified current release thereafter. The stable
+`/usr/local/bin/rentalctl` operator command follows the same boundary, so
+status, metrics, logs, and timer inventory always come from the active release
+after installation instead of the bootstrap-time copy.
 
 Review the sanitized receipt without exposing the environment file:
 

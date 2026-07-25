@@ -179,6 +179,13 @@ test("hcloud check is idempotent and transfers only the sanitized bootstrap bund
     ),
     true,
   );
+  assert.equal(
+    await readFile(
+      path.join(setup.root, "ops/rentalctl-launcher"),
+      "utf8",
+    ).then((contents) => contents.includes("BOOTSTRAP_RENTALCTL")),
+    true,
+  );
 });
 
 test("hcloud apply reconciles non-destructive drift in order", async (t) => {

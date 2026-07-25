@@ -76,7 +76,10 @@ serialized production operation owns the shared lock, preventing an expected
 deployment observation window from becoming a scheduled-job failure. The
 snapshot and `rentalctl timers` expose the same complete seven-timer inventory,
 including the reboot check, so its failed result participates in scheduled-job
-alert evaluation.
+alert evaluation. Host reconciliation installs `rentalctl` as a stable launcher
+that selects the verified current release and falls back to the bootstrap
+bundle only before a first release exists; operator diagnostics therefore
+advance atomically with the active operations implementation.
 
 ### Systemd operations
 

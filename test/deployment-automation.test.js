@@ -362,21 +362,34 @@ test("deployment evidence is exclusive and retention tracks three complete relea
 });
 
 test("unattended deploy contract covers no-op, first install, rollback, and failed rollback", async () => {
-  const [deploy, library, operations, launcher, service, timer] =
-    await Promise.all([
-      readFile(new URL("../ops/deploy", import.meta.url), "utf8"),
-      readFile(new URL("../ops/lib/deployment.sh", import.meta.url), "utf8"),
-      readFile(new URL("../ops/lib/operations.sh", import.meta.url), "utf8"),
-      readFile(new URL("../ops/deploy-launcher", import.meta.url), "utf8"),
-      readFile(
-        new URL("../infra/systemd/rental-deploy.service", import.meta.url),
-        "utf8",
-      ),
-      readFile(
-        new URL("../infra/systemd/rental-deploy.timer", import.meta.url),
-        "utf8",
-      ),
-    ]);
+  const [
+    deploy,
+    library,
+    operations,
+    launcher,
+    rentalctlLauncher,
+    hostBootstrap,
+    service,
+    timer,
+  ] = await Promise.all([
+    readFile(new URL("../ops/deploy", import.meta.url), "utf8"),
+    readFile(new URL("../ops/lib/deployment.sh", import.meta.url), "utf8"),
+    readFile(new URL("../ops/lib/operations.sh", import.meta.url), "utf8"),
+    readFile(new URL("../ops/deploy-launcher", import.meta.url), "utf8"),
+    readFile(new URL("../ops/rentalctl-launcher", import.meta.url), "utf8"),
+    readFile(
+      new URL("../infra/hcloud/host-bootstrap.sh", import.meta.url),
+      "utf8",
+    ),
+    readFile(
+      new URL("../infra/systemd/rental-deploy.service", import.meta.url),
+      "utf8",
+    ),
+    readFile(
+      new URL("../infra/systemd/rental-deploy.timer", import.meta.url),
+      "utf8",
+    ),
+  ]);
 
   assert.match(operations, /operations\.lock/u);
   assert.match(deploy, /deployment\.noop/u);
@@ -419,6 +432,18 @@ test("unattended deploy contract covers no-op, first install, rollback, and fail
     /\/usr\/local\/lib\/rental-apartments-bootstrap\/ops\/deploy/u,
   );
   assert.match(launcher, /\/opt\/rental-apartments\/current\/ops\/deploy/u);
+  assert.match(
+    rentalctlLauncher,
+    /\/usr\/local\/lib\/rental-apartments-bootstrap\/ops\/rentalctl/u,
+  );
+  assert.match(
+    rentalctlLauncher,
+    /\/opt\/rental-apartments\/current\/ops\/rentalctl/u,
+  );
+  assert.match(
+    hostBootstrap,
+    /install_file "\$SOURCE_ROOT\/ops\/rentalctl-launcher" \/usr\/local\/bin\/rentalctl 0755/u,
+  );
   assert.match(service, /ExecStart=\/usr\/local\/sbin\/rental-deploy/u);
   assert.match(service, /TimeoutStartSec=30min/u);
   assert.doesNotMatch(service, /RuntimeMaxSec/u);

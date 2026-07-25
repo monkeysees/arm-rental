@@ -1,0 +1,17 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+
+# Keep the operator entry point stable while making every command use the
+# release-pinned implementation after the first verified installation.
+CURRENT_RENTALCTL=/opt/rental-apartments/current/ops/rentalctl
+BOOTSTRAP_RENTALCTL=/usr/local/lib/rental-apartments-bootstrap/ops/rentalctl
+
+if [[ -x $CURRENT_RENTALCTL ]]; then
+  exec "$CURRENT_RENTALCTL" "$@"
+fi
+if [[ -x $BOOTSTRAP_RENTALCTL ]]; then
+  exec "$BOOTSTRAP_RENTALCTL" "$@"
+fi
+
+printf 'No verified current or bootstrap rentalctl implementation is installed\n' >&2
+exit 69

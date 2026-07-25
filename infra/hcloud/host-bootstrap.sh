@@ -239,6 +239,9 @@ fi
 if [[ -f $SOURCE_ROOT/ops/deploy-launcher ]]; then
   install_file "$SOURCE_ROOT/ops/deploy-launcher" /usr/local/sbin/rental-deploy 0755
 fi
+if [[ -f $SOURCE_ROOT/ops/rentalctl-launcher ]]; then
+  install_file "$SOURCE_ROOT/ops/rentalctl-launcher" /usr/local/bin/rentalctl 0755
+fi
 install_file "$SOURCE_ROOT/infra/hcloud/host-bootstrap.sh" \
   /usr/local/sbin/rental-host-bootstrap 0755
 

@@ -53,24 +53,24 @@ const MONTH_NUMBERS = new Map(
 export function compatibleApartmentState(state, template) {
   return Boolean(
     state &&
-      [1, 2].includes(state.version) &&
-      state.type === "list-am-apartments" &&
-      state.urlTemplate === template &&
-      state.apartments &&
-      typeof state.apartments === "object" &&
-      !Array.isArray(state.apartments),
+    [1, 2].includes(state.version) &&
+    state.type === "list-am-apartments" &&
+    state.urlTemplate === template &&
+    state.apartments &&
+    typeof state.apartments === "object" &&
+    !Array.isArray(state.apartments),
   );
 }
 
 export function compatibleDeliveryState(state, template) {
   return Boolean(
     state &&
-      state.version === 1 &&
-      state.type === "telegram-deliveries" &&
-      state.urlTemplate === template &&
-      state.notified &&
-      typeof state.notified === "object" &&
-      !Array.isArray(state.notified),
+    state.version === 1 &&
+    state.type === "telegram-deliveries" &&
+    state.urlTemplate === template &&
+    state.notified &&
+    typeof state.notified === "object" &&
+    !Array.isArray(state.notified),
   );
 }
 

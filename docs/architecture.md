@@ -178,6 +178,11 @@ production image and scans its OS packages and application libraries before it
 can be packaged. Keeping the scan and packaging in one required job prevents an
 unscanned image from becoming the deployable output.
 
+The aggregate production contract uses baseline POSIX/GNU text tooling supplied
+by the runner rather than optional hosted-image utilities. Its integration test
+places a failing `rg` executable first on `PATH`, preventing an undeclared
+ripgrep dependency from returning unnoticed as runner images evolve.
+
 Build arguments bind the image to the full Git revision and SHA-256 digest of
 `package-lock.json`; the Dockerfile validates both and records them alongside
 the pinned Node and Chrome versions as OCI labels. CI saves the exact scanned

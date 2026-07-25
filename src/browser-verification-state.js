@@ -15,12 +15,12 @@ export function browserVerificationStateFile(config) {
 export function compatibleBrowserVerification(state, listUrlTemplate) {
   return Boolean(
     state &&
-      state.type === TYPE &&
-      state.version === VERSION &&
-      state.urlTemplate === listUrlTemplate &&
-      !Number.isNaN(Date.parse(state.verifiedAt)) &&
-      Number.isSafeInteger(state.regularAdsCount) &&
-      state.regularAdsCount >= 0,
+    state.type === TYPE &&
+    state.version === VERSION &&
+    state.urlTemplate === listUrlTemplate &&
+    !Number.isNaN(Date.parse(state.verifiedAt)) &&
+    Number.isSafeInteger(state.regularAdsCount) &&
+    state.regularAdsCount >= 0,
   );
 }
 

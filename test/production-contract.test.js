@@ -60,6 +60,12 @@ cat <<'EOF'
 EOF
 `,
   );
+  await executable(
+    path.join(root, "rg"),
+    `${prelude}
+exit 70
+`,
+  );
 
   const result = await new Promise((resolve) => {
     const child = spawn(validator, [], {
@@ -91,6 +97,7 @@ EOF
     commands,
     /docker compose .*config --no-env-resolution --format json/u,
   );
+  assert.doesNotMatch(commands, /(?:^|\n)rg /u);
 });
 
 test("required CI invokes the aggregate production contract gate", async () => {

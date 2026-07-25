@@ -11,7 +11,7 @@ require_command() {
   }
 }
 
-for command in bash docker jq rg shellcheck systemd-analyze; do
+for command in bash docker grep jq shellcheck systemd-analyze; do
   require_command "$command"
 done
 
@@ -80,9 +80,9 @@ done
 
 [[ -f .github/workflows/quality.yml ]]
 [[ -f .github/workflows/publish-production.yml ]]
-rg --quiet 'cancel-in-progress:[[:space:]]*false' \
+grep -Eq 'cancel-in-progress:[[:space:]]*false' \
   .github/workflows/publish-production.yml
-rg --quiet 'production' .github/workflows/publish-production.yml
+grep -Eq 'production' .github/workflows/publish-production.yml
 
 for removed in \
   src/staging-guard.js \
@@ -105,14 +105,14 @@ node --input-type=module -e '
   }
 '
 
-if rg --ignore-case --line-number \
+if grep -ERin \
   'NODE_ENV[=:].*(staging|pre-?production)|environment[=:].*(staging|pre-?production)' \
   src scripts ops infra compose.production.yaml .github/workflows package.json; then
   printf 'A second deployed environment returned to production artifacts\n' >&2
   exit 65
 fi
 
-if rg --ignore-case --line-number \
+if grep -ERin \
   'fluentd|fluent-bit|prometheus|grafana|loki|LOG_COLLECTOR_ADDRESS|logging:[[:space:]]*syslog' \
   ops infra compose.production.yaml .github/workflows; then
   printf 'An external or server-based logging/metrics dependency was introduced\n' >&2

@@ -12,6 +12,11 @@ audits production dependencies with
 `npm audit --omit=dev --audit-level=high`. The coverage command measures
 `src/**/*.js` and fails below 90% lines or 80% branches.
 
+The aggregate production contract is intentionally limited to baseline runner
+tools plus Docker, jq, ShellCheck, and systemd-analyze. It uses `grep` for text
+contracts instead of relying on optional hosted-image packages such as
+ripgrep; its integration test fails if `rg` is invoked.
+
 Coverage thresholds and the measured source glob live in `package.json` so the
 same gate runs locally and in CI. Lowering either threshold or adding an
 exclusion is an exception: the pull request must state why the code cannot be

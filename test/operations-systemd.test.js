@@ -308,7 +308,7 @@ test("systemd operations use bounded runtimes, persistent UTC timers, and the de
   for (const service of services) {
     const source = await readFile(path.join(unitDirectory, service), "utf8");
     assert.match(source, /^TimeoutStartSec=/mu, service);
-    assert.match(source, /^RuntimeMaxSec=/mu, service);
+    assert.doesNotMatch(source, /^RuntimeMaxSec=/mu, service);
   }
 
   assert.match(

@@ -43,7 +43,9 @@ function parseChannelRange(value, kind, environmentName) {
   try {
     return parseRangeInput(compact, kind);
   } catch (error) {
-    throw new Error(`${environmentName} is invalid: ${error.message}`);
+    throw new Error(`${environmentName} is invalid: ${error.message}`, {
+      cause: error,
+    });
   }
 }
 
@@ -266,17 +268,17 @@ function validChannelEntry(entry) {
 export function compatibleChannelState(state, config) {
   return Boolean(
     state &&
-      state.version === CHANNEL_STATE_VERSION &&
-      state.type === CHANNEL_STATE_TYPE &&
-      state.channelId === config.telegramChannelId &&
-      state.urlTemplate === config.listUrlTemplate &&
-      state.initialized === true &&
-      typeof state.filterFingerprint === "string" &&
-      /^[a-f0-9]{64}$/u.test(state.filterFingerprint) &&
-      state.apartments &&
-      typeof state.apartments === "object" &&
-      !Array.isArray(state.apartments) &&
-      Object.values(state.apartments).every(validChannelEntry),
+    state.version === CHANNEL_STATE_VERSION &&
+    state.type === CHANNEL_STATE_TYPE &&
+    state.channelId === config.telegramChannelId &&
+    state.urlTemplate === config.listUrlTemplate &&
+    state.initialized === true &&
+    typeof state.filterFingerprint === "string" &&
+    /^[a-f0-9]{64}$/u.test(state.filterFingerprint) &&
+    state.apartments &&
+    typeof state.apartments === "object" &&
+    !Array.isArray(state.apartments) &&
+    Object.values(state.apartments).every(validChannelEntry),
   );
 }
 
@@ -489,6 +491,7 @@ export async function publishChannelApartments(
         ) {
           throw new Error(
             "Telegram sendMessage returned an invalid message_id",
+            { cause: error },
           );
         }
         entry.messageId = result.message_id;

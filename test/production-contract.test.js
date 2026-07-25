@@ -34,7 +34,9 @@ exit 0
   await executable(
     path.join(root, "systemd-analyze"),
     `${prelude}
-[[ "\${1:-}" == "verify" ]]
+[[ "\${1:-}" == --root=* ]]
+[[ "\${2:-}" == "--recursive-errors=no" ]]
+[[ "\${3:-}" == "verify" ]]
 `,
   );
   await executable(
@@ -58,6 +60,12 @@ cat <<'EOF'
   }
 }
 EOF
+`,
+  );
+  await executable(
+    path.join(root, "rg"),
+    `${prelude}
+exit 70
 `,
   );
 
@@ -85,12 +93,16 @@ EOF
   assert.equal(result.status, 0, result.stderr);
   assert.match(result.stdout, /Production deployment contract validated/u);
   const commands = await readFile(log, "utf8");
-  assert.match(commands, /shellcheck --external-sources/u);
-  assert.match(commands, /systemd-analyze verify/u);
+  assert.match(commands, /shellcheck --severity=warning --external-sources/u);
   assert.match(
     commands,
-    /docker compose .*config --no-env-resolution --format json/u,
+    /systemd-analyze --root=.* --recursive-errors=no verify/u,
   );
+  assert.match(
+    commands,
+    /docker compose .*compose\.production\.yaml config --no-env-resolution --no-path-resolution --format json/u,
+  );
+  assert.doesNotMatch(commands, /(?:^|\n)rg /u);
 });
 
 test("required CI invokes the aggregate production contract gate", async () => {

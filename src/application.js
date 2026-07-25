@@ -237,7 +237,6 @@ export async function runApplication({
         });
       }
       healthMonitor?.setPreflight(preflightResult);
-      preflightLogged = true;
     }
     throw error;
   } finally {

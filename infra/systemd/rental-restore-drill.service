@@ -8,7 +8,6 @@ RequiresMountsFor=/mnt/rental-apartments-backups
 Type=oneshot
 ExecStart=/opt/rental-apartments/current/ops/restore-drill
 TimeoutStartSec=70min
-RuntimeMaxSec=70min
 KillSignal=SIGTERM
 TimeoutStopSec=2min
 NoNewPrivileges=yes

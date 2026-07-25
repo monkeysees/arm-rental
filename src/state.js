@@ -131,7 +131,6 @@ export async function writeState(
       try {
         if (priorStateLinked) {
           await operations.rename(rollbackFile, filename);
-          priorStateLinked = false;
         } else {
           await operations.rm(filename, { force: true });
         }
@@ -140,6 +139,7 @@ export async function writeState(
         throw new AggregateError(
           [error, rollbackError],
           `State write failed and the prior state could not be restored: ${filename}`,
+          { cause: rollbackError },
         );
       }
     }
@@ -152,7 +152,6 @@ export async function writeState(
       // The renamed entry is already committed; cleanup is deliberately best
       // effort but remains part of the observed write-call duration.
       await operations.rm(rollbackFile, { force: true }).catch(() => {});
-      priorStateLinked = false;
     }
     emitWriteMetric(onMetric, {
       name: `state.write.${outcome}`,

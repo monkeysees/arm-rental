@@ -51,7 +51,9 @@ try {
             const profileOwner = Number(await readFile(chromeLockFile, "utf8"));
             try {
               process.kill(profileOwner, 0);
-              throw new Error("Chrome profile is still locked");
+              throw new Error("Chrome profile is still locked", {
+                cause: error,
+              });
             } catch (ownerError) {
               if (ownerError.code !== "ESRCH") throw ownerError;
               await rm(chromeLockFile, { force: true });

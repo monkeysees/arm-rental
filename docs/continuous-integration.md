@@ -12,6 +12,21 @@ audits production dependencies with
 `npm audit --omit=dev --audit-level=high`. The coverage command measures
 `src/**/*.js` and fails below 90% lines or 80% branches.
 
+The aggregate production contract is intentionally limited to baseline runner
+tools plus Docker, jq, ShellCheck, and systemd-analyze. It uses `grep` for text
+contracts instead of relying on optional hosted-image packages such as
+ripgrep; its integration test fails if `rg` is invoked. ShellCheck is enforced
+at warning severity and above. Its style and informational heuristics are not
+release gates because they report false positives for intentional jq programs
+and trap callbacks. Systemd verification runs against a temporary filesystem
+root with explicit Docker/network stubs and executable placeholders, so clean
+runners validate unit dependencies and command declarations without needing the
+production host layout. Compose disables environment-file and host-path
+resolution during this static render. The validator first asserts and replaces
+only the production secret-file path in a temporary Compose copy with an empty
+temporary environment file; its normalized model and consistency checks remain
+enabled.
+
 Coverage thresholds and the measured source glob live in `package.json` so the
 same gate runs locally and in CI. Lowering either threshold or adding an
 exclusion is an exception: the pull request must state why the code cannot be

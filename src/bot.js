@@ -28,9 +28,9 @@ import { ExponentialBackoff, isExpectedExternalFailure } from "./retry.js";
 export function compatibleBotState(state, ownerId) {
   return Boolean(
     state &&
-      state.version === 1 &&
-      state.type === "telegram-bot" &&
-      state.ownerId === ownerId,
+    state.version === 1 &&
+    state.type === "telegram-bot" &&
+    state.ownerId === ownerId,
   );
 }
 

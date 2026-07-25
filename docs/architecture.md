@@ -72,11 +72,12 @@ Systemd owns the singleton application and recurring backup, storage,
 maintenance, monitoring, restore-drill, and reboot-check jobs. Every short-lived
 operation serializes through
 `/var/lib/rental-apartments-ops/operations.lock`, emits structured lifecycle
-records, and has a bounded runtime. Stop-the-world wrappers install their
-restart and readiness cleanup before stopping the application. Recovery points
-remain on the separately mounted backup filesystem, while monthly restore
-drills use exactly named and labeled temporary resources with networking,
-Telegram polling, and delivery disabled.
+records, and has an effective `TimeoutStartSec` bound. `RuntimeMaxSec` is not
+used for these `Type=oneshot` units because systemd ignores that combination.
+Stop-the-world wrappers install their restart and readiness cleanup before
+stopping the application. Recovery points remain on the separately mounted
+backup filesystem, while monthly restore drills use exactly named and labeled
+temporary resources with networking, Telegram polling, and delivery disabled.
 
 ### Unattended publication and deployment
 
@@ -177,6 +178,24 @@ production dependency audit on the pinned Node runtime. The second builds the
 production image and scans its OS packages and application libraries before it
 can be packaged. Keeping the scan and packaging in one required job prevents an
 unscanned image from becoming the deployable output.
+
+The aggregate production contract uses baseline POSIX/GNU text tooling supplied
+by the runner rather than optional hosted-image utilities. Its integration test
+places a failing `rg` executable first on `PATH`, preventing an undeclared
+ripgrep dependency from returning unnoticed as runner images evolve. ShellCheck
+blocks warning- and error-severity findings; style and informational heuristics
+remain non-blocking because jq programs and trap callbacks intentionally use
+constructs that those lower-severity checks cannot distinguish from mistakes.
+Systemd units are verified inside a temporary filesystem root containing
+synthetic Docker/network dependencies and executable placeholders for declared
+production paths. This keeps dependency and command validation active without
+requiring CI to reproduce the VPS directory layout.
+Compose rendering similarly disables environment-file and host-path resolution
+while retaining model normalization and consistency checks. Before rendering,
+the validator asserts and replaces exactly the production secret-file path in a
+temporary Compose copy with an empty temporary environment file. The committed
+production path remains unchanged, and the static gate does not require
+production secrets or directories.
 
 Build arguments bind the image to the full Git revision and SHA-256 digest of
 `package-lock.json`; the Dockerfile validates both and records them alongside

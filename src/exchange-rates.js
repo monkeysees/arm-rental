@@ -28,20 +28,20 @@ function numericValue(value) {
 export function compatibleExchangeRateSnapshot(value) {
   return Boolean(
     value &&
-      value.version === 1 &&
-      value.type === "cba-exchange-rates" &&
-      value.baseCurrency === "AMD" &&
-      !Number.isNaN(Date.parse(value.fetchedAt)) &&
-      /^\d{4}-\d{2}-\d{2}$/u.test(value.effectiveDate) &&
-      REQUIRED_CURRENCIES.every((currency) => {
-        const quote = value.rates?.[currency];
-        return (
-          Number.isFinite(quote?.amount) &&
-          quote.amount > 0 &&
-          Number.isFinite(quote?.rate) &&
-          quote.rate > 0
-        );
-      }),
+    value.version === 1 &&
+    value.type === "cba-exchange-rates" &&
+    value.baseCurrency === "AMD" &&
+    !Number.isNaN(Date.parse(value.fetchedAt)) &&
+    /^\d{4}-\d{2}-\d{2}$/u.test(value.effectiveDate) &&
+    REQUIRED_CURRENCIES.every((currency) => {
+      const quote = value.rates?.[currency];
+      return (
+        Number.isFinite(quote?.amount) &&
+        quote.amount > 0 &&
+        Number.isFinite(quote?.rate) &&
+        quote.rate > 0
+      );
+    }),
   );
 }
 

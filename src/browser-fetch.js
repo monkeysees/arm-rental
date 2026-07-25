@@ -300,6 +300,7 @@ export class BrowserPageFetcher {
         : await this.puppeteer.launch({
             executablePath,
             headless: this.config.browserHeadless,
+            dumpio: this.config.browserDumpIo === true,
             pipe: true,
             userDataDir: this.config.browserProfileDir,
             defaultViewport: null,

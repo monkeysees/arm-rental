@@ -111,6 +111,7 @@ const headless = process.env.BROWSER_HEADLESS === "true";
 const fetcher = new BrowserPageFetcher({
   browserCacheMaxBytes: 64 * 1024 * 1024,
   browserChallengeTimeoutMs: 10_000,
+  browserDumpIo: true,
   browserHeadless: headless,
   browserProfileDir: path.join(process.env.DATA_DIRECTORY, "chrome-profile"),
   browserProtocolTimeoutMs: 30_000,

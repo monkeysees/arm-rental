@@ -48,6 +48,7 @@ test("required CI gates quality, production security, and an immutable artifact"
   assert.match(browserSmoke, /--user node/u);
   assert.match(browserSmoke, /--read-only/u);
   assert.match(browserSmoke, /--cap-add SYS_ADMIN/u);
+  assert.match(browserSmoke, /browserDumpIo: true/u);
   assert.match(browserSmoke, /run_browser_smoke headless true/u);
   assert.match(browserSmoke, /run_browser_smoke headful false/u);
   assert.doesNotMatch(browserSmoke, /--no-sandbox/u);

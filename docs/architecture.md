@@ -220,9 +220,11 @@ production image, exercises its pinned Chrome in both headless and headful
 modes on a native Linux AMD64 runner, and scans its OS packages and application
 libraries before it can be packaged. The browser gate uses the same non-root,
 read-only, sandbox-enabled capability and tmpfs contract as production, with a
-private Xvfb display for the headful pass. Keeping browser validation, scanning,
-and packaging in one required job prevents an untested or unscanned image from
-becoming the deployable output.
+private Xvfb display for the headful pass. This synthetic, secret-free smoke
+forwards Chrome diagnostics to its CI log so early browser exits retain their
+native cause. Keeping browser validation, scanning, and packaging in one
+required job prevents an untested or unscanned image from becoming the
+deployable output.
 
 The aggregate production contract uses baseline POSIX/GNU text tooling supplied
 by the runner rather than optional hosted-image utilities. Its integration test

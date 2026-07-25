@@ -73,6 +73,7 @@ test("launch failure removes the isolated Chrome runtime directory", async (t) =
 
   assert.equal(launchOptions.userDataDir, config.browserProfileDir);
   assert.equal(launchOptions.headless, false);
+  assert.equal(launchOptions.dumpio, false);
   assert.ok(launchOptions.args.includes("--disk-cache-size=67108864"));
   assert.ok(launchOptions.args.includes("--disable-breakpad"));
   assert.ok(launchOptions.args.includes("--disable-crashpad-for-testing"));

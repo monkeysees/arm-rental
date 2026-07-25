@@ -83,7 +83,9 @@ Registry mutation occurs in this order:
 3. create and push digest-bound release metadata containing the source
    revision, image digest, package-lock digest, production Compose digest, and
    deterministic operations-bundle digest;
-4. extract and compare the published metadata; and
+4. create a stopped container from the commandless scratch metadata image with
+   an explicit inert command, then extract and compare the published metadata;
+   and
 5. tag those same local image bytes as `production` and push that discovery
    pointer.
 

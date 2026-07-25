@@ -87,8 +87,11 @@ temporary resources with networking, Telegram polling, and delivery disabled.
 
 GitHub Actions serializes production publication and advances the mutable GHCR
 `production` tag only after the scanned image, immutable metadata, and
-provenance objects exist. The tag is discovery-only: the VPS validates
-digest-bound metadata and persists an immutable image reference.
+provenance objects exist. The scratch-based metadata image deliberately has no
+runtime entry point; publication supplies an inert create-time command so it can
+copy the metadata back from a stopped container and compare the bytes before
+advancing discovery. The tag is discovery-only: the VPS validates digest-bound
+metadata and persists an immutable image reference.
 `rental-deploy.timer` invokes a stable bootstrap launcher for first
 installation and the verified current release thereafter. Deployment shares
 the global operations lock, snapshots before mutation, verifies startup and a

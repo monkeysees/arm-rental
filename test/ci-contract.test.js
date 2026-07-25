@@ -176,6 +176,10 @@ test("production publication advances discovery only after scan, push, and metad
   assert.match(workflow, /cancel-in-progress: false/u);
   assert.match(workflow, /image-ref: rental-apartments-bot:publication/u);
   assert.match(workflow, /docker push "\$METADATA_TAG"/u);
+  assert.match(
+    workflow,
+    /docker create "\$METADATA_TAG" \/release-metadata\.json/u,
+  );
   assert.match(workflow, /docker push "\$IMAGE_REPOSITORY:production"/u);
   assert.doesNotMatch(
     workflow.slice(0, production),

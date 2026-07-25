@@ -119,7 +119,9 @@ jobs:
           METADATA_TAG="$IMAGE_REPOSITORY:metadata-$SOURCE_REVISION"
           docker build --tag "$METADATA_TAG" metadata-image
           docker push "$METADATA_TAG"
-          METADATA_CONTAINER="$(docker create "$METADATA_TAG")"
+          # The scratch image intentionally has no default command. Docker still
+          # requires one to create the stopped container used only for `docker cp`.
+          METADATA_CONTAINER="$(docker create "$METADATA_TAG" /release-metadata.json)"
           trap 'docker rm "$METADATA_CONTAINER" >/dev/null' EXIT
           docker cp "$METADATA_CONTAINER:/release-metadata.json" release/published-metadata.json
           cmp release/release-metadata.json release/published-metadata.json

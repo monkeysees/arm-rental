@@ -131,12 +131,6 @@ function waitForActivation(signal, subscribe) {
   });
 }
 
-function filterShortcut() {
-  return {
-    inline_keyboard: [[{ text: "Настроить фильтры", callback_data: "f:menu" }]],
-  };
-}
-
 async function showFilterView(chatId, messageId, view, actions) {
   if (messageId && actions.editMessage) {
     await actions.editMessage(chatId, messageId, view.text, view.replyMarkup);
@@ -202,7 +196,7 @@ async function processFilterCallback(query, state, actions) {
       current,
       chatId,
       messageId,
-      filtersMenu(current.filters),
+      filtersMenu(current.filters, current.active),
       actions,
     );
     return current;
@@ -223,7 +217,7 @@ async function processFilterCallback(query, state, actions) {
       current,
       chatId,
       messageId,
-      filtersMenu(current.filters),
+      filtersMenu(current.filters, current.active),
       actions,
     );
     return current;
@@ -291,7 +285,7 @@ export async function processUpdates(
     editMessage,
     answerCallback = async () => {},
     saveState,
-    onActivated = () => {},
+    onSubscriptionChanged = async () => {},
   },
 ) {
   let current = withBotDefaults(state);
@@ -305,6 +299,27 @@ export async function processUpdates(
 
     if (query) {
       await answerCallback(query.id);
+      if (isPrivateCallback && ["m:start", "m:stop"].includes(query.data)) {
+        const chatId = query.message.chat.id;
+        const user = userState(current, chatId);
+        const active = query.data === "m:start";
+        current = withUserState(current, chatId, {
+          ...user,
+          active,
+          pendingFilterInput: null,
+        });
+        await saveState(current);
+        await showFilterView(
+          chatId,
+          query.message.message_id,
+          filtersMenu(user.filters, active),
+          { sendMessage, editMessage },
+        );
+        if (user.active !== active) {
+          await onSubscriptionChanged(current, { active });
+        }
+        continue;
+      }
       if (isPrivateCallback && query.data?.startsWith("f:")) {
         const chatId = query.message.chat.id;
         const actions = {
@@ -331,21 +346,14 @@ export async function processUpdates(
 
     if (isPrivateChat && isStartCommand(message.text)) {
       const user = userState(current, message.chat.id);
-      const wasActive = user.active;
       current = withUserState(current, message.chat.id, {
         ...user,
-        active: true,
         chatId: message.chat.id,
+        pendingFilterInput: null,
       });
       await saveState(current);
-      onActivated(current);
-      await sendMessage(
-        message.chat.id,
-        wasActive
-          ? "Мониторинг объявлений уже запущен."
-          : "Мониторинг объявлений запущен.",
-        filterShortcut(),
-      );
+      const view = filtersMenu(user.filters, user.active);
+      await sendMessage(message.chat.id, view.text, view.replyMarkup);
       continue;
     }
 
@@ -356,7 +364,7 @@ export async function processUpdates(
     if (/^\/filters(?:@[a-z0-9_]+)?(?:\s|$)/iu.test(message.text || "")) {
       user = { ...user, pendingFilterInput: null };
       current = withUserState(current, message.chat.id, user);
-      const view = filtersMenu(user.filters);
+      const view = filtersMenu(user.filters, user.active);
       await saveState(current);
       await sendMessage(message.chat.id, view.text, view.replyMarkup);
       continue;
@@ -383,7 +391,7 @@ export async function processUpdates(
         };
         current = withUserState(current, message.chat.id, user);
         await saveState(current);
-        const view = filtersMenu(user.filters);
+        const view = filtersMenu(user.filters, user.active);
         await sendMessage(message.chat.id, view.text, view.replyMarkup);
       } catch (error) {
         await sendMessage(
@@ -411,6 +419,7 @@ export async function runTelegramBot(
     onResult = () => {},
     onError = () => {},
     onMonitoringState = () => {},
+    onPrivateMonitoringChanged = () => {},
     onPrivateUserDeactivated = () => {},
     onTelegramSuccess = () => {},
     onChannelOperation = () => {},
@@ -507,12 +516,16 @@ export async function runTelegramBot(
           answerCallback: (callbackQueryId) =>
             api.answerCallbackQuery(callbackQueryId, signal),
           saveState: (value) => saveState(config.telegramStateFile, value),
-          onActivated: (activatedState) => {
-            state = activatedState;
-            activate();
-            void onMonitoringState({
+          onSubscriptionChanged: async (changedState, { active }) => {
+            state = changedState;
+            if (active) activate();
+            await onMonitoringState({
               active: activeUsers(state).length > 0,
               channelConfigured: Boolean(config.telegramChannelId),
+            });
+            await onPrivateMonitoringChanged({
+              active,
+              activeUserCount: activeUsers(state).length,
             });
           },
         });

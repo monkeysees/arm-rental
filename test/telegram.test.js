@@ -59,38 +59,47 @@ function callback(updateId, data, messageId = 100, fromId = 42) {
   };
 }
 
-test("any user can activate the bot in a private chat", async () => {
+test("private users explicitly start and stop monitoring from the setup panel", async () => {
   const sent = [];
+  const edited = [];
   const saved = [];
+  const subscriptionChanges = [];
   const state = await processUpdates(
     [
       update(10, 99, "/start"),
       update(11, 42, "/start", "group"),
       update(12, 42, "/start"),
-      update(13, 42, "/start"),
+      callback(13, "m:start"),
+      callback(14, "m:start"),
+      callback(15, "m:stop"),
     ],
     config,
     initialState,
     {
       sendMessage: async (...args) => sent.push(args),
-      saveState: async (value) => saved.push(value),
+      editMessage: async (...args) => edited.push(args),
+      saveState: async (value) => saved.push(structuredClone(value)),
+      onSubscriptionChanged: async (_state, event) =>
+        subscriptionChanges.push(event),
     },
   );
 
   assert.equal(state.version, 2);
-  assert.equal(state.users["99"].active, true);
-  assert.equal(state.users["42"].active, true);
-  assert.equal(state.updateOffset, 14);
-  assert.deepEqual(
-    sent.map(([chatId, text]) => [chatId, text]),
-    [
-      [99, "Мониторинг объявлений запущен."],
-      [42, "Мониторинг объявлений запущен."],
-      [42, "Мониторинг объявлений уже запущен."],
-    ],
+  assert.equal(state.users["99"].active, false);
+  assert.equal(state.users["42"].active, false);
+  assert.equal(state.updateOffset, 16);
+  assert.equal(sent.length, 2);
+  assert.match(sent[0][1], /Мониторинг: остановлен/u);
+  assert.equal(sent[0][2].inline_keyboard.at(-1)[0].callback_data, "m:start");
+  assert.match(edited[0][2], /Мониторинг: запущен/u);
+  assert.equal(edited[0][3].inline_keyboard.at(-1)[0].callback_data, "m:stop");
+  assert.match(edited.at(-1)[2], /Мониторинг: остановлен/u);
+  assert.deepEqual(subscriptionChanges, [{ active: true }, { active: false }]);
+  assert.equal(
+    saved.some((value) => value.users["42"]?.active === true),
+    true,
   );
-  assert.equal(sent[0][2].inline_keyboard[0][0].callback_data, "f:menu");
-  assert.equal(saved.at(-1).updateOffset, 14);
+  assert.equal(saved.at(-1).updateOffset, 16);
 });
 
 test("a user configures ranges and multiple locations through Telegram", async () => {
@@ -381,14 +390,17 @@ test("TelegramApi serializes interactive filter controls", async () => {
   ]);
 });
 
-test("/start wakes the monitor and sends apartments to the activated user", async () => {
+test("the start button wakes the monitor after /start setup", async () => {
   const controller = new AbortController();
   const sent = [];
+  const edited = [];
   let updateCalls = 0;
   const api = {
     getUpdates: async (_offset, _timeout, signal) => {
       updateCalls += 1;
-      if (updateCalls === 1) return [update(1, 42, "/start")];
+      if (updateCalls === 1) {
+        return [update(1, 42, "/start"), callback(2, "m:start")];
+      }
       return new Promise((resolve) => {
         signal.addEventListener("abort", () => resolve([]), { once: true });
       });
@@ -397,6 +409,10 @@ test("/start wakes the monitor and sends apartments to the activated user", asyn
       sent.push([chatId, text]);
       if (text.startsWith("Apartment 100")) controller.abort();
     },
+    editMessageText: async (chatId, _messageId, text) => {
+      edited.push([chatId, text]);
+    },
+    answerCallbackQuery: async () => {},
   };
 
   await runTelegramBot(
@@ -438,6 +454,8 @@ test("/start wakes the monitor and sends apartments to the activated user", asyn
     sent.map(([chatId]) => chatId),
     [42, 42],
   );
+  assert.match(sent[0][1], /Мониторинг: остановлен/u);
+  assert.match(edited[0][1], /Мониторинг: запущен/u);
   assert.equal(sent[1][1].startsWith("Apartment 100"), true);
 });
 

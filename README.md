@@ -57,10 +57,11 @@ npm start
 ```
 
 Any Telegram user can send `/start` to the bot in a private chat. Group-chat
-commands are ignored. Each user's activation and filters survive process
-restarts, and apartment notifications are delivered independently. The start
-response includes a **Настроить фильтры** button; `/filters` opens the same
-controls directly and also works before that user's monitoring is activated.
+commands are ignored. `/start` opens the user's controls without starting
+monitoring, so filters can be chosen first. Use **Запустить мониторинг** to
+begin notifications and **Остановить мониторинг** to pause them. Each user's
+monitoring state and filters survive process restarts, and apartment
+notifications are delivered independently. `/filters` opens the same controls.
 
 Every filter is optional:
 

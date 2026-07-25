@@ -660,10 +660,14 @@ operator procedures are indexed in
    ready result permits the reusable Chrome-backed page fetcher and Telegram bot
    to enter their long-running loops.
 2. One loop in `src/bot.js` long-polls Telegram. A private `/start` from any
-   Telegram user activates that user's persistent subscription; group chats are
-   ignored. `/filters` and the inline start button expose per-user price, room,
-   and hierarchical location controls. Range values are collected from that
-   user's next text message; `/cancel` abandons only that user's pending input.
+   Telegram user creates or reopens that user's control panel without changing
+   an existing monitoring choice; a new user is inactive by default and group
+   chats are ignored. `/filters` opens the same per-user price, room, and
+   hierarchical location controls. Inline start and stop callbacks durably
+   toggle only that user's delivery state before refreshing the panel, wake the
+   dormant crawl loop on activation, and update readiness state on either
+   transition. Range values are collected from that user's next text message;
+   `/cancel` abandons only that user's pending input.
 3. A crawl loop runs when private monitoring is active or a channel is
    configured. With neither condition, it waits for activation. After apartment
    state is saved, private admission/delivery and `src/channel.js` publication

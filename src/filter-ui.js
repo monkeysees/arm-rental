@@ -12,12 +12,13 @@ function button(text, callbackData) {
   return { text, callback_data: callbackData };
 }
 
-export function filtersMenu(filters) {
+export function filtersMenu(filters, active = false) {
   const normalized = normalizeFilters(filters);
   return {
     text: [
       "Фильтры объявлений",
       "",
+      `Мониторинг: ${active ? "запущен" : "остановлен"}`,
       `Цена (֏): ${formatRange(normalized.price)}`,
       `Комнаты: ${formatRange(normalized.rooms)}`,
       `Местоположение: ${formatLocations(normalized.locations)}`,
@@ -27,6 +28,11 @@ export function filtersMenu(filters) {
         [button("💰 Цена, ֏", "f:price"), button("🚪 Комнаты", "f:rooms")],
         [button("📍 Местоположение", "f:locations")],
         [button("Сбросить всё", "f:reset")],
+        [
+          active
+            ? button("⏹ Остановить мониторинг", "m:stop")
+            : button("▶️ Запустить мониторинг", "m:start"),
+        ],
       ],
     },
   };

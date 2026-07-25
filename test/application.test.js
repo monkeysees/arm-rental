@@ -112,6 +112,10 @@ test("application lifecycle drives crawl and exchange-rate readiness", async () 
         active: false,
         channelConfigured: true,
       });
+      callbacks.onPrivateMonitoringChanged({
+        active: true,
+        activeUserCount: 1,
+      });
       callbacks.onResult({
         crawlId: "69a3b980-24ce-494b-a1e5-cdb4ff9dc659",
         durationMs: 1_234,
@@ -182,6 +186,14 @@ test("application lifecycle drives crawl and exchange-rate readiness", async () 
       ({ message, context }) =>
         message === "Graceful shutdown completed" &&
         context.signal === "SIGTERM",
+    ),
+  );
+  assert.ok(
+    infoRecords.some(
+      ({ context }) =>
+        context?.event === "telegram.private.monitoring.changed" &&
+        context.active === true &&
+        context.activeUserCount === 1,
     ),
   );
   assert.ok(

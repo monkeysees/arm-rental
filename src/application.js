@@ -109,7 +109,9 @@ export async function runApplication({
     );
     preflightLogged = true;
 
-    logger.info("Telegram bot is running; send /start in a private chat");
+    logger.info(
+      "Telegram bot is running; send /start in a private chat to configure monitoring",
+    );
     await runBot(config, {
       signal: controller.signal,
       exchangeRateService,
@@ -183,6 +185,12 @@ export async function runApplication({
         logger.warn("Unavailable private subscription deactivated", {
           event: "telegram.private.deactivated",
           reason,
+        }),
+      onPrivateMonitoringChanged: ({ active, activeUserCount }) =>
+        logger.info("Private monitoring state changed", {
+          event: "telegram.private.monitoring.changed",
+          active,
+          activeUserCount,
         }),
       onTelegramSuccess: () =>
         healthMonitor?.recordComponentSuccess("telegram"),

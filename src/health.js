@@ -108,6 +108,13 @@ export class HealthMonitor {
       required: false,
       fetchedAt: null,
     };
+    this.privateAccess = {
+      accessMode: "public",
+      persistedUserCount: 0,
+      authorizedUserCount: 0,
+      suspendedUserCount: 0,
+      activeUserCount: 0,
+    };
     this.components = Object.fromEntries(
       COMPONENT_NAMES.map((name) => [name, component()]),
     );
@@ -196,6 +203,23 @@ export class HealthMonitor {
       this.monitoring.lastFailureAt = null;
       this.monitoring.consecutiveFailures = 0;
     }
+  }
+
+  setPrivateAccessState(state) {
+    const accessMode = ["public", "owner", "allowlist"].includes(
+      state?.accessMode,
+    )
+      ? state.accessMode
+      : "public";
+    const count = (value) =>
+      Number.isSafeInteger(value) && value >= 0 ? value : 0;
+    this.privateAccess = {
+      accessMode,
+      persistedUserCount: count(state?.persistedUserCount),
+      authorizedUserCount: count(state?.authorizedUserCount),
+      suspendedUserCount: count(state?.suspendedUserCount),
+      activeUserCount: count(state?.activeUserCount),
+    };
   }
 
   recordCrawlSuccess(at = this.now()) {
@@ -389,6 +413,7 @@ export class HealthMonitor {
         required: this.exchangeRates.required,
         fetchedAt: this.exchangeRates.fetchedAt,
       },
+      privateAccess: { ...this.privateAccess },
       components,
       reasons: uniqueReasons,
       warnings,

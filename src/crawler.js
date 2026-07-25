@@ -455,6 +455,7 @@ export async function crawlApartments(
     };
 
     for (const target of deliveryTargets) {
+      if (target.isAuthorized?.() === false) continue;
       const recipientId = String(target.recipientId);
       const recipientFilters = normalizeFilters(target.filters);
       let recipient = deliveryRecipientState(
@@ -537,6 +538,7 @@ export async function crawlApartments(
         .filter(Boolean);
 
       for (const apartment of pending) {
+        if (target.isAuthorized?.() === false) break;
         try {
           await target.deliverApartment(apartment);
         } catch (error) {

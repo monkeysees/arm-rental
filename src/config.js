@@ -77,14 +77,15 @@ function boundedInteger(value, minimum, maximum, name) {
 
 function accessMode(value) {
   const supported = new Set(["public", "owner", "allowlist"]);
-  if (!supported.has(value)) {
+  const normalized = value?.trim();
+  if (!supported.has(normalized)) {
     throw new Error("TELEGRAM_ACCESS_MODE must be public, owner, or allowlist");
   }
-  return value;
+  return normalized;
 }
 
 function positiveIntegerList(value, name) {
-  if (!value) return [];
+  if (!value?.trim()) return [];
   const values = value.split(",").map((candidate) => candidate.trim());
   const parsedValues = values.map(Number);
   if (
@@ -97,6 +98,40 @@ function positiveIntegerList(value, name) {
     throw new Error(`${name} must contain unique positive integer IDs`);
   }
   return parsedValues;
+}
+
+export function validateTelegramAccessPolicy(config) {
+  const mode = config.telegramAccessMode ?? "public";
+  const allowedUserIds = config.telegramAllowedUserIds ?? [];
+  if (!["public", "owner", "allowlist"].includes(mode)) {
+    throw new Error("TELEGRAM_ACCESS_MODE must be public, owner, or allowlist");
+  }
+  if (
+    !Array.isArray(allowedUserIds) ||
+    allowedUserIds.some(
+      (userId) => !Number.isSafeInteger(userId) || userId <= 0,
+    ) ||
+    new Set(allowedUserIds).size !== allowedUserIds.length
+  ) {
+    throw new Error(
+      "TELEGRAM_ALLOWED_USER_IDS must contain unique positive integer IDs",
+    );
+  }
+  if (allowedUserIds.includes(config.telegramOwnerId)) {
+    throw new Error(
+      "TELEGRAM_ALLOWED_USER_IDS must not repeat TELEGRAM_OWNER_ID",
+    );
+  }
+  if (mode === "allowlist" && allowedUserIds.length === 0) {
+    throw new Error(
+      "TELEGRAM_ALLOWED_USER_IDS must contain at least one ID in allowlist mode",
+    );
+  }
+  if (mode !== "allowlist" && allowedUserIds.length > 0) {
+    throw new Error(
+      "TELEGRAM_ALLOWED_USER_IDS must be blank unless TELEGRAM_ACCESS_MODE is allowlist",
+    );
+  }
 }
 
 function optionalChannelId(value) {
@@ -364,6 +399,7 @@ export function getConfig(env = process.env, cwd = process.cwd()) {
     throw new Error("BACKUP_WEEKLY_RETENTION must be at least 4");
   }
 
+  validateTelegramAccessPolicy(config);
   validatePersistentPaths(config);
   validateProductionConfig(env, config);
   return config;
@@ -412,6 +448,7 @@ async function secureExistingStateFile(filename) {
 export async function validateStartupConfig(config) {
   // Recheck callers that construct configuration without getConfig, including
   // operational scripts, before granting them access to persistent storage.
+  validateTelegramAccessPolicy(config);
   validatePersistentPaths(config);
 
   const stateFiles = [

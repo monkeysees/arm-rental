@@ -155,6 +155,79 @@ test("access catalog settings parse validated defaults and bounded overrides", (
   }
 });
 
+test("access modes enforce allowlist policy without exposing identifiers", () => {
+  const sensitiveId = "987654321";
+  for (const environment of [
+    { TELEGRAM_ACCESS_MODE: "public" },
+    { TELEGRAM_ACCESS_MODE: "owner" },
+    {
+      TELEGRAM_ACCESS_MODE: "allowlist",
+      TELEGRAM_ALLOWED_USER_IDS: sensitiveId,
+    },
+  ]) {
+    assert.doesNotThrow(() =>
+      getConfig({ ...requiredEnvironment, ...environment }),
+    );
+  }
+
+  for (const environment of [
+    {
+      TELEGRAM_ACCESS_MODE: "public",
+      TELEGRAM_ALLOWED_USER_IDS: sensitiveId,
+    },
+    {
+      TELEGRAM_ACCESS_MODE: "owner",
+      TELEGRAM_ALLOWED_USER_IDS: sensitiveId,
+    },
+    { TELEGRAM_ACCESS_MODE: "allowlist" },
+    {
+      TELEGRAM_ACCESS_MODE: "allowlist",
+      TELEGRAM_ALLOWED_USER_IDS: `42,${sensitiveId}`,
+    },
+  ]) {
+    assert.throws(
+      () => getConfig({ ...requiredEnvironment, ...environment }),
+      (error) =>
+        error.message.includes("TELEGRAM_ALLOWED_USER_IDS") &&
+        !error.message.includes(sensitiveId),
+    );
+  }
+
+  assert.deepEqual(
+    getConfig({
+      ...requiredEnvironment,
+      TELEGRAM_ACCESS_MODE: " allowlist ",
+      TELEGRAM_ALLOWED_USER_IDS: "   7, 8   ",
+    }).telegramAllowedUserIds,
+    [7, 8],
+  );
+  assert.deepEqual(
+    getConfig({
+      ...requiredEnvironment,
+      TELEGRAM_ALLOWED_USER_IDS: "   ",
+    }).telegramAllowedUserIds,
+    [],
+  );
+});
+
+test("startup revalidates access policy before touching persistent storage", async (t) => {
+  const temporaryDirectory = await mkdtemp(
+    path.join(os.tmpdir(), "rental-access-config-"),
+  );
+  t.after(() => rm(temporaryDirectory, { recursive: true, force: true }));
+  await chmod(temporaryDirectory, 0o755);
+  const config = stateConfig(temporaryDirectory);
+  config.telegramAccessMode = "allowlist";
+  config.telegramAllowedUserIds = [];
+
+  await assert.rejects(
+    validateStartupConfig(config),
+    /TELEGRAM_ALLOWED_USER_IDS/u,
+  );
+  assert.equal(permissions(await lstat(temporaryDirectory)), 0o755);
+  await assert.rejects(lstat(config.browserProfileDir), { code: "ENOENT" });
+});
+
 test("configuration relocates default persistent files together", () => {
   const config = getConfig(
     {

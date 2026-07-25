@@ -108,6 +108,13 @@ test("application lifecycle drives crawl and exchange-rate readiness", async () 
       };
     },
     runBot: async (_config, callbacks) => {
+      callbacks.onPrivateAccessState({
+        accessMode: "owner",
+        persistedUserCount: 2,
+        authorizedUserCount: 1,
+        suspendedUserCount: 1,
+        activeUserCount: 1,
+      });
       callbacks.onMonitoringState({
         active: false,
         channelConfigured: true,
@@ -181,12 +188,27 @@ test("application lifecycle drives crawl and exchange-rate readiness", async () 
   assert.equal(health.monitoring.channelConfigured, true);
   assert.equal(health.monitoring.lastSuccessAt, "2026-07-25T10:00:00.000Z");
   assert.equal(health.exchangeRates.fetchedAt, exchangeSnapshot.fetchedAt);
+  assert.deepEqual(health.privateAccess, {
+    accessMode: "owner",
+    persistedUserCount: 2,
+    authorizedUserCount: 1,
+    suspendedUserCount: 1,
+    activeUserCount: 1,
+  });
   assert.equal(signalEmitter.listenerCount("SIGTERM"), 0);
   assert.ok(
     infoRecords.some(
       ({ message, context }) =>
         message === "Graceful shutdown completed" &&
         context.signal === "SIGTERM",
+    ),
+  );
+  assert.ok(
+    infoRecords.some(
+      ({ context }) =>
+        context?.event === "telegram.private.access.changed" &&
+        context.persistedUserCount === 2 &&
+        JSON.stringify(context).includes("42") === false,
     ),
   );
   assert.ok(

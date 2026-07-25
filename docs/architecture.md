@@ -187,7 +187,9 @@ credentials, owner/channel identifiers, apartment data, or stacks. Startup
 preflight results populate configuration, storage, Telegram, browser, List.am,
 and CBA component states. Runtime callbacks then record private activation,
 channel configuration, crawl outcomes, browser challenges, Telegram operations,
-and exchange-rate refreshes.
+and exchange-rate refreshes. Readiness includes only the configured access mode
+and aggregate persisted, authorized, suspended, and effectively active private
+user counts; it never exposes user IDs or the configured allowlist.
 
 The HTTP server binds to `127.0.0.1:8787` by default; configuration rejects
 non-loopback health addresses and production Compose publishes no inbound port.
@@ -664,7 +666,13 @@ operator procedures are indexed in
    authorized Telegram user creates or reopens that user's control panel without
    changing an existing monitoring choice; unauthorized senders cannot create
    private state, new users are inactive by default, and group chats are
-   ignored. `/filters` opens the same per-user price, room, and hierarchical
+   ignored. Authorization uses the Telegram sender ID only after a private chat
+   has proved that its chat ID is the same value. Persisted users excluded by a
+   narrower deployment policy remain unchanged and suspended at runtime; a
+   later policy expansion restores their saved activation choice. A reserved
+   persisted-user routing hook permits the deletion workflow to remain
+   reachable for suspended users without allowing unknown users to create
+   state. `/filters` opens the same per-user price, room, and hierarchical
    location controls. The start callback first asks whether to send up to
    `INITIAL_DELIVERY_LIMIT` existing matches or monitor new listings only;
    monitoring remains inactive until that choice is persisted. The final start
@@ -707,7 +715,8 @@ operator procedures are indexed in
    the latest persisted rate and replaces its rate audit; otherwise the prior
    canonical price and audit remain unchanged.
 9. Newly discovered and updated records are atomically committed before
-   Telegram delivery begins. The crawl fans out across active users, each with
+   Telegram delivery begins. The crawl fans out across authorized active users,
+   each with
    independent `src/filters.js` admission and delivery history. First-time
    admission is terminal: non-matches become filtered, and on an empty user
    delivery history either the latest matching `INITIAL_DELIVERY_LIMIT` are
@@ -716,7 +725,10 @@ operator procedures are indexed in
    previously delivered apartment becomes pending again when its
    source `updatedAt` is later than that user's last successful notification and
    it matches that user's current filters. Source order is reversed so selected
-   messages are delivered oldest first, then acknowledged one at a time. A
+   messages are delivered oldest first, then acknowledged one at a time. A live
+   authorization predicate is checked before any recipient classification and
+   immediately before each send, so a narrowed policy cannot mutate a suspended
+   user's delivery history during a long batch. A
    terminal private-chat delivery error deactivates only the unavailable user;
    it does not terminate other subscriptions or channel publication.
 10. `src/channel.js` independently evaluates environment filters. With no
@@ -808,7 +820,10 @@ The `.data` directory must be mounted on persistent storage in production.
   retaining the former private recipient ID for delivery-history migration, and
   persisted on the next update. Bot state is deliberately not bound to
   `TELEGRAM_OWNER_ID`, so rotating the server-alert recipient does not invalidate
-  private subscriptions.
+  private subscriptions. Access mode and allowlist are deployment configuration,
+  not persisted user attributes; policy narrowing therefore suspends records
+  without rewriting activation, filters, initial-send choice, or delivery
+  history.
 - `telegram-channel-deliveries.json` is a separate channel state machine keyed
   by item ID. It stores terminal `filtered` and `skipped_initial` admissions,
   retryable `pending` entries, and `published` entries with Telegram message ID,
@@ -878,10 +893,12 @@ Filter tests cover optional/open ranges, regions, places, composed criteria, and
 AMD comparison of foreign source prices. Exchange-rate tests cover SOAP parsing,
 atomic validation, daily refresh, hourly failure backoff, restart reuse, and
 conversion audit fields. Telegram tests cover multi-user private activation,
-independent interactive filter configuration, Yerevan-first selection, Russian
-formatting and fallbacks, rate-limit retries, and channel/private runtime
-isolation. Crawler integration tests prove that one crawl maintains independent
-delivery classifications and acknowledgements for multiple users.
+independent interactive filter configuration, access-mode authorization and
+suspension, aggregate identifier-free access reporting, Yerevan-first selection,
+Russian formatting and fallbacks, rate-limit retries, and channel/private
+runtime isolation. Crawler integration tests prove that one crawl maintains
+independent delivery classifications and acknowledgements for multiple users
+and rechecks live authorization before classification and delivery.
 Channel integration tests cover configuration validation and composition,
 initial classification/order, partial-send restart recovery, canonical-AMD
 hashtags, edits and retries, and missing-message replacement.

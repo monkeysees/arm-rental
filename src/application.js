@@ -181,6 +181,13 @@ export async function runApplication({
         );
       },
       onMonitoringState: (state) => healthMonitor?.setMonitoringState(state),
+      onPrivateAccessState: (state) => {
+        healthMonitor?.setPrivateAccessState(state);
+        logger.info("Private access state changed", {
+          event: "telegram.private.access.changed",
+          ...state,
+        });
+      },
       onPrivateUserDeactivated: ({ reason }) =>
         logger.warn("Unavailable private subscription deactivated", {
           event: "telegram.private.deactivated",

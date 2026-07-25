@@ -344,6 +344,49 @@ test("one crawl maintains independent delivery histories for multiple users", as
   );
 });
 
+test("private delivery rechecks live authorization without blocking peers", async () => {
+  const state = memoryState();
+  const delivered = { 7: [], 42: [], 99: [] };
+  let user99Authorized = true;
+
+  await crawlApartments(
+    { ...config, initialPageCount: 1 },
+    {
+      ...state,
+      fetchPage: async () => new Response(page("3", "2", "1")),
+      privateDeliveries: [
+        {
+          recipientId: "42",
+          isAuthorized: () => false,
+          deliverApartment: async ({ itemId }) => delivered[42].push(itemId),
+        },
+        {
+          recipientId: "99",
+          isAuthorized: () => user99Authorized,
+          deliverApartment: async ({ itemId }) => {
+            delivered[99].push(itemId);
+            user99Authorized = false;
+          },
+        },
+        {
+          recipientId: "7",
+          isAuthorized: () => true,
+          deliverApartment: async ({ itemId }) => delivered[7].push(itemId),
+        },
+      ],
+      now: () => new Date("2026-07-24T12:00:00Z"),
+    },
+  );
+
+  assert.deepEqual(delivered[42], []);
+  assert.deepEqual(delivered[99], ["1"]);
+  assert.deepEqual(delivered[7], ["1", "2", "3"]);
+  const recipients = state.files.get(config.deliveryStateFile).recipients;
+  assert.equal(recipients[42], undefined);
+  assert.deepEqual(Object.keys(recipients[99].notified), ["1"]);
+  assert.deepEqual(Object.keys(recipients[7].notified), ["1", "2", "3"]);
+});
+
 test("a user can skip the initial selection and receive later apartments", async () => {
   const state = memoryState();
   const delivered = [];

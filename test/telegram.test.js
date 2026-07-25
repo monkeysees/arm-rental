@@ -3,6 +3,8 @@ import test from "node:test";
 
 import {
   compatibleBotState,
+  isPrivateUserAuthorized,
+  privateAccessSummary,
   processUpdates,
   runTelegramBot,
 } from "../src/bot.js";
@@ -33,6 +35,34 @@ test("multi-user bot state is independent of the server-alert owner", () => {
   );
 });
 
+test("private access modes authorize owners and configured users", () => {
+  assert.equal(
+    isPrivateUserAuthorized(
+      { telegramOwnerId: 42, telegramAccessMode: "owner" },
+      42,
+    ),
+    true,
+  );
+  assert.equal(
+    isPrivateUserAuthorized(
+      {
+        telegramOwnerId: 42,
+        telegramAccessMode: "allowlist",
+        telegramAllowedUserIds: [99],
+      },
+      99,
+    ),
+    true,
+  );
+  assert.equal(
+    isPrivateUserAuthorized(
+      { telegramOwnerId: 42, telegramAccessMode: "owner" },
+      99,
+    ),
+    false,
+  );
+});
+
 function update(updateId, fromId, text, type = "private") {
   return {
     update_id: updateId,
@@ -58,6 +88,120 @@ function callback(updateId, data, messageId = 100, fromId = 42) {
     },
   };
 }
+
+test("restricted access advances offsets without creating or mutating users", async () => {
+  const saved = [];
+  const answered = [];
+  const restrictedState = {
+    version: 2,
+    type: "telegram-bot",
+    updateOffset: 0,
+    users: {
+      99: {
+        active: true,
+        chatId: 99,
+        sendInitialApartments: false,
+        filters: {
+          price: { min: null, max: null },
+          rooms: { min: null, max: null },
+          locations: ["r:0"],
+        },
+        pendingFilterInput: null,
+      },
+    },
+  };
+  const mismatched = callback(3, "m:stop", 100, 42);
+  mismatched.callback_query.message.chat.id = 99;
+
+  const state = await processUpdates(
+    [
+      update(1, 7, "/start"),
+      callback(2, "f:reset", 100, 99),
+      mismatched,
+      update(4, 42, "/start"),
+    ],
+    { telegramOwnerId: 42, telegramAccessMode: "owner" },
+    restrictedState,
+    {
+      sendMessage: async () => {},
+      editMessage: async () => {},
+      answerCallback: async (id) => answered.push(id),
+      saveState: async (value) => saved.push(structuredClone(value)),
+    },
+  );
+
+  assert.equal(state.updateOffset, 5);
+  assert.equal(state.users[7], undefined);
+  assert.deepEqual(state.users[99], restrictedState.users[99]);
+  assert.ok(saved.some(({ updateOffset }) => updateOffset === 2));
+  assert.ok(saved.some(({ updateOffset }) => updateOffset === 3));
+  assert.deepEqual(answered, ["query-2", "query-3"]);
+  assert.equal(state.users[42].active, false);
+});
+
+test("persisted suspended users have a reserved access-bypass route", async () => {
+  const bypassed = [];
+  const state = await processUpdates(
+    [update(1, 99, "/future-delete")],
+    { telegramOwnerId: 42, telegramAccessMode: "owner" },
+    {
+      version: 2,
+      type: "telegram-bot",
+      updateOffset: 0,
+      users: { 99: { active: true, chatId: 99 } },
+    },
+    {
+      sendMessage: async () => {},
+      editMessage: async () => {},
+      saveState: async () => {},
+      isPersistedUserAccessBypass: ({ senderId }) => {
+        bypassed.push(senderId);
+        return true;
+      },
+    },
+  );
+
+  assert.deepEqual(bypassed, [99]);
+  assert.equal(state.users[99].active, true);
+  assert.equal(state.updateOffset, 2);
+});
+
+test("access summaries suspend users without changing their saved choices", () => {
+  const state = {
+    users: {
+      42: { chatId: 42, active: false },
+      99: {
+        chatId: 99,
+        active: true,
+        sendInitialApartments: false,
+        filters: { locations: ["r:0"] },
+      },
+    },
+  };
+  const before = structuredClone(state);
+
+  assert.deepEqual(
+    privateAccessSummary(state, {
+      telegramOwnerId: 42,
+      telegramAccessMode: "owner",
+    }),
+    {
+      accessMode: "owner",
+      persistedUserCount: 2,
+      authorizedUserCount: 1,
+      suspendedUserCount: 1,
+      activeUserCount: 0,
+    },
+  );
+  assert.equal(
+    privateAccessSummary(state, {
+      telegramOwnerId: 42,
+      telegramAccessMode: "public",
+    }).activeUserCount,
+    1,
+  );
+  assert.deepEqual(state, before);
+});
 
 test("private users explicitly start and stop monitoring from the setup panel", async () => {
   const sent = [];
@@ -568,6 +712,73 @@ test("an enabled channel crawls and publishes without private activation", async
   assert.equal(crawlCalls, 1);
   assert.equal(channelCalls, 1);
   assert.equal(privateDelivery, undefined);
+});
+
+test("runtime crawls only authorized active users and exposes live predicates", async () => {
+  const controller = new AbortController();
+  const accessStates = [];
+  const stored = {
+    version: 2,
+    type: "telegram-bot",
+    updateOffset: 0,
+    users: {
+      42: { active: true, chatId: 42 },
+      99: { active: true, chatId: 99, sendInitialApartments: false },
+    },
+  };
+  const runtimeConfig = {
+    telegramBotToken: "token",
+    telegramOwnerId: 42,
+    telegramAccessMode: "owner",
+    telegramAllowedUserIds: [],
+    telegramStateFile: "/state/bot.json",
+    telegramPollTimeoutSeconds: 25,
+    timeoutMs: 1_000,
+    pollIntervalMs: 60_000,
+  };
+  const api = {
+    getUpdates: async (_offset, _timeout, signal) =>
+      new Promise((resolve) => {
+        signal.addEventListener("abort", () => resolve([]), { once: true });
+      }),
+  };
+
+  await runTelegramBot(runtimeConfig, {
+    api,
+    signal: controller.signal,
+    loadState: async () => stored,
+    saveState: async () => {},
+    crawl: async (_config, { privateDeliveries }) => {
+      assert.deepEqual(
+        privateDeliveries.map(({ recipientId }) => recipientId),
+        ["42"],
+      );
+      assert.equal(privateDeliveries[0].isAuthorized(), true);
+      runtimeConfig.telegramOwnerId = 7;
+      assert.equal(privateDeliveries[0].isAuthorized(), false);
+      controller.abort();
+      return {
+        status: "unchanged",
+        pagesParsed: 1,
+        discoveredCount: 0,
+        updatedCount: 0,
+        notifiedCount: 0,
+        skippedCount: 0,
+        filteredCount: 0,
+        totalCount: 0,
+      };
+    },
+    onPrivateAccessState: async (state) => accessStates.push(state),
+  });
+
+  assert.deepEqual(accessStates[0], {
+    accessMode: "owner",
+    persistedUserCount: 2,
+    authorizedUserCount: 1,
+    suspendedUserCount: 1,
+    activeUserCount: 1,
+  });
+  assert.deepEqual(stored.users[99].sendInitialApartments, false);
 });
 
 test("a channel failure does not prevent an active private delivery", async () => {

@@ -251,6 +251,30 @@ test("readiness reports challenges and exchange-rate availability without leakin
   assert.equal(JSON.stringify(stale).includes("ownerId"), false);
 });
 
+test("readiness exposes only aggregate private access state", () => {
+  const monitor = new HealthMonitor({
+    version: "1.0.0",
+    now: () => new Date("2026-07-25T10:00:00.000Z"),
+  });
+  monitor.setPrivateAccessState({
+    accessMode: "allowlist",
+    persistedUserCount: 4,
+    authorizedUserCount: 2,
+    suspendedUserCount: 2,
+    activeUserCount: 1,
+    allowedUserIds: [42, 99],
+  });
+
+  assert.deepEqual(monitor.readiness().privateAccess, {
+    accessMode: "allowlist",
+    persistedUserCount: 4,
+    authorizedUserCount: 2,
+    suspendedUserCount: 2,
+    activeUserCount: 1,
+  });
+  assert.doesNotMatch(JSON.stringify(monitor.readiness()), /42|99/u);
+});
+
 test("loopback server separates responsive liveness from readiness", async (t) => {
   const monitor = new HealthMonitor({
     version: "1.0.0",

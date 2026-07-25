@@ -18,7 +18,10 @@ contracts instead of relying on optional hosted-image packages such as
 ripgrep; its integration test fails if `rg` is invoked. ShellCheck is enforced
 at warning severity and above. Its style and informational heuristics are not
 release gates because they report false positives for intentional jq programs
-and trap callbacks.
+and trap callbacks. Systemd verification runs against a temporary filesystem
+root with explicit Docker/network stubs and executable placeholders, so clean
+runners validate unit dependencies and command declarations without needing the
+production host layout.
 
 Coverage thresholds and the measured source glob live in `package.json` so the
 same gate runs locally and in CI. Lowering either threshold or adding an

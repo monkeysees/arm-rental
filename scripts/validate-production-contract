@@ -15,6 +15,12 @@ for command in bash docker grep jq shellcheck systemd-analyze; do
   require_command "$command"
 done
 
+temporary_directory=$(mktemp -d)
+cleanup() {
+  rm -rf -- "$temporary_directory"
+}
+trap cleanup EXIT HUP INT TERM
+
 shell_files=()
 while IFS= read -r shell_file; do
   shell_files+=("$shell_file")
@@ -37,13 +43,45 @@ done < <(
     \( -name '*.service' -o -name '*.timer' \) -print | sort
 )
 ((${#unit_files[@]} >= 15))
-systemd-analyze verify "${unit_files[@]}"
 
-temporary_directory=$(mktemp -d)
-cleanup() {
-  rm -rf -- "$temporary_directory"
-}
-trap cleanup EXIT HUP INT TERM
+systemd_root="$temporary_directory/systemd-root"
+systemd_unit_directory="$systemd_root/etc/systemd/system"
+true_binary=$(type -P true)
+[[ -n $true_binary ]]
+mkdir -p "$systemd_unit_directory" "$systemd_root/bin"
+cp "$true_binary" "$systemd_root/bin/true"
+printf '%s\n' \
+  '[Unit]' \
+  'Description=Docker contract dependency' \
+  '[Service]' \
+  'Type=oneshot' \
+  'ExecStart=/bin/true' >"$systemd_unit_directory/docker.service"
+printf '%s\n' \
+  '[Unit]' \
+  'Description=Network contract dependency' \
+  >"$systemd_unit_directory/network-online.target"
+
+staged_unit_files=()
+for unit_file in "${unit_files[@]}"; do
+  staged_unit="$systemd_unit_directory/${unit_file##*/}"
+  cp "$unit_file" "$staged_unit"
+  staged_unit_files+=("$staged_unit")
+done
+
+while IFS= read -r command_path; do
+  mkdir -p "$systemd_root$(dirname "$command_path")"
+  cp "$true_binary" "$systemd_root$command_path"
+done < <(
+  sed -nE \
+    's/^Exec(Start|StartPre|Reload|Stop)=(-?)([^[:space:]]+).*$/\3/p' \
+    infra/systemd/*.service | sort -u
+)
+
+systemd-analyze \
+  --root="$systemd_root" \
+  --recursive-errors=no \
+  verify "${staged_unit_files[@]}"
+
 image_environment="$temporary_directory/current-image.env"
 rendered_compose="$temporary_directory/compose.json"
 printf 'RENTAL_APARTMENTS_IMAGE=ghcr.io/example/rental-apartments@sha256:%064d\n' 0 \

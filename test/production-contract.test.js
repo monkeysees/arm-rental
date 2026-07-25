@@ -34,7 +34,9 @@ exit 0
   await executable(
     path.join(root, "systemd-analyze"),
     `${prelude}
-[[ "\${1:-}" == "verify" ]]
+[[ "\${1:-}" == --root=* ]]
+[[ "\${2:-}" == "--recursive-errors=no" ]]
+[[ "\${3:-}" == "verify" ]]
 `,
   );
   await executable(
@@ -92,7 +94,10 @@ exit 70
   assert.match(result.stdout, /Production deployment contract validated/u);
   const commands = await readFile(log, "utf8");
   assert.match(commands, /shellcheck --severity=warning --external-sources/u);
-  assert.match(commands, /systemd-analyze verify/u);
+  assert.match(
+    commands,
+    /systemd-analyze --root=.* --recursive-errors=no verify/u,
+  );
   assert.match(
     commands,
     /docker compose .*config --no-env-resolution --format json/u,

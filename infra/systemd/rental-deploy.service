@@ -9,7 +9,6 @@ RequiresMountsFor=/mnt/rental-apartments-backups
 Type=oneshot
 ExecStart=/usr/local/sbin/rental-deploy
 TimeoutStartSec=30min
-RuntimeMaxSec=30min
 NoNewPrivileges=yes
 PrivateTmp=yes
 ProtectHome=yes

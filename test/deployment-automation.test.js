@@ -177,7 +177,8 @@ test("unattended deploy contract covers no-op, first install, rollback, and fail
   );
   assert.match(launcher, /\/opt\/rental-apartments\/current\/ops\/deploy/u);
   assert.match(service, /ExecStart=\/usr\/local\/sbin\/rental-deploy/u);
-  assert.match(service, /RuntimeMaxSec=30min/u);
+  assert.match(service, /TimeoutStartSec=30min/u);
+  assert.doesNotMatch(service, /RuntimeMaxSec/u);
   assert.match(timer, /OnBootSec=5min/u);
   assert.match(timer, /OnCalendar=\*-\*-\* \*:00\/5:00 UTC/u);
   assert.match(timer, /Persistent=true/u);

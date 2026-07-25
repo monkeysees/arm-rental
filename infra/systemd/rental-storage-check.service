@@ -8,7 +8,6 @@ RequiresMountsFor=/mnt/rental-apartments-backups
 Type=oneshot
 ExecStart=/opt/rental-apartments/current/ops/storage-check
 TimeoutStartSec=5min
-RuntimeMaxSec=5min
 NoNewPrivileges=yes
 PrivateTmp=yes
 ProtectHome=yes

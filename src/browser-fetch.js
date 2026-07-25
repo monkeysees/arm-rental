@@ -277,10 +277,7 @@ export class BrowserPageFetcher {
       "--no-default-browser-check",
       "--no-first-run",
       ...(headfulLinux
-        ? [
-            "--disable-crashpad-for-testing",
-            `--remote-debugging-address=${LOOPBACK_DEBUG_ADDRESS}`,
-          ]
+        ? [`--remote-debugging-address=${LOOPBACK_DEBUG_ADDRESS}`]
         : []),
       ...(this.config.browserStartMinimized === false
         ? []

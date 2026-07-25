@@ -450,14 +450,13 @@ bounded system temporary directory. Startup clears stale resources left by a
 prior failed browser/service run. HOME, XDG configuration/cache, and the XDG
 runtime path all resolve beneath this tmpfs-backed launch directory, so Chrome
 never needs to write to the immutable image home. Chrome for Testing's Breakpad
-and crash-reporter subprocesses are disabled for every launch; its Crashpad
-subprocess is additionally disabled for interactive Linux verification because
-it triggers Chrome's CFI guard during sandboxed headful startup.
-Application-owned structured logging still records browser process and protocol
-failures. Headless service launches keep DevTools on a private pipe. Interactive
-Linux verification uses an ephemeral loopback-only DevTools port because Chrome
-for Testing exits during its headful pipe handshake; the verifier container
-publishes no ports. The container has
+and crash-reporter subprocesses are disabled because they trigger Chrome's CFI
+guard during sandboxed headful Linux startup. Application-owned structured
+logging still records browser process and protocol failures. Headless service
+launches keep DevTools on a private pipe. Interactive Linux verification uses
+an ephemeral loopback-only DevTools port because Chrome for Testing exits during
+its headful pipe handshake; the verifier container publishes no ports. The
+container has
 the `SYS_ADMIN` capability required by Puppeteer's sandboxed Docker runtime to
 create Chrome's short-lived PID and network namespaces; it remains non-root,
 read-only, portless, and uses Chrome's sandbox rather than `--no-sandbox`.

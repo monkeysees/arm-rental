@@ -180,6 +180,24 @@ test("rentalctl preserves malformed logs and aggregates bounded journal metrics"
       durationMs: { p50: 100, p95: 501 },
     },
   ]);
+
+  const timers = await execute(rentalctl, ["timers"], { env: host.env });
+  assert.deepEqual(
+    timers.stdout
+      .trim()
+      .split("\n")
+      .slice(1)
+      .map((line) => line.trim().split(/\s+/u)[0]),
+    [
+      "rental-deploy",
+      "rental-monitor",
+      "rental-storage-check",
+      "rental-backup",
+      "rental-maintenance",
+      "rental-restore-drill",
+      "rental-reboot-check",
+    ],
+  );
 });
 
 test("monitor sends only firing and resolved transitions and keeps redacted fallback logs", async (t) => {

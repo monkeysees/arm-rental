@@ -173,6 +173,7 @@ timer_status_json() {
     rental-backup
     rental-maintenance
     rental-restore-drill
+    rental-reboot-check
   )
   local timer properties service_properties
   local output='[]'

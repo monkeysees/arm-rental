@@ -73,7 +73,10 @@ bounded by the running container's start time; retained alert events from an
 older container lifecycle remain queryable as logs but cannot become current
 alert state. Monitoring defers with a successful, structured skip while a
 serialized production operation owns the shared lock, preventing an expected
-deployment observation window from becoming a scheduled-job failure.
+deployment observation window from becoming a scheduled-job failure. The
+snapshot and `rentalctl timers` expose the same complete seven-timer inventory,
+including the reboot check, so its failed result participates in scheduled-job
+alert evaluation.
 
 ### Systemd operations
 

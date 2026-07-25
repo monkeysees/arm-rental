@@ -78,12 +78,13 @@ resumes evaluation after the operation completes.
 The stable snapshot covers image/revision, container health, readiness, uptime
 and restarts; last preflight/crawl; 1-hour and 24-hour crawl totals, ratios,
 p50/p95 duration and result counters; bounded retry and state-file groupings;
-journal and filesystem capacity; timer results; application alerts; and the
-newest backup/maintenance receipts when present. Percentiles use nearest rank.
-Windows use journal timestamps, not application-supplied timestamps. Crawl
-IDs, apartment IDs, URLs, Telegram identifiers, and errors are not grouping
-keys. Application alert state is scoped to the current container lifecycle, so
-an unresolved event retained from a replaced container cannot reopen an alert.
+journal and filesystem capacity; last/next/result state for all seven production
+timers, including the reboot check; application alerts; and the newest
+backup/maintenance receipts when present. Percentiles use nearest rank. Windows
+use journal timestamps, not application-supplied timestamps. Crawl IDs,
+apartment IDs, URLs, Telegram identifiers, and errors are not grouping keys.
+Application alert state is scoped to the current container lifecycle, so an
+unresolved event retained from a replaced container cannot reopen an alert.
 
 ```sh
 rentalctl status

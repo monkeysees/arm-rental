@@ -695,11 +695,13 @@ operator procedures are indexed in
    the latest persisted rate and replaces its rate audit; otherwise the prior
    canonical price and audit remain unchanged.
 9. Newly discovered and updated records are atomically committed before
-   Telegram delivery begins. Private `src/filters.js` admission remains
+   Telegram delivery begins. First-time private `src/filters.js` admission is
    terminal: non-matches become filtered, and on an empty private delivery
-   history only the latest matching `INITIAL_DELIVERY_LIMIT` are selected.
-   Source order is reversed so selected messages are delivered oldest first,
-   then acknowledged one at a time.
+   history only the latest matching `INITIAL_DELIVERY_LIMIT` are selected. A
+   previously delivered apartment becomes pending again when its source
+   `updatedAt` is later than its last successful private notification and it
+   matches the current private filters. Source order is reversed so selected
+   messages are delivered oldest first, then acknowledged one at a time.
 10. `src/channel.js` independently evaluates environment filters. With no
     compatible channel state, it atomically classifies the full apartment order:
     the latest matching `INITIAL_DELIVERY_LIMIT` become `pending`, older matches
@@ -775,10 +777,11 @@ The `.data` directory must be mounted on persistent storage in production.
 - `exchange-rates.json` stores one validated, atomic CBA snapshot containing
   USD, EUR, and RUB quote amounts and rates, its fetch timestamp, and its CBA
   effective date. It is reusable across process restarts.
-- `telegram-deliveries.json` tracks private successfully sent item IDs and the
-  intentionally skipped portion of initial history. Its `filtered` index records
-  listings rejected by the private filters active on first admission. Selected
-  unsent messages remain retryable.
+- `telegram-deliveries.json` tracks each private item ID's latest successful
+  delivery timestamp and the intentionally skipped portion of initial history.
+  Its `filtered` index records listings rejected by the private filters active
+  on first admission. New and updated selected messages remain retryable until
+  their successful delivery timestamp reaches the source update timestamp.
 - `telegram-bot.json` stores owner identity, activation, private chat ID,
   Telegram update offset, optional private filters, and pending range-input mode.
 - `telegram-channel-deliveries.json` is a separate channel state machine keyed
@@ -844,7 +847,8 @@ is retained as displayed by List.am.
 Parser tests verify field normalization and Top Ads exclusion. Crawler
 integration tests exercise multi-page initial discovery, the posting-date
 watermark (including refreshed IDs and equal-minute listings), known-card
-updates, persistence, delivery retry, and filter-classification behavior.
+updates, persistence, new and updated private-delivery retry, and
+filter-classification behavior.
 Filter tests cover optional/open ranges, regions, places, composed criteria, and
 AMD comparison of foreign source prices. Exchange-rate tests cover SOAP parsing,
 atomic validation, daily refresh, hourly failure backoff, restart reuse, and

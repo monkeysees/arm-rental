@@ -493,3 +493,78 @@ test("known cards update source data while preserving first-seen and price audit
     exchangeRateEffectiveDate: exchangeRates.effectiveDate,
   });
 });
+
+test("an updated apartment is delivered again privately when it still matches filters", async () => {
+  const state = memoryState();
+  const filters = {
+    ...emptyFilters(),
+    rooms: { min: 2, max: 2 },
+  };
+  const listingPage = (title, rooms = 2) => `
+    <div id="contentr">
+      <a class="fav-item-info-container" href="/ru/item/50">
+        <div class="pt">${title}</div><div class="p">250000 ֏</div>
+        <div class="at">Кентрон, ${rooms} ком., 60 кв.м., 4/9 этаж</div>
+        <div class="d">Пятница, Июль 24, 2026, 14:31</div>
+      </a>
+    </div>`;
+  const delivered = [];
+
+  await crawlApartments(
+    { ...config, initialPageCount: 1 },
+    {
+      ...state,
+      filters,
+      fetchPage: async () => new Response(listingPage("Original title")),
+      deliverApartment: async ({ title }) => delivered.push(title),
+      now: () => new Date("2026-07-24T12:00:00.000Z"),
+    },
+  );
+
+  await assert.rejects(
+    crawlApartments(config, {
+      ...state,
+      filters,
+      fetchPage: async () => new Response(listingPage("Updated title")),
+      deliverApartment: async () => {
+        throw new Error("Telegram unavailable");
+      },
+      now: () => new Date("2026-07-24T12:01:00.000Z"),
+    }),
+    /Telegram unavailable/u,
+  );
+  assert.equal(
+    state.files.get(config.deliveryStateFile).notified["50"],
+    "2026-07-24T12:00:00.000Z",
+  );
+
+  const retry = await crawlApartments(config, {
+    ...state,
+    filters,
+    fetchPage: async () => new Response(listingPage("Updated title")),
+    deliverApartment: async ({ title }) => delivered.push(title),
+    now: () => new Date("2026-07-24T12:02:00.000Z"),
+  });
+
+  assert.equal(retry.notifiedCount, 1);
+  assert.deepEqual(delivered, ["Original title", "Updated title"]);
+  assert.equal(
+    state.files.get(config.deliveryStateFile).notified["50"],
+    "2026-07-24T12:02:00.000Z",
+  );
+
+  const filteredUpdate = await crawlApartments(config, {
+    ...state,
+    filters,
+    fetchPage: async () =>
+      new Response(listingPage("Updated to three rooms", 3)),
+    deliverApartment: async () => {
+      throw new Error("A non-matching update must not be delivered");
+    },
+    now: () => new Date("2026-07-24T12:03:00.000Z"),
+  });
+
+  assert.equal(filteredUpdate.updatedCount, 1);
+  assert.equal(filteredUpdate.notifiedCount, 0);
+  assert.deepEqual(delivered, ["Original title", "Updated title"]);
+});

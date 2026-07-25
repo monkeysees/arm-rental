@@ -165,6 +165,16 @@ function sourceDataChanged(previous, observed) {
   );
 }
 
+function hasUpdateAfterDelivery(apartment, deliveredAt) {
+  const updatedAt = Date.parse(apartment?.updatedAt);
+  const deliveredAtValue = Date.parse(deliveredAt);
+  return (
+    Number.isFinite(updatedAt) &&
+    Number.isFinite(deliveredAtValue) &&
+    updatedAt > deliveredAtValue
+  );
+}
+
 export async function crawlApartments(
   config,
   {
@@ -434,12 +444,18 @@ export async function crawlApartments(
     // List.am is newest-first; reversing its stable order sends by date ascending.
     const pending = [...apartmentOrder]
       .reverse()
-      .filter(
-        (itemId) =>
-          !deliveryState.notified[itemId] &&
-          !deliveryState.skipped[itemId] &&
-          !deliveryState.filtered[itemId],
-      )
+      .filter((itemId) => {
+        const deliveredAt = deliveryState.notified[itemId];
+        if (deliveredAt) {
+          return (
+            hasUpdateAfterDelivery(apartments[itemId], deliveredAt) &&
+            apartmentMatchesFilters(apartments[itemId], filters)
+          );
+        }
+        return (
+          !deliveryState.skipped[itemId] && !deliveryState.filtered[itemId]
+        );
+      })
       .map((itemId) => apartments[itemId])
       .filter(Boolean);
 

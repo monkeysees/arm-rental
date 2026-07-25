@@ -87,6 +87,22 @@ complete observation window, atomically advances runtime pointers, and
 restores the prior snapshot and digest on failure. Failed candidate digests are
 quarantined to prevent retry loops.
 
+### Host reconciliation
+
+Host provisioning is split between exact-name/production-label provider
+reconciliation and an idempotent host reconciler. Ambiguous selection and
+immutable server, SSH-key, or volume drift fail closed; no resource deletion or
+replacement path exists. Cloud-init establishes the key-only deployment
+account and invokes the same reconciler used for later SSH-based updates.
+
+The delete-protected backup volume is mounted by filesystem UUID and exposed
+through a bind-backed external Docker volume. Persistent journald retention is
+bounded by both 14 days and a dynamically capped host-size budget. Application
+startup remains gated by the root-only environment file and immutable image
+record, while the stable deployment launcher permits first installation before
+a current release symlink exists. A sanitized receipt records Docker, Compose,
+kernel, OS, and systemd unit versions.
+
 ### Health and readiness boundary
 
 `src/health.js` owns a sanitized, in-memory operational projection. It does not

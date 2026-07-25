@@ -236,6 +236,11 @@ Weekly state growth reporting, lease-safe Chrome cache maintenance, and the
 no-deletion retention policy are documented in
 [docs/state-maintenance.md](docs/state-maintenance.md).
 
+The idempotent Hetzner host bootstrap, immutable infrastructure inputs,
+root-only initial secret handling, SSH-only firewall, protected backup volume,
+and safe check/dry-run workflow are documented in
+[docs/host-bootstrap.md](docs/host-bootstrap.md).
+
 ## Quality checks
 
 ```sh

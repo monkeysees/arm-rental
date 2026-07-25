@@ -1,0 +1,21 @@
+#cloud-config
+ssh_pwauth: false
+disable_root: true
+users:
+  - name: rental-deploy
+    gecos: Rental apartments deployment
+    groups: [systemd-journal]
+    shell: /bin/bash
+    lock_passwd: true
+    sudo: ["ALL=(ALL) NOPASSWD:ALL"]
+    ssh_authorized_keys:
+      - __RENTAL_SSH_PUBLIC_KEY__
+write_files:
+  # __RENTAL_WRITE_FILES__
+runcmd:
+  - [
+      "env",
+      "RENTAL_BACKUP_DEVICE=__RENTAL_BACKUP_DEVICE__",
+      "/usr/local/sbin/rental-host-bootstrap",
+    ]
+final_message: "Rental apartments host bootstrap completed"

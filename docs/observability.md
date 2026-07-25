@@ -79,7 +79,8 @@ journal and filesystem capacity; timer results; application alerts; and the
 newest backup/maintenance receipts when present. Percentiles use nearest rank.
 Windows use journal timestamps, not application-supplied timestamps. Crawl
 IDs, apartment IDs, URLs, Telegram identifiers, and errors are not grouping
-keys.
+keys. Application alert state is scoped to the current container lifecycle, so
+an unresolved event retained from a replaced container cannot reopen an alert.
 
 ```sh
 rentalctl status

@@ -3,6 +3,7 @@ import { execFile } from "node:child_process";
 import {
   chmod,
   copyFile,
+  appendFile,
   mkdtemp,
   readFile,
   rm,
@@ -24,7 +25,25 @@ async function executable(filename, contents) {
   await chmod(filename, 0o755);
 }
 
-async function fakeHost(t) {
+function alertRecord(observedAt, event = "alert.firing") {
+  return `${JSON.stringify({
+    __REALTIME_TIMESTAMP: String(Date.parse(observedAt) * 1000),
+    CONTAINER_NAME: "rental-apartments-bot",
+    PRIORITY: event === "alert.firing" ? "4" : "6",
+    MESSAGE: JSON.stringify({
+      severity: event === "alert.firing" ? "warn" : "info",
+      event,
+      alertName: "browser_challenge",
+      alertSeverity: "warn",
+      message: "Browser verification state changed",
+    }),
+  })}\n`;
+}
+
+async function fakeHost(
+  t,
+  { containerStartedAt = "2026-07-25T11:00:00Z" } = {},
+) {
   const root = await mkdtemp(join(tmpdir(), "rental-observability-"));
   t.after(() => rm(root, { recursive: true, force: true }));
   const bin = join(root, "bin");
@@ -44,7 +63,7 @@ async function fakeHost(t) {
     `#!/bin/sh
 if [ "$1" = "exec" ]; then exit 0; fi
 if [ "$1" = "inspect" ]; then
-  printf '%s\\n' '[{"Image":"sha256:abc","Config":{"Labels":{"org.opencontainers.image.revision":"${"a".repeat(40)}"}},"State":{"Running":true,"StartedAt":"2026-07-25T11:00:00Z","Health":{"Status":"healthy"}},"RestartCount":0}]'
+  printf '%s\\n' '[{"Image":"sha256:abc","Config":{"Labels":{"org.opencontainers.image.revision":"${"a".repeat(40)}"}},"State":{"Running":true,"StartedAt":"${containerStartedAt}","Health":{"Status":"healthy"}},"RestartCount":0}]'
   exit 0
 fi
 exit 1
@@ -179,4 +198,28 @@ test("monitor sends only firing and resolved transitions and keeps redacted fall
   const serviceLog = await readFile(host.env.RENTAL_TEST_SYSTEMD_LOG, "utf8");
   assert.doesNotMatch(serviceLog, /abcdefghijklmnopqrstuvwxyz|123456789/u);
   assert.match(serviceLog, /monitor\.succeeded/u);
+});
+
+test("monitor ignores application alerts from an earlier container lifecycle", async (t) => {
+  const host = await fakeHost(t, {
+    containerStartedAt: "2026-07-25T11:00:00.123456789Z",
+  });
+  await appendFile(host.journal, alertRecord("2026-07-25T10:59:59.000Z"));
+
+  await execute(monitor, [], { env: host.env });
+  let metrics = JSON.parse(
+    await readFile(join(host.state, "metrics-latest.json"), "utf8"),
+  );
+  assert.deepEqual(metrics.applicationAlerts, []);
+  assert.equal(metrics.deployment.uptimeSeconds, 3599);
+
+  await appendFile(host.journal, alertRecord("2026-07-25T11:00:01.000Z"));
+  await execute(monitor, [], { env: host.env });
+  metrics = JSON.parse(
+    await readFile(join(host.state, "metrics-latest.json"), "utf8"),
+  );
+  assert.deepEqual(
+    metrics.applicationAlerts.map(({ name, status }) => ({ name, status })),
+    [{ name: "browser_challenge", status: "firing" }],
+  );
 });

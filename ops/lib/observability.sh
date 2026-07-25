@@ -81,8 +81,24 @@ container_status_json() {
   fi
 
   "$JQ_BIN" -c --argjson now "${RENTAL_OBSERVABILITY_NOW_EPOCH:-$(date +%s)}" '
+    def rfc3339_epoch:
+      if type == "string"
+      then
+        ([
+          try (
+            capture(
+              "^(?<seconds>[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2})(?:\\.(?<fraction>[0-9]+))?Z$"
+            )
+            | (
+                (.seconds + "Z" | fromdateiso8601)
+                + (("0." + (.fraction // "0")) | tonumber)
+              )
+          ) catch null
+        ] | first // null)
+      else null
+      end;
     .[0] as $container
-    | (($container.State.StartedAt // "") | fromdateiso8601? // null) as $started
+    | (($container.State.StartedAt // "") | rfc3339_epoch) as $started
     | {
         present: true,
         running: ($container.State.Running // false),
@@ -236,12 +252,38 @@ write_metrics_snapshot() {
     --argjson timers "$timers" \
     --argjson backup "$backup" \
     --argjson maintenance "$maintenance" '
-      $application
+      def rfc3339_epoch:
+        if type == "string"
+        then
+          ([
+            try (
+              capture(
+                "^(?<seconds>[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2})(?:\\.(?<fraction>[0-9]+))?Z$"
+              )
+              | (
+                  (.seconds + "Z" | fromdateiso8601)
+                  + (("0." + (.fraction // "0")) | tonumber)
+                )
+            ) catch null
+          ] | first // null)
+        else null
+        end;
+      ($container.startedAt | rfc3339_epoch) as $containerStarted
+      | $application
       + {
           deployment: ($container + {readiness: $readiness.status}),
           journal: ($journal + {
             oldestApplicationRecord: $application.observations.oldestApplicationRecord
           }),
+          applicationAlerts:
+            ([
+              $application.applicationAlerts[]?
+              | (.lastObservedAt | rfc3339_epoch) as $lastObserved
+              | select(
+                  $containerStarted == null
+                  or ($lastObserved != null and $lastObserved >= $containerStarted)
+                )
+            ]),
           filesystems: [$data, $backupFs],
           timers: $timers,
           newestValidSnapshot:

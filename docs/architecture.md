@@ -68,7 +68,10 @@ windows, Docker state, filesystems, and systemd timer state. Operators use
 `rentalctl` over SSH for logs, current readiness, recalculated metrics, and
 timer status; no observability server or inbound port exists. Telegram is the
 deduplicated outbound alert route, while the failed systemd unit and retained
-journal records remain the delivery fallback.
+journal records remain the delivery fallback. Derived application alerts are
+bounded by the running container's start time; retained alert events from an
+older container lifecycle remain queryable as logs but cannot become current
+alert state.
 
 ### Systemd operations
 

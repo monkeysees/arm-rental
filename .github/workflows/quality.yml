@@ -76,16 +76,15 @@ jobs:
           SOURCE_REVISION: ${{ github.sha }}
         run: |
           PACKAGE_LOCK_SHA256="$(sha256sum package-lock.json | cut -d ' ' -f 1)"
-          CHROME_RUNTIME_VERSION="$(docker run --rm --entrypoint /opt/chrome/chrome/linux-150.0.7871.124/chrome-linux64/chrome rental-apartments-bot:ci --version |
+          CHROME_RUNTIME_VERSION="$(docker run --rm --entrypoint /usr/bin/chromium rental-apartments-bot:ci --version |
             sed 's/[[:space:]]*$//')"
           test "$(docker image inspect --format '{{ index .Config.Labels "org.opencontainers.image.revision" }}' rental-apartments-bot:ci)" = "$SOURCE_REVISION"
           test "$(docker image inspect --format '{{ index .Config.Labels "org.opencontainers.image.node.version" }}' rental-apartments-bot:ci)" = "24.18.0"
-          test "$(docker image inspect --format '{{ index .Config.Labels "org.opencontainers.image.chrome.version" }}' rental-apartments-bot:ci)" = "150.0.7871.124"
+          test "$(docker image inspect --format '{{ index .Config.Labels "org.opencontainers.image.chrome.version" }}' rental-apartments-bot:ci)" = "150.0.7871.181"
           test "$(docker image inspect --format '{{ index .Config.Labels "org.opencontainers.image.package-lock.sha256" }}' rental-apartments-bot:ci)" = "$PACKAGE_LOCK_SHA256"
           test "$(docker run --rm --entrypoint node rental-apartments-bot:ci --version)" = "v24.18.0"
           printf '%s\n' "$CHROME_RUNTIME_VERSION"
-          test "$CHROME_RUNTIME_VERSION" = "Google Chrome 150.0.7871.124" ||
-            test "$CHROME_RUNTIME_VERSION" = "Google Chrome for Testing 150.0.7871.124"
+          test "$CHROME_RUNTIME_VERSION" = "Chromium 150.0.7871.181 built on Debian GNU/Linux 12 (bookworm)"
 
       - name: Smoke-test production browser modes
         run: scripts/smoke-production-browser-image rental-apartments-bot:ci

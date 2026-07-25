@@ -267,9 +267,8 @@ export class BrowserPageFetcher {
       `--disk-cache-size=${this.config.browserCacheMaxBytes || DEFAULT_DISK_CACHE_MAX_BYTES}`,
       "--disable-blink-features=AutomationControlled",
       "--disable-backgrounding-occluded-windows",
-      // Chrome for Testing's crash reporter trips its CFI guard in the
-      // sandboxed headful Linux container. Application-owned structured logs
-      // still report browser exits without starting that unstable subprocess.
+      // Browser-owned crash reporters require mutable or tracing facilities
+      // outside the container contract. Application logs still report exits.
       "--disable-breakpad",
       "--disable-crash-reporter",
       "--disable-renderer-backgrounding",

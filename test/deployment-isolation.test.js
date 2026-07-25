@@ -40,7 +40,10 @@ test("production container has a non-root immutable runtime with bounded writabl
   ]);
 
   assert.match(dockerfile, /^USER node$/mu);
-  assert.match(dockerfile, /chrome_sandbox[\s\S]*?chmod 4755/u);
+  assert.match(
+    dockerfile,
+    /chromium-sandbox[\s\S]*?\/usr\/lib\/chromium\/chrome-sandbox[\s\S]*?root:root:4755/u,
+  );
   assert.doesNotMatch(dockerfile, /^COPY\s+\.\s/u);
   assert.doesNotMatch(dockerfile, /--env-file/u);
   assert.match(deployment, /^\s+user: "node"$/mu);

@@ -200,15 +200,15 @@ running linting, formatting, and tests. The production image performs a
 separate `npm ci --omit=dev`, so development-only tooling is not deployed.
 
 The Linux AMD64 production image is based on the immutable multi-platform
-digest of the official Node.js 24.18.0 Bookworm Slim image. It installs the
-known-good Chrome for Testing 150.0.7871.124 patch from Puppeteer Core 25.3.0's
-supported Chrome 150 milestone using Puppeteer's browser installer. The patched
-build is required for both headless service operation and headful production
-verification; the milestone's earlier `.24` build terminates during Linux X11
-startup. Chrome's own `deb.deps` manifest is resolved against the Debian
-snapshot dated 2026-07-13, making the browser libraries part of the image build
-rather than undocumented host state. OCI image labels expose the exact Node and
-browser versions for deployment inventory and verification.
+digest of the official Node.js 24.18.0 Bookworm Slim image. It installs Debian
+Chromium 150.0.7871.181 and its set-user-ID sandbox helper from the Debian
+snapshot dated 2026-07-25. This stays within Puppeteer Core 25.3.0's supported
+Chrome 150 milestone while avoiding the milestone's Chrome for Testing builds,
+whose Linux AMD64 browser process terminates during sandboxed X11 startup.
+Installing the exact browser package and its libraries from one snapshot makes
+them part of the image build rather than undocumented host state. OCI image
+labels expose the exact Node and browser versions for deployment inventory and
+verification.
 
 ### Continuous integration and artifact provenance
 
@@ -317,19 +317,19 @@ writable path is `/app/.data`; `/tmp` and `/dev/shm` are explicit in-memory
 filesystems capped at 128 MiB and 256 MiB respectively, with device, set-user-ID,
 and executable-file behavior disabled. The service publishes no inbound ports.
 
-Chrome retains its Linux sandbox. The pinned `chrome_sandbox` helper is owned by
+Chrome retains its Linux sandbox. The pinned `chrome-sandbox` helper is owned by
 root with its required mode in the image, while Chrome itself is launched by
 the unprivileged application account. Application launch arguments never
-disable the sandbox. Puppeteer's production control channel uses a pipe; the
-interactive macOS verification path is the only TCP debugging mode and
-explicitly binds it to `127.0.0.1`.
+disable the sandbox. Puppeteer's headless production control channel uses a
+pipe. Interactive Linux verification uses an ephemeral TCP debugging port
+inside its portless container and explicitly binds it to `127.0.0.1`; the
+interactive macOS path also restricts debugging to loopback.
 
-The image build and hosted artifact gate execute the installed browser and
-require its exact pinned numeric version. Chrome for Testing releases may
-report either the standard `Google Chrome` product prefix or the explicit
-`Google Chrome for Testing` prefix and may append trailing whitespace, so
-packaging trims only trailing whitespace before accepting those two identities
-without weakening the version pin.
+The image build verifies both signed Debian package versions and the sandbox
+helper's ownership and mode without executing a foreign-architecture binary.
+The native AMD64 hosted artifact gate executes the installed browser and
+requires the exact versioned Debian Chromium identity. That runtime check trims
+only trailing whitespace before comparison, without weakening the version pin.
 
 ### Configuration and secret boundary
 
@@ -449,13 +449,12 @@ Each Chrome launch uses a profile-keyed, mode-`0700` runtime root beneath the
 bounded system temporary directory. Startup clears stale resources left by a
 prior failed browser/service run. HOME, XDG configuration/cache, and the XDG
 runtime path all resolve beneath this tmpfs-backed launch directory, so Chrome
-never needs to write to the immutable image home. Chrome for Testing's Breakpad
-and crash-reporter subprocesses are disabled because they trigger Chrome's CFI
-guard during sandboxed headful Linux startup. Application-owned structured
-logging still records browser process and protocol failures. Headless service
-launches keep DevTools on a private pipe. Interactive Linux verification uses
-an ephemeral loopback-only DevTools port because Chrome for Testing exits during
-its headful pipe handshake; the verifier container publishes no ports. The
+never needs to write to the immutable image home. Browser-owned Breakpad and
+crash-reporter subprocesses are disabled because they require additional
+mutable or tracing facilities; application-owned structured logging records
+browser process and protocol failures. Headless service launches keep DevTools
+on a private pipe. Interactive Linux verification uses an ephemeral
+loopback-only DevTools port, and its verifier container publishes no ports. The
 container has
 the `SYS_ADMIN` capability required by Puppeteer's sandboxed Docker runtime to
 create Chrome's short-lived PID and network namespaces; it remains non-root,

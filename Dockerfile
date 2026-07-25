@@ -6,8 +6,9 @@ ARG NODE_VERSION=24.18.0
 FROM node:${NODE_VERSION}-bookworm-slim@sha256:6f7b03f7c2c8e2e784dcf9295400527b9b1270fd37b7e9a7285cf83b6951452d AS production
 
 ARG NODE_VERSION
-ARG CHROME_VERSION=150.0.7871.124
-ARG DEBIAN_SNAPSHOT=20260713T000000Z
+ARG CHROME_VERSION=150.0.7871.181
+ARG CHROMIUM_PACKAGE_VERSION=150.0.7871.181-1~deb12u1
+ARG DEBIAN_SNAPSHOT=20260725T000000Z
 ARG SOURCE_REVISION
 ARG PACKAGE_LOCK_SHA256
 ARG DEBIAN_FRONTEND=noninteractive
@@ -20,7 +21,7 @@ LABEL org.opencontainers.image.title="rental-apartments-bot" \
 
 ENV NODE_ENV=production \
     BROWSER_HEADLESS=true \
-    CHROME_EXECUTABLE_PATH=/opt/chrome/chrome/linux-${CHROME_VERSION}/chrome-linux64/chrome
+    CHROME_EXECUTABLE_PATH=/usr/bin/chromium
 
 WORKDIR /app
 
@@ -30,31 +31,25 @@ RUN test "$(printf '%s' "${SOURCE_REVISION}" | wc -c)" -eq 40 \
     && test "${PACKAGE_LOCK_SHA256}" = "$(sha256sum package-lock.json | cut -d ' ' -f 1)"
 RUN npm ci --omit=dev && npm cache clean --force
 
-# Chrome for Testing ships a deb.deps manifest. Installing it against a dated
-# Debian snapshot makes both the exact browser and its shared libraries
-# repeatable instead of relying on whatever Chrome happens to exist on a host.
+# Pin Chromium and its sandbox helper from a dated Debian snapshot so both the
+# exact browser and its shared libraries are reproducible.
 RUN sed -i \
       -e "s|http://deb.debian.org/debian-security|http://snapshot.debian.org/archive/debian-security/${DEBIAN_SNAPSHOT}|g" \
       -e "s|http://deb.debian.org/debian|http://snapshot.debian.org/archive/debian/${DEBIAN_SNAPSHOT}|g" \
       -e '/^Signed-By:/a Check-Valid-Until: no' \
       /etc/apt/sources.list.d/debian.sources \
     && apt-get update \
-    && apt-get install --yes --no-install-recommends ca-certificates unzip \
-    && npx --no-install browsers install "chrome@${CHROME_VERSION}" \
-      --path /opt/chrome \
-      --install-deps \
-    && CHROME_RUNTIME_VERSION="$("${CHROME_EXECUTABLE_PATH}" --version \
-      | sed 's/[[:space:]]*$//')" \
-    && printf '%s\n' "${CHROME_RUNTIME_VERSION}" \
-    && { \
-      test "${CHROME_RUNTIME_VERSION}" = "Google Chrome ${CHROME_VERSION}" \
-        || test "${CHROME_RUNTIME_VERSION}" = \
-          "Google Chrome for Testing ${CHROME_VERSION}"; \
-    } \
-    && chown root:root \
-      "/opt/chrome/chrome/linux-${CHROME_VERSION}/chrome-linux64/chrome_sandbox" \
-    && chmod 4755 \
-      "/opt/chrome/chrome/linux-${CHROME_VERSION}/chrome-linux64/chrome_sandbox" \
+    && apt-get install --yes --no-install-recommends \
+      ca-certificates \
+      "chromium=${CHROMIUM_PACKAGE_VERSION}" \
+      "chromium-sandbox=${CHROMIUM_PACKAGE_VERSION}" \
+    && test "${CHROMIUM_PACKAGE_VERSION%%-*}" = "${CHROME_VERSION}" \
+    && test "$(dpkg-query --show --showformat='${Version}' chromium)" = \
+      "${CHROMIUM_PACKAGE_VERSION}" \
+    && test "$(dpkg-query --show --showformat='${Version}' chromium-sandbox)" = \
+      "${CHROMIUM_PACKAGE_VERSION}" \
+    && test "$(stat -c '%U:%G:%a' /usr/lib/chromium/chrome-sandbox)" = \
+      "root:root:4755" \
     && rm -rf \
       /var/lib/apt/lists/* \
       /usr/local/lib/node_modules/npm \

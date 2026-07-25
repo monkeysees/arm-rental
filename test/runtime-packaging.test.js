@@ -43,14 +43,18 @@ test("production packaging installs locked dependencies and a patched browser in
     /^ARG CHROME_VERSION=(?<version>[0-9.]+)$/mu,
   )?.groups?.version;
 
-  assert.equal(chromeVersion, "150.0.7871.124");
+  assert.equal(chromeVersion, "150.0.7871.181");
   assert.equal(
     chromeVersion.split(".")[0],
     PUPPETEER_REVISIONS.chrome.split(".")[0],
   );
   assert.match(dockerfile, /RUN npm ci --omit=dev\b/u);
   assert.doesNotMatch(dockerfile, /\bnpm install\b/u);
-  assert.match(dockerfile, /--install-deps/u);
+  assert.match(
+    dockerfile,
+    /"chromium=\$\{CHROMIUM_PACKAGE_VERSION\}"[\s\S]*?"chromium-sandbox=\$\{CHROMIUM_PACKAGE_VERSION\}"/u,
+  );
+  assert.match(dockerfile, /root:root:4755/u);
   assert.match(
     dockerfile,
     /rm -rf[\s\S]*?\/usr\/local\/lib\/node_modules\/npm[\s\S]*?\/usr\/local\/lib\/node_modules\/corepack/u,
@@ -59,19 +63,18 @@ test("production packaging installs locked dependencies and a patched browser in
     dockerfile,
     /rm -f \/usr\/local\/bin\/npm \/usr\/local\/bin\/npx \/usr\/local\/bin\/corepack/u,
   );
-  assert.match(dockerfile, /sed 's\/\[\[:space:\]\]\*\$\/\//u);
   assert.match(
     dockerfile,
-    /Google Chrome \$\{CHROME_VERSION\}[\s\S]*?Google Chrome for Testing \$\{CHROME_VERSION\}/u,
+    /dpkg-query --show --showformat='\$\{Version\}' chromium[\s\S]*?dpkg-query --show --showformat='\$\{Version\}' chromium-sandbox/u,
   );
   assert.match(workflow, /sed 's\/\[\[:space:\]\]\*\$\/\//u);
   assert.match(
     workflow,
-    /Google Chrome 150\.0\.7871\.124[\s\S]*?Google Chrome for Testing 150\.0\.7871\.124/u,
+    /Chromium 150\.0\.7871\.181 built on Debian GNU\/Linux 12 \(bookworm\)/u,
   );
   assert.match(
     publishWorkflow,
-    /org\.opencontainers\.image\.chrome\.version[\s\S]*?150\.0\.7871\.124/u,
+    /org\.opencontainers\.image\.chrome\.version[\s\S]*?150\.0\.7871\.181/u,
   );
   assert.match(workflow, /run: npm ci/u);
   assert.match(workflow, /run: npm run check/u);

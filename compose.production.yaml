@@ -21,7 +21,7 @@ services:
       DATA_DIRECTORY: /app/.data
       BACKUP_DIRECTORY: /app-backups
       BROWSER_HEADLESS: "true"
-      CHROME_EXECUTABLE_PATH: /opt/chrome/chrome/linux-150.0.7871.124/chrome-linux64/chrome
+      CHROME_EXECUTABLE_PATH: /usr/bin/chromium
       HEALTH_HOST: 127.0.0.1
       HEALTH_PORT: "8787"
     volumes:

@@ -1,0 +1,72 @@
+{
+  "schemaVersion": 1,
+  "exerciseId": "production-exercise-pending-template",
+  "environment": "production",
+  "evidenceKind": "repository-template",
+  "actor": "replace-with-named-actor",
+  "hostAlias": "production-vps",
+  "repositoryRevision": null,
+  "startedAt": null,
+  "completedAt": null,
+  "overallStatus": "pending",
+  "sanitization": {
+    "rawLogsIncluded": false,
+    "secretsIncluded": false,
+    "collectionPolicy": "allowlisted-status-fields-only"
+  },
+  "exercises": {
+    "restoreDrill": {
+      "status": "pending",
+      "observedAt": null,
+      "unit": "rental-restore-drill.service",
+      "unitResult": null,
+      "terminalEvent": null,
+      "durationMs": null
+    },
+    "failedDeploymentRollback": {
+      "status": "pending",
+      "observedAt": null,
+      "candidateImage": null,
+      "previousImage": null,
+      "deployUnitResult": null,
+      "deploymentOutcome": null,
+      "rollbackResult": null,
+      "quarantinePresent": null,
+      "quarantinedRetrySkipped": null,
+      "restoredImage": null,
+      "applicationActive": null,
+      "containerHealth": null
+    },
+    "dockerRestartRecovery": {
+      "status": "pending",
+      "observedAt": null,
+      "imageBefore": null,
+      "imageAfter": null,
+      "dockerActive": null,
+      "applicationActive": null,
+      "containerHealth": null
+    },
+    "hostRebootRecovery": {
+      "status": "pending",
+      "beforeObservedAt": null,
+      "afterObservedAt": null,
+      "beforeBootId": null,
+      "afterBootId": null,
+      "imageBefore": null,
+      "imageAfter": null,
+      "dockerActive": null,
+      "applicationActive": null,
+      "containerHealth": null
+    },
+    "timerFreshness": {
+      "status": "pending",
+      "observedAt": null,
+      "timers": []
+    }
+  },
+  "humanValidationRequired": [
+    "Run every exercise on the authorized production VPS.",
+    "Use a deliberately failing published candidate digest for the rollback exercise.",
+    "Review the resulting allowlisted evidence before launch approval."
+  ]
+}

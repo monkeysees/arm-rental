@@ -34,6 +34,9 @@ jobs:
       - name: Run lint, format, and test checks
         run: npm run check
 
+      - name: Validate production deployment contract
+        run: npm run check:production-contract
+
       - name: Enforce coverage floors
         run: npm run test:coverage
 

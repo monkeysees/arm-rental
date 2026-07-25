@@ -1,0 +1,122 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+
+REPOSITORY_ROOT=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
+cd "$REPOSITORY_ROOT"
+
+require_command() {
+  command -v "$1" >/dev/null 2>&1 || {
+    printf 'Required contract validator is unavailable: %s\n' "$1" >&2
+    return 69
+  }
+}
+
+for command in bash docker jq rg shellcheck systemd-analyze; do
+  require_command "$command"
+done
+
+shell_files=()
+while IFS= read -r shell_file; do
+  shell_files+=("$shell_file")
+done < <(
+  {
+    find ops -type f -perm -u+x -print
+    find infra -type f -name '*.sh' -print
+    find scripts -type f -perm -u+x -print
+  } | sort -u
+)
+((${#shell_files[@]} > 0))
+bash -n "${shell_files[@]}"
+shellcheck --external-sources "${shell_files[@]}"
+
+unit_files=()
+while IFS= read -r unit_file; do
+  unit_files+=("$unit_file")
+done < <(
+  find infra/systemd -maxdepth 1 -type f \
+    \( -name '*.service' -o -name '*.timer' \) -print | sort
+)
+((${#unit_files[@]} >= 15))
+systemd-analyze verify "${unit_files[@]}"
+
+temporary_directory=$(mktemp -d)
+cleanup() {
+  rm -rf -- "$temporary_directory"
+}
+trap cleanup EXIT HUP INT TERM
+image_environment="$temporary_directory/current-image.env"
+rendered_compose="$temporary_directory/compose.json"
+printf 'RENTAL_APARTMENTS_IMAGE=ghcr.io/example/rental-apartments@sha256:%064d\n' 0 \
+  >"$image_environment"
+
+docker compose \
+  --project-name rental-apartments-contract \
+  --env-file "$image_environment" \
+  --file compose.production.yaml \
+  config --no-env-resolution --format json >"$rendered_compose"
+
+jq -e '
+  (.services | keys) == ["bot"] and
+  .services.bot.container_name == "rental-apartments-bot" and
+  .services.bot.labels["com.rental-apartments.environment"] == "production" and
+  .services.bot.environment.NODE_ENV == "production" and
+  .services.bot.read_only == true and
+  .services.bot.deploy.replicas == 1 and
+  .services.bot.deploy.update_config.order == "stop-first" and
+  ((.services.bot.ports // []) | length == 0) and
+  .services.bot.logging.driver == "journald"
+' "$rendered_compose" >/dev/null
+
+for workflow in .github/workflows/*.yml .github/workflows/*.yaml; do
+  [[ -e $workflow ]] || continue
+  while IFS= read -r action_reference; do
+    [[ $action_reference =~ @[0-9a-f]{40}$ ]] || {
+      printf 'Workflow action is not pinned by full revision: %s: %s\n' \
+        "$workflow" "$action_reference" >&2
+      exit 65
+    }
+  done < <(sed -nE 's/^[[:space:]]*uses:[[:space:]]+([^ #]+).*$/\1/p' "$workflow")
+done
+
+[[ -f .github/workflows/quality.yml ]]
+[[ -f .github/workflows/publish-production.yml ]]
+rg --quiet 'cancel-in-progress:[[:space:]]*false' \
+  .github/workflows/publish-production.yml
+rg --quiet 'production' .github/workflows/publish-production.yml
+
+for removed in \
+  src/staging-guard.js \
+  src/staging-smoke.js \
+  src/staging-soak.js \
+  test/staging.test.js; do
+  [[ ! -e $removed ]] || {
+    printf 'Removed secondary-environment artifact returned: %s\n' "$removed" >&2
+    exit 65
+  }
+done
+
+node --input-type=module -e '
+  import { readFile } from "node:fs/promises";
+  const pkg = JSON.parse(await readFile("package.json", "utf8"));
+  for (const script of ["staging:smoke", "staging:soak", "release:rehearse"]) {
+    if (Object.hasOwn(pkg.scripts, script)) {
+      throw new Error(`removed package script returned: ${script}`);
+    }
+  }
+'
+
+if rg --ignore-case --line-number \
+  'NODE_ENV[=:].*(staging|pre-?production)|environment[=:].*(staging|pre-?production)' \
+  src scripts ops infra compose.production.yaml .github/workflows package.json; then
+  printf 'A second deployed environment returned to production artifacts\n' >&2
+  exit 65
+fi
+
+if rg --ignore-case --line-number \
+  'fluentd|fluent-bit|prometheus|grafana|loki|LOG_COLLECTOR_ADDRESS|logging:[[:space:]]*syslog' \
+  ops infra compose.production.yaml .github/workflows; then
+  printf 'An external or server-based logging/metrics dependency was introduced\n' >&2
+  exit 65
+fi
+
+printf '%s\n' 'Production deployment contract validated'

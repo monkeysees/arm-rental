@@ -103,6 +103,17 @@ record, while the stable deployment launcher permits first installation before
 a current release symlink exists. A sanitized receipt records Docker, Compose,
 kernel, OS, and systemd unit versions.
 
+### Production acceptance evidence
+
+Production acceptance is a phased, root-only host workflow.
+`ops/production-exercise` observes existing systemd operations and immutable
+deployment receipts, then writes only schema-allowlisted mode-`0600` evidence.
+The host reboot check is split into before/after phases. A failed-candidate
+exercise must prove snapshot rollback, previous-digest readiness, quarantine,
+and a successful quarantine-skip rerun before timer freshness is evaluated.
+The checked-in evidence is intentionally pending: deterministic fake-command
+tests verify the collection contract but do not claim real VPS observations.
+
 ### Health and readiness boundary
 
 `src/health.js` owns a sanitized, in-memory operational projection. It does not

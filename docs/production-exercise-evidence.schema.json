@@ -1,0 +1,377 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://rental-apartments.invalid/production-exercise-evidence.schema.json",
+  "title": "Rental apartments production exercise evidence",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "exerciseId",
+    "environment",
+    "evidenceKind",
+    "actor",
+    "hostAlias",
+    "repositoryRevision",
+    "startedAt",
+    "completedAt",
+    "overallStatus",
+    "sanitization",
+    "exercises",
+    "humanValidationRequired"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "const": 1
+    },
+    "exerciseId": {
+      "type": "string",
+      "pattern": "^production-exercise-[A-Za-z0-9._:-]{8,96}$"
+    },
+    "environment": {
+      "const": "production"
+    },
+    "evidenceKind": {
+      "enum": ["repository-template", "production-observation"]
+    },
+    "actor": {
+      "type": "string",
+      "minLength": 3,
+      "maxLength": 128
+    },
+    "hostAlias": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{1,63}$"
+    },
+    "repositoryRevision": {
+      "type": ["string", "null"],
+      "pattern": "^[0-9a-f]{40}$"
+    },
+    "startedAt": {
+      "$ref": "#/$defs/nullableTimestamp"
+    },
+    "completedAt": {
+      "$ref": "#/$defs/nullableTimestamp"
+    },
+    "overallStatus": {
+      "$ref": "#/$defs/status"
+    },
+    "sanitization": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["rawLogsIncluded", "secretsIncluded", "collectionPolicy"],
+      "properties": {
+        "rawLogsIncluded": {
+          "const": false
+        },
+        "secretsIncluded": {
+          "const": false
+        },
+        "collectionPolicy": {
+          "const": "allowlisted-status-fields-only"
+        }
+      }
+    },
+    "exercises": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "restoreDrill",
+        "failedDeploymentRollback",
+        "dockerRestartRecovery",
+        "hostRebootRecovery",
+        "timerFreshness"
+      ],
+      "properties": {
+        "restoreDrill": {
+          "$ref": "#/$defs/restoreDrill"
+        },
+        "failedDeploymentRollback": {
+          "$ref": "#/$defs/failedDeploymentRollback"
+        },
+        "dockerRestartRecovery": {
+          "$ref": "#/$defs/restartRecovery"
+        },
+        "hostRebootRecovery": {
+          "$ref": "#/$defs/hostRebootRecovery"
+        },
+        "timerFreshness": {
+          "$ref": "#/$defs/timerFreshness"
+        }
+      }
+    },
+    "humanValidationRequired": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 3,
+        "maxLength": 240
+      },
+      "uniqueItems": true
+    }
+  },
+  "$defs": {
+    "status": {
+      "enum": ["pending", "observed-pass", "observed-fail"]
+    },
+    "nullableTimestamp": {
+      "type": ["string", "null"],
+      "format": "date-time"
+    },
+    "nullableDigest": {
+      "type": ["string", "null"],
+      "pattern": "^[a-z0-9][a-z0-9._/-]*@sha256:[0-9a-f]{64}$"
+    },
+    "nullableBoolean": {
+      "type": ["boolean", "null"]
+    },
+    "restoreDrill": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "status",
+        "observedAt",
+        "unit",
+        "unitResult",
+        "terminalEvent",
+        "durationMs"
+      ],
+      "properties": {
+        "status": {
+          "$ref": "#/$defs/status"
+        },
+        "observedAt": {
+          "$ref": "#/$defs/nullableTimestamp"
+        },
+        "unit": {
+          "const": "rental-restore-drill.service"
+        },
+        "unitResult": {
+          "type": ["string", "null"],
+          "enum": [null, "success", "failed", "timeout", "unknown"]
+        },
+        "terminalEvent": {
+          "type": ["string", "null"],
+          "enum": [
+            null,
+            "restore-drill.completed",
+            "restore-drill.failed",
+            "missing"
+          ]
+        },
+        "durationMs": {
+          "type": ["integer", "null"],
+          "minimum": 0,
+          "maximum": 7200000
+        }
+      }
+    },
+    "failedDeploymentRollback": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "status",
+        "observedAt",
+        "candidateImage",
+        "previousImage",
+        "deployUnitResult",
+        "deploymentOutcome",
+        "rollbackResult",
+        "quarantinePresent",
+        "quarantinedRetrySkipped",
+        "restoredImage",
+        "applicationActive",
+        "containerHealth"
+      ],
+      "properties": {
+        "status": {
+          "$ref": "#/$defs/status"
+        },
+        "observedAt": {
+          "$ref": "#/$defs/nullableTimestamp"
+        },
+        "candidateImage": {
+          "$ref": "#/$defs/nullableDigest"
+        },
+        "previousImage": {
+          "$ref": "#/$defs/nullableDigest"
+        },
+        "deployUnitResult": {
+          "type": ["string", "null"],
+          "enum": [null, "success", "failed", "timeout", "unknown"]
+        },
+        "deploymentOutcome": {
+          "type": ["string", "null"],
+          "enum": [null, "failed"]
+        },
+        "rollbackResult": {
+          "type": ["string", "null"],
+          "enum": [null, "completed", "failed", "not-applicable"]
+        },
+        "quarantinePresent": {
+          "$ref": "#/$defs/nullableBoolean"
+        },
+        "quarantinedRetrySkipped": {
+          "$ref": "#/$defs/nullableBoolean"
+        },
+        "restoredImage": {
+          "$ref": "#/$defs/nullableDigest"
+        },
+        "applicationActive": {
+          "$ref": "#/$defs/nullableBoolean"
+        },
+        "containerHealth": {
+          "$ref": "#/$defs/containerHealth"
+        }
+      }
+    },
+    "restartRecovery": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "status",
+        "observedAt",
+        "imageBefore",
+        "imageAfter",
+        "dockerActive",
+        "applicationActive",
+        "containerHealth"
+      ],
+      "properties": {
+        "status": {
+          "$ref": "#/$defs/status"
+        },
+        "observedAt": {
+          "$ref": "#/$defs/nullableTimestamp"
+        },
+        "imageBefore": {
+          "$ref": "#/$defs/nullableDigest"
+        },
+        "imageAfter": {
+          "$ref": "#/$defs/nullableDigest"
+        },
+        "dockerActive": {
+          "$ref": "#/$defs/nullableBoolean"
+        },
+        "applicationActive": {
+          "$ref": "#/$defs/nullableBoolean"
+        },
+        "containerHealth": {
+          "$ref": "#/$defs/containerHealth"
+        }
+      }
+    },
+    "hostRebootRecovery": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "status",
+        "beforeObservedAt",
+        "afterObservedAt",
+        "beforeBootId",
+        "afterBootId",
+        "imageBefore",
+        "imageAfter",
+        "dockerActive",
+        "applicationActive",
+        "containerHealth"
+      ],
+      "properties": {
+        "status": {
+          "$ref": "#/$defs/status"
+        },
+        "beforeObservedAt": {
+          "$ref": "#/$defs/nullableTimestamp"
+        },
+        "afterObservedAt": {
+          "$ref": "#/$defs/nullableTimestamp"
+        },
+        "beforeBootId": {
+          "$ref": "#/$defs/nullableBootId"
+        },
+        "afterBootId": {
+          "$ref": "#/$defs/nullableBootId"
+        },
+        "imageBefore": {
+          "$ref": "#/$defs/nullableDigest"
+        },
+        "imageAfter": {
+          "$ref": "#/$defs/nullableDigest"
+        },
+        "dockerActive": {
+          "$ref": "#/$defs/nullableBoolean"
+        },
+        "applicationActive": {
+          "$ref": "#/$defs/nullableBoolean"
+        },
+        "containerHealth": {
+          "$ref": "#/$defs/containerHealth"
+        }
+      }
+    },
+    "nullableBootId": {
+      "type": ["string", "null"],
+      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+    },
+    "containerHealth": {
+      "type": ["string", "null"],
+      "enum": [null, "healthy", "unhealthy", "starting", "missing"]
+    },
+    "timerFreshness": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "observedAt", "timers"],
+      "properties": {
+        "status": {
+          "$ref": "#/$defs/status"
+        },
+        "observedAt": {
+          "$ref": "#/$defs/nullableTimestamp"
+        },
+        "timers": {
+          "type": "array",
+          "maxItems": 7,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "name",
+              "status",
+              "enabled",
+              "lastResult",
+              "lastTrigger",
+              "nextTrigger",
+              "maximumAgeSeconds"
+            ],
+            "properties": {
+              "name": {
+                "type": "string",
+                "pattern": "^rental-(deploy|monitor|storage-check|backup|maintenance|restore-drill|reboot-check)\\.timer$"
+              },
+              "status": {
+                "$ref": "#/$defs/status"
+              },
+              "enabled": {
+                "type": "boolean"
+              },
+              "lastResult": {
+                "type": "string",
+                "enum": ["success", "failed", "timeout", "unknown", "never"]
+              },
+              "lastTrigger": {
+                "$ref": "#/$defs/nullableTimestamp"
+              },
+              "nextTrigger": {
+                "$ref": "#/$defs/nullableTimestamp"
+              },
+              "maximumAgeSeconds": {
+                "type": "integer",
+                "minimum": 600,
+                "maximum": 3456000
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

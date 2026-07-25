@@ -1,0 +1,761 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+
+# This command records only allowlisted status fields. It deliberately does not
+# copy command output, journal records, environment values, or hostnames into
+# the evidence file.
+
+: "${RENTAL_OPS_STATE_DIR:=/var/lib/rental-apartments-ops}"
+: "${RENTAL_IMAGE_ENV_FILE:=$RENTAL_OPS_STATE_DIR/current-image.env}"
+: "${RENTAL_DEPLOYMENTS_DIR:=$RENTAL_OPS_STATE_DIR/deployments}"
+: "${RENTAL_QUARANTINE_DIR:=$RENTAL_OPS_STATE_DIR/quarantine}"
+: "${RENTAL_BOOT_ID_FILE:=/proc/sys/kernel/random/boot_id}"
+: "${RENTAL_CONTAINER_NAME:=rental-apartments-bot}"
+: "${RENTAL_APP_SERVICE:=rental-apartments.service}"
+: "${RENTAL_EXERCISE_READY_ATTEMPTS:=20}"
+: "${RENTAL_EXERCISE_READY_INTERVAL_SECONDS:=3}"
+: "${RENTAL_REPOSITORY_REVISION:=}"
+
+readonly STATUS_PENDING=pending
+readonly STATUS_PASS=observed-pass
+readonly STATUS_FAIL=observed-fail
+
+usage() {
+  cat <<'EOF'
+Usage:
+  production-exercise init --evidence FILE --actor ID --host-alias ALIAS
+  production-exercise restore-drill --evidence FILE
+  production-exercise failed-deployment --evidence FILE \
+    --candidate REPOSITORY@sha256:DIGEST --previous REPOSITORY@sha256:DIGEST
+  production-exercise docker-restart --evidence FILE
+  production-exercise reboot-before --evidence FILE --request-reboot
+  production-exercise reboot-after --evidence FILE
+  production-exercise timers --evidence FILE
+  production-exercise finalize --evidence FILE
+  production-exercise validate --evidence FILE
+
+The failed candidate must already be the authorized production discovery
+pointer. The command never mutates a registry tag. reboot-before refuses to
+reboot unless --request-reboot is present.
+EOF
+}
+
+die() {
+  printf '%s\n' "$*" >&2
+  exit 64
+}
+
+utc_now() {
+  date -u +%Y-%m-%dT%H:%M:%SZ
+}
+
+validate_digest() {
+  [[ $1 =~ ^[a-z0-9][a-z0-9._/-]*@sha256:[0-9a-f]{64}$ ]]
+}
+
+validate_actor() {
+  [[ ${#1} -ge 3 && ${#1} -le 128 ]] &&
+    [[ ! $1 =~ ^(unknown|n/a|none|operator|actor|automation|systemd)$ ]]
+}
+
+validate_host_alias() {
+  [[ $1 =~ ^[A-Za-z0-9][A-Za-z0-9._-]{1,63}$ ]]
+}
+
+validate_evidence_path() {
+  local evidence=$1
+  [[ $evidence == /* && $evidence != / ]] ||
+    die "Evidence path must be absolute and non-root"
+  if [[ -e $evidence ]]; then
+    [[ -f $evidence && ! -L $evidence ]] ||
+      die "Evidence path must be a regular, non-symlink file"
+  fi
+}
+
+validate_evidence_document() {
+  local evidence=$1
+  jq -e '
+    .schemaVersion == 1 and
+    .environment == "production" and
+    (.evidenceKind == "repository-template" or
+     .evidenceKind == "production-observation") and
+    (.overallStatus == "pending" or
+     .overallStatus == "observed-pass" or
+     .overallStatus == "observed-fail") and
+    .sanitization == {
+      rawLogsIncluded: false,
+      secretsIncluded: false,
+      collectionPolicy: "allowlisted-status-fields-only"
+    } and
+    (.exercises | keys | sort) == ([
+      "dockerRestartRecovery",
+      "failedDeploymentRollback",
+      "hostRebootRecovery",
+      "restoreDrill",
+      "timerFreshness"
+    ] | sort) and
+    ([.exercises[] | .status] | all(
+      . == "pending" or . == "observed-pass" or . == "observed-fail"
+    ))
+  ' "$evidence" >/dev/null
+}
+
+require_evidence() {
+  local evidence=$1
+  validate_evidence_path "$evidence"
+  [[ -r $evidence ]] || die "Evidence file is not readable"
+  validate_evidence_document "$evidence" ||
+    die "Evidence file does not satisfy the sanitized exercise contract"
+  [[ $(stat --format='%a' "$evidence") == 600 ]] ||
+    die "Evidence file mode must be 0600"
+}
+
+replace_evidence() {
+  local evidence=$1
+  shift
+  local directory temporary
+  directory=$(dirname -- "$evidence")
+  temporary=$(mktemp "$directory/.production-exercise.XXXXXX")
+  if ! jq "$@" "$evidence" >"$temporary"; then
+    rm -- "$temporary"
+    return 1
+  fi
+  chmod 0600 "$temporary"
+  validate_evidence_document "$temporary" || {
+    rm -- "$temporary"
+    return 65
+  }
+  mv -f "$temporary" "$evidence"
+}
+
+read_current_image() {
+  local line image="" count=0
+  [[ -f $RENTAL_IMAGE_ENV_FILE && ! -L $RENTAL_IMAGE_ENV_FILE ]] || return 1
+  while IFS= read -r line || [[ -n $line ]]; do
+    case $line in
+      RENTAL_APARTMENTS_IMAGE=*)
+        image=${line#RENTAL_APARTMENTS_IMAGE=}
+        count=$((count + 1))
+        ;;
+      "" | \#*) ;;
+      *) return 1 ;;
+    esac
+  done <"$RENTAL_IMAGE_ENV_FILE"
+  ((count == 1)) && validate_digest "$image" || return 1
+  printf '%s\n' "$image"
+}
+
+unit_result() {
+  local result
+  result=$(systemctl show "$1" --property=Result --value 2>/dev/null) ||
+    result=unknown
+  case $result in
+    success | failed | timeout) printf '%s\n' "$result" ;;
+    *) printf '%s\n' unknown ;;
+  esac
+}
+
+is_active() {
+  systemctl is-active --quiet "$1"
+}
+
+container_health() {
+  local attempt health
+  for ((attempt = 1; attempt <= RENTAL_EXERCISE_READY_ATTEMPTS; attempt += 1)); do
+    health=$(
+      docker inspect \
+        --format='{{if .State.Health}}{{.State.Health.Status}}{{else}}missing{{end}}' \
+        "$RENTAL_CONTAINER_NAME" 2>/dev/null
+    ) || health=missing
+    case $health in
+      healthy) printf '%s\n' "$health"; return 0 ;;
+      unhealthy | starting | missing) ;;
+      *) health=missing ;;
+    esac
+    if ((attempt < RENTAL_EXERCISE_READY_ATTEMPTS)); then
+      sleep "$RENTAL_EXERCISE_READY_INTERVAL_SECONDS"
+    fi
+  done
+  printf '%s\n' "$health"
+  return 1
+}
+
+parse_evidence_argument() {
+  EVIDENCE=""
+  while (($#)); do
+    case $1 in
+      --evidence)
+        (($# >= 2)) || die "--evidence requires a file"
+        EVIDENCE=$2
+        shift 2
+        ;;
+      *) die "Unexpected argument: $1" ;;
+    esac
+  done
+  [[ -n $EVIDENCE ]] || die "--evidence is required"
+}
+
+init_command() {
+  local evidence="" actor="" host_alias="" revision started exercise_id directory
+  while (($#)); do
+    case $1 in
+      --evidence)
+        (($# >= 2)) || die "--evidence requires a file"
+        evidence=$2
+        shift 2
+        ;;
+      --actor)
+        (($# >= 2)) || die "--actor requires an identity"
+        actor=$2
+        shift 2
+        ;;
+      --host-alias)
+        (($# >= 2)) || die "--host-alias requires a value"
+        host_alias=$2
+        shift 2
+        ;;
+      *) die "Unexpected argument: $1" ;;
+    esac
+  done
+  [[ -n $evidence && -n $actor && -n $host_alias ]] ||
+    die "init requires --evidence, --actor, and --host-alias"
+  validate_evidence_path "$evidence"
+  [[ ! -e $evidence ]] || die "Evidence file already exists"
+  validate_actor "$actor" || die "Actor must be a named human or stable automation"
+  validate_host_alias "$host_alias" || die "Host alias is invalid"
+  directory=$(dirname -- "$evidence")
+  [[ -d $directory && ! -L $directory ]] ||
+    die "Evidence directory must already exist and may not be a symlink"
+
+  revision=$RENTAL_REPOSITORY_REVISION
+  if [[ -z $revision ]]; then
+    revision=$(git rev-parse HEAD 2>/dev/null) ||
+      die "Set RENTAL_REPOSITORY_REVISION when Git metadata is unavailable"
+  fi
+  [[ $revision =~ ^[0-9a-f]{40}$ ]] || die "Repository revision must be a full Git SHA"
+  started=$(utc_now)
+  exercise_id="production-exercise-$(date -u +%Y%m%dT%H%M%SZ)"
+
+  jq --null-input \
+    --arg exerciseId "$exercise_id" \
+    --arg actor "$actor" \
+    --arg hostAlias "$host_alias" \
+    --arg revision "$revision" \
+    --arg startedAt "$started" \
+    '{
+      schemaVersion: 1,
+      exerciseId: $exerciseId,
+      environment: "production",
+      evidenceKind: "production-observation",
+      actor: $actor,
+      hostAlias: $hostAlias,
+      repositoryRevision: $revision,
+      startedAt: $startedAt,
+      completedAt: null,
+      overallStatus: "pending",
+      sanitization: {
+        rawLogsIncluded: false,
+        secretsIncluded: false,
+        collectionPolicy: "allowlisted-status-fields-only"
+      },
+      exercises: {
+        restoreDrill: {
+          status: "pending",
+          observedAt: null,
+          unit: "rental-restore-drill.service",
+          unitResult: null,
+          terminalEvent: null,
+          durationMs: null
+        },
+        failedDeploymentRollback: {
+          status: "pending",
+          observedAt: null,
+          candidateImage: null,
+          previousImage: null,
+          deployUnitResult: null,
+          deploymentOutcome: null,
+          rollbackResult: null,
+          quarantinePresent: null,
+          quarantinedRetrySkipped: null,
+          restoredImage: null,
+          applicationActive: null,
+          containerHealth: null
+        },
+        dockerRestartRecovery: {
+          status: "pending",
+          observedAt: null,
+          imageBefore: null,
+          imageAfter: null,
+          dockerActive: null,
+          applicationActive: null,
+          containerHealth: null
+        },
+        hostRebootRecovery: {
+          status: "pending",
+          beforeObservedAt: null,
+          afterObservedAt: null,
+          beforeBootId: null,
+          afterBootId: null,
+          imageBefore: null,
+          imageAfter: null,
+          dockerActive: null,
+          applicationActive: null,
+          containerHealth: null
+        },
+        timerFreshness: {
+          status: "pending",
+          observedAt: null,
+          timers: []
+        }
+      },
+      humanValidationRequired: [
+        "Use a deliberately failing published candidate digest for the rollback exercise.",
+        "Complete the host reboot and resume the exercise on the new boot.",
+        "Review the allowlisted evidence before launch approval."
+      ]
+    }' >"$evidence"
+  chmod 0600 "$evidence"
+  validate_evidence_document "$evidence"
+}
+
+restore_drill_command() {
+  parse_evidence_argument "$@"
+  require_evidence "$EVIDENCE"
+  local started start_status result record status observed terminal duration
+  started=$(date +%s)
+  start_status=0
+  systemctl start rental-restore-drill.service || start_status=$?
+  result=$(unit_result rental-restore-drill.service)
+  record=$(
+    journalctl \
+      --no-pager --quiet --output=cat --since "@$started" \
+      -u rental-restore-drill.service 2>/dev/null |
+      jq -Rsc '
+        [split("\n")[] | fromjson? |
+          select(.event == "restore-drill.completed" or
+                 .event == "restore-drill.failed")] | last // {}
+      '
+  )
+  terminal=$(jq -r '.event // "missing"' <<<"$record")
+  duration=$(jq -r '.durationMs // "null"' <<<"$record")
+  if ((start_status == 0)) && [[ $result == success ]] &&
+    [[ $terminal == restore-drill.completed ]] &&
+    [[ $duration =~ ^[0-9]+$ ]]; then
+    status=$STATUS_PASS
+  else
+    status=$STATUS_FAIL
+    [[ $duration =~ ^[0-9]+$ ]] || duration=null
+  fi
+  observed=$(utc_now)
+  replace_evidence "$EVIDENCE" \
+    --arg status "$status" \
+    --arg observedAt "$observed" \
+    --arg unitResult "$result" \
+    --arg terminalEvent "$terminal" \
+    --argjson durationMs "$duration" \
+    '.exercises.restoreDrill = {
+      status: $status,
+      observedAt: $observedAt,
+      unit: "rental-restore-drill.service",
+      unitResult: $unitResult,
+      terminalEvent: $terminalEvent,
+      durationMs: $durationMs
+    }'
+  [[ $status == "$STATUS_PASS" ]]
+}
+
+find_deployment_receipt() {
+  local candidate=$1 started_at=$2 receipt
+  [[ -d $RENTAL_DEPLOYMENTS_DIR && ! -L $RENTAL_DEPLOYMENTS_DIR ]] || return 1
+  receipt=""
+  while IFS= read -r file; do
+    [[ -f $file && ! -L $file ]] || continue
+    if jq -e --arg candidate "$candidate" --arg startedAt "$started_at" \
+      '.candidateImage == $candidate and .outcome == "failed" and
+       (.completedAt // "") >= $startedAt' \
+      "$file" >/dev/null 2>&1; then
+      receipt=$file
+    fi
+  done < <(find "$RENTAL_DEPLOYMENTS_DIR" -maxdepth 1 -type f -name '*.json' -print | sort)
+  [[ -n $receipt ]] || return 1
+  printf '%s\n' "$receipt"
+}
+
+failed_deployment_command() {
+  local evidence="" candidate="" previous=""
+  while (($#)); do
+    case $1 in
+      --evidence)
+        (($# >= 2)) || die "--evidence requires a file"
+        evidence=$2
+        shift 2
+        ;;
+      --candidate)
+        (($# >= 2)) || die "--candidate requires an immutable image"
+        candidate=$2
+        shift 2
+        ;;
+      --previous)
+        (($# >= 2)) || die "--previous requires an immutable image"
+        previous=$2
+        shift 2
+        ;;
+      *) die "Unexpected argument: $1" ;;
+    esac
+  done
+  [[ -n $evidence && -n $candidate && -n $previous ]] ||
+    die "failed-deployment requires --evidence, --candidate, and --previous"
+  validate_digest "$candidate" || die "Candidate must be an immutable digest"
+  validate_digest "$previous" || die "Previous image must be an immutable digest"
+  [[ $candidate != "$previous" ]] || die "Candidate and previous image must differ"
+  require_evidence "$evidence"
+  [[ $(read_current_image) == "$previous" ]] ||
+    die "Current immutable image does not match --previous"
+
+  local start_status started_at result receipt="" outcome=null rollback=null quarantine=false
+  local restored="" application=false health=missing quarantine_retry=false
+  local status observed digest retry_status=0 retry_result=unknown
+  start_status=0
+  started_at=$(utc_now)
+  systemctl start rental-deploy.service || start_status=$?
+  result=$(unit_result rental-deploy.service)
+  if receipt=$(find_deployment_receipt "$candidate" "$started_at"); then
+    outcome=$(jq -r '.outcome // "null"' "$receipt")
+    rollback=$(jq -r '.rollback.result // "null"' "$receipt")
+  fi
+  digest=${candidate##*@sha256:}
+  if [[ -f $RENTAL_QUARANTINE_DIR/$digest.json &&
+    ! -L $RENTAL_QUARANTINE_DIR/$digest.json ]]; then
+    quarantine=true
+  fi
+  restored=$(read_current_image 2>/dev/null) || restored=""
+  if is_active "$RENTAL_APP_SERVICE"; then application=true; fi
+  health=$(container_health) || true
+  if ((start_status != 0)) && [[ $result == failed ]] &&
+    [[ $outcome == failed && $rollback == completed ]] &&
+    [[ $quarantine == true && $restored == "$previous" ]] &&
+    [[ $application == true && $health == healthy ]]; then
+    status=$STATUS_PASS
+  else
+    status=$STATUS_FAIL
+  fi
+  if [[ $status == "$STATUS_PASS" ]]; then
+    # A second invocation must skip the quarantined discovery digest and return
+    # success. This also leaves the timer unit healthy after the intentional
+    # failed-candidate exercise.
+    systemctl start rental-deploy.service || retry_status=$?
+    retry_result=$(unit_result rental-deploy.service)
+    if ((retry_status == 0)) && [[ $retry_result == success ]]; then
+      quarantine_retry=true
+    else
+      status=$STATUS_FAIL
+    fi
+  fi
+  observed=$(utc_now)
+  replace_evidence "$evidence" \
+    --arg status "$status" \
+    --arg observedAt "$observed" \
+    --arg candidateImage "$candidate" \
+    --arg previousImage "$previous" \
+    --arg deployUnitResult "$result" \
+    --arg deploymentOutcome "$outcome" \
+    --arg rollbackResult "$rollback" \
+    --argjson quarantinePresent "$quarantine" \
+    --argjson quarantinedRetrySkipped "$quarantine_retry" \
+    --arg restoredImage "$restored" \
+    --argjson applicationActive "$application" \
+    --arg containerHealth "$health" \
+    '.exercises.failedDeploymentRollback = {
+      status: $status,
+      observedAt: $observedAt,
+      candidateImage: $candidateImage,
+      previousImage: $previousImage,
+      deployUnitResult: $deployUnitResult,
+      deploymentOutcome:
+        (if $deploymentOutcome == "null" then null else $deploymentOutcome end),
+      rollbackResult:
+        (if $rollbackResult == "null" then null else $rollbackResult end),
+      quarantinePresent: $quarantinePresent,
+      quarantinedRetrySkipped: $quarantinedRetrySkipped,
+      restoredImage:
+        (if $restoredImage == "" then null else $restoredImage end),
+      applicationActive: $applicationActive,
+      containerHealth: $containerHealth
+    }'
+  [[ $status == "$STATUS_PASS" ]]
+}
+
+docker_restart_command() {
+  parse_evidence_argument "$@"
+  require_evidence "$EVIDENCE"
+  local before after="" docker_active=false application=false health=missing
+  local restart_status=0 status observed
+  before=$(read_current_image) || die "Current immutable image is unavailable"
+  systemctl restart docker.service || restart_status=$?
+  systemctl start "$RENTAL_APP_SERVICE" || restart_status=$?
+  if is_active docker.service; then docker_active=true; fi
+  if is_active "$RENTAL_APP_SERVICE"; then application=true; fi
+  after=$(read_current_image 2>/dev/null) || after=""
+  health=$(container_health) || true
+  if ((restart_status == 0)) && [[ $docker_active == true ]] &&
+    [[ $application == true && $before == "$after" && $health == healthy ]]; then
+    status=$STATUS_PASS
+  else
+    status=$STATUS_FAIL
+  fi
+  observed=$(utc_now)
+  replace_evidence "$EVIDENCE" \
+    --arg status "$status" \
+    --arg observedAt "$observed" \
+    --arg imageBefore "$before" \
+    --arg imageAfter "$after" \
+    --argjson dockerActive "$docker_active" \
+    --argjson applicationActive "$application" \
+    --arg containerHealth "$health" \
+    '.exercises.dockerRestartRecovery = {
+      status: $status,
+      observedAt: $observedAt,
+      imageBefore: $imageBefore,
+      imageAfter: (if $imageAfter == "" then null else $imageAfter end),
+      dockerActive: $dockerActive,
+      applicationActive: $applicationActive,
+      containerHealth: $containerHealth
+    }'
+  [[ $status == "$STATUS_PASS" ]]
+}
+
+read_boot_id() {
+  local boot_id
+  [[ -f $RENTAL_BOOT_ID_FILE && ! -L $RENTAL_BOOT_ID_FILE ]] || return 1
+  IFS= read -r boot_id <"$RENTAL_BOOT_ID_FILE"
+  [[ $boot_id =~ ^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$ ]] ||
+    return 1
+  printf '%s\n' "$boot_id"
+}
+
+reboot_before_command() {
+  local evidence="" request=false
+  while (($#)); do
+    case $1 in
+      --evidence)
+        (($# >= 2)) || die "--evidence requires a file"
+        evidence=$2
+        shift 2
+        ;;
+      --request-reboot)
+        request=true
+        shift
+        ;;
+      *) die "Unexpected argument: $1" ;;
+    esac
+  done
+  [[ -n $evidence ]] || die "--evidence is required"
+  [[ $request == true ]] ||
+    die "reboot-before requires the explicit --request-reboot acknowledgement"
+  require_evidence "$evidence"
+  local boot_id image observed
+  boot_id=$(read_boot_id) || die "Current boot ID is unavailable"
+  image=$(read_current_image) || die "Current immutable image is unavailable"
+  observed=$(utc_now)
+  replace_evidence "$evidence" \
+    --arg observedAt "$observed" \
+    --arg bootId "$boot_id" \
+    --arg image "$image" \
+    '.exercises.hostRebootRecovery.beforeObservedAt = $observedAt |
+     .exercises.hostRebootRecovery.beforeBootId = $bootId |
+     .exercises.hostRebootRecovery.imageBefore = $image |
+     .exercises.hostRebootRecovery.status = "pending"'
+  sync "$evidence"
+  systemctl reboot --no-block
+}
+
+reboot_after_command() {
+  parse_evidence_argument "$@"
+  require_evidence "$EVIDENCE"
+  local before_boot before_image after_boot after_image="" docker_active=false
+  local application=false health=missing status observed
+  before_boot=$(jq -r '.exercises.hostRebootRecovery.beforeBootId // ""' "$EVIDENCE")
+  before_image=$(jq -r '.exercises.hostRebootRecovery.imageBefore // ""' "$EVIDENCE")
+  [[ -n $before_boot && -n $before_image ]] ||
+    die "Run reboot-before with this evidence file first"
+  after_boot=$(read_boot_id) || die "Current boot ID is unavailable"
+  after_image=$(read_current_image 2>/dev/null) || after_image=""
+  if is_active docker.service; then docker_active=true; fi
+  if is_active "$RENTAL_APP_SERVICE"; then application=true; fi
+  health=$(container_health) || true
+  if [[ $before_boot != "$after_boot" && $before_image == "$after_image" ]] &&
+    [[ $docker_active == true && $application == true && $health == healthy ]]; then
+    status=$STATUS_PASS
+  else
+    status=$STATUS_FAIL
+  fi
+  observed=$(utc_now)
+  replace_evidence "$EVIDENCE" \
+    --arg status "$status" \
+    --arg observedAt "$observed" \
+    --arg bootId "$after_boot" \
+    --arg image "$after_image" \
+    --argjson dockerActive "$docker_active" \
+    --argjson applicationActive "$application" \
+    --arg containerHealth "$health" \
+    '.exercises.hostRebootRecovery.status = $status |
+     .exercises.hostRebootRecovery.afterObservedAt = $observedAt |
+     .exercises.hostRebootRecovery.afterBootId = $bootId |
+     .exercises.hostRebootRecovery.imageAfter =
+       (if $image == "" then null else $image end) |
+     .exercises.hostRebootRecovery.dockerActive = $dockerActive |
+     .exercises.hostRebootRecovery.applicationActive = $applicationActive |
+     .exercises.hostRebootRecovery.containerHealth = $containerHealth'
+  [[ $status == "$STATUS_PASS" ]]
+}
+
+normalize_systemd_timestamp() {
+  local value=$1
+  if [[ -z $value || $value == n/a ]]; then
+    return 1
+  fi
+  date --date="$value" -u +%Y-%m-%dT%H:%M:%SZ 2>/dev/null
+}
+
+timer_service_name() {
+  printf '%s.service\n' "${1%.timer}"
+}
+
+timers_command() {
+  parse_evidence_argument "$@"
+  require_evidence "$EVIDENCE"
+  local timer maximum_age enabled last_raw next_raw last next result service
+  local timer_status observed now last_epoch age overall=$STATUS_PASS timers='[]'
+  now=$(date +%s)
+  while read -r timer maximum_age; do
+    enabled=false
+    if systemctl is-enabled --quiet "$timer"; then enabled=true; fi
+    last_raw=$(systemctl show "$timer" --property=LastTriggerUSec --value 2>/dev/null) ||
+      last_raw=""
+    next_raw=$(
+      systemctl show "$timer" --property=NextElapseUSecRealtime --value 2>/dev/null
+    ) || next_raw=""
+    last=$(normalize_systemd_timestamp "$last_raw" 2>/dev/null) || last=""
+    next=$(normalize_systemd_timestamp "$next_raw" 2>/dev/null) || next=""
+    service=$(timer_service_name "$timer")
+    result=$(unit_result "$service")
+    if [[ -z $last ]]; then
+      timer_status=$STATUS_PENDING
+      result=never
+      [[ $overall == "$STATUS_FAIL" ]] || overall=$STATUS_PENDING
+    else
+      last_epoch=$(date --date="$last" +%s)
+      age=$((now - last_epoch))
+      if [[ $enabled == true && -n $next && $result == success ]] &&
+        ((age >= 0 && age <= maximum_age)); then
+        timer_status=$STATUS_PASS
+      else
+        timer_status=$STATUS_FAIL
+        overall=$STATUS_FAIL
+      fi
+    fi
+    if [[ $enabled != true || -z $next ]]; then
+      timer_status=$STATUS_FAIL
+      overall=$STATUS_FAIL
+    fi
+    timers=$(
+      jq --compact-output \
+        --arg name "$timer" \
+        --arg status "$timer_status" \
+        --argjson enabled "$enabled" \
+        --arg lastResult "$result" \
+        --arg lastTrigger "$last" \
+        --arg nextTrigger "$next" \
+        --argjson maximumAgeSeconds "$maximum_age" \
+        '. + [{
+          name: $name,
+          status: $status,
+          enabled: $enabled,
+          lastResult: $lastResult,
+          lastTrigger: (if $lastTrigger == "" then null else $lastTrigger end),
+          nextTrigger: (if $nextTrigger == "" then null else $nextTrigger end),
+          maximumAgeSeconds: $maximumAgeSeconds
+        }]' <<<"$timers"
+    )
+  done <<'EOF'
+rental-deploy.timer 900
+rental-monitor.timer 900
+rental-storage-check.timer 7200
+rental-backup.timer 108000
+rental-maintenance.timer 691200
+rental-restore-drill.timer 3456000
+rental-reboot-check.timer 691200
+EOF
+  observed=$(utc_now)
+  replace_evidence "$EVIDENCE" \
+    --arg status "$overall" \
+    --arg observedAt "$observed" \
+    --argjson timers "$timers" \
+    '.exercises.timerFreshness = {
+      status: $status,
+      observedAt: $observedAt,
+      timers: $timers
+    }'
+  [[ $overall != "$STATUS_FAIL" ]]
+}
+
+finalize_command() {
+  parse_evidence_argument "$@"
+  require_evidence "$EVIDENCE"
+  local final completed=null
+  final=$(
+    jq -r '
+      [.exercises[] | .status] |
+      if any(. == "observed-fail") then "observed-fail"
+      elif all(. == "observed-pass") then "observed-pass"
+      else "pending"
+      end
+    ' "$EVIDENCE"
+  )
+  if [[ $final != "$STATUS_PENDING" ]]; then
+    completed="\"$(utc_now)\""
+  fi
+  replace_evidence "$EVIDENCE" \
+    --arg status "$final" \
+    --argjson completedAt "$completed" \
+    '.overallStatus = $status | .completedAt = $completedAt'
+  [[ $final != "$STATUS_FAIL" ]]
+}
+
+validate_command() {
+  parse_evidence_argument "$@"
+  require_evidence "$EVIDENCE"
+  jq -e '
+    ([paths(scalars) as $path |
+      getpath($path) |
+      select(type == "string") |
+      select(test(
+        "(TELEGRAM_BOT_TOKEN|GHCR_READ_TOKEN|Authorization:|api\\.telegram\\.org/bot)"
+      ; "i"))] | length) == 0
+  ' "$EVIDENCE" >/dev/null ||
+    die "Evidence contains a forbidden secret-bearing field"
+}
+
+main() {
+  (($#)) || {
+    usage >&2
+    exit 64
+  }
+  local command=$1
+  shift
+  case $command in
+    init) init_command "$@" ;;
+    restore-drill) restore_drill_command "$@" ;;
+    failed-deployment) failed_deployment_command "$@" ;;
+    docker-restart) docker_restart_command "$@" ;;
+    reboot-before) reboot_before_command "$@" ;;
+    reboot-after) reboot_after_command "$@" ;;
+    timers) timers_command "$@" ;;
+    finalize) finalize_command "$@" ;;
+    validate) validate_command "$@" ;;
+    -h | --help | help) usage ;;
+    *) usage >&2; exit 64 ;;
+  esac
+}
+
+main "$@"

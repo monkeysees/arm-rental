@@ -27,6 +27,13 @@ runs image execution checks, and blocks publication on the configured
 high/critical vulnerability scan. These gates are reproducible and must make no
 Telegram, List.am, or CBA call.
 
+`npm run check:production-contract` is the aggregate deployment gate. On the
+Linux CI runner it checks shell syntax and ShellCheck, verifies systemd units,
+renders and inspects Compose, checks immutable workflow action pins, rejects
+removed secondary-environment paths, and rejects external logging/metrics
+servers. Fake-command integration tests prove the aggregator invokes every
+validator without requiring Docker or systemd locally.
+
 ## Pre-deploy safety boundary
 
 The approved candidate is the immutable digest that passed every CI gate. Before
@@ -85,3 +92,20 @@ data:
 Refer to [release-and-rollback.md](release-and-rollback.md) for deployment
 commands and [state-recovery.md](state-recovery.md) for isolated restore
 validation.
+
+## Production recovery acceptance evidence
+
+After provisioning and one verified normal deployment, use the phased
+[`production-exercise` runbook](production-exercises.md) to observe:
+
+- an isolated restore drill with no polling or Telegram delivery;
+- a deliberately failing published candidate, successful automatic snapshot
+  rollback, quarantine, and a subsequent successful quarantine skip;
+- recovery of the exact immutable digest after Docker restart and host reboot;
+- enabled, successful, non-overdue timers.
+
+The command writes only schema-defined allowlisted fields to a mode-`0600`
+receipt. The repository template remains `pending`; deterministic fake-command
+tests demonstrate command order and evidence behavior but are not evidence of
+a VPS run. Finalization cannot report `observed-pass` while any group is pending
+or failed.

@@ -241,11 +241,20 @@ root-only initial secret handling, SSH-only firewall, protected backup volume,
 and safe check/dry-run workflow are documented in
 [docs/host-bootstrap.md](docs/host-bootstrap.md).
 
+Production completion requires observed restore, forced-failure rollback,
+Docker restart, host reboot, and timer-freshness evidence. The
+[production recovery exercise runbook](docs/production-exercises.md) describes
+the disruptive authorization boundary and the phased
+`ops/production-exercise` command. The checked-in evidence template is
+intentionally pending; deterministic tests do not claim that a VPS exercise
+ran.
+
 ## Quality checks
 
 ```sh
 npm run check
 npm run test:coverage
+npm run check:production-contract
 ```
 
 ## Production image

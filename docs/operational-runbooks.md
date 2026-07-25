@@ -18,6 +18,7 @@ into another handbook.
 | Low disk or growing state                           | [Capacity response](state-maintenance.md#low-disk-and-state-growth-response)                    |
 | Failed or overdue scheduled operation               | [Systemd operations](#systemd-operations)                                                       |
 | Current status, logs, timers, and local alerts      | [Production observability](observability.md)                                                    |
+| Production recovery acceptance exercises            | [Production recovery exercises](production-exercises.md)                                        |
 
 Every linked runbook records prerequisites, checks that do not make the
 incident worse, exact commands, expected output, recovery/rollback, and
@@ -72,3 +73,9 @@ and host boot return the immutable current digest through
 Begin incident triage with `rentalctl status`, then `rentalctl timers` and a
 bounded `rentalctl logs --since 30m` query. Apply an event filter before
 increasing the journal window.
+
+The final restore, failed-deployment/rollback, Docker restart, host reboot, and
+timer-freshness acceptance window uses `ops/production-exercise`. Its checked-in
+template is pending, not production evidence. Follow the
+[production recovery exercise runbook](production-exercises.md) to create a
+root-only observed receipt without copying secrets or raw journals.

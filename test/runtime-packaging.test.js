@@ -34,8 +34,9 @@ test("development, CI, and production use the same pinned Node release", async (
 });
 
 test("production packaging installs locked dependencies and a patched browser in Puppeteer's milestone", async () => {
-  const [workflow, dockerfile] = await Promise.all([
+  const [workflow, publishWorkflow, dockerfile] = await Promise.all([
     readProjectFile(".github/workflows/quality.yml"),
+    readProjectFile(".github/workflows/publish-production.yml"),
     readProjectFile("Dockerfile"),
   ]);
   const chromeVersion = dockerfile.match(
@@ -66,7 +67,11 @@ test("production packaging installs locked dependencies and a patched browser in
   assert.match(workflow, /sed 's\/\[\[:space:\]\]\*\$\/\//u);
   assert.match(
     workflow,
-    /Google Chrome 150\.0\.7871\.24[\s\S]*?Google Chrome for Testing 150\.0\.7871\.24/u,
+    /Google Chrome 150\.0\.7871\.124[\s\S]*?Google Chrome for Testing 150\.0\.7871\.124/u,
+  );
+  assert.match(
+    publishWorkflow,
+    /org\.opencontainers\.image\.chrome\.version[\s\S]*?150\.0\.7871\.124/u,
   );
   assert.match(workflow, /run: npm ci/u);
   assert.match(workflow, /run: npm run check/u);

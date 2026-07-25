@@ -164,7 +164,9 @@ The container build context excludes local environment files, the complete
 trees, Git metadata, logs, and common development caches. The Dockerfile copies
 only the locked package manifests and `src`, and its runtime command does not
 load a local environment file. Production configuration therefore enters at
-container creation rather than becoming an image layer.
+container creation rather than becoming an image layer. npm and Corepack are
+build-time tools only and are removed after installing the locked dependencies
+and browser, leaving no package manager in the production filesystem.
 
 The final process runs as the official Node image's dedicated, unprivileged
 `node` account. The production Compose definition repeats that user boundary

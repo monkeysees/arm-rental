@@ -46,6 +46,14 @@ test("production packaging installs only locked production dependencies and Pupp
   assert.match(dockerfile, /RUN npm ci --omit=dev\b/u);
   assert.doesNotMatch(dockerfile, /\bnpm install\b/u);
   assert.match(dockerfile, /--install-deps/u);
+  assert.match(
+    dockerfile,
+    /rm -rf[\s\S]*?\/usr\/local\/lib\/node_modules\/npm[\s\S]*?\/usr\/local\/lib\/node_modules\/corepack/u,
+  );
+  assert.match(
+    dockerfile,
+    /rm -f \/usr\/local\/bin\/npm \/usr\/local\/bin\/npx \/usr\/local\/bin\/corepack/u,
+  );
   assert.match(dockerfile, /sed 's\/\[\[:space:\]\]\*\$\/\//u);
   assert.match(
     dockerfile,

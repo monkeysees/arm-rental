@@ -34,6 +34,7 @@ test("required CI gates quality, production security, and an immutable artifact"
   assert.match(workflow, /npm audit --omit=dev --audit-level=high/u);
   assert.match(workflow, /vuln-type: os,library/u);
   assert.match(workflow, /severity: HIGH,CRITICAL/u);
+  assert.match(workflow, /ignore-unfixed: true/u);
   assert.match(workflow, /exit-code: 1/u);
   assert.match(workflow, /docker save rental-apartments-bot:ci/u);
   assert.match(workflow, /actions\/upload-artifact@[a-f0-9]{40}/u);

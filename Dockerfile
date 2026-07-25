@@ -55,7 +55,11 @@ RUN sed -i \
       "/opt/chrome/chrome/linux-${CHROME_VERSION}/chrome-linux64/chrome_sandbox" \
     && chmod 4755 \
       "/opt/chrome/chrome/linux-${CHROME_VERSION}/chrome-linux64/chrome_sandbox" \
-    && rm -rf /var/lib/apt/lists/*
+    && rm -rf \
+      /var/lib/apt/lists/* \
+      /usr/local/lib/node_modules/npm \
+      /usr/local/lib/node_modules/corepack \
+    && rm -f /usr/local/bin/npm /usr/local/bin/npx /usr/local/bin/corepack
 
 COPY --chown=node:node src ./src
 RUN install -d -o node -g node -m 0700 /app/.data

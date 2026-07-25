@@ -23,13 +23,17 @@ document; there are currently no exceptions.
 
 The artifact job builds the Linux AMD64 production image with source revision
 and package-lock digest build arguments. The Docker build verifies those
-arguments before installing only production dependencies. It then verifies the
-pinned Node and Chrome executables and all image labels. Trivy 0.69.3 scans both
-OS packages and application libraries and fails on every high or critical
-finding, including unfixed findings. The job saves the successfully scanned
-image as a compressed Docker archive and uploads it with
-`release-metadata.json`; a scan failure therefore cannot produce a deployable
-artifact.
+arguments before installing only production dependencies. npm and Corepack are
+then removed because the application runs directly with Node and does not need
+package-management tooling in production. The job verifies the pinned Node and
+Chrome executables and all image labels. Trivy 0.69.3 scans both OS packages and
+application libraries and fails on every high or critical finding for which a
+fix is available. Findings that Debian marks `affected`, `fix_deferred`, or
+`will_not_fix` without publishing a fixed package remain visible to security
+review but do not permanently block unrelated releases that cannot remediate
+them. The job saves the successfully scanned image as a compressed Docker
+archive and uploads it with `release-metadata.json`; a scan failure therefore
+cannot produce a deployable artifact.
 
 The release manifest binds the archive to:
 

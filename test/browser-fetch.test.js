@@ -56,7 +56,7 @@ async function assertMissing(filename) {
 }
 
 test("launch failure removes the isolated Chrome runtime directory", async (t) => {
-  const config = await temporaryConfig(t);
+  const config = await temporaryConfig(t, { browserHeadless: false });
   let launchOptions;
   const launchError = new Error("Chrome failed after spawning");
   const fetcher = new BrowserPageFetcher(config, {
@@ -66,12 +66,13 @@ test("launch failure removes the isolated Chrome runtime directory", async (t) =
         throw launchError;
       },
     },
+    platform: "linux",
   });
 
   await assert.rejects(fetcher.start(), launchError);
 
   assert.equal(launchOptions.userDataDir, config.browserProfileDir);
-  assert.equal(launchOptions.headless, true);
+  assert.equal(launchOptions.headless, false);
   assert.ok(launchOptions.args.includes("--disk-cache-size=67108864"));
   assert.ok(launchOptions.args.includes("--disable-breakpad"));
   assert.ok(launchOptions.args.includes("--disable-crashpad-for-testing"));

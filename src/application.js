@@ -25,8 +25,9 @@ export async function runApplication({
   let receivedSignal;
   const signalHandlers = new Map();
   let browserFetcher;
-  const stopObservingStateWrites = observeStateWrites((event) =>
-    logger.info("State write metric", event),
+  const stopObservingStateWrites = observeStateWrites(
+    ({ name: event, ...metric }) =>
+      logger.info("State write metric", { event, ...metric }),
   );
 
   try {

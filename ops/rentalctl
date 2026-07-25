@@ -1,0 +1,243 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
+# shellcheck source=ops/lib/observability.sh
+source "$SCRIPT_DIR/lib/observability.sh"
+
+usage() {
+  cat <<'EOF'
+Usage:
+  rentalctl logs [--since DURATION] [--severity LEVEL] [--event NAME] [--follow]
+  rentalctl logs --ui [--since DURATION]
+  rentalctl status [--json]
+  rentalctl metrics [--since 1h|24h|7d] [--json]
+  rentalctl timers
+EOF
+}
+
+duration_seconds() {
+  local duration="$1"
+  local amount="${duration%?}"
+  case "$duration" in
+    *s) printf '%s\n' "$amount" ;;
+    *m) printf '%s\n' "$((amount * 60))" ;;
+    *h) printf '%s\n' "$((amount * 3600))" ;;
+    *d) printf '%s\n' "$((amount * 86400))" ;;
+    *w) printf '%s\n' "$((amount * 604800))" ;;
+    *) return 1 ;;
+  esac
+}
+
+validate_duration() {
+  [[ "$1" =~ ^[1-9][0-9]*[smhdw]$ ]] ||
+    observability_die "invalid duration: $1"
+}
+
+logs_command() {
+  local since="1h" severity="" event="" follow=false ui=false
+  while (($#)); do
+    case "$1" in
+      --since)
+        (($# >= 2)) || observability_die "--since requires a duration"
+        since="$2"
+        shift 2
+        ;;
+      --severity)
+        (($# >= 2)) || observability_die "--severity requires a level"
+        severity="$2"
+        shift 2
+        ;;
+      --event)
+        (($# >= 2)) || observability_die "--event requires a name"
+        event="$2"
+        shift 2
+        ;;
+      --follow)
+        follow=true
+        shift
+        ;;
+      --ui)
+        ui=true
+        shift
+        ;;
+      *)
+        observability_die "unknown logs option: $1"
+        ;;
+    esac
+  done
+  validate_duration "$since"
+  [[ -z "$severity" || "$severity" =~ ^(debug|info|warn|error)$ ]] ||
+    observability_die "invalid severity: $severity"
+  [[ -z "$event" || "$event" =~ ^[a-zA-Z][a-zA-Z0-9_.-]{0,127}$ ]] ||
+    observability_die "invalid event name: $event"
+  if [[ "$ui" == true && ("$follow" == true || -n "$severity" || -n "$event") ]]; then
+    observability_die "--ui accepts only --since"
+  fi
+
+  if [[ "$ui" == true ]]; then
+    observability_require "$LNAV_BIN"
+    query_application_journal "-$since" | "$LNAV_BIN"
+    return
+  fi
+
+  if [[ "$follow" == true ]]; then
+    query_application_journal "-$since" --follow
+  else
+    query_application_journal "-$since"
+  fi |
+    "$JQ_BIN" --unbuffered -r \
+      --arg severity "$severity" \
+      --arg event "$event" '
+        def journal_time:
+          (((.__REALTIME_TIMESTAMP // "0") | tonumber? // 0) / 1000000)
+          | strftime("%Y-%m-%dT%H:%M:%SZ");
+        . as $journal
+        | (($journal.MESSAGE // "") | try fromjson catch null) as $json
+        | (if ($json | type) == "object"
+           then $json
+           else {
+             severity:
+               (($journal.PRIORITY // "6") as $priority
+                | if ($priority | tonumber? // 6) <= 3 then "error"
+                  elif ($priority | tonumber? // 6) == 4 then "warn"
+                  else "info"
+                  end),
+             event: "unstructured.message",
+             message: ($journal.MESSAGE // "")
+           }
+           end) as $record
+        | select($severity == "" or ($record.severity // "info") == $severity)
+        | select($event == "" or ($record.event // "unstructured.message") == $event)
+        | [
+            ($journal | journal_time),
+            ($record.severity // "info"),
+            ($record.event // "unstructured.message"),
+            ($record.message // "")
+          ]
+        | @tsv
+      '
+}
+
+status_command() {
+  local json=false
+  if (($#)); then
+    [[ "$#" -eq 1 && "$1" == "--json" ]] ||
+      observability_die "status accepts only --json"
+    json=true
+  fi
+  local snapshot="$RENTAL_OPS_STATE_DIR/metrics-latest.json"
+  [[ -r "$snapshot" ]] ||
+    observability_die "metrics snapshot is unavailable; inspect rental-monitor.service"
+  "$JQ_BIN" -e . "$snapshot" >/dev/null ||
+    observability_die "metrics snapshot is invalid JSON"
+
+  local readiness status
+  readiness="$(probe_readiness_json)"
+  status="$("$JQ_BIN" -c --argjson readiness "$readiness" \
+    '. + {freshReadiness: $readiness}' "$snapshot")"
+  if [[ "$json" == true ]]; then
+    "$JQ_BIN" . <<<"$status"
+    return
+  fi
+  "$JQ_BIN" -r '
+    [
+      ["FIELD", "VALUE"],
+      ["generated", (.generatedAt // "unknown")],
+      ["image", (.deployment.imageDigest // "missing")],
+      ["revision", (.deployment.sourceRevision // "unknown")],
+      ["container", (.deployment.health // "missing")],
+      ["readiness", (.freshReadiness.status // "not_ready")],
+      ["last crawl", (.observations.lastSuccessfulCrawl // "never")],
+      ["firing alerts", ([.applicationAlerts[]? | select(.status == "firing")] | length | tostring)]
+    ]
+    | .[] | @tsv
+  ' <<<"$status" | column -t -s $'\t'
+}
+
+metrics_command() {
+  local since="1h" json=false
+  while (($#)); do
+    case "$1" in
+      --since)
+        (($# >= 2)) || observability_die "--since requires a window"
+        since="$2"
+        shift 2
+        ;;
+      --json)
+        json=true
+        shift
+        ;;
+      *)
+        observability_die "unknown metrics option: $1"
+        ;;
+    esac
+  done
+  [[ "$since" =~ ^(1h|24h|7d)$ ]] ||
+    observability_die "metrics window must be 1h, 24h, or 7d"
+
+  local seconds aggregate result
+  seconds="$(duration_seconds "$since")"
+  aggregate="$(aggregate_application_journal "-$since" "$seconds")"
+  result="$("$JQ_BIN" -c --arg since "$since" '{
+    schemaVersion,
+    generatedAt,
+    since: $since,
+    observations,
+    metrics: .windows.requested,
+    applicationAlerts
+  }' <<<"$aggregate")"
+  if [[ "$json" == true ]]; then
+    "$JQ_BIN" . <<<"$result"
+    return
+  fi
+  "$JQ_BIN" -r '
+    .metrics as $metrics
+    | [
+        ["METRIC", "VALUE"],
+        ["window", .since],
+        ["crawl successful", ($metrics.crawl.successful | tostring)],
+        ["crawl failed", ($metrics.crawl.failed | tostring)],
+        ["success ratio", ($metrics.crawl.successRatio // "n/a" | tostring)],
+        ["duration p50 ms", ($metrics.crawl.durationMs.p50 // "n/a" | tostring)],
+        ["duration p95 ms", ($metrics.crawl.durationMs.p95 // "n/a" | tostring)],
+        ["retries", ([$metrics.retries[].count] | add // 0 | tostring)],
+        ["state writes", ([$metrics.stateWrites[].count] | add // 0 | tostring)]
+      ]
+    | .[] | @tsv
+  ' <<<"$result" | column -t -s $'\t'
+}
+
+timers_command() {
+  (($# == 0)) || observability_die "timers accepts no options"
+  timer_status_json |
+    "$JQ_BIN" -r '
+      [["TIMER", "LAST", "NEXT", "RESULT"]]
+      + map([
+          .name,
+          (.lastSuccess // "never"),
+          (.nextRun // "unknown"),
+          (.lastResult // "unknown")
+        ])
+      | .[] | @tsv
+    ' | column -t -s $'\t'
+}
+
+main() {
+  (($#)) || {
+    usage >&2
+    return 2
+  }
+  local command="$1"
+  shift
+  case "$command" in
+    logs) logs_command "$@" ;;
+    status) status_command "$@" ;;
+    metrics) metrics_command "$@" ;;
+    timers) timers_command "$@" ;;
+    -h | --help | help) usage ;;
+    *) observability_die "unknown command: $command" ;;
+  esac
+}
+
+main "$@"

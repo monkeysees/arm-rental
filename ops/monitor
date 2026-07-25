@@ -1,0 +1,213 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
+# shellcheck source=ops/lib/observability.sh
+source "$SCRIPT_DIR/lib/observability.sh"
+
+SYSTEMD_CAT_BIN="${SYSTEMD_CAT_BIN:-systemd-cat}"
+CURL_BIN="${CURL_BIN:-curl}"
+RENTAL_ENV_FILE="${RENTAL_ENV_FILE:-/etc/rental-apartments/env}"
+RENTAL_HOST_ALIAS="${RENTAL_HOST_ALIAS:-production}"
+RENTAL_OPS_LOCK_FILE="${RENTAL_OPS_LOCK_FILE:-${RENTAL_OPERATIONS_LOCK_FILE:-$RENTAL_OPS_STATE_DIR/operations.lock}}"
+ALERT_STATE="$RENTAL_OPS_STATE_DIR/alerts.json"
+METRICS_STATE="$RENTAL_OPS_STATE_DIR/metrics-latest.json"
+terminal_recorded=false
+
+emit_record() {
+  local severity="$1" event="$2" message="$3"
+  "$JQ_BIN" -cn \
+    --arg timestamp "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+    --arg severity "$severity" \
+    --arg event "$event" \
+    --arg message "$message" \
+    '{timestamp: $timestamp, severity: $severity, event: $event, message: $message}' |
+    "$SYSTEMD_CAT_BIN" --identifier=rental-monitor --priority="$severity"
+}
+
+failed() {
+  local exit_status=$?
+  if [[ "$terminal_recorded" == false ]]; then
+    emit_record error monitor.failed "Local monitoring evaluation failed" || true
+  fi
+  exit "$exit_status"
+}
+trap failed ERR
+
+read_env_value() {
+  local name="$1"
+  awk -v name="$name" '
+    $0 ~ "^[[:space:]]*" name "=" {
+      sub("^[[:space:]]*" name "=", "")
+      sub(/\r$/, "")
+      if ($0 ~ /^".*"$/ || $0 ~ /^'\''.*'\''$/) {
+        $0 = substr($0, 2, length($0) - 2)
+      }
+      print
+      exit
+    }
+  ' "$RENTAL_ENV_FILE"
+}
+
+send_telegram_alert() {
+  local transition="$1" token owner text
+  [[ -r "$RENTAL_ENV_FILE" ]] ||
+    observability_die "Telegram environment file is unavailable"
+  token="$(read_env_value TELEGRAM_BOT_TOKEN)"
+  owner="$(read_env_value TELEGRAM_OWNER_ID)"
+  [[ "$token" =~ ^[0-9]{6,12}:[A-Za-z0-9_-]{20,}$ ]] ||
+    observability_die "Telegram bot token is unavailable or malformed"
+  [[ "$owner" =~ ^-?[0-9]{1,20}$ ]] ||
+    observability_die "Telegram owner destination is unavailable or malformed"
+
+  text="$("$JQ_BIN" -r --arg host "$RENTAL_HOST_ALIAS" '
+    [
+      ("alert " + .status + ": " + .name),
+      ("severity: " + .severity),
+      ("first: " + .firstObservedAt),
+      ("last: " + .lastObservedAt),
+      ("host: " + $host),
+      ("revision: " + (.sourceRevision // "unknown")),
+      ("runbook: " + .runbook)
+    ] | join(" | ")
+  ' <<<"$transition")"
+
+  # Supplying curl configuration on stdin keeps the token and destination out
+  # of argv, diagnostics, and the journal. The response body is discarded.
+  "$CURL_BIN" --silent --show-error --fail --config - >/dev/null <<EOF
+url = "https://api.telegram.org/bot${token}/sendMessage"
+request = "POST"
+data-urlencode = "chat_id=${owner}"
+data-urlencode = "text=${text}"
+EOF
+}
+
+main() {
+  umask 027
+  install -d -m 0750 "$RENTAL_OPS_STATE_DIR"
+  install -d -m 0750 "$(dirname -- "$RENTAL_OPS_LOCK_FILE")"
+  exec 9>"$RENTAL_OPS_LOCK_FILE"
+  flock -n 9 || observability_die "another production operation holds the lock"
+
+  emit_record info monitor.started "Local monitoring evaluation started"
+  local metrics previous now readiness_failures desired transition_plan next_state
+  metrics="$(write_metrics_snapshot "$METRICS_STATE")"
+  now="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+  if [[ -r "$ALERT_STATE" ]] && "$JQ_BIN" -e . "$ALERT_STATE" >/dev/null 2>&1; then
+    previous="$(<"$ALERT_STATE")"
+  else
+    previous='{"schemaVersion":1,"readinessFailureCount":0,"alerts":[]}'
+  fi
+  readiness_failures="$("$JQ_BIN" -nr \
+    --argjson previous "$previous" \
+    --argjson metrics "$metrics" '
+      if $metrics.deployment.readiness == "ready"
+      then 0
+      else (($previous.readinessFailureCount // 0) + 1)
+      end
+    ')"
+
+  desired="$("$JQ_BIN" -cn \
+    --argjson metrics "$metrics" \
+    --argjson readinessFailures "$readiness_failures" '
+      def alert($name; $severity; $runbook):
+        {name: $name, severity: $severity, runbook: $runbook};
+      [
+        ($metrics.applicationAlerts[]?
+          | select(.status == "firing")
+          | alert(.name; (.severity // "warning");
+              ("rentalctl logs --since 1h --event alert.firing"))),
+        (select($metrics.windows["10m"].applicationStarts > 3)
+          | alert("process_restart_loop"; "error";
+              "rentalctl logs --since 30m --event application.started")),
+        (select($readinessFailures >= 2)
+          | alert("readiness_failure"; "error"; "rentalctl status")),
+        (select(
+            ($metrics.deployment.present | not)
+            or ($metrics.deployment.running | not)
+            or $metrics.deployment.restartCount >= 5
+          )
+          | alert("container_unavailable"; "error"; "rentalctl status")),
+        ($metrics.windows["1h"].stateWrites[]?
+          | select((.durationMs.p95 // 0) > 500)
+          | alert("state_write_latency"; "warning";
+              "rentalctl metrics --since 1h")),
+        ($metrics.filesystems[]?
+          | select((.available | not) or (.usedPercent // 0) >= 80)
+          | alert(("filesystem_capacity_" + .name); "error";
+              "rentalctl status")),
+        (select(($metrics.journal.diskBytes // 0) >= 966367642)
+          | alert("journal_capacity"; "warning";
+              "journalctl --disk-usage")),
+        ($metrics.timers[]?
+          | select(
+              (.activeState != null and .activeState != "active")
+              or (.lastResult != null and .lastResult != "success")
+              or (.exitStatus != null and .exitStatus != 0)
+            )
+          | alert(("scheduled_job_" + .name); "error"; "rentalctl timers"))
+      ]
+      | unique_by(.name)
+    ')"
+
+  transition_plan="$("$JQ_BIN" -cn \
+    --arg now "$now" \
+    --argjson desired "$desired" \
+    --argjson previous "$previous" \
+    --arg revision "$("$JQ_BIN" -r '.deployment.sourceRevision // "unknown"' <<<"$metrics")" '
+      ($previous.alerts // []) as $old
+      | ($desired | map(
+          . as $wanted
+          | ($old | map(select(.name == $wanted.name)) | first) as $prior
+          | $wanted + {
+              status: "firing",
+              firstObservedAt: ($prior.firstObservedAt // $now),
+              lastObservedAt: $now,
+              sourceRevision: $revision
+            }
+        )) as $next
+      | {
+          transitions:
+            ([
+              $next[]
+              | . as $candidate
+              | select(($old | map(.name) | index($candidate.name)) == null)
+            ] + [
+              $old[]
+              | . as $prior
+              | select(($next | map(.name) | index($prior.name)) == null)
+              | . + {
+                  status: "resolved",
+                  lastObservedAt: $now,
+                  sourceRevision: $revision
+                }
+            ]),
+          alerts: $next
+        }
+    ')"
+
+  while IFS= read -r encoded; do
+    [[ -n "$encoded" ]] || continue
+    send_telegram_alert "$("$JQ_BIN" -nr --arg encoded "$encoded" '$encoded | @base64d')"
+  done < <("$JQ_BIN" -r '.transitions[] | @base64' <<<"$transition_plan")
+
+  next_state="$("$JQ_BIN" -cn \
+    --arg now "$now" \
+    --argjson count "$readiness_failures" \
+    --argjson plan "$transition_plan" '{
+      schemaVersion: 1,
+      updatedAt: $now,
+      readinessFailureCount: $count,
+      alerts: $plan.alerts
+    }')"
+  local temporary
+  temporary="$(mktemp "$RENTAL_OPS_STATE_DIR/.alerts.XXXXXX")"
+  printf '%s\n' "$next_state" >"$temporary"
+  chmod 0640 "$temporary"
+  mv -f -- "$temporary" "$ALERT_STATE"
+
+  emit_record info monitor.succeeded "Local monitoring evaluation completed"
+  terminal_recorded=true
+}
+
+main "$@"

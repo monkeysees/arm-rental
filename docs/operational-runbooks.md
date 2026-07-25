@@ -16,6 +16,7 @@ into another handbook.
 | Telegram private or channel failure                 | [Telegram delivery response](runtime-incidents.md#telegram-private-or-channel-delivery-failure) |
 | Stale singleton or Chrome lock                      | [Stale-lock response](runtime-incidents.md#stale-singleton-or-chrome-lock)                      |
 | Low disk or growing state                           | [Capacity response](state-maintenance.md#low-disk-and-state-growth-response)                    |
+| Current status, logs, timers, and local alerts      | [Production observability](observability.md)                                                    |
 
 Every linked runbook records prerequisites, checks that do not make the
 incident worse, exact commands, expected output, recovery/rollback, and
@@ -29,3 +30,7 @@ operator, UTC start time, affected environment, immutable image reference,
 snapshot ID, and sanitized symptom. After recovery, attach command exit codes,
 health results, relevant event names/reason codes, and end time. Attach full
 logs only to access-controlled storage.
+
+Begin incident triage with `rentalctl status`, then `rentalctl timers` and a
+bounded `rentalctl logs --since 30m` query. Apply an event filter before
+increasing the journal window.

@@ -1,98 +1,155 @@
 # Production observability
 
-The application writes newline-delimited JSON to stdout/stderr. It does not
-expose a metrics endpoint or accept monitoring traffic. Each record contains
-`timestamp`, `severity`, `environment`, `applicationVersion`, `event`, and a
-human-readable `message`. Production deployment uses Docker's Fluentd logging
-driver; `LOG_COLLECTOR_ADDRESS` must identify an external Fluent Bit or Fluentd
-endpoint before Compose will render the service.
+Production observability is local to the VPS. The application writes
+newline-delimited JSON to stdout/stderr, Docker sends it to journald, and the
+short-lived `rental-monitor` job calculates bounded metrics and alert
+transitions. There is no external collector, metrics database, dashboard,
+inbound monitoring port, or collector-address setting.
 
-## Collection and retention
+This small operating surface has a deliberate limitation: a lost or
+unreachable VPS cannot preserve its journal or use the local bot to notify its
+owner.
 
-The collector must forward `rental-apartments.production` records to storage
-outside the application host. Configure that destination with a minimum
-14-day searchable retention period, TLS and authenticated ingestion on any
-non-private collector network, and collector-side disk buffering. Access to
-logs is restricted because redaction is defense in depth rather than a reason
-to treat logs as public.
+## Journal storage and retention
 
-Before launch, verify collection with an `application.started` record and
-confirm all five required metadata fields are indexed. Then force a harmless
-readiness request and confirm the corresponding record can be found by
-`applicationVersion`. The deployment is not production-ready if the collector
-is unavailable, records remain only in Docker's local storage, or retention is
-less than 14 days.
+Provision `/var/log/journal`, then install this host-level drop-in:
 
-Useful event-backed metrics stay in the private diagnostic stream:
+```ini
+# /etc/systemd/journald.conf.d/rental-apartments.conf
+[Journal]
+Storage=persistent
+Compress=yes
+MaxRetentionSec=14day
+SystemMaxUse=1G
+SystemKeepFree=2G
+RateLimitIntervalSec=30s
+RateLimitBurst=10000
+```
 
-- `crawl.succeeded` includes `crawlId`, `durationMs`, `duration`, `pages`,
-  `discovered`, `updated`, `notified`, `filtered`, `channelSent`,
-  `channelEdited`, and `total`.
-- `crawl.failed` includes `crawlId`, `durationMs`, component, and error.
-- `retry.scheduled` includes component, operation, attempt when available, and
-  delay. Network and HTTP 5xx delays use bounded exponential backoff with
-  jitter; `EXTERNAL_RETRY_MAX_MS` cannot exceed 300000 ms. A success resets the
-  sequence. Telegram HTTP 429 uses Telegram's exact `retry_after` instead.
-- Channel operation events contain their crawl ID and elapsed duration.
-- `state.write.completed` and `state.write.failed` contain the state basename,
-  serialized bytes, outcome, and end-to-end `durationMs`. Aggregate p95 by
-  state file; a sustained p95 above 500 ms triggers SQLite evaluation.
-- The weekly `maintenance.report` contains every state file's bytes and entry
-  count, Chrome profile/cache bytes, managed-storage growth, and disk capacity.
-- Repeated identical warnings/errors are emitted once per five-minute window.
-  The next emitted occurrence has `suppressedCount`.
+Restart `systemd-journald` after changing it. Provisioning must reduce
+`SystemMaxUse` when 1 GiB would exceed 10% of the root filesystem. Retention is
+the earlier of 14 days and the size limit; `SystemKeepFree` protects capacity
+needed by application state. Only journald rotates and vacuums journal files.
 
-## Alert routing
+Compose tags records as `rental-apartments.production` and retains the
+`com.rental-apartments.environment=production` label. Verify the configuration
+with `journalctl --disk-usage` and:
 
-Route every `event=alert.firing` to the on-call notification policy and every
-matching `event=alert.resolved` to incident recovery. The record's `alertName`
-is the stable routing key. The application directly emits these alert names:
+```sh
+docker inspect rental-apartments-bot --format '{{json .HostConfig.LogConfig}}'
+```
 
-| Alert name                             | Trigger                                                                 | Route                          |
-| -------------------------------------- | ----------------------------------------------------------------------- | ------------------------------ |
-| `readiness_failure`                    | `/ready` is not ready after preflight                                   | on-call, 5-minute urgency      |
-| `browser_challenge`                    | List.am verification challenge                                          | on-call, immediate             |
-| `invalid_telegram_credentials`         | terminal Telegram authentication rejection                              | on-call, immediate             |
-| `invalid_telegram_channel_permissions` | terminal channel access or permission rejection                         | on-call, immediate             |
-| `five_consecutive_crawl_failures`      | fifth consecutive failed crawl                                          | on-call, immediate             |
-| `stale_exchange_rates`                 | most recent CBA snapshot exceeds 48 hours                               | daytime warning                |
-| `backup_failure`                       | `npm run backup` exits unsuccessfully                                   | on-call, immediate             |
-| `restore_test_failure`                 | `npm run backup:validate -- <snapshot>` exits unsuccessfully            | on-call, immediate             |
-| `low_disk`                             | `npm run storage:check` finds less than configured free-space threshold | on-call before free space <20% |
-| `state_file_growth`                    | any state file is at least 25 MiB                                       | daytime early warning          |
-| `state_sqlite_migration`               | any state file is at least 50 MiB                                       | migration planning, immediate  |
+The deployment account needs journal read permission, normally through
+`systemd-journal`. Logs remain sensitive even though known credential forms
+are redacted.
 
-Configure one collector-side alert, `process_restart_loop`, because a process
-cannot reliably observe its own restarts: fire when more than three
-`application.started` records for the same deployment occur in ten minutes.
-Docker's restart exhaustion and container-unavailable signals should join the
-same incident. Route a failed external `/ready` probe after two consecutive
-checks to `readiness_failure`; requesting `/ready` also causes the in-process
-transition event. Keep `/ready` accessible only through the host's protected
-monitoring path.
+## Browse logs over SSH
 
-Configure a second collector-side alert, `state_write_latency`, when a rolling
-state-file write p95 exceeds 500 ms. Route it to migration planning and keep it
-active until the rolling window recovers or the persistence migration is
-complete.
+`rentalctl` always selects
+`CONTAINER_NAME=rental-apartments-bot`. It uses the trusted journal timestamp,
+extracts JSON `MESSAGE`, and preserves malformed records under
+`unstructured.message`.
 
-Run `npm run storage:check` at least hourly, `npm run backup` daily, and
-`npm run backup:validate -- <latest-snapshot>` on an isolated restore-test host
-weekly. Run `npm run maintenance:report` weekly with the bot stopped, after a
-successful backup. The scheduler must alert on a missing run as well as a non-zero exit;
-absence of an expected success record is not observable from inside this
-process.
+```sh
+rentalctl logs --since 30m --follow
+rentalctl logs --since 24h --severity error
+rentalctl logs --since 24h --event crawl.failed
+rentalctl logs --ui --since 24h
+```
 
-## Response checks
+The normal stream is unbuffered. The UI form pipes journald JSON into `lnav`:
 
-Integration tests exercise restart-loop, readiness, browser-challenge,
-credential, permission, crawl-failure, stale-rate, backup, restore, and
-low-disk alert inputs. In production, validate routing with synthetic sanitized
-evaluator records and a dedicated test notification; do not restart the live
-container repeatedly, revoke its token, change its channel permissions, load
-stale state, or inject upstream failures.
+```sh
+ssh production rentalctl logs --since 30m --follow
+ssh -t production rentalctl logs --ui --since 24h
+```
 
-Confirm firing and resolved test notifications arrive at the owner route,
-contain no token, Telegram API URL credential, owner identifier, apartment
-payload, or full health error stack, and identify the matching local journal
-query.
+## Metrics and current status
+
+`rental-monitor.timer` runs `ops/monitor` every five minutes. It queries at most
+24 hours of application records and atomically replaces
+`/var/lib/rental-apartments-ops/metrics-latest.json`. It records one
+`monitor.started` and exactly one `monitor.succeeded` or `monitor.failed`
+record under `SYSLOG_IDENTIFIER=rental-monitor`.
+
+The stable snapshot covers image/revision, container health, readiness, uptime
+and restarts; last preflight/crawl; 1-hour and 24-hour crawl totals, ratios,
+p50/p95 duration and result counters; bounded retry and state-file groupings;
+journal and filesystem capacity; timer results; application alerts; and the
+newest backup/maintenance receipts when present. Percentiles use nearest rank.
+Windows use journal timestamps, not application-supplied timestamps. Crawl
+IDs, apartment IDs, URLs, Telegram identifiers, and errors are not grouping
+keys.
+
+```sh
+rentalctl status
+rentalctl status --json
+rentalctl metrics --since 1h
+rentalctl metrics --since 24h --json
+rentalctl metrics --since 7d --json
+rentalctl timers
+```
+
+`status` reads the atomic snapshot and performs a fresh readiness probe.
+`metrics` recalculates from retained journal records. This is recalculable
+history, not a time-series database; empty windows have zero counts and null
+ratios and percentiles.
+
+Primary events are `crawl.succeeded`, `crawl.failed`, `retry.scheduled`,
+`state.write.completed`, `state.write.failed`, `maintenance.report`,
+`alert.firing`, and `alert.resolved`.
+
+## Alert evaluation and delivery
+
+`ops/monitor` uses the shared operations lock and atomically stores state in
+`/var/lib/rental-apartments-ops/alerts.json`. It sends one Telegram owner
+message when an alert fires and one when it resolves; unchanged evaluations
+are not resent.
+
+The evaluator covers application alerts, restart loops, two consecutive
+readiness failures, exhausted/missing containers, state-write p95 over 500 ms,
+filesystem/journal capacity, and failed systemd jobs. Messages contain only
+name, severity, first/last observation, host alias, source revision, and a
+local runbook command. Credentials come from
+`/etc/rental-apartments/env`; curl receives URL and form configuration on stdin
+so token and owner destination never enter argv or journal records.
+
+| Alert name                             | Trigger                                    |
+| -------------------------------------- | ------------------------------------------ |
+| `readiness_failure`                    | readiness remains failed                   |
+| `browser_challenge`                    | List.am verification challenge             |
+| `invalid_telegram_credentials`         | terminal Telegram authentication rejection |
+| `invalid_telegram_channel_permissions` | terminal channel permission rejection      |
+| `five_consecutive_crawl_failures`      | fifth consecutive failed crawl             |
+| `stale_exchange_rates`                 | CBA snapshot exceeds 48 hours              |
+| `backup_failure`                       | snapshot operation fails                   |
+| `restore_test_failure`                 | snapshot validation or restore drill fails |
+| `low_disk`                             | free-space threshold is crossed            |
+| `state_file_growth`                    | a state file reaches 25 MiB                |
+| `state_sqlite_migration`               | a state file reaches 50 MiB                |
+| `process_restart_loop`                 | over three starts occur in ten minutes     |
+| `state_write_latency`                  | state-write p95 exceeds 500 ms             |
+
+If Telegram delivery fails, the transition remains eligible for retry and
+`rental-monitor.service` fails without logging the response or credentials:
+
+```sh
+systemctl status rental-monitor.service
+journalctl -u rental-monitor.service --since -30m
+rentalctl status --json
+```
+
+The same bot cannot report its own invalid token, and no local evaluator can
+report total host, network, journal, or account loss. These are accepted
+boundaries of local-only monitoring.
+
+## Verification
+
+Fixture integration tests feed interleaved structured and malformed journal
+records through formatting and aggregation. They verify percentile boundaries
+and firing/deduplicated/resolved transitions without changing production.
+
+After provisioning, verify persistent storage, run `ops/monitor`, inspect
+`rentalctl status --json`, and send a sanitized synthetic alert. Confirm the
+owner message contains no token, owner identifier, apartment payload, crawl
+ID, or full error stack.

@@ -221,8 +221,11 @@ Deterministic CI integration gates and post-deploy production verification are
 documented in
 [docs/production-testing.md](docs/production-testing.md).
 
-Production log collection, retention, alert routing, and response checks are
-documented in [docs/observability.md](docs/observability.md).
+Production uses persistent local journald storage and the SSH-only
+`rentalctl status`, `rentalctl logs`, `rentalctl metrics`, and
+`rentalctl timers` commands. Retention, local Telegram alert routing, and
+response checks are documented in
+[docs/observability.md](docs/observability.md).
 
 Production deploy/rollback commands, launch approval, and the complete
 operational runbook index are documented in

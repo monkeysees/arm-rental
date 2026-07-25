@@ -51,6 +51,17 @@ gates, a verified pre-deploy snapshot, and production post-deploy verification.
 Static contract tests prevent the removed staging, soak, and rehearsal paths
 from returning.
 
+### Local observability
+
+Container stdout and stderr flow through Docker's journald driver into
+persistent, bounded host journal storage. A short-lived monitor derives an
+atomic metrics snapshot and alert-transition state from bounded journal
+windows, Docker state, filesystems, and systemd timer state. Operators use
+`rentalctl` over SSH for logs, current readiness, recalculated metrics, and
+timer status; no observability server or inbound port exists. Telegram is the
+deduplicated outbound alert route, while the failed systemd unit and retained
+journal records remain the delivery fallback.
+
 ### Health and readiness boundary
 
 `src/health.js` owns a sanitized, in-memory operational projection. It does not

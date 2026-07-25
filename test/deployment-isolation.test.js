@@ -55,15 +55,24 @@ test("production container has a non-root immutable runtime with bounded writabl
     /^\s+- \/dev\/shm:size=268435456,mode=1777,nosuid,nodev,noexec$/mu,
   );
   assert.doesNotMatch(deployment, /^\s+ports:/mu);
-  assert.match(deployment, /^\s+driver: fluentd$/mu);
-  assert.match(deployment, /LOG_COLLECTOR_ADDRESS:\?/u);
+  assert.match(deployment, /^\s+driver: journald$/mu);
+  assert.match(deployment, /^\s+tag: rental-apartments\.production$/mu);
+  assert.match(
+    deployment,
+    /^\s+labels: com\.rental-apartments\.environment$/mu,
+  );
+  assert.doesNotMatch(deployment, /fluentd|LOG_COLLECTOR_ADDRESS/iu);
 });
 
-test("production observability requires external retention and alert routing", async () => {
+test("production observability is local, bounded, and operator accessible", async () => {
   const runbook = await readProjectFile("docs/observability.md");
 
-  assert.match(runbook, /outside the application host/iu);
-  assert.match(runbook, /minimum\s+14-day/iu);
+  assert.match(runbook, /Storage=persistent/u);
+  assert.match(runbook, /SystemMaxUse=1G/u);
+  assert.match(runbook, /MaxRetentionSec=14day/u);
+  assert.match(runbook, /rentalctl logs --since 30m --follow/u);
+  assert.match(runbook, /rentalctl metrics --since 24h --json/u);
+  assert.doesNotMatch(runbook, /Fluentd|LOG_COLLECTOR_ADDRESS/iu);
   for (const alertName of [
     "process_restart_loop",
     "readiness_failure",

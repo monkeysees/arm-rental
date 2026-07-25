@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
+shopt -s inherit_errexit 2>/dev/null || true
 
 SCRIPT_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
 # shellcheck source=ops/lib/operations.sh
@@ -127,14 +128,16 @@ DEPLOYMENT_SOURCE_REVISION=$(
     "$DEPLOYMENT_CANDIDATE"
 )
 [[ $DEPLOYMENT_SOURCE_REVISION =~ ^[0-9a-f]{40}$ ]]
-metadata="$DEPLOYMENT_TEMPORARY_DIR/release-metadata.json"
-deployment_extract_metadata "$repository" "$DEPLOYMENT_SOURCE_REVISION" "$metadata"
+bundle_directory="$DEPLOYMENT_TEMPORARY_DIR/release-bundle"
+deployment_extract_release_bundle \
+  "$repository" "$DEPLOYMENT_SOURCE_REVISION" "$bundle_directory"
+metadata="$bundle_directory/release-metadata.json"
 DEPLOYMENT_RELEASE=$(
   deployment_fetch_release \
-    "$repository" \
     "$DEPLOYMENT_CANDIDATE" \
     "$DEPLOYMENT_SOURCE_REVISION" \
-    "$metadata"
+    "$metadata" \
+    "$bundle_directory"
 )
 DEPLOYMENT_CANDIDATE_ENV="$DEPLOYMENT_TEMPORARY_DIR/candidate-image.env"
 deployment_write_image_environment \

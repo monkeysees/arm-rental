@@ -12,10 +12,4 @@ users:
       - __RENTAL_SSH_PUBLIC_KEY__
 write_files:
   # __RENTAL_WRITE_FILES__
-runcmd:
-  - [
-      "env",
-      "RENTAL_BACKUP_DEVICE=__RENTAL_BACKUP_DEVICE__",
-      "/usr/local/sbin/rental-host-bootstrap",
-    ]
-final_message: "Rental apartments host bootstrap completed"
+final_message: "Rental apartments host initialization completed"

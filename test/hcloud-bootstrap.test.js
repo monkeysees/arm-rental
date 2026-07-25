@@ -78,14 +78,23 @@ if [[ $action == list ]]; then
     server)
       duplicate=''
       if [[ $FAKE_SCENARIO == duplicate ]]; then
-        duplicate=',{"id":5,"name":"other-server","server_type":{"name":"cx23"},"datacenter":{"location":{"name":"nbg1"}},"image":{"id":12345},"public_net":{"ipv4":{"ip":"192.0.2.11"}},"protection":{"delete":true},'"$labels"'}'
+        duplicate=',{"id":5,"name":"other-server","server_type":{"name":"cx23"},"location":{"name":"nbg1"},"image":{"id":12345},"public_net":{"ipv4":{"ip":"192.0.2.11"}},"protection":{"delete":true,"rebuild":true},'"$labels"'}'
       fi
-      printf '[{"id":4,"name":"rental-apartments-production","server_type":{"name":"cx23"},"datacenter":{"location":{"name":"nbg1"}},"image":{"id":12345},"public_net":{"ipv4":{"ip":"192.0.2.10"}},"protection":{"delete":true},%s}%s]\\n' "$labels" "$duplicate"
+      printf '[{"id":4,"name":"rental-apartments-production","server_type":{"name":"cx23"},"location":{"name":"nbg1"},"image":{"id":12345},"public_net":{"ipv4":{"ip":"192.0.2.10"}},"protection":{"delete":true,"rebuild":true},%s}%s]\\n' "$labels" "$duplicate"
       ;;
   esac
   exit 0
 fi
 if [[ $FAKE_SCENARIO == create && $action == create ]]; then
+  if [[ $kind == server ]]; then
+    previous=
+    for argument in "$@"; do
+      if [[ $previous == --user-data-from-file ]]; then
+        cp "$argument" "$FAKE_STATE/user-data.yaml"
+      fi
+      previous=$argument
+    done
+  fi
   touch "$FAKE_STATE/$kind"
   printf '{"id":99}\\n'
   exit 0
@@ -94,7 +103,7 @@ if [[ $action == describe ]]; then
   if [[ $kind == server ]]; then
     protection=true
     [[ $FAKE_SCENARIO == drift ]] && protection=false
-    printf '{"id":4,"name":"rental-apartments-production","public_net":{"ipv4":{"ip":"192.0.2.10"}},"protection":{"delete":%s}}\\n' "$protection"
+    printf '{"id":4,"name":"rental-apartments-production","public_net":{"ipv4":{"ip":"192.0.2.10"}},"protection":{"delete":%s,"rebuild":%s}}\\n' "$protection" "$protection"
   else
     protection=true
     [[ $FAKE_SCENARIO == drift ]] && protection=false
@@ -185,6 +194,15 @@ test("hcloud apply reconciles non-destructive drift in order", async (t) => {
   assert.ok(rule >= 0 && rule < volume);
   assert.ok(volume < firewall && firewall < serverProtection);
   assert.ok(serverProtection < volumeProtection);
+  assert.match(
+    commands,
+    /server enable-protection rental-apartments-production delete rebuild/u,
+  );
+  assert.match(
+    commands,
+    /volume enable-protection rental-apartments-production-backups delete/u,
+  );
+  assert.doesNotMatch(commands, /enable-protection .* --delete/u);
   assert.doesNotMatch(commands, /^hcloud \S+ (delete|rebuild)\b/mu);
 });
 
@@ -205,6 +223,17 @@ test("hcloud first-create apply reaches an idempotent second reconciliation", as
     firstCommands.indexOf("volume create") <
       firstCommands.indexOf("server create"),
   );
+  assert.match(
+    firstCommands,
+    /ssh .*sudo env RENTAL_BACKUP_DEVICE=\/dev\/disk\/by-id\/scsi-0HC_Volume_3 \/usr\/local\/sbin\/rental-host-bootstrap --bundle/u,
+  );
+  const userData = await readFile(
+    path.join(setup.root, "user-data.yaml"),
+    "utf8",
+  );
+  assert.ok(Buffer.byteLength(userData) <= 32_768);
+  assert.match(userData, /\/usr\/local\/sbin\/rental-host-bootstrap/u);
+  assert.doesNotMatch(userData, /BOOTSTRAP_DEPLOY/u);
   await writeFile(setup.log, "");
   const second = await run([], setup.environment);
   assert.equal(second.status, 0, second.stderr);
@@ -231,6 +260,30 @@ test("hcloud dry-run plans a fresh host without mutation or secret disclosure", 
   );
 });
 
+test("hcloud rejects oversized user data before provider mutation", async (t) => {
+  const setup = await fixture(t, "missing");
+  await writeFile(
+    setup.secret,
+    [
+      "TELEGRAM_BOT_TOKEN=never-print-this-token",
+      "TELEGRAM_OWNER_ID=123",
+      "GHCR_IMAGE_REPOSITORY=ghcr.io/example/rental",
+      "GHCR_USERNAME=reader",
+      `GHCR_READ_TOKEN=${"x".repeat(32_768)}`,
+      "",
+    ].join("\n"),
+    { mode: 0o600 },
+  );
+  const result = await run([], setup.environment);
+  assert.equal(result.status, 65);
+  assert.match(result.stderr, /exceeds Hetzner user-data limit/u);
+  const commands = await readFile(setup.log, "utf8").catch(() => "");
+  assert.doesNotMatch(
+    commands,
+    /\b(create|update|attach|replace-rules|apply-to-resource|enable-protection)\b/u,
+  );
+});
+
 test("hcloud reconciliation fails closed on duplicate name-or-label matches", async (t) => {
   const setup = await fixture(t, "duplicate");
   const result = await run(["--check"], setup.environment);
@@ -241,7 +294,8 @@ test("hcloud reconciliation fails closed on duplicate name-or-label matches", as
 });
 
 test("cloud-init and host helper retain the production security and receipt contract", async () => {
-  const [cloudInit, helper, journald] = await Promise.all([
+  const [bootstrapSource, cloudInit, helper, journald] = await Promise.all([
+    readFile(path.join(repositoryRoot, "infra/hcloud/bootstrap.sh"), "utf8"),
     readFile(path.join(repositoryRoot, "infra/hcloud/cloud-init.yaml"), "utf8"),
     readFile(
       path.join(repositoryRoot, "infra/hcloud/host-bootstrap.sh"),
@@ -249,8 +303,13 @@ test("cloud-init and host helper retain the production security and receipt cont
     ),
     readFile(path.join(repositoryRoot, "infra/hcloud/journald.conf"), "utf8"),
   ]);
+  assert.match(bootstrapSource, /COPYFILE_DISABLE=1 LC_ALL=C tar --no-xattrs/u);
   assert.match(cloudInit, /ssh_pwauth: false/u);
   assert.match(cloudInit, /disable_root: true/u);
+  assert.match(helper, /normalized_mode=\$\{mode#0\}/u);
+  assert.match(helper, /remove_appledouble_files/u);
+  assert.match(helper, /ops_file_manifest/u);
+  assert.match(helper, /sha256sum --zero/u);
   assert.match(helper, /\/etc\/rental-apartments\/env/u);
   assert.match(helper, /chmod 0600/u);
   assert.match(helper, /UUID=\$uuid/u);

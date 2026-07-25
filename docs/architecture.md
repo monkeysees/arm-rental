@@ -87,11 +87,14 @@ temporary resources with networking, Telegram polling, and delivery disabled.
 
 GitHub Actions serializes production publication and advances the mutable GHCR
 `production` tag only after the scanned image, immutable metadata, and
-provenance objects exist. The scratch-based metadata image deliberately has no
-runtime entry point; publication supplies an inert create-time command so it can
-copy the metadata back from a stopped container and compare the bytes before
-advancing discovery. The tag is discovery-only: the VPS validates digest-bound
-metadata and persists an immutable image reference.
+provenance objects exist. The scratch-based release image carries the metadata,
+Compose definition, package lock, and hash-bound operations archive without a
+runtime entry point. Publication supplies an inert create-time command so it
+can copy every release input back from a stopped container and compare the
+bytes before advancing discovery. The VPS obtains these inputs with the
+read-only GHCR credential, so private Git repository access is not part of the
+host credential boundary. The tag is discovery-only: the VPS validates
+digest-bound metadata and persists an immutable image reference.
 `rental-deploy.timer` invokes a stable bootstrap launcher for first
 installation and the verified current release thereafter. Deployment shares
 the global operations lock, snapshots before mutation, verifies startup and a
@@ -104,19 +107,31 @@ quarantined to prevent retry loops.
 Host provisioning is split between exact-name/production-label provider
 reconciliation and an idempotent host reconciler. Ambiguous selection and
 immutable server, SSH-key, or volume drift fail closed; no resource deletion or
-replacement path exists. Cloud-init establishes the key-only deployment
-account and invokes the same reconciler used for later SSH-based updates.
+replacement path exists. Cloud-init stays below Hetzner's 32 KiB user-data
+limit by establishing only the key-only deployment account, root-only initial
+secret, and trusted host helper. After cloud-init completes, the operator
+process transfers the full version-controlled operations bundle over SSH and
+invokes that helper with the attached volume's stable device path. Later runs
+use the same SSH reconciliation path, so an interrupted initial setup can
+resume without recreating provider resources or uploading the secret again.
+Archive creation disables macOS metadata, and fully managed host directories
+discard AppleDouble sidecars. Host operations reconciliation compares a
+filename-and-SHA-256 manifest and prunes unexpected managed files, so empty
+local directories and platform metadata do not produce false drift.
 The reviewed initial production target is a Hetzner `cx23` server in the
 Nuremberg `nbg1` location. These remain explicit bootstrap inputs so a later
 capacity or location change requires operator review rather than an implicit
 default.
 
-The delete-protected backup volume is mounted by filesystem UUID and exposed
-through a bind-backed external Docker volume. Persistent journald retention is
-bounded by both 14 days and a dynamically capped host-size budget. Application
-startup remains gated by the root-only environment file and immutable image
-record, while the stable deployment launcher permits first installation before
-a current release symlink exists. A sanitized receipt records Docker, Compose,
+The server is protected against both deletion and rebuild, as required
+together by the provider, while the delete-protected backup volume is mounted
+by filesystem UUID and exposed through a bind-backed external Docker volume.
+Persistent journald retention is bounded by both 14 days and a dynamically
+capped host-size budget. Application startup remains gated by the root-only
+environment file and immutable image record. Operational state is also
+root-owned and mode `0700`; the SSH operator reaches it through audited `sudo`
+commands. The stable deployment launcher permits first installation before a
+current release symlink exists. A sanitized receipt records Docker, Compose,
 kernel, OS, and systemd unit versions.
 
 ### Production acceptance evidence

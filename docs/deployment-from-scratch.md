@@ -202,10 +202,12 @@ infra/hcloud/bootstrap.sh \
   --initial-secret-file /secure/path/rental-apartments-production.env
 ```
 
-The script waits for cloud-init, installs the host operations bundle, and
-reconciles systemd, journald, Docker, mounts, and permissions. The initial
-secret is used only while creating a new server. Later reconciliation never
-uploads or overwrites `/etc/rental-apartments/env`.
+The script keeps cloud-init below Hetzner's 32 KiB user-data limit by sending
+only the deployment account, root-only initial secret, and trusted host helper.
+It then transfers the full operations bundle over SSH and reconciles systemd,
+journald, Docker, mounts, and permissions. The initial secret is used only
+while creating a new server. Later reconciliation never uploads or overwrites
+`/etc/rental-apartments/env`.
 
 Prove a second pass has no drift:
 

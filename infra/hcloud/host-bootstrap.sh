@@ -43,9 +43,10 @@ report_drift() {
 }
 
 ensure_directory() {
-  local path=$1 mode=$2 owner=$3
+  local path=$1 mode=$2 owner=$3 normalized_mode
+  normalized_mode=${mode#0}
   if [[ ! -d $path ]] ||
-    [[ $(stat --format='%a:%U:%G' "$path" 2>/dev/null || true) != "$mode:$owner" ]]; then
+    [[ $(stat --format='%a:%U:%G' "$path" 2>/dev/null || true) != "$normalized_mode:$owner" ]]; then
     if [[ $MODE == check ]]; then
       report_drift "$path"
     else
@@ -56,9 +57,10 @@ ensure_directory() {
 }
 
 install_file() {
-  local source=$1 target=$2 mode=$3
+  local source=$1 target=$2 mode=$3 normalized_mode
+  normalized_mode=${mode#0}
   if [[ ! -f $target ]] || ! cmp --silent "$source" "$target" ||
-    [[ $(stat --format='%a:%U:%G' "$target" 2>/dev/null || true) != "$mode:root:root" ]]; then
+    [[ $(stat --format='%a:%U:%G' "$target" 2>/dev/null || true) != "$normalized_mode:root:root" ]]; then
     if [[ $MODE == check ]]; then
       report_drift "$target"
     else
@@ -66,6 +68,27 @@ install_file() {
       changed=1
     fi
   fi
+}
+
+remove_appledouble_files() {
+  local directory=$1
+  [[ -d $directory ]] || return 0
+  if find "$directory" -type f -name '._*' -print -quit | grep --quiet .; then
+    if [[ $MODE == check ]]; then
+      report_drift "macOS metadata:$directory"
+    else
+      find "$directory" -type f -name '._*' -delete
+      changed=1
+    fi
+  fi
+}
+
+ops_file_manifest() {
+  local directory=$1
+  (
+    cd "$directory"
+    find . -type f -print0 | sort -z | xargs -0 sha256sum --zero
+  )
 }
 
 required_packages=(ca-certificates curl docker.io docker-compose-v2 git jq lnav unattended-upgrades)
@@ -109,7 +132,7 @@ fi
 
 ensure_directory /etc/rental-apartments 0700 root:root
 ensure_directory /opt/rental-apartments 0750 rental-deploy:rental-deploy
-ensure_directory /var/lib/rental-apartments-ops 0750 rental-deploy:rental-deploy
+ensure_directory /var/lib/rental-apartments-ops 0700 root:root
 ensure_directory /var/lib/rental-apartments/releases 0750 rental-deploy:rental-deploy
 ensure_directory /var/log/journal 2755 root:systemd-journal
 ensure_directory /etc/systemd/journald.conf.d 0755 root:root
@@ -117,6 +140,11 @@ ensure_directory /etc/ssh/sshd_config.d 0755 root:root
 ensure_directory /etc/apt/apt.conf.d 0755 root:root
 ensure_directory /etc/apt/preferences.d 0755 root:root
 ensure_directory /usr/local/lib/rental-apartments-bootstrap 0755 root:root
+
+# These paths are fully managed by this reconciler. AppleDouble sidecars are
+# archive metadata, not deployable operations or systemd units.
+remove_appledouble_files /etc/systemd/system
+remove_appledouble_files /usr/local/lib/rental-apartments-bootstrap
 
 if [[ -e /etc/rental-apartments/env ]]; then
   if [[ -L /etc/rental-apartments/env || ! -f /etc/rental-apartments/env ]]; then
@@ -187,11 +215,21 @@ if [[ -d $SOURCE_ROOT/infra/systemd ]]; then
 fi
 if [[ -d $SOURCE_ROOT/ops ]]; then
   if [[ $MODE == check ]]; then
-    diff --brief --recursive "$SOURCE_ROOT/ops" \
-      /usr/local/lib/rental-apartments-bootstrap/ops >/dev/null ||
+    cmp --silent \
+      <(ops_file_manifest "$SOURCE_ROOT/ops") \
+      <(ops_file_manifest /usr/local/lib/rental-apartments-bootstrap/ops) ||
       report_drift /usr/local/lib/rental-apartments-bootstrap/ops
   elif [[ $SOURCE_ROOT != /usr/local/lib/rental-apartments-bootstrap ]]; then
     install -d -m 0755 /usr/local/lib/rental-apartments-bootstrap/ops/lib
+    while IFS= read -r -d '' installed_file; do
+      relative=${installed_file#/usr/local/lib/rental-apartments-bootstrap/ops/}
+      if [[ ! -f $SOURCE_ROOT/ops/$relative ]]; then
+        rm -- "$installed_file"
+        changed=1
+      fi
+    done < <(
+      find /usr/local/lib/rental-apartments-bootstrap/ops -type f -print0
+    )
     find "$SOURCE_ROOT/ops" -maxdepth 1 -type f -exec install -m 0755 -o root -g root \
       {} /usr/local/lib/rental-apartments-bootstrap/ops/ \;
     find "$SOURCE_ROOT/ops/lib" -maxdepth 1 -type f -exec install -m 0644 -o root -g root \

@@ -167,6 +167,14 @@ test("unattended deploy contract covers no-op, first install, rollback, and fail
     /compose\.production\.yaml/u,
     "candidate and current releases use the production Compose contract",
   );
+  assert.match(
+    library,
+    /docker create "\$metadata_tag" \/release\/release-metadata\.json/u,
+    "scratch metadata images require an inert create-time command",
+  );
+  assert.match(library, /deployment_extract_release_bundle/u);
+  assert.match(library, /operations\.tar/u);
+  assert.doesNotMatch(library, /git -C|RENTAL_GIT_REMOTE/u);
   assert.doesNotMatch(
     deploy,
     /:production.*compose|RENTAL_APARTMENTS_IMAGE=.*:production/su,

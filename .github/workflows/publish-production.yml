@@ -104,27 +104,36 @@ jobs:
           IMAGE_REPOSITORY: ${{ steps.candidate.outputs.image_repository }}
           IMAGE_REFERENCE: ${{ steps.candidate.outputs.image_reference }}
         run: |
-          mkdir -p release metadata-image
+          mkdir -p release metadata-image/release
           git archive --format=tar HEAD ops infra/systemd > release/operations.tar
           node scripts/create-release-metadata.js \
             --source-revision "$SOURCE_REVISION" \
             --image-reference "$IMAGE_REFERENCE" \
             --operations-bundle release/operations.tar \
             --output release/release-metadata.json
-          cp release/release-metadata.json metadata-image/release-metadata.json
+          cp \
+            release/release-metadata.json \
+            release/operations.tar \
+            compose.production.yaml \
+            package-lock.json \
+            metadata-image/release/
           printf '%s\n' \
             'FROM scratch' \
-            'COPY release-metadata.json /release-metadata.json' \
+            'COPY release/ /release/' \
             > metadata-image/Dockerfile
           METADATA_TAG="$IMAGE_REPOSITORY:metadata-$SOURCE_REVISION"
           docker build --tag "$METADATA_TAG" metadata-image
           docker push "$METADATA_TAG"
           # The scratch image intentionally has no default command. Docker still
           # requires one to create the stopped container used only for `docker cp`.
-          METADATA_CONTAINER="$(docker create "$METADATA_TAG" /release-metadata.json)"
+          METADATA_CONTAINER="$(docker create "$METADATA_TAG" /release/release-metadata.json)"
           trap 'docker rm "$METADATA_CONTAINER" >/dev/null' EXIT
-          docker cp "$METADATA_CONTAINER:/release-metadata.json" release/published-metadata.json
-          cmp release/release-metadata.json release/published-metadata.json
+          mkdir release/published
+          docker cp "$METADATA_CONTAINER:/release/." release/published/
+          cmp release/release-metadata.json release/published/release-metadata.json
+          cmp release/operations.tar release/published/operations.tar
+          cmp compose.production.yaml release/published/compose.production.yaml
+          cmp package-lock.json release/published/package-lock.json
 
       # This is intentionally last: the host sees a new digest only after the
       # candidate, its exact metadata, and every earlier quality gate exist.

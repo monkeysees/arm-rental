@@ -178,8 +178,20 @@ test("production publication advances discovery only after scan, push, and metad
   assert.match(workflow, /docker push "\$METADATA_TAG"/u);
   assert.match(
     workflow,
-    /docker create "\$METADATA_TAG" \/release-metadata\.json/u,
+    /docker create "\$METADATA_TAG" \/release\/release-metadata\.json/u,
   );
+  for (const artifact of [
+    "release-metadata.json",
+    "operations.tar",
+    "compose.production.yaml",
+    "package-lock.json",
+  ]) {
+    assert.match(
+      workflow,
+      new RegExp(artifact.replaceAll(".", String.raw`\.`), "u"),
+    );
+  }
+  assert.match(workflow, /COPY release\/ \/release\//u);
   assert.match(workflow, /docker push "\$IMAGE_REPOSITORY:production"/u);
   assert.doesNotMatch(
     workflow.slice(0, production),

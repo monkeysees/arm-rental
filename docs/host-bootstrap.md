@@ -74,9 +74,14 @@ health, log, or metric port.
 
 ## Host result
 
-Cloud-init installs Ubuntu-signed Docker Engine, Compose v2, Git, jq, curl,
-lnav, and unattended security updates. The installed Docker and Compose major
-versions are pinned locally while patch updates remain eligible. It creates:
+Cloud-init establishes the deployment account, root-only initial secret, and a
+small trusted host helper. The operator bootstrap waits for cloud-init, then
+transfers the complete version-controlled operations bundle over SSH and
+invokes that helper. This keeps provider user data below Hetzner's 32 KiB
+limit. The helper installs Ubuntu-signed Docker Engine, Compose v2, Git, jq,
+curl, lnav, and unattended security updates. The installed Docker and Compose
+major versions are pinned locally while patch updates remain eligible. It
+creates:
 
 ```text
 /etc/rental-apartments/env
@@ -110,5 +115,5 @@ ssh production \
 ```
 
 The receipt contains only the Docker, Compose, kernel, OS, and installed unit
-versions. Server and volume delete protection are enabled through Hetzner and
-there is deliberately no teardown command.
+versions. Server delete and rebuild protection plus volume delete protection
+are enabled through Hetzner, and there is deliberately no teardown command.

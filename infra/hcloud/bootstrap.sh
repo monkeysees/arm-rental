@@ -97,6 +97,50 @@ temporary_directory=$(mktemp -d "${TMPDIR:-/tmp}/rental-hcloud.XXXXXX")
 cleanup() { rm -rf -- "$temporary_directory"; }
 trap cleanup EXIT
 
+yaml_quote() { sed "s/'/''/g" <<<"$1"; }
+append_file() {
+  local path=$1 mode=$2 source=$3
+  {
+    printf '  - path: %s\n    owner: root:root\n    permissions: \"%s\"\n    content: |\n' \
+      "$path" "$mode"
+    sed 's/^/      /' "$source"
+  } >>"$temporary_directory/write-files.yaml"
+}
+render_cloud_init() {
+  : >"$temporary_directory/write-files.yaml"
+  # Keep provider user data small. The full operations bundle is transferred
+  # over SSH after cloud-init establishes this trusted helper and account.
+  append_file /usr/local/sbin/rental-host-bootstrap 0755 \
+    "$SCRIPT_DIRECTORY/host-bootstrap.sh"
+  if [[ -n $INITIAL_SECRET_FILE ]]; then
+    {
+      printf '  - path: /etc/rental-apartments/env\n'
+      printf '    owner: root:root\n    permissions: \"0600\"\n'
+      printf '    encoding: b64\n    content: %s\n' \
+        "$(base64 <"$INITIAL_SECRET_FILE" | tr -d '\n')"
+    } >>"$temporary_directory/write-files.yaml"
+  fi
+  awk -v key="$(yaml_quote "$ssh_public_key")" \
+    -v writes="$temporary_directory/write-files.yaml" '
+      /__RENTAL_WRITE_FILES__/ {
+        while ((getline line < writes) > 0) print line
+        close(writes)
+        next
+      }
+      {gsub(/__RENTAL_SSH_PUBLIC_KEY__/, sprintf("\047%s\047", key))}
+      {print}
+    ' "$SCRIPT_DIRECTORY/cloud-init.yaml" >"$temporary_directory/cloud-init.yaml"
+}
+
+render_cloud_init
+user_data_bytes=$(wc -c <"$temporary_directory/cloud-init.yaml")
+user_data_max_bytes=32768
+((user_data_bytes <= user_data_max_bytes)) || {
+  printf 'Rendered cloud-init exceeds Hetzner user-data limit: %s > %s bytes\n' \
+    "$user_data_bytes" "$user_data_max_bytes" >&2
+  exit 65
+}
+
 drift=0
 note_drift() {
   printf 'DRIFT %s\n' "$1" >&2
@@ -220,53 +264,6 @@ if [[ -n $volume_object ]]; then
   volume_id=$(jq -r '.id // empty' <<<"$volume_object")
 fi
 
-yaml_quote() { sed "s/'/''/g" <<<"$1"; }
-append_file() {
-  local path=$1 mode=$2 source=$3
-  {
-    printf '  - path: %s\n    owner: root:root\n    permissions: \"%s\"\n    content: |\n' \
-      "$path" "$mode"
-    sed 's/^/      /' "$source"
-  } >>"$temporary_directory/write-files.yaml"
-}
-render_cloud_init() {
-  : >"$temporary_directory/write-files.yaml"
-  append_file /usr/local/sbin/rental-host-bootstrap 0755 \
-    "$SCRIPT_DIRECTORY/host-bootstrap.sh"
-  append_file /usr/local/lib/rental-apartments-bootstrap/infra/hcloud/journald.conf \
-    0644 "$SCRIPT_DIRECTORY/journald.conf"
-  append_file /usr/local/lib/rental-apartments-bootstrap/infra/hcloud/host-bootstrap.sh \
-    0755 "$SCRIPT_DIRECTORY/host-bootstrap.sh"
-  while IFS= read -r file; do
-    relative=${file#"$REPOSITORY_ROOT/"}
-    mode=0644
-    [[ $relative == ops/* && $relative != ops/lib/* ]] && mode=0755
-    append_file "/usr/local/lib/rental-apartments-bootstrap/$relative" "$mode" "$file"
-  done < <(find "$REPOSITORY_ROOT/infra/systemd" "$REPOSITORY_ROOT/ops" \
-    -type f -print | sort)
-  if [[ -n $INITIAL_SECRET_FILE ]]; then
-    {
-      printf '  - path: /etc/rental-apartments/env\n'
-      printf '    owner: root:root\n    permissions: \"0600\"\n'
-      printf '    encoding: b64\n    content: %s\n' \
-        "$(base64 <"$INITIAL_SECRET_FILE" | tr -d '\n')"
-    } >>"$temporary_directory/write-files.yaml"
-  fi
-  awk -v key="$(yaml_quote "$ssh_public_key")" \
-    -v device="/dev/disk/by-id/scsi-0HC_Volume_${volume_id}" \
-    -v writes="$temporary_directory/write-files.yaml" '
-      /__RENTAL_WRITE_FILES__/ {
-        while ((getline line < writes) > 0) print line
-        close(writes)
-        next
-      }
-      {gsub(/__RENTAL_SSH_PUBLIC_KEY__/, sprintf("\047%s\047", key))}
-      {gsub(/__RENTAL_BACKUP_DEVICE__/, device)}
-      {print}
-    ' "$SCRIPT_DIRECTORY/cloud-init.yaml" >"$temporary_directory/cloud-init.yaml"
-}
-
-if [[ -n $volume_id ]]; then render_cloud_init; fi
 server_object=$(resource_json server "$SERVER_NAME" || exit $?)
 if [[ -z $server_object ]]; then
   if [[ $MODE == apply ]]; then
@@ -284,7 +281,8 @@ else
   ensure_labels server "$SERVER_NAME" "$server_object"
   jq -e --arg type "$SERVER_TYPE" --arg location "$LOCATION" \
     --argjson image "$IMAGE_ID" '
-      .server_type.name == $type and .datacenter.location.name == $location and
+      .server_type.name == $type and
+      (.location.name // .datacenter.location.name) == $location and
       .image.id == $image' <<<"$server_object" >/dev/null || {
     printf 'Existing server type/location/image drift requires manual review\n' >&2
     exit 65
@@ -311,13 +309,15 @@ if [[ -n $server_id ]]; then
       hcloud firewall apply-to-resource "$FIREWALL_NAME" \
       --type server --server "$SERVER_NAME"
   server_object=$(hcloud server describe "$SERVER_NAME" --output json)
-  jq -e '.protection.delete == true' <<<"$server_object" >/dev/null ||
-    mutate "enable server delete protection" \
-      hcloud server enable-protection "$SERVER_NAME" --delete
+  jq -e '
+    .protection.delete == true and .protection.rebuild == true
+  ' <<<"$server_object" >/dev/null ||
+    mutate "enable server delete and rebuild protection" \
+      hcloud server enable-protection "$SERVER_NAME" delete rebuild
   volume_object=$(hcloud volume describe "$VOLUME_NAME" --output json)
   jq -e '.protection.delete == true' <<<"$volume_object" >/dev/null ||
     mutate "enable volume delete protection" \
-      hcloud volume enable-protection "$VOLUME_NAME" --delete
+      hcloud volume enable-protection "$VOLUME_NAME" delete
 fi
 
 if [[ $MODE == dry-run ]]; then
@@ -338,11 +338,13 @@ if [[ -n $server_id ]]; then
   fi
   bundle_mode=(--bundle)
   [[ $MODE == check ]] && bundle_mode+=(--check)
-  tar --create --gzip --directory "$REPOSITORY_ROOT" \
-    --file - infra/hcloud/host-bootstrap.sh infra/hcloud/journald.conf \
-    infra/systemd ops |
+  COPYFILE_DISABLE=1 LC_ALL=C tar --no-xattrs --create --gzip \
+    --directory "$REPOSITORY_ROOT" --file - \
+    infra/hcloud/host-bootstrap.sh infra/hcloud/journald.conf infra/systemd ops |
     ssh "${ssh_options[@]}" "$ssh_target" \
-      sudo /usr/local/sbin/rental-host-bootstrap "${bundle_mode[@]}" ||
+      sudo env \
+      "RENTAL_BACKUP_DEVICE=/dev/disk/by-id/scsi-0HC_Volume_${volume_id}" \
+      /usr/local/sbin/rental-host-bootstrap "${bundle_mode[@]}" ||
     note_drift "host configuration"
 fi
 

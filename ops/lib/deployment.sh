@@ -10,7 +10,6 @@
 : "${RENTAL_QUARANTINE_DIR:=$RENTAL_OPS_STATE_DIR/quarantine}"
 : "${RENTAL_CURRENT_LINK:=/opt/rental-apartments/current}"
 : "${RENTAL_MINIMUM_FREE_KB:=1048576}"
-: "${RENTAL_GIT_REMOTE:=}"
 
 deployment_validate_actor() {
   local actor=$1
@@ -190,57 +189,114 @@ deployment_resolve_discovery() {
   return 65
 }
 
-deployment_extract_metadata() {
+deployment_extract_release_bundle() {
   local repository=$1
   local revision=$2
-  local output=$3
+  local output_directory=$3
   local metadata_tag="$repository:metadata-$revision"
-  local container=""
-  docker pull "$metadata_tag" >/dev/null
-  container=$(docker create "$metadata_tag")
-  if ! docker cp "$container:/release-metadata.json" "$output"; then
-    docker rm "$container" >/dev/null 2>&1 || true
-    return 1
-  fi
-  docker rm "$container" >/dev/null
-  jq -e . "$output" >/dev/null
+  local artifact container="" status=0
+  install -d -m 0700 "$output_directory" || return
+  docker pull "$metadata_tag" >/dev/null || return
+  # Published metadata uses a scratch image with no default command. Supply an
+  # inert path so Docker can create the stopped container used only by `cp`.
+  container=$(
+    docker create "$metadata_tag" /release/release-metadata.json
+  ) || return
+  for artifact in \
+    release-metadata.json operations.tar compose.production.yaml package-lock.json; do
+    docker cp "$container:/release/$artifact" "$output_directory/$artifact" ||
+      status=1
+  done
+  docker rm "$container" >/dev/null 2>&1 || status=1
+  ((status == 0)) || return 1
+  jq -e . "$output_directory/release-metadata.json" >/dev/null || return
+}
+
+deployment_discard_staging_release() {
+  local directory=$1
+  [[ $directory == "$RENTAL_RELEASES_ROOT"/.release.* ]] || return 65
+  [[ ! -L $directory ]] || return 65
+  rm -rf -- "$directory"
 }
 
 deployment_fetch_release() {
-  local repository=$1
-  local candidate=$2
-  local revision=$3
-  local metadata=$4
-  local digest release_name final temporary remote
+  local candidate=$1
+  local revision=$2
+  local metadata=$3
+  local bundle_directory=$4
+  local digest entry release_name final temporary invalid_entry=0
   digest=$(deployment_digest_hex "$candidate")
   release_name="$revision-${digest:0:16}"
   final="$RENTAL_RELEASES_ROOT/$release_name"
   if [[ -d $final && ! -L $final ]]; then
+    [[ -f $final/compose.production.yaml &&
+      -f $final/package-lock.json &&
+      -d $final/ops &&
+      -d $final/infra/systemd ]] || {
+      printf 'Existing release directory is incomplete\n' >&2
+      return 65
+    }
     printf '%s\n' "$final"
     return 0
   fi
 
-  install -d -m 0750 "$RENTAL_RELEASES_ROOT"
-  temporary=$(mktemp -d "$RENTAL_RELEASES_ROOT/.release.XXXXXX")
-  remote=$RENTAL_GIT_REMOTE
-  if [[ -z $remote ]]; then
-    remote="https://github.com/${repository#ghcr.io/}.git"
+  install -d -m 0750 "$RENTAL_RELEASES_ROOT" || return
+  temporary=$(mktemp -d "$RENTAL_RELEASES_ROOT/.release.XXXXXX") || return
+  if ! deployment_verify_release "$bundle_directory" "$candidate" "$metadata"; then
+    deployment_discard_staging_release "$temporary"
+    return 65
   fi
-  git -C "$temporary" init --quiet
-  git -C "$temporary" remote add origin "$remote"
-  git -C "$temporary" fetch --quiet --depth=1 origin "$revision"
-  git -C "$temporary" checkout --quiet --detach FETCH_HEAD
-  test "$(git -C "$temporary" rev-parse HEAD)" = "$revision"
-  deployment_verify_release "$temporary" "$candidate" "$metadata"
-  mv -T "$temporary" "$final"
+  install -m 0644 \
+    "$bundle_directory/compose.production.yaml" \
+    "$temporary/compose.production.yaml" || {
+    deployment_discard_staging_release "$temporary"
+    return 65
+  }
+  install -m 0644 \
+    "$bundle_directory/package-lock.json" \
+    "$temporary/package-lock.json" || {
+    deployment_discard_staging_release "$temporary"
+    return 65
+  }
+  tar --list --file "$bundle_directory/operations.tar" >/dev/null || {
+    deployment_discard_staging_release "$temporary"
+    return 65
+  }
+  while IFS= read -r entry; do
+    case $entry in
+      "" | /* | ../* | */../* | */..) invalid_entry=1 ;;
+      ops | ops/* | infra/systemd | infra/systemd/*) ;;
+      *)
+        invalid_entry=1
+        ;;
+    esac
+  done < <(tar --list --file "$bundle_directory/operations.tar")
+  if ((invalid_entry == 1)); then
+    printf 'Operations bundle contains an unexpected path\n' >&2
+    deployment_discard_staging_release "$temporary"
+    return 65
+  fi
+  tar --extract --file "$bundle_directory/operations.tar" \
+    --directory "$temporary" --no-same-owner || {
+    deployment_discard_staging_release "$temporary"
+    return 65
+  }
+  if [[ ! -d $temporary/ops || ! -d $temporary/infra/systemd ]]; then
+    deployment_discard_staging_release "$temporary"
+    return 65
+  fi
+  mv -T "$temporary" "$final" || {
+    deployment_discard_staging_release "$temporary"
+    return 65
+  }
   printf '%s\n' "$final"
 }
 
 deployment_verify_release() {
-  local release_directory=$1
+  local bundle_directory=$1
   local candidate=$2
   local metadata=$3
-  local compose_digest package_digest operations_archive operations_digest
+  local compose_digest package_digest operations_digest
   jq -e \
     --arg image "$candidate" \
     --arg revision "$DEPLOYMENT_SOURCE_REVISION" \
@@ -251,21 +307,26 @@ deployment_verify_release() {
      (.packageLockSha256 | test("^[0-9a-f]{64}$")) and
      (.composeSha256 | test("^[0-9a-f]{64}$")) and
      (.operationsBundleSha256 | test("^[0-9a-f]{64}$"))' \
-    "$metadata" >/dev/null
-  compose_digest=$(sha256sum "$release_directory/compose.production.yaml" | awk '{print $1}')
-  test "$compose_digest" = "$(jq -r .composeSha256 "$metadata")"
-  package_digest=$(sha256sum "$release_directory/package-lock.json" | awk '{print $1}')
-  test "$package_digest" = "$(jq -r .packageLockSha256 "$metadata")"
+    "$metadata" >/dev/null || return 65
+  compose_digest=$(
+    sha256sum "$bundle_directory/compose.production.yaml" | awk '{print $1}'
+  ) || return 65
+  test "$compose_digest" = "$(jq -r .composeSha256 "$metadata")" || return 65
+  package_digest=$(
+    sha256sum "$bundle_directory/package-lock.json" | awk '{print $1}'
+  ) || return 65
+  test "$package_digest" = "$(jq -r .packageLockSha256 "$metadata")" ||
+    return 65
   test "$package_digest" = "$(
     docker image inspect \
       --format '{{index .Config.Labels "org.opencontainers.image.package-lock.sha256"}}' \
       "$candidate"
-  )"
-  operations_archive=$(mktemp "$RENTAL_OPS_STATE_DIR/.operations.XXXXXX")
-  git -C "$release_directory" archive --format=tar HEAD ops infra/systemd >"$operations_archive"
-  operations_digest=$(sha256sum "$operations_archive" | awk '{print $1}')
-  rm -- "$operations_archive"
-  test "$operations_digest" = "$(jq -r .operationsBundleSha256 "$metadata")"
+  )" || return 65
+  operations_digest=$(
+    sha256sum "$bundle_directory/operations.tar" | awk '{print $1}'
+  ) || return 65
+  test "$operations_digest" = "$(jq -r .operationsBundleSha256 "$metadata")" ||
+    return 65
 }
 
 deployment_validate_compose() {

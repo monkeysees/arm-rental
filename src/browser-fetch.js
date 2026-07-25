@@ -262,10 +262,14 @@ export class BrowserPageFetcher {
     this.runtimeDirectory = runtime.directory;
     this.runtimeRoot = runtime.root;
     const args = [
-      `--crash-dumps-dir=${runtime.directory}`,
       `--disk-cache-size=${this.config.browserCacheMaxBytes || DEFAULT_DISK_CACHE_MAX_BYTES}`,
       "--disable-blink-features=AutomationControlled",
       "--disable-backgrounding-occluded-windows",
+      // Chrome for Testing's crash reporter trips its CFI guard in the
+      // sandboxed headful Linux container. Application-owned structured logs
+      // still report browser exits without starting that unstable subprocess.
+      "--disable-breakpad",
+      "--disable-crash-reporter",
       "--disable-renderer-backgrounding",
       "--lang=ru-RU",
       "--no-default-browser-check",
@@ -300,8 +304,8 @@ export class BrowserPageFetcher {
             args,
             env: {
               ...process.env,
-              // Chrome's crash reporter and XDG caches otherwise target the
-              // read-only image home. Keep them in the launch-scoped tmpfs.
+              // XDG caches otherwise target the read-only image home. Keep
+              // them in the launch-scoped tmpfs.
               HOME: runtime.directory,
               TMPDIR: runtime.directory,
               XDG_CACHE_HOME: path.join(runtime.directory, "cache"),

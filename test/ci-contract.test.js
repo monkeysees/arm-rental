@@ -11,10 +11,11 @@ const readProjectFile = (file) =>
   readFile(new URL(`../${file}`, import.meta.url), "utf8");
 
 test("required CI gates quality, production security, and an immutable artifact", async () => {
-  const [workflow, packageText, dockerfile] = await Promise.all([
+  const [workflow, packageText, dockerfile, browserSmoke] = await Promise.all([
     readProjectFile(".github/workflows/quality.yml"),
     readProjectFile("package.json"),
     readProjectFile("Dockerfile"),
+    readProjectFile("scripts/smoke-production-browser-image"),
   ]);
   const packageJson = JSON.parse(packageText);
   const actionReferences = [
@@ -36,8 +37,20 @@ test("required CI gates quality, production security, and an immutable artifact"
   assert.match(workflow, /severity: HIGH,CRITICAL/u);
   assert.match(workflow, /ignore-unfixed: true/u);
   assert.match(workflow, /exit-code: 1/u);
+  assert.match(
+    workflow,
+    /scripts\/smoke-production-browser-image rental-apartments-bot:ci/u,
+  );
   assert.match(workflow, /docker save rental-apartments-bot:ci/u);
   assert.match(workflow, /actions\/upload-artifact@[a-f0-9]{40}/u);
+
+  assert.match(browserSmoke, /platform != linux\/amd64/u);
+  assert.match(browserSmoke, /--user node/u);
+  assert.match(browserSmoke, /--read-only/u);
+  assert.match(browserSmoke, /--cap-add SYS_ADMIN/u);
+  assert.match(browserSmoke, /run_browser_smoke headless true/u);
+  assert.match(browserSmoke, /run_browser_smoke headful false/u);
+  assert.doesNotMatch(browserSmoke, /--no-sandbox/u);
 
   assert.match(packageJson.scripts["test:coverage"], /test-coverage-lines=90/u);
   assert.match(

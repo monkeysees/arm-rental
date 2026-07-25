@@ -216,9 +216,13 @@ The two branch-protection boundaries are the stable `Required / quality` and
 `Required / production artifact` jobs. The first runs the complete repository
 checks, a separate 90%-line/80%-branch coverage gate, and a high-severity
 production dependency audit on the pinned Node runtime. The second builds the
-production image and scans its OS packages and application libraries before it
-can be packaged. Keeping the scan and packaging in one required job prevents an
-unscanned image from becoming the deployable output.
+production image, exercises its pinned Chrome in both headless and headful
+modes on a native Linux AMD64 runner, and scans its OS packages and application
+libraries before it can be packaged. The browser gate uses the same non-root,
+read-only, sandbox-enabled capability and tmpfs contract as production, with a
+private Xvfb display for the headful pass. Keeping browser validation, scanning,
+and packaging in one required job prevents an untested or unscanned image from
+becoming the deployable output.
 
 The aggregate production contract uses baseline POSIX/GNU text tooling supplied
 by the runner rather than optional hosted-image utilities. Its integration test
@@ -441,9 +445,12 @@ profile-only transfer fallback are documented in
 
 Each Chrome launch uses a profile-keyed, mode-`0700` runtime root beneath the
 bounded system temporary directory. Startup clears stale resources left by a
-prior failed browser/service run. HOME, XDG configuration/cache, crash dumps,
-and the XDG runtime path all resolve beneath this tmpfs-backed launch directory,
-so Chrome never needs to write to the immutable image home. The container has
+prior failed browser/service run. HOME, XDG configuration/cache, and the XDG
+runtime path all resolve beneath this tmpfs-backed launch directory, so Chrome
+never needs to write to the immutable image home. Chrome for Testing's Breakpad
+and crash-reporter subprocesses are disabled because they trigger Chrome's CFI
+guard during sandboxed headful Linux startup; application-owned structured
+logging still records browser process and protocol failures. The container has
 the `SYS_ADMIN` capability required by Puppeteer's sandboxed Docker runtime to
 create Chrome's short-lived PID and network namespaces; it remains non-root,
 read-only, portless, and uses Chrome's sandbox rather than `--no-sandbox`.

@@ -1,0 +1,141 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+
+usage() {
+  printf 'Usage: %s IMAGE\n' "${0##*/}" >&2
+}
+
+if (($# != 1)); then
+  usage
+  exit 64
+fi
+
+for command in docker Xvfb; do
+  command -v "$command" >/dev/null 2>&1 || {
+    printf 'Required browser smoke dependency is unavailable: %s\n' "$command" >&2
+    exit 69
+  }
+done
+
+image=$1
+platform=$(docker image inspect --format '{{.Os}}/{{.Architecture}}' "$image")
+if [[ $platform != linux/amd64 ]]; then
+  printf 'Production browser smoke requires a linux/amd64 image, got: %s\n' \
+    "$platform" >&2
+  exit 65
+fi
+
+suffix=$$
+volume="rental-apartments-browser-smoke-$suffix"
+container_prefix="rental-apartments-browser-smoke-$suffix"
+xvfb_log=$(mktemp)
+xvfb_pid=
+
+cleanup() {
+  docker rm --force \
+    "$container_prefix-headless" \
+    "$container_prefix-headful" >/dev/null 2>&1 || true
+  docker volume rm "$volume" >/dev/null 2>&1 || true
+  if [[ -n $xvfb_pid ]]; then
+    kill "$xvfb_pid" >/dev/null 2>&1 || true
+    wait "$xvfb_pid" >/dev/null 2>&1 || true
+  fi
+  rm -f -- "$xvfb_log"
+}
+trap cleanup EXIT HUP INT TERM
+
+display=
+for display_number in {91..99}; do
+  if [[ ! -S /tmp/.X11-unix/X$display_number ]]; then
+    display=":$display_number"
+    break
+  fi
+done
+if [[ -z $display ]]; then
+  printf '%s\n' 'No free local X11 display is available for browser smoke' >&2
+  exit 69
+fi
+
+Xvfb "$display" -screen 0 1368x900x24 -nolisten tcp -ac \
+  >"$xvfb_log" 2>&1 &
+xvfb_pid=$!
+for _ in {1..50}; do
+  [[ -S /tmp/.X11-unix/X${display#:} ]] && break
+  kill -0 "$xvfb_pid" >/dev/null 2>&1 || {
+    printf '%s\n' 'Xvfb exited before accepting connections:' >&2
+    sed -n '1,120p' "$xvfb_log" >&2
+    exit 70
+  }
+  sleep 0.1
+done
+if [[ ! -S /tmp/.X11-unix/X${display#:} ]]; then
+  printf '%s\n' 'Xvfb did not become ready:' >&2
+  sed -n '1,120p' "$xvfb_log" >&2
+  exit 70
+fi
+
+docker volume create \
+  --label com.rental-apartments.purpose=ci-browser-smoke \
+  "$volume" >/dev/null
+
+run_browser_smoke() {
+  local mode=$1
+  local headless=$2
+  local -a display_options=()
+  if [[ $headless == false ]]; then
+    display_options=(
+      --env "DISPLAY=$display"
+      --mount "type=bind,source=/tmp/.X11-unix,target=/tmp/.X11-unix,readonly"
+    )
+  fi
+
+  docker run --rm --interactive \
+    --name "$container_prefix-$mode" \
+    --init \
+    --user node \
+    --read-only \
+    --cap-add SYS_ADMIN \
+    --env "BROWSER_HEADLESS=$headless" \
+    --env DATA_DIRECTORY=/app/.data \
+    --mount "type=volume,source=$volume,target=/app/.data" \
+    --tmpfs /tmp:rw,size=134217728,mode=1777,nosuid,nodev,noexec \
+    --tmpfs /dev/shm:rw,size=268435456,mode=1777,nosuid,nodev,noexec \
+    "${display_options[@]}" \
+    "$image" node --input-type=module <<'NODE'
+import assert from "node:assert/strict";
+import path from "node:path";
+
+import { BrowserPageFetcher } from "./src/browser-fetch.js";
+
+const headless = process.env.BROWSER_HEADLESS === "true";
+const fetcher = new BrowserPageFetcher({
+  browserCacheMaxBytes: 64 * 1024 * 1024,
+  browserChallengeTimeoutMs: 10_000,
+  browserHeadless: headless,
+  browserProfileDir: path.join(process.env.DATA_DIRECTORY, "chrome-profile"),
+  browserProtocolTimeoutMs: 30_000,
+  browserStartMinimized: false,
+  chromeExecutablePath: process.env.CHROME_EXECUTABLE_PATH,
+  timeoutMs: 30_000,
+});
+
+try {
+  const marker = `production-image-${headless ? "headless" : "headful"}`;
+  const response = await fetcher.fetch(
+    `data:text/html,${encodeURIComponent(
+      `<main id="contentr"><p data-browser-smoke="${marker}">${marker}</p></main>`,
+    )}`,
+  );
+  assert.equal(response.status, 200);
+  assert.match(await response.text(), new RegExp(marker, "u"));
+  process.stdout.write(`${marker}=passed\n`);
+} finally {
+  await fetcher.close();
+}
+NODE
+}
+
+run_browser_smoke headless true
+run_browser_smoke headful false
+
+printf '%s\n' 'Production image browser smoke passed in headless and headful modes'

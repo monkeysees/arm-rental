@@ -269,6 +269,7 @@ export class BrowserPageFetcher {
       // sandboxed headful Linux container. Application-owned structured logs
       // still report browser exits without starting that unstable subprocess.
       "--disable-breakpad",
+      "--disable-crashpad-for-testing",
       "--disable-crash-reporter",
       "--disable-renderer-backgrounding",
       "--lang=ru-RU",

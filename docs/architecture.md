@@ -448,9 +448,9 @@ bounded system temporary directory. Startup clears stale resources left by a
 prior failed browser/service run. HOME, XDG configuration/cache, and the XDG
 runtime path all resolve beneath this tmpfs-backed launch directory, so Chrome
 never needs to write to the immutable image home. Chrome for Testing's Breakpad
-and crash-reporter subprocesses are disabled because they trigger Chrome's CFI
-guard during sandboxed headful Linux startup; application-owned structured
-logging still records browser process and protocol failures. The container has
+and Crashpad subprocesses are disabled because they trigger Chrome's CFI guard
+during sandboxed headful Linux startup; application-owned structured logging
+still records browser process and protocol failures. The container has
 the `SYS_ADMIN` capability required by Puppeteer's sandboxed Docker runtime to
 create Chrome's short-lived PID and network namespaces; it remains non-root,
 read-only, portless, and uses Chrome's sandbox rather than `--no-sandbox`.

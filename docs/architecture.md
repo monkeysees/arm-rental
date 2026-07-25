@@ -94,7 +94,10 @@ can copy every release input back from a stopped container and compare the
 bytes before advancing discovery. The VPS obtains these inputs with the
 read-only GHCR credential, so private Git repository access is not part of the
 host credential boundary. The tag is discovery-only: the VPS validates
-digest-bound metadata and persists an immutable image reference.
+the operations archive against an explicit `ops/` and `infra/systemd/`
+allow-list, including only the structural `infra/` parent emitted by
+`git archive`, before extracting it into a staged release directory. The VPS
+then validates digest-bound metadata and persists an immutable image reference.
 `rental-deploy.timer` invokes a stable bootstrap launcher for first
 installation and the verified current release thereafter. Deployment shares
 the global operations lock, snapshots before mutation, verifies startup and a

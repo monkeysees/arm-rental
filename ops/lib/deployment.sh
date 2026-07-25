@@ -219,12 +219,33 @@ deployment_discard_staging_release() {
   rm -rf -- "$directory"
 }
 
+deployment_validate_operations_archive() {
+  local archive=$1
+  local entry invalid_entry=0
+  tar --list --file "$archive" >/dev/null || return 65
+  while IFS= read -r entry; do
+    case $entry in
+      "" | /* | ../* | */../* | */..) invalid_entry=1 ;;
+      # `git archive HEAD ops infra/systemd` includes the structural `infra/`
+      # parent entry even though no files outside infra/systemd are archived.
+      ops | ops/* | infra | infra/ | infra/systemd | infra/systemd/*) ;;
+      *)
+        invalid_entry=1
+        ;;
+    esac
+  done < <(tar --list --file "$archive")
+  if ((invalid_entry == 1)); then
+    printf 'Operations bundle contains an unexpected path\n' >&2
+    return 65
+  fi
+}
+
 deployment_fetch_release() {
   local candidate=$1
   local revision=$2
   local metadata=$3
   local bundle_directory=$4
-  local digest entry release_name final temporary invalid_entry=0
+  local digest release_name final temporary
   digest=$(deployment_digest_hex "$candidate")
   release_name="$revision-${digest:0:16}"
   final="$RENTAL_RELEASES_ROOT/$release_name"
@@ -258,21 +279,8 @@ deployment_fetch_release() {
     deployment_discard_staging_release "$temporary"
     return 65
   }
-  tar --list --file "$bundle_directory/operations.tar" >/dev/null || {
-    deployment_discard_staging_release "$temporary"
-    return 65
-  }
-  while IFS= read -r entry; do
-    case $entry in
-      "" | /* | ../* | */../* | */..) invalid_entry=1 ;;
-      ops | ops/* | infra/systemd | infra/systemd/*) ;;
-      *)
-        invalid_entry=1
-        ;;
-    esac
-  done < <(tar --list --file "$bundle_directory/operations.tar")
-  if ((invalid_entry == 1)); then
-    printf 'Operations bundle contains an unexpected path\n' >&2
+  if ! deployment_validate_operations_archive \
+    "$bundle_directory/operations.tar"; then
     deployment_discard_staging_release "$temporary"
     return 65
   fi

@@ -88,6 +88,72 @@ exit 9
   );
 });
 
+test("deployment accepts the exact operations archive and rejects broader infra", async (t) => {
+  const temporaryDirectory = await mkdtemp(
+    join(tmpdir(), "deploy-operations-archive-"),
+  );
+  t.after(() => rm(temporaryDirectory, { recursive: true, force: true }));
+  const archive = join(temporaryDirectory, "operations.tar");
+  await executeFile(
+    "git",
+    [
+      "archive",
+      "--format=tar",
+      `--output=${archive}`,
+      "HEAD",
+      "ops",
+      "infra/systemd",
+    ],
+    { cwd: new URL("..", import.meta.url) },
+  );
+  const script = `
+    set -Eeuo pipefail
+    RENTAL_OPS_STATE_DIR=$1/state
+    source ops/lib/deployment.sh
+    deployment_validate_operations_archive "$2"
+  `;
+  await executeFile(
+    "bash",
+    [
+      "-c",
+      script,
+      "deployment-operations-archive-test",
+      temporaryDirectory,
+      archive,
+    ],
+    { cwd: new URL("..", import.meta.url) },
+  );
+
+  const payload = join(temporaryDirectory, "unexpected-payload");
+  const unexpectedArchive = join(temporaryDirectory, "unexpected.tar");
+  await executeFile("mkdir", ["-p", join(payload, "infra")]);
+  await writeFile(join(payload, "infra", "unexpected"), "not allowed\n");
+  await executeFile("tar", [
+    "--create",
+    "--file",
+    unexpectedArchive,
+    "--directory",
+    payload,
+    "infra",
+  ]);
+  await assert.rejects(
+    executeFile(
+      "bash",
+      [
+        "-c",
+        script,
+        "deployment-operations-archive-test",
+        temporaryDirectory,
+        unexpectedArchive,
+      ],
+      { cwd: new URL("..", import.meta.url) },
+    ),
+    (error) =>
+      error.code === 65 &&
+      error.stderr.includes("Operations bundle contains an unexpected path"),
+  );
+});
+
 test("deployment evidence is exclusive and retention tracks three complete releases", async (t) => {
   const temporaryDirectory = await mkdtemp(join(tmpdir(), "deploy-evidence-"));
   t.after(() => rm(temporaryDirectory, { recursive: true, force: true }));

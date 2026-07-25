@@ -277,7 +277,10 @@ export class BrowserPageFetcher {
       "--no-default-browser-check",
       "--no-first-run",
       ...(headfulLinux
-        ? [`--remote-debugging-address=${LOOPBACK_DEBUG_ADDRESS}`]
+        ? [
+            `--remote-debugging-address=${LOOPBACK_DEBUG_ADDRESS}`,
+            "--remote-debugging-port=0",
+          ]
         : []),
       ...(this.config.browserStartMinimized === false
         ? []

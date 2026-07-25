@@ -81,6 +81,7 @@ test("launch failure removes the isolated Chrome runtime directory", async (t) =
   assert.ok(
     launchOptions.args.includes("--remote-debugging-address=127.0.0.1"),
   );
+  assert.ok(launchOptions.args.includes("--remote-debugging-port=0"));
   assert.ok(
     launchOptions.args.every(
       (argument) => !argument.startsWith("--crash-dumps-dir="),

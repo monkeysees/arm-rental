@@ -270,7 +270,6 @@ export class BrowserPageFetcher {
       "--lang=ru-RU",
       "--no-default-browser-check",
       "--no-first-run",
-      `--remote-debugging-address=${LOOPBACK_DEBUG_ADDRESS}`,
       ...(this.config.browserStartMinimized === false
         ? []
         : ["--start-minimized"]),
@@ -294,6 +293,7 @@ export class BrowserPageFetcher {
         : await this.puppeteer.launch({
             executablePath,
             headless: this.config.browserHeadless,
+            pipe: true,
             userDataDir: this.config.browserProfileDir,
             defaultViewport: null,
             ignoreDefaultArgs: ["--enable-automation"],

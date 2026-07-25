@@ -158,8 +158,12 @@ test("production browser launch keeps the sandbox and restricts debugging to loo
   await fetcher.start();
 
   assert.equal(launchOptions.headless, true);
+  assert.equal(launchOptions.pipe, true);
   assert.ok(
-    launchOptions.args.includes("--remote-debugging-address=127.0.0.1"),
+    launchOptions.args.every(
+      (argument) => !argument.startsWith("--remote-debugging-"),
+    ),
+    "production leaves the remote-debugging pipe under Puppeteer control",
   );
   assert.ok(
     launchOptions.args.every((argument) => argument !== "--no-sandbox"),

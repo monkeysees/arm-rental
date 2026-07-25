@@ -356,8 +356,8 @@ deployment_validate_compose() {
     ' >/dev/null
 }
 
-deployment_validate_empty_storage() {
-  local identity mountpoint
+deployment_validate_first_install_storage() {
+  local identity mountpoint profile unexpected
   if ! docker volume inspect rental-apartments-data >/dev/null 2>&1; then
     docker volume create \
       --driver local \
@@ -380,8 +380,20 @@ deployment_validate_empty_storage() {
   )
   ops_require_absolute_path "data volume mountpoint" "$mountpoint"
   [[ -d $mountpoint && ! -L $mountpoint ]]
-  [[ -z $(find "$mountpoint" -mindepth 1 -maxdepth 1 -print -quit) ]] || {
-    printf 'First deployment requires an empty application data volume\n' >&2
+
+  # A failed first candidate can legitimately leave the dedicated Chrome
+  # identity behind for operator verification. No application state is allowed
+  # until a release has passed the complete first-install gate.
+  if [[ -z $(find "$mountpoint" -mindepth 1 -maxdepth 1 -print -quit) ]]; then
+    return
+  fi
+  profile="$mountpoint/chrome-profile"
+  unexpected=$(
+    find "$mountpoint" \
+      -mindepth 1 -maxdepth 1 ! -name chrome-profile -print -quit
+  )
+  [[ -z $unexpected && -d $profile && ! -L $profile ]] || {
+    printf 'First deployment requires empty or browser-profile-only application storage\n' >&2
     return 65
   }
 }

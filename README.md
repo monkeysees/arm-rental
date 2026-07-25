@@ -262,9 +262,10 @@ npm run check:production-contract
 
 ## Production image
 
-The production image pins Node.js 24.18.0 and the Chrome for Testing
-150.0.7871.24 build supported by Puppeteer. It installs browser libraries from
-a dated Debian snapshot and installs application packages with
+The production image pins Node.js 24.18.0 and the known-good Chrome for Testing
+150.0.7871.124 patch from Puppeteer's supported Chrome 150 milestone. It
+installs browser libraries from a dated Debian snapshot and application
+packages with
 `npm ci --omit=dev`; a host only needs a Linux AMD64 OCI runtime.
 
 Build and inspect the deployment versions:
@@ -276,7 +277,7 @@ docker image inspect --format '{{json .Config.Labels}}' \
   rental-apartments-bot:local
 docker run --rm --entrypoint node rental-apartments-bot:local --version
 docker run --rm \
-  --entrypoint /opt/chrome/chrome/linux-150.0.7871.24/chrome-linux64/chrome \
+  --entrypoint /opt/chrome/chrome/linux-150.0.7871.124/chrome-linux64/chrome \
   rental-apartments-bot:local --version
 ```
 

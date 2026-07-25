@@ -33,7 +33,7 @@ test("development, CI, and production use the same pinned Node release", async (
   );
 });
 
-test("production packaging installs only locked production dependencies and Puppeteer's browser", async () => {
+test("production packaging installs locked dependencies and a patched browser in Puppeteer's milestone", async () => {
   const [workflow, dockerfile] = await Promise.all([
     readProjectFile(".github/workflows/quality.yml"),
     readProjectFile("Dockerfile"),
@@ -42,7 +42,11 @@ test("production packaging installs only locked production dependencies and Pupp
     /^ARG CHROME_VERSION=(?<version>[0-9.]+)$/mu,
   )?.groups?.version;
 
-  assert.equal(chromeVersion, PUPPETEER_REVISIONS.chrome);
+  assert.equal(chromeVersion, "150.0.7871.124");
+  assert.equal(
+    chromeVersion.split(".")[0],
+    PUPPETEER_REVISIONS.chrome.split(".")[0],
+  );
   assert.match(dockerfile, /RUN npm ci --omit=dev\b/u);
   assert.doesNotMatch(dockerfile, /\bnpm install\b/u);
   assert.match(dockerfile, /--install-deps/u);

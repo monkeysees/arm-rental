@@ -1,6 +1,13 @@
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
-import { chmod, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import {
+  chmod,
+  mkdtemp,
+  readFile,
+  rm,
+  symlink,
+  writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
@@ -207,7 +214,7 @@ test("deployment observation uses the application poll default and rejects ambig
   );
 });
 
-test("first deployment creates and verifies an empty Compose-owned data volume", async (t) => {
+test("first deployment creates a Compose-owned volume and permits only its browser profile", async (t) => {
   const temporaryDirectory = await mkdtemp(
     join(tmpdir(), "deploy-data-volume-"),
   );
@@ -249,7 +256,7 @@ exit 9
     RENTAL_OPS_STATE_DIR=$1/state
     source ops/lib/common.sh
     source ops/lib/deployment.sh
-    deployment_validate_empty_storage
+    deployment_validate_first_install_storage
   `;
   const environment = {
     ...process.env,
@@ -269,6 +276,17 @@ exit 9
     /volume create --driver local --label com\.docker\.compose\.project=rental-apartments --label com\.docker\.compose\.volume=rental-apartments-data rental-apartments-data/u,
   );
 
+  await executeFile("mkdir", [join(mountpoint, "chrome-profile")]);
+  await writeFile(
+    join(mountpoint, "chrome-profile", "Cookies"),
+    "browser identity\n",
+  );
+  await executeFile(
+    "bash",
+    ["-c", script, "deployment-data-volume-test", temporaryDirectory],
+    { cwd: new URL("..", import.meta.url), env: environment },
+  );
+
   await writeFile(join(mountpoint, "unexpected-state"), "must fail\n");
   await assert.rejects(
     executeFile(
@@ -279,7 +297,26 @@ exit 9
     (error) =>
       error.code === 65 &&
       error.stderr.includes(
-        "First deployment requires an empty application data volume",
+        "First deployment requires empty or browser-profile-only application storage",
+      ),
+  );
+
+  await rm(join(mountpoint, "unexpected-state"));
+  await rm(join(mountpoint, "chrome-profile"), {
+    recursive: true,
+    force: true,
+  });
+  await symlink("elsewhere", join(mountpoint, "chrome-profile"), "dir");
+  await assert.rejects(
+    executeFile(
+      "bash",
+      ["-c", script, "deployment-data-volume-test", temporaryDirectory],
+      { cwd: new URL("..", import.meta.url), env: environment },
+    ),
+    (error) =>
+      error.code === 65 &&
+      error.stderr.includes(
+        "First deployment requires empty or browser-profile-only application storage",
       ),
   );
 });
@@ -344,7 +381,7 @@ test("unattended deploy contract covers no-op, first install, rollback, and fail
   assert.match(operations, /operations\.lock/u);
   assert.match(deploy, /deployment\.noop/u);
   assert.match(deploy, /DEPLOYMENT_FIRST_INSTALL=true/u);
-  assert.match(deploy, /deployment_validate_empty_storage/u);
+  assert.match(deploy, /deployment_validate_first_install_storage/u);
   assert.match(deploy, /deployment\.first-install\.rejected/u);
   assert.match(deploy, /deployment\.rollback\.completed/u);
   assert.match(deploy, /deployment\.rollback\.failed/u);

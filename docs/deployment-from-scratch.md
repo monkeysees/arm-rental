@@ -316,8 +316,11 @@ sudo jq \
 
 Expected result: the source revision and immutable candidate digest equal the
 GitHub release record, `firstInstall` is true, readiness is healthy, and a
-`crawl.succeeded` event exists. A first installation has no pre-deploy snapshot
-because it first proves the named data volume is empty.
+`crawl.succeeded` event exists. A first installation has no pre-deploy snapshot.
+Its named data volume must be empty or contain only the dedicated
+`chrome-profile/` created while resolving a failed candidate's browser
+verification challenge; application state or any other top-level entry is
+rejected.
 
 If startup reports `browser_verification_required`, keep the service stopped
 and follow [production browser operations](browser-operations.md) against the

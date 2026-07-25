@@ -102,8 +102,11 @@ The deployment observation window reads the application's crawl interval from
 the root-only environment file and uses the same 60-second application default
 when that optional setting is absent; repeated or malformed values fail closed.
 On first install, deployment creates the named local data volume with the
-Compose project and volume identity labels, verifies that identity and an empty
-real mountpoint, and only then starts the application.
+Compose project and volume identity labels and verifies that identity against a
+real mountpoint. It accepts either empty storage or the single real
+`chrome-profile/` directory that a failed first candidate leaves for explicit
+operator verification. Any application state, symlinked profile, or other
+top-level entry fails closed before the application starts.
 `rental-deploy.timer` invokes a stable bootstrap launcher for first
 installation and the verified current release thereafter. Deployment shares
 the global operations lock, snapshots before mutation, verifies startup and a
@@ -197,12 +200,15 @@ running linting, formatting, and tests. The production image performs a
 separate `npm ci --omit=dev`, so development-only tooling is not deployed.
 
 The Linux AMD64 production image is based on the immutable multi-platform
-digest of the official Node.js 24.18.0 Bookworm Slim image. It installs Chrome
-for Testing 150.0.7871.24, the revision declared by Puppeteer Core 25.3.0, using
-Puppeteer's browser installer. Chrome's own `deb.deps` manifest is resolved
-against the Debian snapshot dated 2026-07-13, making the browser libraries part
-of the image build rather than undocumented host state. OCI image labels expose
-the exact Node and browser versions for deployment inventory and verification.
+digest of the official Node.js 24.18.0 Bookworm Slim image. It installs the
+known-good Chrome for Testing 150.0.7871.124 patch from Puppeteer Core 25.3.0's
+supported Chrome 150 milestone using Puppeteer's browser installer. The patched
+build is required for both headless service operation and headful production
+verification; the milestone's earlier `.24` build terminates during Linux X11
+startup. Chrome's own `deb.deps` manifest is resolved against the Debian
+snapshot dated 2026-07-13, making the browser libraries part of the image build
+rather than undocumented host state. OCI image labels expose the exact Node and
+browser versions for deployment inventory and verification.
 
 ### Continuous integration and artifact provenance
 

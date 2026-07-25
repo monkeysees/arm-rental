@@ -14,7 +14,7 @@ import test from "node:test";
 import { observeStateWrites, readState, writeState } from "../src/state.js";
 
 test("state is atomically persisted and malformed JSON is reported clearly", async (t) => {
-  const directory = await mkdtemp(path.join(tmpdir(), "rental-appts-"));
+  const directory = await mkdtemp(path.join(tmpdir(), "arm-rental-"));
   t.after(() => rm(directory, { recursive: true, force: true }));
   const filename = path.join(directory, "nested", "state.json");
 
@@ -36,7 +36,7 @@ test("state is atomically persisted and malformed JSON is reported clearly", asy
 });
 
 test("state write flushes a mode-0600 temporary file and containing directory", async (t) => {
-  const directory = await mkdtemp(path.join(tmpdir(), "rental-appts-"));
+  const directory = await mkdtemp(path.join(tmpdir(), "arm-rental-"));
   t.after(() => rm(directory, { recursive: true, force: true }));
   const filename = path.join(directory, "state.json");
   const syncs = [];
@@ -74,7 +74,7 @@ test("state write flushes a mode-0600 temporary file and containing directory", 
 });
 
 test("flush, rename, validation, and directory-sync failures preserve prior state", async (t) => {
-  const directory = await mkdtemp(path.join(tmpdir(), "rental-appts-"));
+  const directory = await mkdtemp(path.join(tmpdir(), "arm-rental-"));
   t.after(() => rm(directory, { recursive: true, force: true }));
   const filename = path.join(directory, "state.json");
   const prior = `${JSON.stringify({ version: 1, value: "prior" }, null, 2)}\n`;
@@ -144,7 +144,7 @@ test("flush, rename, validation, and directory-sync failures preserve prior stat
 });
 
 test("state writes expose byte and duration metrics without making telemetry part of durability", async (t) => {
-  const directory = await mkdtemp(path.join(tmpdir(), "rental-appts-"));
+  const directory = await mkdtemp(path.join(tmpdir(), "arm-rental-"));
   t.after(() => rm(directory, { recursive: true, force: true }));
   const filename = path.join(directory, "apartments.json");
   const metrics = [];

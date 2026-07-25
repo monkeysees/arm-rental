@@ -40,7 +40,7 @@ On the operator machine, install Node through `nvm`, the GitHub and Hetzner
 CLIs, and the local validation tools. On macOS with Homebrew:
 
 ```sh
-cd /path/to/rental-appts
+cd /path/to/arm-rental
 nvm install
 nvm use
 brew install gh hcloud jq shellcheck
@@ -66,7 +66,7 @@ continuing.
 Start from a clean checkout and inspect everything that will enter `main`:
 
 ```sh
-cd /path/to/rental-appts
+cd /path/to/arm-rental
 git status --short
 git fetch origin
 git log --oneline origin/main..HEAD

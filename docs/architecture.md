@@ -2,6 +2,10 @@
 
 ## Purpose
 
+The repository, checkout, and container-package identifier is `arm-rental`.
+Runtime resources retain the established `rental-apartments` prefix so existing
+production paths, systemd units, and persistent storage remain stable.
+
 The application discovers long-term apartment rentals from List.am for a
 private owner-only Telegram bot and, when configured, a public Telegram channel.
 It reads only the site's **Regular Ads** section and ignores **Top Ads**. The

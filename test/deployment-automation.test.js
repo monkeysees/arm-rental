@@ -8,7 +8,7 @@ import test from "node:test";
 
 const executeFile = promisify(execFile);
 const digest = (character = "a") =>
-  `ghcr.io/example/rental-appts@sha256:${character.repeat(64)}`;
+  `ghcr.io/example/arm-rental@sha256:${character.repeat(64)}`;
 
 test("deployment quarantine is digest keyed, sanitized, and explicitly clearable", async (t) => {
   const temporaryDirectory = await mkdtemp(
@@ -76,7 +76,7 @@ exit 9
     RENTAL_OPS_STATE_DIR=$1
     source ops/lib/common.sh
     source ops/lib/deployment.sh
-    test "$(deployment_resolve_discovery ghcr.io/example/rental-appts)" = "$2"
+    test "$(deployment_resolve_discovery ghcr.io/example/arm-rental)" = "$2"
   `;
   await executeFile(
     "bash",
@@ -98,7 +98,7 @@ test("deployment evidence is exclusive and retention tracks three complete relea
     source ops/lib/common.sh
     source ops/lib/deployment.sh
     for character in a b c d; do
-      candidate="ghcr.io/example/rental-appts@sha256:"
+      candidate="ghcr.io/example/arm-rental@sha256:"
       candidate+=$(printf '%064d' 0 | tr 0 "$character")
       evidence=$(deployment_write_evidence \
         success systemd:rental-deploy "$candidate" "" "${2}" \

@@ -115,7 +115,7 @@ test("published release metadata binds the scanned registry digest and host bund
   const operations = Buffer.from("exact operational bundle");
   const operationsPath = join(temporaryDirectory, "operations.tar");
   await writeFile(operationsPath, operations);
-  const imageReference = `ghcr.io/example/rental-appts@sha256:${"d".repeat(64)}`;
+  const imageReference = `ghcr.io/example/arm-rental@sha256:${"d".repeat(64)}`;
 
   const metadata = await createReleaseMetadata({
     sourceRevision: "b".repeat(40),
@@ -145,7 +145,7 @@ test("published release metadata binds the scanned registry digest and host bund
   await assert.rejects(
     createReleaseMetadata({
       sourceRevision: "b".repeat(40),
-      imageReference: "ghcr.io/example/rental-appts:production",
+      imageReference: "ghcr.io/example/arm-rental:production",
       operationsBundle: operationsPath,
     }),
     /immutable registry digest/u,

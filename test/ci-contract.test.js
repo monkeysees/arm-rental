@@ -106,3 +106,79 @@ test("release manifest binds the deployable image to its complete inputs", async
     /full 40-character Git SHA/u,
   );
 });
+
+test("published release metadata binds the scanned registry digest and host bundle", async (t) => {
+  const temporaryDirectory = await mkdtemp(
+    join(tmpdir(), "published-metadata-"),
+  );
+  t.after(() => rm(temporaryDirectory, { recursive: true, force: true }));
+  const operations = Buffer.from("exact operational bundle");
+  const operationsPath = join(temporaryDirectory, "operations.tar");
+  await writeFile(operationsPath, operations);
+  const imageReference = `ghcr.io/example/rental-appts@sha256:${"d".repeat(64)}`;
+
+  const metadata = await createReleaseMetadata({
+    sourceRevision: "b".repeat(40),
+    imageReference,
+    operationsBundle: operationsPath,
+  });
+  const [packageLock, compose] = await Promise.all([
+    readProjectFile("package-lock.json"),
+    readProjectFile("compose.production.yaml"),
+  ]);
+
+  assert.equal(metadata.schemaVersion, 2);
+  assert.equal(metadata.imageReference, imageReference);
+  assert.equal(metadata.imageDigest, `sha256:${"d".repeat(64)}`);
+  assert.equal(
+    metadata.packageLockSha256,
+    createHash("sha256").update(packageLock).digest("hex"),
+  );
+  assert.equal(
+    metadata.composeSha256,
+    createHash("sha256").update(compose).digest("hex"),
+  );
+  assert.equal(
+    metadata.operationsBundleSha256,
+    createHash("sha256").update(operations).digest("hex"),
+  );
+  await assert.rejects(
+    createReleaseMetadata({
+      sourceRevision: "b".repeat(40),
+      imageReference: "ghcr.io/example/rental-appts:production",
+      operationsBundle: operationsPath,
+    }),
+    /immutable registry digest/u,
+  );
+});
+
+test("production publication advances discovery only after scan, push, and metadata", async () => {
+  const workflow = await readProjectFile(
+    ".github/workflows/publish-production.yml",
+  );
+  const scan = workflow.indexOf("name: Scan candidate before publication");
+  const push = workflow.indexOf(
+    "name: Push immutable candidate and capture scanned digest",
+  );
+  const metadata = workflow.indexOf(
+    "name: Publish digest-bound release metadata",
+  );
+  const production = workflow.indexOf(
+    "name: Advance production discovery pointer",
+  );
+
+  assert.ok(
+    scan > 0 && scan < push && push < metadata && metadata < production,
+  );
+  assert.match(workflow, /workflow_run\.conclusion == 'success'/u);
+  assert.match(workflow, /workflow_run\.head_branch == 'main'/u);
+  assert.match(workflow, /group: production-publication/u);
+  assert.match(workflow, /cancel-in-progress: false/u);
+  assert.match(workflow, /image-ref: rental-apartments-bot:publication/u);
+  assert.match(workflow, /docker push "\$METADATA_TAG"/u);
+  assert.match(workflow, /docker push "\$IMAGE_REPOSITORY:production"/u);
+  assert.doesNotMatch(
+    workflow.slice(0, production),
+    /docker push "\$IMAGE_REPOSITORY:production"/u,
+  );
+});

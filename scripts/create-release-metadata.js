@@ -12,15 +12,23 @@ function parseArguments(arguments_) {
     const value = arguments_[index + 1];
     if (!name?.startsWith("--") || value === undefined) {
       throw new Error(
-        "Usage: create-release-metadata --source-revision SHA --image-archive PATH --output PATH",
+        "Usage: create-release-metadata --source-revision SHA (--image-archive PATH | --image-reference REPO@DIGEST --operations-bundle PATH) --output PATH",
       );
     }
     values[name.slice(2)] = value;
   }
-  for (const required of ["source-revision", "image-archive", "output"]) {
+  for (const required of ["source-revision", "output"]) {
     if (!values[required]) {
       throw new Error(`Missing required --${required} argument`);
     }
+  }
+  if (Boolean(values["image-archive"]) === Boolean(values["image-reference"])) {
+    throw new Error(
+      "Exactly one of --image-archive or --image-reference is required",
+    );
+  }
+  if (values["image-reference"] && !values["operations-bundle"]) {
+    throw new Error("--operations-bundle is required with --image-reference");
   }
   return values;
 }
@@ -32,20 +40,47 @@ function sha256(content) {
 export async function createReleaseMetadata({
   sourceRevision,
   imageArchive,
+  imageReference,
+  operationsBundle,
   rootDirectory = projectRoot,
 }) {
   if (!/^[a-f0-9]{40}$/u.test(sourceRevision)) {
     throw new Error("source revision must be a full 40-character Git SHA");
   }
 
-  const [nodeVersionText, dockerfile, packageLock, archive] = await Promise.all(
-    [
-      readFile(resolve(rootDirectory, ".nvmrc"), "utf8"),
-      readFile(resolve(rootDirectory, "Dockerfile"), "utf8"),
-      readFile(resolve(rootDirectory, "package-lock.json")),
-      readFile(imageArchive),
-    ],
-  );
+  if (Boolean(imageArchive) === Boolean(imageReference)) {
+    throw new Error("provide exactly one image archive or image reference");
+  }
+  if (
+    imageReference &&
+    !/^[a-z0-9][a-z0-9._/-]*@sha256:[a-f0-9]{64}$/u.test(imageReference)
+  ) {
+    throw new Error(
+      "image reference must contain an immutable registry digest",
+    );
+  }
+  if (imageReference && !operationsBundle) {
+    throw new Error("operations bundle is required for registry publication");
+  }
+
+  const reads = [
+    readFile(resolve(rootDirectory, ".nvmrc"), "utf8"),
+    readFile(resolve(rootDirectory, "Dockerfile"), "utf8"),
+    readFile(resolve(rootDirectory, "package-lock.json")),
+    imageArchive ? readFile(imageArchive) : Promise.resolve(undefined),
+    imageReference
+      ? readFile(resolve(rootDirectory, "compose.production.yaml"))
+      : Promise.resolve(undefined),
+    operationsBundle ? readFile(operationsBundle) : Promise.resolve(undefined),
+  ];
+  const [
+    nodeVersionText,
+    dockerfile,
+    packageLock,
+    archive,
+    compose,
+    operations,
+  ] = await Promise.all(reads);
   const browserVersion = dockerfile.match(
     /^ARG CHROME_VERSION=(?<version>[0-9.]+)$/mu,
   )?.groups?.version;
@@ -53,12 +88,25 @@ export async function createReleaseMetadata({
     throw new Error("Dockerfile must declare a pinned CHROME_VERSION");
   }
 
-  return {
+  const common = {
     schemaVersion: 1,
     sourceRevision,
     nodeVersion: nodeVersionText.trim(),
     browserVersion,
     packageLockSha256: sha256(packageLock),
+  };
+  if (imageReference) {
+    return {
+      ...common,
+      schemaVersion: 2,
+      imageReference,
+      imageDigest: imageReference.slice(imageReference.indexOf("@") + 1),
+      composeSha256: sha256(compose),
+      operationsBundleSha256: sha256(operations),
+    };
+  }
+  return {
+    ...common,
     imageArchive: {
       file: basename(imageArchive),
       sha256: sha256(archive),
@@ -71,6 +119,8 @@ async function main() {
   const metadata = await createReleaseMetadata({
     sourceRevision: arguments_["source-revision"],
     imageArchive: arguments_["image-archive"],
+    imageReference: arguments_["image-reference"],
+    operationsBundle: arguments_["operations-bundle"],
   });
   await writeFile(
     arguments_.output,

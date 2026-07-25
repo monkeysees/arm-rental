@@ -1,0 +1,12 @@
+[Unit]
+Description=Poll for an approved rental apartments production digest
+
+[Timer]
+OnBootSec=5min
+OnCalendar=*-*-* *:00/5:00 UTC
+Persistent=true
+AccuracySec=15s
+Unit=rental-deploy.service
+
+[Install]
+WantedBy=timers.target

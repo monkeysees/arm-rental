@@ -14,7 +14,7 @@ const DELIVERY_MODES = new Set(["private", "channel", "both"]);
 const STATE_STRATEGIES = new Set(["compatible", "restore"]);
 const ARGUMENT_NAMES = new Set([
   "environment",
-  "operator",
+  "actor",
   "image",
   "previous-image",
   "snapshot",
@@ -30,7 +30,7 @@ function usage() {
   return [
     "Usage:",
     "  node scripts/release-operations.js validate|deploy|rollback \\",
-    "    --environment production --operator NAME \\",
+    "    --environment production --actor IDENTITY \\",
     "    --image IMMUTABLE_REF --previous-image IMMUTABLE_REF \\",
     "    --snapshot /app-backups/daily/ID --poll-interval-ms MS \\",
     "    --observation-minutes MINUTES --delivery private|channel|both \\",
@@ -104,12 +104,16 @@ export function createReleaseContract(raw) {
     throw new Error("--environment must be production");
   }
 
-  const operator = requiredString(raw.operator, "operator");
+  const actor = requiredString(raw.actor, "actor");
   if (
-    operator.length < 3 ||
-    /^(?:unknown|n\/a|none|operator|automation)$/iu.test(operator)
+    actor.length < 3 ||
+    /^(?:unknown|n\/a|none|operator|actor|automation|systemd|github-actions)$/iu.test(
+      actor,
+    )
   ) {
-    throw new Error("--operator must name the accountable human operator");
+    throw new Error(
+      "--actor must identify the accountable human or automation execution",
+    );
   }
 
   const image = immutableReference(raw.image, "image");
@@ -167,7 +171,7 @@ export function createReleaseContract(raw) {
     schemaVersion: 1,
     operation: raw.operation,
     environment,
-    operator,
+    actor,
     image,
     previousImage,
     snapshot,
@@ -448,7 +452,7 @@ async function writeEvidence(contract, runtime, evidence, startedAt) {
     schemaVersion: 1,
     operation: contract.operation,
     environment: contract.environment,
-    operator: contract.operator,
+    actor: contract.actor,
     image: contract.image,
     previousImage: contract.previousImage,
     retainedPreviousArtifact: true,

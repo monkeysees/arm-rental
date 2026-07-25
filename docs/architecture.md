@@ -74,6 +74,19 @@ remain on the separately mounted backup filesystem, while monthly restore
 drills use exactly named and labeled temporary resources with networking,
 Telegram polling, and delivery disabled.
 
+### Unattended publication and deployment
+
+GitHub Actions serializes production publication and advances the mutable GHCR
+`production` tag only after the scanned image, immutable metadata, and
+provenance objects exist. The tag is discovery-only: the VPS validates
+digest-bound metadata and persists an immutable image reference.
+`rental-deploy.timer` invokes a stable bootstrap launcher for first
+installation and the verified current release thereafter. Deployment shares
+the global operations lock, snapshots before mutation, verifies startup and a
+complete observation window, atomically advances runtime pointers, and
+restores the prior snapshot and digest on failure. Failed candidate digests are
+quarantined to prevent retry loops.
+
 ### Health and readiness boundary
 
 `src/health.js` owns a sanitized, in-memory operational projection. It does not

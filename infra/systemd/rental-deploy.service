@@ -1,0 +1,17 @@
+[Unit]
+Description=Discover and deploy an approved rental apartments production digest
+Requires=docker.service
+After=docker.service network-online.target
+Wants=network-online.target
+RequiresMountsFor=/mnt/rental-apartments-backups
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/rental-deploy
+TimeoutStartSec=30min
+RuntimeMaxSec=30min
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectHome=yes
+ProtectSystem=strict
+ReadWritePaths=/opt/rental-apartments /var/lib/rental-apartments-ops /var/lib/rental-apartments/releases /mnt/rental-apartments-backups

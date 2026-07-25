@@ -1,0 +1,136 @@
+name: Publish production
+
+on:
+  workflow_run:
+    workflows:
+      - Required CI
+    types:
+      - completed
+
+permissions:
+  contents: read
+  packages: write
+
+# Once immutable objects are being pushed, a newer commit must wait. Cancelling
+# here could strand metadata or advance the discovery pointer out of order.
+concurrency:
+  group: production-publication
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    name: Publish / scanned production digest
+    if: >-
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.head_branch == 'main' &&
+      github.event.workflow_run.event == 'push'
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+
+    steps:
+      - name: Check out the exact successful revision
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+
+      - name: Use production Node.js
+        uses: actions/setup-node@395ad3262231945c25e8478fd5baf05154b1d79f # v6.1.0
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+
+      - name: Build byte-equivalent production inputs
+        env:
+          SOURCE_REVISION: ${{ github.event.workflow_run.head_sha }}
+        run: |
+          PACKAGE_LOCK_SHA256="$(sha256sum package-lock.json | cut -d ' ' -f 1)"
+          docker build \
+            --platform linux/amd64 \
+            --target production \
+            --build-arg SOURCE_REVISION="$SOURCE_REVISION" \
+            --build-arg PACKAGE_LOCK_SHA256="$PACKAGE_LOCK_SHA256" \
+            --tag rental-apartments-bot:publication \
+            .
+
+      - name: Verify pinned runtime and OCI provenance
+        env:
+          SOURCE_REVISION: ${{ github.event.workflow_run.head_sha }}
+        run: |
+          PACKAGE_LOCK_SHA256="$(sha256sum package-lock.json | cut -d ' ' -f 1)"
+          test "$(docker image inspect --format '{{ index .Config.Labels "org.opencontainers.image.revision" }}' rental-apartments-bot:publication)" = "$SOURCE_REVISION"
+          test "$(docker image inspect --format '{{ index .Config.Labels "org.opencontainers.image.node.version" }}' rental-apartments-bot:publication)" = "24.18.0"
+          test "$(docker image inspect --format '{{ index .Config.Labels "org.opencontainers.image.chrome.version" }}' rental-apartments-bot:publication)" = "150.0.7871.24"
+          test "$(docker image inspect --format '{{ index .Config.Labels "org.opencontainers.image.package-lock.sha256" }}' rental-apartments-bot:publication)" = "$PACKAGE_LOCK_SHA256"
+          test "$(docker run --rm --entrypoint node rental-apartments-bot:publication --version)" = "v24.18.0"
+
+      # This scan occurs before the first registry mutation. The pushed revision
+      # tag and production pointer both reference these exact local bytes.
+      - name: Scan candidate before publication
+        uses: aquasecurity/trivy-action@57a97c7e7821a5776cebc9bb87c984fa69cba8f1 # 0.35.0
+        with:
+          image-ref: rental-apartments-bot:publication
+          scanners: vuln
+          vuln-type: os,library
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          exit-code: 1
+          version: v0.69.3
+
+      - name: Authenticate to GHCR
+        env:
+          GHCR_TOKEN: ${{ github.token }}
+        run: printf '%s' "$GHCR_TOKEN" | docker login ghcr.io --username "${{ github.actor }}" --password-stdin
+
+      - name: Push immutable candidate and capture scanned digest
+        id: candidate
+        env:
+          SOURCE_REVISION: ${{ github.event.workflow_run.head_sha }}
+        run: |
+          IMAGE_REPOSITORY="ghcr.io/${GITHUB_REPOSITORY,,}"
+          REVISION_TAG="$IMAGE_REPOSITORY:revision-$SOURCE_REVISION"
+          docker tag rental-apartments-bot:publication "$REVISION_TAG"
+          docker push "$REVISION_TAG"
+          IMAGE_REFERENCE="$(docker image inspect --format '{{index .RepoDigests 0}}' "$REVISION_TAG")"
+          case "$IMAGE_REFERENCE" in
+            "$IMAGE_REPOSITORY"@sha256:????????????????????????????????????????????????????????????????) ;;
+            *) printf 'Registry did not return an immutable digest\n' >&2; exit 1 ;;
+          esac
+          printf 'image_repository=%s\n' "$IMAGE_REPOSITORY" >> "$GITHUB_OUTPUT"
+          printf 'image_reference=%s\n' "$IMAGE_REFERENCE" >> "$GITHUB_OUTPUT"
+
+      - name: Publish digest-bound release metadata
+        env:
+          SOURCE_REVISION: ${{ github.event.workflow_run.head_sha }}
+          IMAGE_REPOSITORY: ${{ steps.candidate.outputs.image_repository }}
+          IMAGE_REFERENCE: ${{ steps.candidate.outputs.image_reference }}
+        run: |
+          mkdir -p release metadata-image
+          git archive --format=tar HEAD ops infra/systemd > release/operations.tar
+          node scripts/create-release-metadata.js \
+            --source-revision "$SOURCE_REVISION" \
+            --image-reference "$IMAGE_REFERENCE" \
+            --operations-bundle release/operations.tar \
+            --output release/release-metadata.json
+          cp release/release-metadata.json metadata-image/release-metadata.json
+          printf '%s\n' \
+            'FROM scratch' \
+            'COPY release-metadata.json /release-metadata.json' \
+            > metadata-image/Dockerfile
+          METADATA_TAG="$IMAGE_REPOSITORY:metadata-$SOURCE_REVISION"
+          docker build --tag "$METADATA_TAG" metadata-image
+          docker push "$METADATA_TAG"
+          METADATA_CONTAINER="$(docker create "$METADATA_TAG")"
+          trap 'docker rm "$METADATA_CONTAINER" >/dev/null' EXIT
+          docker cp "$METADATA_CONTAINER:/release-metadata.json" release/published-metadata.json
+          cmp release/release-metadata.json release/published-metadata.json
+
+      # This is intentionally last: the host sees a new digest only after the
+      # candidate, its exact metadata, and every earlier quality gate exist.
+      - name: Advance production discovery pointer
+        env:
+          IMAGE_REPOSITORY: ${{ steps.candidate.outputs.image_repository }}
+          IMAGE_REFERENCE: ${{ steps.candidate.outputs.image_reference }}
+        run: |
+          docker tag "$IMAGE_REFERENCE" "$IMAGE_REPOSITORY:production"
+          docker push "$IMAGE_REPOSITORY:production"
+          test "$(docker image inspect --format '{{index .RepoDigests 0}}' "$IMAGE_REPOSITORY:production")" = "$IMAGE_REFERENCE"

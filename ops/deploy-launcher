@@ -1,0 +1,19 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+
+# This stable host entry point breaks the first-install dependency on the
+# /opt/rental-apartments/current symlink. Bootstrap installs a reviewed copy of
+# the complete ops bundle; after the first verified deployment, subsequent
+# invocations automatically execute the release-pinned implementation.
+CURRENT_DEPLOY=/opt/rental-apartments/current/ops/deploy
+BOOTSTRAP_DEPLOY=/usr/local/lib/rental-apartments-bootstrap/ops/deploy
+
+if [[ -x $CURRENT_DEPLOY ]]; then
+  exec "$CURRENT_DEPLOY" "$@"
+fi
+if [[ -x $BOOTSTRAP_DEPLOY ]]; then
+  exec "$BOOTSTRAP_DEPLOY" "$@"
+fi
+
+printf 'No verified current or bootstrap deployment runner is installed\n' >&2
+exit 69

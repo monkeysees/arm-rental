@@ -44,15 +44,45 @@ The release manifest binds the archive to:
 
 The source revision, runtime versions, and lock digest are duplicated as OCI
 labels so operators can verify metadata after loading the archive. The uploaded
-artifact is retained for 14 days. Deployment automation must consume that exact
-archive rather than rebuilding it.
+artifact is retained for 14 days as CI debugging and recovery evidence.
+
+## Production publication
+
+`Publish production` is a separate `workflow_run` workflow. It can run only
+after a successful `Required CI` push to `main`, checks out the triggering
+workflow's exact `head_sha`, and rebuilds byte-equivalent inputs with the same
+pinned Dockerfile arguments. Publication repeats runtime-label validation and
+the blocking Trivy scan so no registry object can appear if the published bytes
+diverge from the required artifact job.
+
+The workflow uses the single `production-publication` concurrency group with
+`cancel-in-progress: false`. Once a run starts publishing, a newer run waits;
+it cannot cancel a publisher between immutable-object creation and pointer
+advancement.
+
+Registry mutation occurs in this order:
+
+1. authenticate with the workflow-scoped package token;
+2. push the exact scanned local image and capture its
+   `ghcr.io/<repository>@sha256:<digest>` reference;
+3. create and push digest-bound release metadata containing the source
+   revision, image digest, package-lock digest, production Compose digest, and
+   deterministic operations-bundle digest;
+4. extract and compare the published metadata; and
+5. tag those same local image bytes as `production` and push that discovery
+   pointer.
+
+The VPS never deploys the mutable tag. It resolves the pointer, validates the
+metadata object and exact Git commit, and renders Compose with the resulting
+digest. See [release and rollback](release-and-rollback.md).
 
 All GitHub Actions references use full commit SHAs, and the Trivy binary version
 is fixed. Dependabot opens monthly pull requests for npm, Docker, and GitHub
 Actions updates. Updates remain subject to both required checks and human
 review; no update workflow merges or mutates production automatically.
 
-The vulnerability database download, production image build, Trivy scan, and
-artifact upload require GitHub-hosted network and artifact services. They
-cannot be fully reproduced by `npm run check`; use the required hosted jobs as
+The vulnerability database download, production image build, Trivy scan,
+artifact upload, GHCR push, and registry digest resolution require
+GitHub-hosted network and package services. They cannot be fully reproduced by
+`npm run check`; use the required hosted jobs and the publication receipt as
 the release authority.

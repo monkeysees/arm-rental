@@ -14,7 +14,7 @@ const digest = (name, character) => `${name}@sha256:${character.repeat(64)}`;
 const completeArguments = {
   operation: "deploy",
   environment: "production",
-  operator: "Alex Operator",
+  actor: "Alex Operator",
   image: digest("registry.example/bot", "a"),
   "previous-image": digest("registry.example/bot", "b"),
   snapshot: "/app-backups/daily/2026-07-25T00:00:00.000Z",
@@ -32,7 +32,7 @@ test("release contract requires immutable artifacts and a complete observation w
 
   for (const [change, expected] of [
     [{ image: "registry.example/bot:latest" }, /immutable image/u],
-    [{ operator: "unknown" }, /accountable human/u],
+    [{ actor: "unknown" }, /human or automation/u],
     [{ snapshot: "/app-backups/.snapshot-temporary" }, /published/u],
     [{ "observation-minutes": "5" }, /crawl interval plus five minutes/u],
   ]) {
@@ -67,7 +67,7 @@ test("release contract is production-only and validation does not invoke Docker"
     "validate",
     "--environment",
     "production",
-    "--operator",
+    "--actor",
     "Alex Operator",
     "--image",
     digest("registry.example/bot", "a"),

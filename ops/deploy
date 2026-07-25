@@ -1,0 +1,274 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+
+SCRIPT_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
+# shellcheck source=ops/lib/operations.sh
+source "$SCRIPT_DIR/lib/operations.sh"
+# shellcheck source=ops/lib/deployment.sh
+source "$SCRIPT_DIR/lib/deployment.sh"
+
+DEPLOYMENT_RESTART_REQUIRED=0
+DEPLOYMENT_TEMPORARY_DIR=""
+DEPLOYMENT_CANDIDATE=""
+DEPLOYMENT_PREVIOUS=""
+DEPLOYMENT_SOURCE_REVISION=""
+DEPLOYMENT_RELEASE=""
+DEPLOYMENT_CANDIDATE_ENV=""
+DEPLOYMENT_SNAPSHOT=""
+DEPLOYMENT_FIRST_INSTALL=false
+DEPLOYMENT_PREVIOUS_RELEASE=""
+DEPLOYMENT_PREVIOUS_ENV=""
+
+ops_cleanup() {
+  local _original_status=$1
+  if [[ -n $DEPLOYMENT_TEMPORARY_DIR && -d $DEPLOYMENT_TEMPORARY_DIR ]]; then
+    rm -rf -- "$DEPLOYMENT_TEMPORARY_DIR"
+  fi
+  if ((DEPLOYMENT_RESTART_REQUIRED == 1)); then
+    ops_start_application
+  fi
+}
+
+usage() {
+  printf '%s\n' \
+    'Usage: deploy [--actor IDENTITY]' \
+    '       deploy --clear-quarantine REPOSITORY@sha256:DIGEST [--actor IDENTITY]'
+}
+
+actor=systemd:rental-deploy
+clear_quarantine=""
+while (($#)); do
+  case $1 in
+    --actor)
+      (($# >= 2)) || {
+        usage >&2
+        exit 64
+      }
+      actor=$2
+      shift 2
+      ;;
+    --clear-quarantine)
+      (($# >= 2)) || {
+        usage >&2
+        exit 64
+      }
+      clear_quarantine=$2
+      shift 2
+      ;;
+    *)
+      usage >&2
+      exit 64
+      ;;
+  esac
+done
+deployment_validate_actor "$actor" || {
+  printf 'Actor must identify a human or stable automation execution\n' >&2
+  exit 64
+}
+
+ops_begin deployment rental-deploy
+ops_acquire_lock
+ops_require_absolute_path "RENTAL_ENV_FILE" "$RENTAL_ENV_FILE"
+[[ -f $RENTAL_ENV_FILE && ! -L $RENTAL_ENV_FILE ]]
+[[ $(stat --format='%a' "$RENTAL_ENV_FILE") == 600 ]]
+
+if [[ -n $clear_quarantine ]]; then
+  deployment_clear_quarantine "$clear_quarantine"
+  deployment_emit deployment.quarantine.cleared success "$clear_quarantine"
+  exit 0
+fi
+
+# Preflight checks are intentionally value-free: failures identify only the
+# missing boundary and never render production configuration or credentials.
+findmnt --mountpoint "$RENTAL_BACKUP_ROOT" >/dev/null
+(( $(df --output=avail -k "$RENTAL_OPS_STATE_DIR" | tail -n 1) >= RENTAL_MINIMUM_FREE_KB ))
+docker info >/dev/null
+docker volume inspect "$RENTAL_BACKUP_VOLUME" >/dev/null
+
+repository=$(deployment_read_setting GHCR_IMAGE_REPOSITORY)
+username=$(deployment_read_setting GHCR_USERNAME)
+token=$(deployment_read_setting GHCR_READ_TOKEN)
+[[ $repository =~ ^ghcr\.io/[a-z0-9][a-z0-9._/-]*$ ]]
+[[ $username =~ ^[A-Za-z0-9][A-Za-z0-9_-]*$ ]]
+
+DEPLOYMENT_TEMPORARY_DIR=$(mktemp -d "$RENTAL_OPS_STATE_DIR/.deploy.XXXXXX")
+chmod 0700 "$DEPLOYMENT_TEMPORARY_DIR"
+export DOCKER_CONFIG="$DEPLOYMENT_TEMPORARY_DIR/docker"
+install -d -m 0700 "$DOCKER_CONFIG"
+printf '%s' "$token" | docker login ghcr.io --username "$username" --password-stdin >/dev/null
+unset token
+
+DEPLOYMENT_CANDIDATE=$(deployment_resolve_discovery "$repository")
+if [[ -f $RENTAL_IMAGE_ENV_FILE ]]; then
+  DEPLOYMENT_PREVIOUS=$(ops_read_image_reference)
+  if [[ $DEPLOYMENT_CANDIDATE == "$DEPLOYMENT_PREVIOUS" ]]; then
+    deployment_emit deployment.noop success "$DEPLOYMENT_CANDIDATE"
+    exit 0
+  fi
+  ops_validate_runtime_contract
+  [[ -L $RENTAL_CURRENT_LINK ]]
+  DEPLOYMENT_PREVIOUS_RELEASE=$(readlink -f "$RENTAL_CURRENT_LINK")
+  [[ $DEPLOYMENT_PREVIOUS_RELEASE == "$RENTAL_RELEASES_ROOT"/* ]]
+  systemctl is-active --quiet "$RENTAL_APP_SERVICE"
+else
+  DEPLOYMENT_FIRST_INSTALL=true
+  [[ ! -e $RENTAL_CURRENT_LINK ]]
+fi
+
+if deployment_is_quarantined "$DEPLOYMENT_CANDIDATE"; then
+  deployment_emit deployment.quarantine.skipped success \
+    "$DEPLOYMENT_CANDIDATE" "$DEPLOYMENT_PREVIOUS"
+  exit 0
+fi
+
+DEPLOYMENT_SOURCE_REVISION=$(
+  docker image inspect \
+    --format '{{index .Config.Labels "org.opencontainers.image.revision"}}' \
+    "$DEPLOYMENT_CANDIDATE"
+)
+[[ $DEPLOYMENT_SOURCE_REVISION =~ ^[0-9a-f]{40}$ ]]
+metadata="$DEPLOYMENT_TEMPORARY_DIR/release-metadata.json"
+deployment_extract_metadata "$repository" "$DEPLOYMENT_SOURCE_REVISION" "$metadata"
+DEPLOYMENT_RELEASE=$(
+  deployment_fetch_release \
+    "$repository" \
+    "$DEPLOYMENT_CANDIDATE" \
+    "$DEPLOYMENT_SOURCE_REVISION" \
+    "$metadata"
+)
+DEPLOYMENT_CANDIDATE_ENV="$DEPLOYMENT_TEMPORARY_DIR/candidate-image.env"
+deployment_write_image_environment \
+  "$DEPLOYMENT_CANDIDATE_ENV" "$DEPLOYMENT_CANDIDATE"
+deployment_validate_compose "$DEPLOYMENT_RELEASE" "$DEPLOYMENT_CANDIDATE_ENV"
+if [[ $DEPLOYMENT_FIRST_INSTALL == false ]]; then
+  DEPLOYMENT_PREVIOUS_ENV="$DEPLOYMENT_TEMPORARY_DIR/previous-image.env"
+  deployment_write_image_environment \
+    "$DEPLOYMENT_PREVIOUS_ENV" "$DEPLOYMENT_PREVIOUS"
+fi
+
+poll_interval_ms=$(deployment_read_setting POLL_INTERVAL_MS)
+[[ $poll_interval_ms =~ ^[1-9][0-9]*$ ]]
+observation_seconds=$(((poll_interval_ms + 300000 + 999) / 1000))
+if [[ ${RENTAL_DEPLOY_TEST_MODE:-0} == 1 ]]; then
+  observation_seconds=0
+fi
+
+if [[ $DEPLOYMENT_FIRST_INSTALL == true ]]; then
+  deployment_validate_empty_storage
+else
+  DEPLOYMENT_RESTART_REQUIRED=1
+  ops_stop_application
+  ops_compose run --rm --no-deps bot node src/recovery-cli.js backup
+  DEPLOYMENT_SNAPSHOT=$(ops_latest_snapshot)
+  ops_validate_snapshot "$DEPLOYMENT_SNAPSHOT"
+fi
+
+started_epoch=$(date +%s)
+expected_channel=skipped
+if [[ -n $(deployment_read_optional_setting TELEGRAM_CHANNEL_ID) ]]; then
+  expected_channel=passed
+fi
+set +e
+deployment_compose \
+  "$DEPLOYMENT_RELEASE" "$DEPLOYMENT_CANDIDATE_ENV" \
+  up --detach --force-recreate bot
+candidate_status=$?
+if ((candidate_status == 0)); then
+  deployment_wait_candidate \
+    "$started_epoch" "$observation_seconds" "$expected_channel"
+  candidate_status=$?
+fi
+set -e
+
+if ((candidate_status == 0)); then
+  set +e
+  deployment_switch_current "$DEPLOYMENT_RELEASE" "$DEPLOYMENT_CANDIDATE"
+  finalize_status=$?
+  if ((finalize_status == 0)); then
+    systemctl start "$RENTAL_APP_SERVICE"
+    finalize_status=$?
+  fi
+  if ((finalize_status == 0)); then
+    ops_wait_ready
+    finalize_status=$?
+  fi
+  if ((finalize_status == 0)); then
+    evidence=$(
+      deployment_write_evidence \
+        success "$actor" "$DEPLOYMENT_CANDIDATE" "$DEPLOYMENT_PREVIOUS" \
+        "$DEPLOYMENT_SOURCE_REVISION" "$DEPLOYMENT_SNAPSHOT" \
+        "$DEPLOYMENT_FIRST_INSTALL" not-applicable "$DEPLOYMENT_RELEASE"
+    )
+    finalize_status=$?
+  fi
+  if ((finalize_status == 0)); then
+    deployment_update_retention_index "$evidence"
+    finalize_status=$?
+  fi
+  set -e
+  if ((finalize_status == 0)); then
+    DEPLOYMENT_RESTART_REQUIRED=0
+    deployment_emit deployment.candidate.accepted success \
+      "$DEPLOYMENT_CANDIDATE" "$DEPLOYMENT_PREVIOUS"
+    exit 0
+  fi
+  candidate_status=$finalize_status
+  if [[ $DEPLOYMENT_FIRST_INSTALL == true ]]; then
+    deployment_clear_first_install_current \
+      "$DEPLOYMENT_RELEASE" "$DEPLOYMENT_CANDIDATE"
+  else
+    deployment_restore_current \
+      "$DEPLOYMENT_PREVIOUS_RELEASE" "$DEPLOYMENT_PREVIOUS"
+  fi
+fi
+
+deployment_write_quarantine \
+  "$DEPLOYMENT_CANDIDATE" "$DEPLOYMENT_SOURCE_REVISION" \
+  candidate-verification-failed
+
+if [[ $DEPLOYMENT_FIRST_INSTALL == true ]]; then
+  deployment_compose \
+    "$DEPLOYMENT_RELEASE" "$DEPLOYMENT_CANDIDATE_ENV" stop bot || true
+  deployment_write_evidence \
+    failed "$actor" "$DEPLOYMENT_CANDIDATE" "" \
+    "$DEPLOYMENT_SOURCE_REVISION" "" true not-applicable \
+    "$DEPLOYMENT_RELEASE" >/dev/null
+  deployment_emit deployment.first-install.rejected failure "$DEPLOYMENT_CANDIDATE"
+  DEPLOYMENT_RESTART_REQUIRED=0
+  exit 1
+fi
+
+rollback_result=failed
+set +e
+deployment_compose \
+  "$DEPLOYMENT_RELEASE" "$DEPLOYMENT_CANDIDATE_ENV" stop bot
+rollback_status=$?
+if ((rollback_status == 0)); then
+  snapshot_container=$(ops_snapshot_container_path "$DEPLOYMENT_SNAPSHOT")
+  deployment_compose \
+    "$DEPLOYMENT_PREVIOUS_RELEASE" "$DEPLOYMENT_PREVIOUS_ENV" \
+    run --rm --no-deps bot \
+    node src/recovery-cli.js restore "$snapshot_container"
+  rollback_status=$?
+fi
+if ((rollback_status == 0)); then
+  ops_start_application
+  rollback_status=$?
+fi
+set -e
+DEPLOYMENT_RESTART_REQUIRED=0
+
+if ((rollback_status == 0)); then
+  rollback_result=completed
+  deployment_emit deployment.rollback.completed success \
+    "$DEPLOYMENT_CANDIDATE" "$DEPLOYMENT_PREVIOUS"
+  deployment_emit_alert "$DEPLOYMENT_CANDIDATE" "$DEPLOYMENT_PREVIOUS"
+else
+  deployment_emit deployment.rollback.failed failure \
+    "$DEPLOYMENT_CANDIDATE" "$DEPLOYMENT_PREVIOUS"
+fi
+deployment_write_evidence \
+  failed "$actor" "$DEPLOYMENT_CANDIDATE" "$DEPLOYMENT_PREVIOUS" \
+  "$DEPLOYMENT_SOURCE_REVISION" "$DEPLOYMENT_SNAPSHOT" false \
+  "$rollback_result" "$DEPLOYMENT_RELEASE" >/dev/null
+exit 1

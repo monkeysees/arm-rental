@@ -154,6 +154,59 @@ test("deployment accepts the exact operations archive and rejects broader infra"
   );
 });
 
+test("deployment observation uses the application poll default and rejects ambiguity", async (t) => {
+  const temporaryDirectory = await mkdtemp(
+    join(tmpdir(), "deploy-poll-setting-"),
+  );
+  t.after(() => rm(temporaryDirectory, { recursive: true, force: true }));
+  const environmentFile = join(temporaryDirectory, "env");
+  await writeFile(environmentFile, "GHCR_USERNAME=reader\n", { mode: 0o600 });
+  const script = `
+    set -Eeuo pipefail
+    RENTAL_OPS_STATE_DIR=$1/state
+    RENTAL_ENV_FILE=$2
+    source ops/lib/deployment.sh
+    value=$(deployment_read_optional_setting POLL_INTERVAL_MS)
+    value=\${value:-60000}
+    test "$value" = 60000
+  `;
+  await executeFile(
+    "bash",
+    [
+      "-c",
+      script,
+      "deployment-poll-setting-test",
+      temporaryDirectory,
+      environmentFile,
+    ],
+    { cwd: new URL("..", import.meta.url) },
+  );
+
+  await writeFile(
+    environmentFile,
+    "POLL_INTERVAL_MS=60000\nPOLL_INTERVAL_MS=30000\n",
+    { mode: 0o600 },
+  );
+  await assert.rejects(
+    executeFile(
+      "bash",
+      [
+        "-c",
+        script,
+        "deployment-poll-setting-test",
+        temporaryDirectory,
+        environmentFile,
+      ],
+      { cwd: new URL("..", import.meta.url) },
+    ),
+    (error) =>
+      error.code === 65 &&
+      error.stderr.includes(
+        "Optional production setting is repeated: POLL_INTERVAL_MS",
+      ),
+  );
+});
+
 test("deployment evidence is exclusive and retention tracks three complete releases", async (t) => {
   const temporaryDirectory = await mkdtemp(join(tmpdir(), "deploy-evidence-"));
   t.after(() => rm(temporaryDirectory, { recursive: true, force: true }));
@@ -221,6 +274,8 @@ test("unattended deploy contract covers no-op, first install, rollback, and fail
   assert.match(deploy, /deployment_write_quarantine/u);
   assert.match(deploy, /node src\/recovery-cli\.js backup/u);
   assert.match(deploy, /node src\/recovery-cli\.js restore/u);
+  assert.match(deploy, /deployment_read_optional_setting POLL_INTERVAL_MS/u);
+  assert.match(deploy, /poll_interval_ms=\$\{poll_interval_ms:-60000\}/u);
   assert.match(library, /minimumRetainedReleases: 3/u);
   assert.match(library, /retainedReleases/u);
   assert.match(

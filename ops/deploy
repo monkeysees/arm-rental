@@ -149,7 +149,8 @@ if [[ $DEPLOYMENT_FIRST_INSTALL == false ]]; then
     "$DEPLOYMENT_PREVIOUS_ENV" "$DEPLOYMENT_PREVIOUS"
 fi
 
-poll_interval_ms=$(deployment_read_setting POLL_INTERVAL_MS)
+poll_interval_ms=$(deployment_read_optional_setting POLL_INTERVAL_MS)
+poll_interval_ms=${poll_interval_ms:-60000}
 [[ $poll_interval_ms =~ ^[1-9][0-9]*$ ]]
 observation_seconds=$(((poll_interval_ms + 300000 + 999) / 1000))
 if [[ ${RENTAL_DEPLOY_TEST_MODE:-0} == 1 ]]; then

@@ -98,6 +98,9 @@ the operations archive against an explicit `ops/` and `infra/systemd/`
 allow-list, including only the structural `infra/` parent emitted by
 `git archive`, before extracting it into a staged release directory. The VPS
 then validates digest-bound metadata and persists an immutable image reference.
+The deployment observation window reads the application's crawl interval from
+the root-only environment file and uses the same 60-second application default
+when that optional setting is absent; repeated or malformed values fail closed.
 `rental-deploy.timer` invokes a stable bootstrap launcher for first
 installation and the verified current release thereafter. Deployment shares
 the global operations lock, snapshots before mutation, verifies startup and a

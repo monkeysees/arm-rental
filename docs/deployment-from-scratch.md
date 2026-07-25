@@ -130,6 +130,7 @@ TELEGRAM_OWNER_ID=replace-with-numeric-owner-id
 GHCR_IMAGE_REPOSITORY=ghcr.io/monkeysees/arm-rental
 GHCR_USERNAME=replace-with-read-only-package-user
 GHCR_READ_TOKEN=replace-with-read-only-package-token
+POLL_INTERVAL_MS=60000
 ```
 
 Optional channel publication settings may be added:
@@ -149,8 +150,11 @@ Chrome, backup mount, and health settings. Do not copy a developer `.data`
 directory or browser profile into this file.
 
 Expected result: the file is a regular non-symlink file with mode `0600` and
-has exactly one nonempty value for each of the five required keys. Never print
-the file for troubleshooting or attach it to launch evidence.
+has exactly one nonempty value for each of the five required keys.
+`POLL_INTERVAL_MS` may be omitted to use the application's documented
+60-second default; when present, it must not be repeated and must be one
+positive integer. Never print the file for troubleshooting or attach it to
+launch evidence.
 
 ## Phase 4: review the Hetzner plan
 

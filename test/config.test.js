@@ -12,6 +12,11 @@ import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 
+import {
+  CONFIGURATION_CATALOG,
+  productionExplicitConfigurationNames,
+  readConfigurationEnvironment,
+} from "../src/config-catalog.js";
 import { getConfig, validateStartupConfig } from "../src/config.js";
 import { LIST_AM_URL_TEMPLATE, pageUrl } from "../src/target.js";
 
@@ -51,6 +56,10 @@ test("configuration uses the requested target and initial crawl defaults", () =>
     "https://www.list.am/ru/category/56/1?n=0&cmtype=0&crc=0&gl=2&srt=3",
   );
   assert.equal(config.telegramOwnerId, 42);
+  assert.equal(config.telegramAccessMode, "public");
+  assert.deepEqual(config.telegramAllowedUserIds, []);
+  assert.equal(config.telegramUserUpdatesPerMinute, 30);
+  assert.equal(config.telegramPrivateDeliveriesPerMinute, 20);
   assert.equal(config.telegramChannelId, null);
   assert.deepEqual(config.channelFilters.locations, ["r:0"]);
   assert.equal(config.dataDirectory, "/app/.data");
@@ -69,6 +78,81 @@ test("configuration uses the requested target and initial crawl defaults", () =>
   assert.equal(config.externalRetryBaseMs, 1_000);
   assert.equal(config.externalRetryMaxMs, 60_000);
   assert.equal(config.browserCacheMaxBytes, 64 * 1024 * 1024);
+});
+
+test("configuration catalog is complete, unique, and safe to inspect offline", () => {
+  const names = CONFIGURATION_CATALOG.map(({ name }) => name);
+  const configKeys = CONFIGURATION_CATALOG.map(({ configKey }) => configKey);
+
+  assert.equal(new Set(names).size, names.length);
+  assert.equal(new Set(configKeys).size, configKeys.length);
+  for (const configuration of CONFIGURATION_CATALOG) {
+    assert.match(configuration.name, /^[A-Z][A-Z0-9_]*$/u);
+    assert.ok(configuration.parser.type);
+    assert.ok(configuration.parser.constraints);
+    assert.ok(configuration.purpose);
+    assert.equal(
+      configuration.required && configuration.defaultValue !== undefined,
+      false,
+    );
+    assert.equal(Object.isFrozen(configuration), true);
+    assert.equal(Object.isFrozen(configuration.parser), true);
+  }
+
+  assert.deepEqual(productionExplicitConfigurationNames().sort(), [
+    "BROWSER_HEADLESS",
+    "CHROME_EXECUTABLE_PATH",
+    "DATA_DIRECTORY",
+    "TELEGRAM_BOT_TOKEN",
+    "TELEGRAM_OWNER_ID",
+  ]);
+  assert.equal(
+    readConfigurationEnvironment({}, "APARTMENTS_STATE_FILE", {
+      dataDirectory: "/srv/rental-data",
+    }),
+    "/srv/rental-data/apartments.json",
+  );
+  assert.throws(
+    () => readConfigurationEnvironment({}, "TELEGRAM_BOT_TOKEN"),
+    /^Error: TELEGRAM_BOT_TOKEN is required$/u,
+  );
+
+  const accessedNames = new Set();
+  const environment = new Proxy(requiredEnvironment, {
+    get(target, property) {
+      if (typeof property === "string") accessedNames.add(property);
+      return target[property];
+    },
+  });
+  getConfig(environment, "/app");
+  assert.deepEqual([...accessedNames].sort(), names.sort());
+});
+
+test("access catalog settings parse validated defaults and bounded overrides", () => {
+  const config = getConfig({
+    ...requiredEnvironment,
+    TELEGRAM_ACCESS_MODE: "allowlist",
+    TELEGRAM_ALLOWED_USER_IDS: "7,9007199254740991",
+    TELEGRAM_USER_UPDATES_PER_MINUTE: "120",
+    TELEGRAM_PRIVATE_DELIVERIES_PER_MINUTE: "1",
+  });
+
+  assert.equal(config.telegramAccessMode, "allowlist");
+  assert.deepEqual(config.telegramAllowedUserIds, [7, 9_007_199_254_740_991]);
+  assert.equal(config.telegramUserUpdatesPerMinute, 120);
+  assert.equal(config.telegramPrivateDeliveriesPerMinute, 1);
+
+  for (const [name, value] of [
+    ["TELEGRAM_ACCESS_MODE", "private"],
+    ["TELEGRAM_ALLOWED_USER_IDS", "7,07"],
+    ["TELEGRAM_USER_UPDATES_PER_MINUTE", "4"],
+    ["TELEGRAM_PRIVATE_DELIVERIES_PER_MINUTE", "31"],
+  ]) {
+    assert.throws(
+      () => getConfig({ ...requiredEnvironment, [name]: value }),
+      new RegExp(name, "u"),
+    );
+  }
 });
 
 test("configuration relocates default persistent files together", () => {

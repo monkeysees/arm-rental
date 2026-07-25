@@ -13,6 +13,10 @@ import { constants as filesystemConstants } from "node:fs";
 import { randomUUID } from "node:crypto";
 
 import { parseChannelFilters } from "./channel.js";
+import {
+  productionExplicitConfigurationNames,
+  readConfigurationEnvironment,
+} from "./config-catalog.js";
 import { MAX_RETRY_DELAY_MS } from "./retry.js";
 import { LIST_AM_URL_TEMPLATE } from "./target.js";
 
@@ -59,6 +63,40 @@ function port(value, fallback, name) {
   const parsed = positiveInteger(value, fallback, name);
   if (parsed > 65_535) throw new Error(`${name} must be at most 65535`);
   return parsed;
+}
+
+function boundedInteger(value, minimum, maximum, name) {
+  const parsed = positiveInteger(value, undefined, name);
+  if (parsed < minimum || parsed > maximum) {
+    throw new Error(
+      `${name} must be an integer from ${minimum} through ${maximum}`,
+    );
+  }
+  return parsed;
+}
+
+function accessMode(value) {
+  const supported = new Set(["public", "owner", "allowlist"]);
+  if (!supported.has(value)) {
+    throw new Error("TELEGRAM_ACCESS_MODE must be public, owner, or allowlist");
+  }
+  return value;
+}
+
+function positiveIntegerList(value, name) {
+  if (!value) return [];
+  const values = value.split(",").map((candidate) => candidate.trim());
+  const parsedValues = values.map(Number);
+  if (
+    values.some((candidate) => !/^[1-9]\d*$/u.test(candidate)) ||
+    parsedValues.some(
+      (candidate) => !Number.isSafeInteger(candidate) || candidate <= 0,
+    ) ||
+    new Set(parsedValues).size !== parsedValues.length
+  ) {
+    throw new Error(`${name} must contain unique positive integer IDs`);
+  }
+  return parsedValues;
 }
 
 function optionalChannelId(value) {
@@ -146,9 +184,9 @@ function validatePersistentPaths(config) {
 function validateProductionConfig(env, config) {
   if (config.environmentName !== "production") return;
 
-  requireValue(env.DATA_DIRECTORY, "DATA_DIRECTORY");
-  requireValue(env.CHROME_EXECUTABLE_PATH, "CHROME_EXECUTABLE_PATH");
-  requireValue(env.BROWSER_HEADLESS, "BROWSER_HEADLESS");
+  for (const name of productionExplicitConfigurationNames()) {
+    requireValue(env[name], name);
+  }
 
   if (!path.isAbsolute(config.chromeExecutablePath)) {
     throw new Error("CHROME_EXECUTABLE_PATH must be absolute in production");
@@ -159,130 +197,151 @@ function validateProductionConfig(env, config) {
 }
 
 export function getConfig(env = process.env, cwd = process.cwd()) {
-  const telegramChannelId = optionalChannelId(env.TELEGRAM_CHANNEL_ID);
-  const dataDirectory = path.resolve(cwd, env.DATA_DIRECTORY || ".data");
-  const environmentName = runtimeMode(env.NODE_ENV);
+  const read = (name, context = {}) =>
+    readConfigurationEnvironment(env, name, context);
+  const dataDirectory = path.resolve(cwd, read("DATA_DIRECTORY"));
+  const environmentName = runtimeMode(read("NODE_ENV"));
+  const telegramChannelId = optionalChannelId(read("TELEGRAM_CHANNEL_ID"));
+  const dataContext = { dataDirectory };
 
   const config = {
     environmentName,
     dataDirectory,
     listUrlTemplate: LIST_AM_URL_TEMPLATE,
     initialPageCount: positiveInteger(
-      env.INITIAL_PAGE_COUNT,
-      10,
+      read("INITIAL_PAGE_COUNT"),
+      undefined,
       "INITIAL_PAGE_COUNT",
     ),
     initialDeliveryLimit: positiveInteger(
-      env.INITIAL_DELIVERY_LIMIT,
-      100,
+      read("INITIAL_DELIVERY_LIMIT"),
+      undefined,
       "INITIAL_DELIVERY_LIMIT",
     ),
     apartmentsStateFile: path.resolve(
       cwd,
-      env.APARTMENTS_STATE_FILE || path.join(dataDirectory, "apartments.json"),
+      read("APARTMENTS_STATE_FILE", dataContext),
     ),
     deliveryStateFile: path.resolve(
       cwd,
-      env.DELIVERY_STATE_FILE ||
-        path.join(dataDirectory, "telegram-deliveries.json"),
+      read("DELIVERY_STATE_FILE", dataContext),
     ),
     channelDeliveryStateFile: path.resolve(
       cwd,
-      env.CHANNEL_DELIVERY_STATE_FILE ||
-        path.join(dataDirectory, "telegram-channel-deliveries.json"),
+      read("CHANNEL_DELIVERY_STATE_FILE", dataContext),
     ),
     exchangeRatesStateFile: path.resolve(
       cwd,
-      env.EXCHANGE_RATES_STATE_FILE ||
-        path.join(dataDirectory, "exchange-rates.json"),
+      read("EXCHANGE_RATES_STATE_FILE", dataContext),
     ),
     telegramBotToken: requireValue(
-      env.TELEGRAM_BOT_TOKEN,
+      read("TELEGRAM_BOT_TOKEN"),
       "TELEGRAM_BOT_TOKEN",
     ),
     telegramOwnerId: positiveInteger(
-      requireValue(env.TELEGRAM_OWNER_ID, "TELEGRAM_OWNER_ID"),
+      requireValue(read("TELEGRAM_OWNER_ID"), "TELEGRAM_OWNER_ID"),
       undefined,
       "TELEGRAM_OWNER_ID",
     ),
+    telegramAccessMode: accessMode(read("TELEGRAM_ACCESS_MODE")),
+    telegramAllowedUserIds: positiveIntegerList(
+      read("TELEGRAM_ALLOWED_USER_IDS"),
+      "TELEGRAM_ALLOWED_USER_IDS",
+    ),
+    telegramUserUpdatesPerMinute: boundedInteger(
+      read("TELEGRAM_USER_UPDATES_PER_MINUTE"),
+      5,
+      120,
+      "TELEGRAM_USER_UPDATES_PER_MINUTE",
+    ),
+    telegramPrivateDeliveriesPerMinute: boundedInteger(
+      read("TELEGRAM_PRIVATE_DELIVERIES_PER_MINUTE"),
+      1,
+      30,
+      "TELEGRAM_PRIVATE_DELIVERIES_PER_MINUTE",
+    ),
     telegramChannelId,
     channelFilters: parseChannelFilters({
-      price: env.CHANNEL_FILTER_PRICE_AMD,
-      rooms: env.CHANNEL_FILTER_ROOMS,
-      locations: env.CHANNEL_FILTER_LOCATIONS,
+      price: read("CHANNEL_FILTER_PRICE_AMD"),
+      rooms: read("CHANNEL_FILTER_ROOMS"),
+      locations: read("CHANNEL_FILTER_LOCATIONS"),
     }),
     telegramStateFile: path.resolve(
       cwd,
-      env.TELEGRAM_STATE_FILE || path.join(dataDirectory, "telegram-bot.json"),
+      read("TELEGRAM_STATE_FILE", dataContext),
     ),
     telegramPollTimeoutSeconds: positiveInteger(
-      env.TELEGRAM_POLL_TIMEOUT_SECONDS,
-      25,
+      read("TELEGRAM_POLL_TIMEOUT_SECONDS"),
+      undefined,
       "TELEGRAM_POLL_TIMEOUT_SECONDS",
     ),
     pollIntervalMs: positiveInteger(
-      env.POLL_INTERVAL_MS,
-      60_000,
+      read("POLL_INTERVAL_MS"),
+      undefined,
       "POLL_INTERVAL_MS",
     ),
-    timeoutMs: positiveInteger(env.TIMEOUT_MS, 30_000, "TIMEOUT_MS"),
+    timeoutMs: positiveInteger(read("TIMEOUT_MS"), undefined, "TIMEOUT_MS"),
     externalRetryBaseMs: positiveInteger(
-      env.EXTERNAL_RETRY_BASE_MS,
-      1_000,
+      read("EXTERNAL_RETRY_BASE_MS"),
+      undefined,
       "EXTERNAL_RETRY_BASE_MS",
     ),
     externalRetryMaxMs: positiveInteger(
-      env.EXTERNAL_RETRY_MAX_MS,
-      60_000,
+      read("EXTERNAL_RETRY_MAX_MS"),
+      undefined,
       "EXTERNAL_RETRY_MAX_MS",
     ),
-    chromeExecutablePath: env.CHROME_EXECUTABLE_PATH?.trim() || undefined,
+    chromeExecutablePath: read("CHROME_EXECUTABLE_PATH")?.trim() || undefined,
     browserProfileDir: path.resolve(
       cwd,
-      env.BROWSER_PROFILE_DIR || path.join(dataDirectory, "chrome-profile"),
+      read("BROWSER_PROFILE_DIR", dataContext),
     ),
-    browserHeadless: boolean(env.BROWSER_HEADLESS, false, "BROWSER_HEADLESS"),
+    browserHeadless: boolean(
+      read("BROWSER_HEADLESS"),
+      undefined,
+      "BROWSER_HEADLESS",
+    ),
     browserChallengeTimeoutMs: positiveInteger(
-      env.BROWSER_CHALLENGE_TIMEOUT_MS,
-      120_000,
+      read("BROWSER_CHALLENGE_TIMEOUT_MS"),
+      undefined,
       "BROWSER_CHALLENGE_TIMEOUT_MS",
     ),
     browserProtocolTimeoutMs: positiveInteger(
-      env.BROWSER_PROTOCOL_TIMEOUT_MS,
-      30_000,
+      read("BROWSER_PROTOCOL_TIMEOUT_MS"),
+      undefined,
       "BROWSER_PROTOCOL_TIMEOUT_MS",
     ),
     browserCacheMaxBytes: positiveInteger(
-      env.BROWSER_CACHE_MAX_BYTES,
-      64 * 1024 * 1024,
+      read("BROWSER_CACHE_MAX_BYTES"),
+      undefined,
       "BROWSER_CACHE_MAX_BYTES",
     ),
     browserDebugPort: port(
-      env.BROWSER_DEBUG_PORT,
-      49_222,
+      read("BROWSER_DEBUG_PORT"),
+      undefined,
       "BROWSER_DEBUG_PORT",
     ),
-    backupDirectory: env.BACKUP_DIRECTORY?.trim()
-      ? path.resolve(cwd, env.BACKUP_DIRECTORY)
+    backupDirectory: read("BACKUP_DIRECTORY")?.trim()
+      ? path.resolve(cwd, read("BACKUP_DIRECTORY"))
       : undefined,
     backupDailyRetention: positiveInteger(
-      env.BACKUP_DAILY_RETENTION,
-      7,
+      read("BACKUP_DAILY_RETENTION"),
+      undefined,
       "BACKUP_DAILY_RETENTION",
     ),
     backupWeeklyRetention: positiveInteger(
-      env.BACKUP_WEEKLY_RETENTION,
-      4,
+      read("BACKUP_WEEKLY_RETENTION"),
+      undefined,
       "BACKUP_WEEKLY_RETENTION",
     ),
     diskFreeWarningFraction:
       percentage(
-        env.DISK_FREE_WARNING_PERCENT,
-        20,
+        read("DISK_FREE_WARNING_PERCENT"),
+        undefined,
         "DISK_FREE_WARNING_PERCENT",
       ) / 100,
-    healthHost: env.HEALTH_HOST?.trim() || "127.0.0.1",
-    healthPort: port(env.HEALTH_PORT, 8_787, "HEALTH_PORT"),
+    healthHost: read("HEALTH_HOST").trim(),
+    healthPort: port(read("HEALTH_PORT"), undefined, "HEALTH_PORT"),
   };
 
   if (!["127.0.0.1", "::1"].includes(config.healthHost)) {

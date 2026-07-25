@@ -355,7 +355,12 @@ only trailing whitespace before comparison, without weakening the version pin.
 `src/config.js` is the fail-fast boundary before the singleton lease and all
 long-running loops. It accepts only the `development`, `test`, and `production`
 runtime modes and validates numeric and filter ranges while building the
-configuration. Production has no implicit storage or browser choices:
+configuration. `src/config-catalog.js` is the code-owned inventory of supported
+environment inputs, including their parser constraints, runtime defaults,
+production explicitness, sensitivity classification, and documentation-safe
+purpose. `getConfig` reads environment values and defaults through that catalog;
+catalog inspection therefore does not load `.env`, runtime state, or configured
+secret and identifier values. Production has no implicit storage or browser choices:
 `NODE_ENV=production`, `DATA_DIRECTORY`, `BROWSER_HEADLESS=true`, and an
 absolute `CHROME_EXECUTABLE_PATH` must all be explicit.
 

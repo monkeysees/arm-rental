@@ -261,6 +261,8 @@ export class BrowserPageFetcher {
     const runtime = await createRuntimeDirectory(this.config.browserProfileDir);
     this.runtimeDirectory = runtime.directory;
     this.runtimeRoot = runtime.root;
+    const headfulLinux =
+      this.platform === "linux" && !this.config.browserHeadless;
     const args = [
       `--disk-cache-size=${this.config.browserCacheMaxBytes || DEFAULT_DISK_CACHE_MAX_BYTES}`,
       "--disable-blink-features=AutomationControlled",
@@ -274,8 +276,11 @@ export class BrowserPageFetcher {
       "--lang=ru-RU",
       "--no-default-browser-check",
       "--no-first-run",
-      ...(this.platform === "linux" && !this.config.browserHeadless
-        ? ["--disable-crashpad-for-testing"]
+      ...(headfulLinux
+        ? [
+            "--disable-crashpad-for-testing",
+            `--remote-debugging-address=${LOOPBACK_DEBUG_ADDRESS}`,
+          ]
         : []),
       ...(this.config.browserStartMinimized === false
         ? []
@@ -301,7 +306,7 @@ export class BrowserPageFetcher {
             executablePath,
             headless: this.config.browserHeadless,
             dumpio: this.config.browserDumpIo === true,
-            pipe: true,
+            pipe: !headfulLinux,
             userDataDir: this.config.browserProfileDir,
             defaultViewport: null,
             ignoreDefaultArgs: ["--enable-automation"],

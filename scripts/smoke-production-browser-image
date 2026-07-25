@@ -115,20 +115,21 @@ const fetcher = new BrowserPageFetcher({
   browserHeadless: headless,
   browserProfileDir: path.join(process.env.DATA_DIRECTORY, "chrome-profile"),
   browserProtocolTimeoutMs: 30_000,
-  browserStartMinimized: false,
+  browserStartMinimized: true,
   chromeExecutablePath: process.env.CHROME_EXECUTABLE_PATH,
   timeoutMs: 30_000,
 });
 
 try {
   const marker = `production-image-${headless ? "headless" : "headful"}`;
-  const response = await fetcher.fetch(
-    `data:text/html,${encodeURIComponent(
-      `<main id="contentr"><p data-browser-smoke="${marker}">${marker}</p></main>`,
-    )}`,
-  );
-  assert.equal(response.status, 200);
-  assert.match(await response.text(), new RegExp(marker, "u"));
+  const target = `data:text/html,${encodeURIComponent(
+    `<main id="contentr"><p data-browser-smoke="${marker}">${marker}</p></main>`,
+  )}`;
+  for (let attempt = 1; attempt <= 10; attempt += 1) {
+    const response = await fetcher.fetch(target);
+    assert.equal(response.status, 200);
+    assert.match(await response.text(), new RegExp(marker, "u"));
+  }
   process.stdout.write(`${marker}=passed\n`);
 } finally {
   await fetcher.close();

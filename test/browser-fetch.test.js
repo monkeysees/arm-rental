@@ -149,6 +149,7 @@ test("background macOS launch keeps remote control on loopback", async (t) => {
 test("headless launch normalizes only Chromium's headless user-agent token", async (t) => {
   const config = await temporaryConfig(t);
   const assignedUserAgents = [];
+  let launchOptions;
   const page = browserPage({
     evaluate: async () =>
       "Mozilla/5.0 Chrome-compatible HeadlessChrome/150.0.7871.181 Safari/537.36",
@@ -156,7 +157,10 @@ test("headless launch normalizes only Chromium's headless user-agent token", asy
   });
   const fetcher = new BrowserPageFetcher(config, {
     puppeteerImpl: {
-      launch: async () => launchedBrowser(page),
+      launch: async (options) => {
+        launchOptions = options;
+        return launchedBrowser(page);
+      },
     },
   });
 
@@ -166,6 +170,11 @@ test("headless launch normalizes only Chromium's headless user-agent token", asy
   assert.deepEqual(assignedUserAgents, [
     "Mozilla/5.0 Chrome-compatible Chrome/150.0.7871.181 Safari/537.36",
   ]);
+  assert.equal(
+    launchOptions.args.includes("--start-minimized"),
+    false,
+    "headless Chromium must remain visible to its renderer scheduler",
+  );
 });
 
 test("challenge detection emits an alertable event and closes Chrome", async (t) => {
@@ -258,6 +267,10 @@ test("browser interaction pacing does not depend on throttled page timers", asyn
     false,
   );
   assert.equal(
+    evaluations.some((source) => source.includes('"smooth"')),
+    false,
+  );
+  assert.equal(
     evaluations.filter((source) => source.includes("scrollBy")).length,
     2,
   );
@@ -308,6 +321,29 @@ test("a runtime failure is cleaned up and the next fetch launches a fresh browse
   for (const options of launchOptions) {
     await assertMissing(path.dirname(options.env.TMPDIR));
   }
+});
+
+test("successful headless fetches isolate sequential pages in fresh browsers", async (t) => {
+  const config = await temporaryConfig(t);
+  let launchCount = 0;
+  let closeCount = 0;
+  const fetcher = new BrowserPageFetcher(config, {
+    puppeteerImpl: {
+      launch: async () => {
+        launchCount += 1;
+        return launchedBrowser(browserPage(), () => {
+          closeCount += 1;
+        });
+      },
+    },
+  });
+
+  await fetcher.fetch("https://www.list.am/ru/category/56/1");
+  await fetcher.fetch("https://www.list.am/ru/category/56/2");
+  await fetcher.close();
+
+  assert.equal(launchCount, 2);
+  assert.equal(closeCount, 2);
 });
 
 test("cleanup terminates an owned Chrome process when protocol close fails", async (t) => {

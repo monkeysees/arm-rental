@@ -50,15 +50,24 @@ export async function runBrowserOperation(
         }),
     });
     const targetUrl = pageUrl(1, config.listUrlTemplate);
-    const response = await browserFetcher.fetch(targetUrl);
-    if (!response?.ok) {
-      throw new Error(`List.am returned HTTP ${response?.status || "unknown"}`);
+    const fetchCount = requireProduction ? config.initialPageCount : 1;
+    let regularAdsCount;
+    for (let attempt = 0; attempt < fetchCount; attempt += 1) {
+      const response = await browserFetcher.fetch(
+        pageUrl(attempt + 1, config.listUrlTemplate),
+      );
+      if (!response?.ok) {
+        throw new Error(
+          `List.am returned HTTP ${response?.status || "unknown"}`,
+        );
+      }
+      regularAdsCount = extractRegularApartments(await response.text()).length;
     }
-    const apartments = extractRegularApartments(await response.text());
-    await recordVerification(config, apartments.length);
+    await recordVerification(config, regularAdsCount);
     return {
       targetUrl,
-      regularAdsCount: apartments.length,
+      regularAdsCount,
+      sequentialFetchCount: fetchCount,
       profileDirectory: config.browserProfileDir,
     };
   } finally {

@@ -437,7 +437,10 @@ from starting concurrently.
 private interactive Chrome session, waits for the Regular Ads container, parses
 it, closes Chrome, and releases the lease. `npm run browser:smoke` is restricted
 to production configuration, retains headless mode, loads the configured target
-through the persisted profile, and logs the parsed Regular Ads count. A
+across every configured initial-crawl page through the persisted profile, and
+logs the final parsed Regular Ads count. The sequential fetches prove the
+complete preflight-to-crawl browser lifecycle rather than validating only a
+one-shot launch. A
 successful verifier followed by smoke and restarted preflight proves that
 verification state survived Chrome and application restart. Profile state is
 mounted at runtime; it is never copied from a developer `.data` directory or
@@ -459,14 +462,25 @@ container has
 the `SYS_ADMIN` capability required by Puppeteer's sandboxed Docker runtime to
 create Chrome's short-lived PID and network namespaces; it remains non-root,
 read-only, portless, and uses Chrome's sandbox rather than `--no-sandbox`.
+Headless launches never pass the window-manager-only `--start-minimized` flag.
+On constrained Linux hosts, combining that flag with headless mode can cause
+Chromium's renderer scheduler to stall navigation and page evaluation even
+though the browser process remains healthy. Interactive launches retain the
+configured minimized behavior.
+After a successful headless page capture, the fetcher closes the sandboxed
+Chromium process. The next page starts a fresh process against the same durable
+profile, preserving List.am verification cookies while preventing renderer and
+compositor state from accumulating across the ten-page crawl. Headful
+interactive operation continues to reuse its visible browser.
 After startup, headless Chromium's runtime-derived user agent is preserved
 except for normalizing its `HeadlessChrome/` product token to `Chrome/`.
 List.am otherwise re-challenges the same production profile solely because the
 headless token differs from the verified headful session. The code does not
 hard-code a browser version or replace any other user-agent field.
-Optional scrolling uses short Node-side pacing delays around synchronous
-browser evaluations; headless page-timer throttling therefore cannot consume
-the browser protocol timeout or block the following content read.
+Optional scrolling uses immediate compositor updates and short Node-side pacing
+delays around synchronous browser evaluations. Smooth-scroll animations cannot
+accumulate across navigations, and headless page-timer throttling therefore
+cannot consume the browser protocol timeout or block the following content read.
 Launch initialization, navigation, renderer, challenge, abort, and graceful
 shutdown paths close the Puppeteer browser, terminate its remaining owned child
 when necessary, and remove the runtime root. A later crawl starts a fresh

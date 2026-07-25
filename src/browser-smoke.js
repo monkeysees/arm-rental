@@ -18,6 +18,7 @@ try {
   logger.info("Production browser smoke test passed", {
     targetUrl: result.targetUrl,
     regularAdsCount: result.regularAdsCount,
+    sequentialFetchCount: result.sequentialFetchCount,
     profileDirectory: result.profileDirectory,
   });
 } catch (error) {

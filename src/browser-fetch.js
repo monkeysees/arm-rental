@@ -215,7 +215,7 @@ async function simulateUserActions(page) {
 
   for (let scrolled = 0; scrolled < maximumScroll; scrolled += 320) {
     await page.evaluate(() => {
-      window.scrollBy({ top: 320, behavior: "smooth" });
+      window.scrollBy({ top: 320, behavior: "instant" });
     });
     // Browser-page timers can be throttled heavily in headless mode. Keep the
     // pacing delay in Node so this optional interaction remains bounded.
@@ -298,9 +298,10 @@ export class BrowserPageFetcher {
             "--remote-debugging-port=0",
           ]
         : []),
-      ...(this.config.browserStartMinimized === false
-        ? []
-        : ["--start-minimized"]),
+      ...(!this.config.browserHeadless &&
+      this.config.browserStartMinimized !== false
+        ? ["--start-minimized"]
+        : []),
       "--window-size=1365,900",
     ];
     const hiddenMacChrome =
@@ -411,7 +412,15 @@ export class BrowserPageFetcher {
         await this.onStatus(`Browser interaction skipped: ${error.message}`);
       }
 
-      return new Response(await this.page.content(), {
+      const html = await this.page.content();
+      if (this.config.browserHeadless) {
+        // A durable profile carries verification state across launches, while
+        // a fresh process prevents renderer/compositor work from one List.am
+        // page accumulating into later crawl pages on constrained hosts.
+        await this.dispose();
+      }
+
+      return new Response(html, {
         status: 200,
         headers: { "content-type": "text/html; charset=utf-8" },
       });

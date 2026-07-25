@@ -18,6 +18,7 @@ function config(overrides = {}) {
     browserProfileDir: "/persistent/chrome-profile",
     dataDirectory: "/persistent",
     environmentName: "production",
+    initialPageCount: 2,
     listUrlTemplate: "https://www.list.am/ru/category/56/{page}?n=0&cmtype=0",
     ...overrides,
   };
@@ -64,7 +65,9 @@ test("interactive verification persists in the profile consumed by a restarted h
   });
 
   assert.equal(verification.regularAdsCount, 1);
+  assert.equal(verification.sequentialFetchCount, 1);
   assert.equal(smoke.regularAdsCount, 1);
+  assert.equal(smoke.sequentialFetchCount, 2);
   assert.deepEqual(launches, [
     {
       headless: false,
@@ -82,6 +85,7 @@ test("interactive verification persists in the profile consumed by a restarted h
     "browser:close",
     "lock:release",
     "config:validate",
+    "browser:fetch",
     "browser:fetch",
     "verification:record",
     "browser:close",

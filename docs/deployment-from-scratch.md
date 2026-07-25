@@ -127,11 +127,28 @@ Edit it without placing values in command arguments. It must contain:
 ```dotenv
 TELEGRAM_BOT_TOKEN=replace-with-botfather-token
 TELEGRAM_OWNER_ID=replace-with-numeric-owner-id
+TELEGRAM_ACCESS_MODE=public
+TELEGRAM_ALLOWED_USER_IDS=
+TELEGRAM_USER_UPDATES_PER_MINUTE=30
+TELEGRAM_PRIVATE_DELIVERIES_PER_MINUTE=20
 GHCR_IMAGE_REPOSITORY=ghcr.io/monkeysees/arm-rental
 GHCR_USERNAME=replace-with-read-only-package-user
 GHCR_READ_TOKEN=replace-with-read-only-package-token
 POLL_INTERVAL_MS=60000
 ```
+
+Private access defaults to `public`, which permits any private sender subject
+to the per-user rate limits. `owner` permits only `TELEGRAM_OWNER_ID`;
+`allowlist` permits the owner plus the unique positive IDs in
+`TELEGRAM_ALLOWED_USER_IDS`. Leave the allowlist blank in `public` and `owner`
+modes. The owner is always authorized and remains the server-alert recipient;
+the access mode never changes alert routing. There is no private-user admission
+cap.
+
+Before rollout, review the intended access mode and the aggregate persisted-user
+count from sanitized operational output. Do not place Telegram IDs in the
+deployment record. Access-policy changes are reviewed environment-file changes,
+not bot commands.
 
 Optional channel publication settings may be added:
 
@@ -295,11 +312,12 @@ sudo rentalctl status
 sudo rentalctl logs --since 30m --event crawl.succeeded
 ```
 
-For a private-only first installation, any intended user can send `/start` to
-the bot in a private chat as soon as Telegram polling begins. This activates
-the first crawl and is persisted for later unattended deployments. A
-configured channel crawls without private activation. Server alerts continue
-to use only `TELEGRAM_OWNER_ID` as their destination.
+For a private-only first installation in `public` mode, any intended user can
+send `/start` to the bot in a private chat as soon as Telegram polling begins.
+In `owner` or `allowlist` mode, only the configured authorized users can do so.
+Activation starts the first crawl and is persisted for later unattended
+deployments. A configured channel crawls without private activation. Server
+alerts continue to use only `TELEGRAM_OWNER_ID` as their destination.
 
 Deployment success requires ready startup preflight, healthy private probes,
 one successful crawl, the configured Telegram/channel permission result, and

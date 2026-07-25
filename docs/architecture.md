@@ -8,10 +8,13 @@ production paths, systemd units, and persistent storage remain stable.
 
 The application discovers long-term apartment rentals from List.am for a
 multi-user private Telegram bot and, when configured, a public Telegram channel.
-It reads only the site's **Regular Ads** section and ignores **Top Ads**. The
-configured Telegram owner remains the exclusive server-alert destination, but
-any user can activate a private subscription and control their own filters.
-Channel crawling and publication are activation-independent.
+It reads only the site's **Regular Ads** section and ignores **Top Ads**.
+Private access defaults to `public`, in which any private sender may use the
+bot; `owner` restricts controls to `TELEGRAM_OWNER_ID`, and `allowlist` adds the
+IDs configured in `TELEGRAM_ALLOWED_USER_IDS`. The owner is always authorized
+and remains the exclusive server-alert recipient in every mode. The service has
+no private-user admission cap. Channel crawling and publication are independent
+of private access and activation.
 
 All bot-generated Telegram replies, notification labels, channel hashtags, and
 missing-value fallbacks are in Russian. Apartment messages omit the posting
@@ -267,9 +270,8 @@ Build arguments bind the image to the full Git revision and SHA-256 digest of
 `package-lock.json`; the Dockerfile validates both and records them alongside
 the pinned Node and Chrome versions as OCI labels. CI saves the exact scanned
 image and creates a release manifest that repeats those inputs and records the
-archive digest. This manifest is the handoff boundary for staging and
-production: later deployment must load the uploaded archive, not rebuild from
-source.
+archive digest. This manifest is the production deployment handoff: the host
+must load the uploaded archive rather than rebuild from source.
 
 Workflow actions are immutable commit pins. Dependabot proposes npm, base
 image, and workflow-action updates as reviewable pull requests and has no
@@ -360,9 +362,12 @@ environment inputs, including their parser constraints, runtime defaults,
 production explicitness, sensitivity classification, and documentation-safe
 purpose. `getConfig` reads environment values and defaults through that catalog;
 catalog inspection therefore does not load `.env`, runtime state, or configured
-secret and identifier values. Production has no implicit storage or browser choices:
-`NODE_ENV=production`, `DATA_DIRECTORY`, `BROWSER_HEADLESS=true`, and an
-absolute `CHROME_EXECUTABLE_PATH` must all be explicit.
+secret and identifier values. The catalog defines `public`, `owner`, and
+`allowlist` access modes plus per-user inbound and per-recipient outbound rate
+limits; access configuration does not alter the owner-alert route or create a
+private-user admission limit. Production has no implicit storage or browser
+choices: `NODE_ENV=production`, `DATA_DIRECTORY`, `BROWSER_HEADLESS=true`, and
+an absolute `CHROME_EXECUTABLE_PATH` must all be explicit.
 
 Apartment, private-delivery, channel-delivery, exchange-rate, Telegram bot, and
 Chrome-profile paths are normalized and must be distinct children of
@@ -409,11 +414,14 @@ the same crawl where applicable. There is no public metrics surface.
 `HealthMonitor` emits edge-triggered firing/resolved events for readiness,
 browser challenge, invalid Telegram access, five crawl failures, and stale
 rates. Recovery commands emit backup, restore-test, and low-disk firing events.
-The external collector derives restart-loop alerts from `application.started`
-because restart history outlives a process. Production Compose requires an
-external Fluentd-compatible collector. Retention, alert routes, scheduled
-operational checks, and staging exercises are specified in
-[`docs/observability.md`](observability.md).
+Docker sends application records to bounded persistent journald storage. The
+short-lived `ops/monitor` systemd job derives restart-loop and other host-level
+alerts from bounded journal, Docker, filesystem, and timer observations,
+persists an atomic local snapshot, and sends deduplicated transitions to the
+Telegram owner. Operators inspect logs, readiness, metrics, and timers only
+through `rentalctl` over SSH; there is no external collector or inbound
+observability service. Retention, alert routes, and scheduled operational
+checks are specified in [`docs/observability.md`](observability.md).
 
 ### Startup preflight boundary
 
@@ -518,38 +526,27 @@ Chrome process against the unchanged durable profile.
 Challenge detection emits the stable `browser.challenge` event with component
 `browser`, code `ERR_BROWSER_VERIFICATION_REQUIRED`, severity `warning`, and the
 operator remediation command. Startup additionally retains its distinct
-`browser_verification_required` preflight result. This event is the application
-hook for production alert routing without coupling browser operation to the
-later monitoring implementation.
+`browser_verification_required` preflight result. Local monitoring consumes
+this application event without coupling browser operation to alert delivery.
 
 ### Production-focused test boundary
 
-Deployment-boundary coverage is split between deterministic integration tests
-and explicitly provisioned staging exercises. Browser integration tests cover
-executable discovery, partial-launch cleanup, challenge detection, fresh
-launch after failure, protocol-close failure, and graceful child termination.
-Persistence integration tests use the real filesystem and child processes to
-cover restrictive modes, flush and rename rollback, schema rejection,
-singleton contention, and intact snapshot restore.
+Deployment-boundary coverage combines deterministic integration tests with
+post-deploy production verification and isolated operational exercises. Browser
+integration tests cover executable discovery, partial-launch cleanup, challenge
+detection, fresh launch after failure, protocol-close failure, and graceful
+child termination. Persistence integration tests use the real filesystem and
+child processes to cover restrictive modes, flush and rename rollback, schema
+rejection, singleton contention, and intact snapshot restore.
 
-`src/staging-guard.js` requires production runtime behavior plus explicit
-staging markers before either live command can act. A mode-`0600` marker in the
-dedicated volume binds the command to the expected dedicated bot and numeric
-private-channel IDs. The ordinary public `TELEGRAM_CHANNEL_ID` must be absent.
-
-`src/staging-smoke.js` performs two separately leased passes. Each constructs
-new Telegram, browser, and exchange-rate clients, verifies the expected bot and
-private-channel permissions, and parses live List.am Regular Ads. The first
-pass forces a real CBA retrieval and persists rate, browser, and smoke evidence;
-the restarted pass loads and validates it. Chrome close and lease release are
-required at both boundaries.
-
-`src/staging-soak.js` launches the normal application, waits for readiness, and
-observes it for no less than 24 hours. It bounds process-tree RSS growth, Chrome
-child count, profile/cache growth, and captured-log growth. It always requests
-SIGTERM and treats forced, signaled, or nonzero exit as failure. The complete
-sample series and summary form a versioned JSON artifact. Provisioning,
-thresholds, and commands are documented in
+CI also checks the production Docker, Compose, release, configuration, and
+documentation contracts without credentials or network access. Hosted gates
+build and scan the exact image and exercise its pinned Node and Chrome binaries.
+After a stop-first production deployment, sanitized probes and structured
+events must show ready preflight, one successful crawl, the expected delivery
+mode, and continued readiness. Restore and rollback exercises use isolated or
+snapshot-backed production workflows and collect only schema-allowlisted
+evidence. These boundaries are documented in
 [`docs/production-testing.md`](production-testing.md).
 
 ### Durable state and recovery boundary
@@ -630,10 +627,9 @@ in [`docs/state-maintenance.md`](state-maintenance.md).
 any Docker mutation it requires two immutable image IDs/digests, a named human
 operator, a published and validated recovery point, an explicit private/channel
 expectation, and an observation window no shorter than one configured crawl
-interval plus five minutes. Validation and dry-run modes perform no Docker call
-or write. Staging rehearsal is rejected unless the running container carries
-the staging environment label, preventing a rehearsal flag from mutating the
-production singleton.
+interval plus five minutes. Only production contracts are accepted. Validation
+and dry-run modes perform no Docker call or write; the only mutating operations
+are the explicit production deploy and rollback paths.
 
 The runner verifies the fixed one-replica, stop-first Compose shape and existing
 named data volume, stops and confirms the old container before creating the new
@@ -646,11 +642,11 @@ observation window.
 A failed candidate is stopped before the verified snapshot is restored and the
 previous artifact is restarted, so browser/rate changes made during an
 ultimately failed preflight are reverted with JSON state. Rollback either uses
-a rehearsed backward-compatible schema or restores the snapshot before the old
-artifact starts. Staging rehearsal executes the candidate transition and
-snapshot-backed stop-first rollback, then leaves the previous staging artifact
-running. The independent backup volume is externally provisioned and mounted
-separately from application data. Release and rollback procedures, evidence
+a reviewed backward-compatible schema or restores the snapshot before the old
+artifact starts. Production recovery exercises verify this snapshot-backed
+stop-first rollback without introducing a second deployment environment. The
+independent backup volume is externally provisioned and mounted separately from
+application data. Release and rollback procedures, evidence
 receipts, and escalation are in
 [`docs/release-and-rollback.md`](release-and-rollback.md). The initial launch
 sequence and approval boundary are in
@@ -664,18 +660,18 @@ operator procedures are indexed in
    persistent-directory singleton lease, and runs the startup preflight. Only a
    ready result permits the reusable Chrome-backed page fetcher and Telegram bot
    to enter their long-running loops.
-2. One loop in `src/bot.js` long-polls Telegram. A private `/start` from any
-   Telegram user creates or reopens that user's control panel without changing
-   an existing monitoring choice; a new user is inactive by default and group
-   chats are ignored. `/filters` opens the same per-user price, room, and
-   hierarchical location controls. The start callback first asks whether to
-   send up to `INITIAL_DELIVERY_LIMIT` existing matches or monitor new listings
-   only; monitoring remains inactive until that choice is persisted. The final
-   start and stop callbacks durably toggle only that user's delivery state
-   before refreshing the panel, wake the dormant crawl loop on activation, and
-   update readiness state on either transition. Range values are collected
-   from that user's next text message; `/cancel` abandons only that user's
-   pending input.
+2. One loop in `src/bot.js` long-polls Telegram. A private `/start` from an
+   authorized Telegram user creates or reopens that user's control panel without
+   changing an existing monitoring choice; unauthorized senders cannot create
+   private state, new users are inactive by default, and group chats are
+   ignored. `/filters` opens the same per-user price, room, and hierarchical
+   location controls. The start callback first asks whether to send up to
+   `INITIAL_DELIVERY_LIMIT` existing matches or monitor new listings only;
+   monitoring remains inactive until that choice is persisted. The final start
+   and stop callbacks durably toggle only that user's delivery state before
+   refreshing the panel, wake the dormant crawl loop on activation, and update
+   readiness state on either transition. Range values are collected from that
+   user's next text message; `/cancel` abandons only that user's pending input.
 3. A crawl loop runs when private monitoring is active or a channel is
    configured. With neither condition, it waits for activation. After apartment
    state is saved, private admission/delivery and `src/channel.js` publication

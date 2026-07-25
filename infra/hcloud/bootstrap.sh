@@ -338,14 +338,22 @@ if [[ -n $server_id ]]; then
   fi
   bundle_mode=(--bundle)
   [[ $MODE == check ]] && bundle_mode+=(--check)
-  COPYFILE_DISABLE=1 LC_ALL=C tar --no-xattrs --create --gzip \
-    --directory "$REPOSITORY_ROOT" --file - \
-    infra/hcloud/host-bootstrap.sh infra/hcloud/journald.conf infra/systemd ops |
-    ssh "${ssh_options[@]}" "$ssh_target" \
-      sudo env \
-      "RENTAL_BACKUP_DEVICE=/dev/disk/by-id/scsi-0HC_Volume_${volume_id}" \
-      /usr/local/sbin/rental-host-bootstrap "${bundle_mode[@]}" ||
+  reconcile_host() {
+    COPYFILE_DISABLE=1 LC_ALL=C tar --no-xattrs --create --gzip \
+      --directory "$REPOSITORY_ROOT" --file - \
+      infra/hcloud/host-bootstrap.sh infra/hcloud/journald.conf infra/systemd ops |
+      ssh "${ssh_options[@]}" "$ssh_target" \
+        sudo env \
+        "RENTAL_BACKUP_DEVICE=/dev/disk/by-id/scsi-0HC_Volume_${volume_id}" \
+        /usr/local/sbin/rental-host-bootstrap "${bundle_mode[@]}"
+  }
+  if ! reconcile_host; then
     note_drift "host configuration"
+  elif [[ $MODE == apply ]] && ! reconcile_host; then
+    # The first pass can replace the host helper itself. A second pass executes
+    # that new helper so newly introduced reconciliation rules apply now.
+    note_drift "host configuration after helper update"
+  fi
 fi
 
 if ((drift == 1)); then

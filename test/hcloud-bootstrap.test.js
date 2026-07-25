@@ -193,6 +193,11 @@ test("hcloud apply reconciles non-destructive drift in order", async (t) => {
   const result = await run([], setup.environment);
   assert.equal(result.status, 0, result.stderr);
   const commands = await readFile(setup.log, "utf8");
+  assert.equal(
+    commands.match(/rental-host-bootstrap --bundle$/gmu)?.length,
+    2,
+    "apply must run the transferred helper twice so a self-update takes effect",
+  );
   const rule = commands.indexOf("firewall replace-rules");
   const volume = commands.indexOf("volume attach");
   const firewall = commands.indexOf("firewall apply-to-resource");
@@ -233,6 +238,10 @@ test("hcloud first-create apply reaches an idempotent second reconciliation", as
   assert.match(
     firstCommands,
     /ssh .*sudo env RENTAL_BACKUP_DEVICE=\/dev\/disk\/by-id\/scsi-0HC_Volume_3 \/usr\/local\/sbin\/rental-host-bootstrap --bundle/u,
+  );
+  assert.equal(
+    firstCommands.match(/rental-host-bootstrap --bundle$/gmu)?.length,
+    2,
   );
   const userData = await readFile(
     path.join(setup.root, "user-data.yaml"),

@@ -50,7 +50,9 @@ infra/hcloud/bootstrap.sh --check
 also checks the remotely installed bundle, unit enablement, and active timers;
 it exits `2` on drift. Applying an existing host uploads no secrets and
 idempotently refreshes the reviewed `ops/`, systemd, journald, and host helper
-files.
+files. Apply invokes the transferred bundle twice: the first pass can update
+the installed host helper, and the second executes that updated helper so a
+new reconciliation rule takes effect in the same run.
 
 ## Initial authorization and secret boundary
 

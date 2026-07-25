@@ -137,6 +137,9 @@ process transfers the full version-controlled operations bundle over SSH and
 invokes that helper with the attached volume's stable device path. Later runs
 use the same SSH reconciliation path, so an interrupted initial setup can
 resume without recreating provider resources or uploading the secret again.
+Apply performs two idempotent host passes because the first may replace the
+host helper itself; the second runs the transferred helper version and closes
+the self-update boundary within the same reconciliation.
 Archive creation disables macOS metadata, and fully managed host directories
 discard AppleDouble sidecars. Host operations reconciliation compares a
 filename-and-SHA-256 manifest and prunes unexpected managed files, so empty

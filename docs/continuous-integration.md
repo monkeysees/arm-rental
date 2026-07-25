@@ -21,7 +21,9 @@ release gates because they report false positives for intentional jq programs
 and trap callbacks. Systemd verification runs against a temporary filesystem
 root with explicit Docker/network stubs and executable placeholders, so clean
 runners validate unit dependencies and command declarations without needing the
-production host layout.
+production host layout. Compose disables environment-file and host-path
+resolution during this static render, while its normalized model and consistency
+checks remain enabled.
 
 Coverage thresholds and the measured source glob live in `package.json` so the
 same gate runs locally and in CI. Lowering either threshold or adding an

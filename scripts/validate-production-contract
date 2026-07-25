@@ -91,7 +91,8 @@ docker compose \
   --project-name rental-apartments-contract \
   --env-file "$image_environment" \
   --file compose.production.yaml \
-  config --no-env-resolution --format json >"$rendered_compose"
+  config --no-env-resolution --no-path-resolution --format json \
+  >"$rendered_compose"
 
 jq -e '
   (.services | keys) == ["bot"] and

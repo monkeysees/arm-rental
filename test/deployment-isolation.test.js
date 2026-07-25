@@ -127,11 +127,17 @@ test("removed deployment-environment paths cannot return unnoticed", async () =>
 
 test("production browser launch keeps the sandbox and restricts debugging to loopback", async () => {
   let launchOptions;
+  let assignedUserAgent;
   const page = {
     close: async () => {},
+    evaluate: async () =>
+      "Mozilla/5.0 HeadlessChrome/150.0.7871.181 Safari/537.36",
     evaluateOnNewDocument: async () => {},
     isClosed: () => false,
     setDefaultNavigationTimeout: () => {},
+    setUserAgent: async (userAgent) => {
+      assignedUserAgent = userAgent;
+    },
     url: () => "about:blank",
   };
   const browser = {
@@ -171,5 +177,9 @@ test("production browser launch keeps the sandbox and restricts debugging to loo
   assert.ok(
     launchOptions.args.every((argument) => argument !== "--no-sandbox"),
     "Chrome's sandbox must not be disabled",
+  );
+  assert.equal(
+    assignedUserAgent,
+    "Mozilla/5.0 Chrome/150.0.7871.181 Safari/537.36",
   );
 });

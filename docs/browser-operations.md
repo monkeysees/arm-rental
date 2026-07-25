@@ -1,6 +1,6 @@
 # Production browser operations
 
-Production Chrome is always headless and always uses the configured
+Production Chromium is always headless and always uses the configured
 `BROWSER_PROFILE_DIR` on the persistent data volume. The interactive verifier
 and production smoke test take the same singleton lease as the service. They
 therefore fail without opening Chrome when the service is running, and the
@@ -41,7 +41,7 @@ egress boundary differs from the release record.
    volume to the deployed release and run:
 
    ```sh
-   npm run browser:verify
+   node src/verify-browser.js
    ```
 
    A container deployment needs a temporary interactive maintenance session
@@ -57,7 +57,7 @@ egress boundary differs from the release record.
 
    ```sh
    docker compose --file compose.production.yaml run --rm --no-deps \
-     bot npm run browser:smoke
+     bot node src/browser-smoke.js
    ```
 
    Require the structured `Production browser smoke test passed` event. It

@@ -224,6 +224,19 @@ async function simulateUserActions(page) {
   });
 }
 
+async function normalizeHeadlessUserAgent(page) {
+  const userAgent = await page.evaluate(() => navigator.userAgent);
+  if (typeof userAgent !== "string" || !userAgent.includes("HeadlessChrome/")) {
+    return;
+  }
+
+  // Chromium's headless product token differs from the otherwise equivalent
+  // headful browser and can cause the verified production session to be
+  // challenged again. Preserve the complete runtime-derived UA and normalize
+  // only that product token.
+  await page.setUserAgent(userAgent.replace("HeadlessChrome/", "Chrome/"));
+}
+
 export class BrowserPageFetcher {
   constructor(
     config,
@@ -343,6 +356,9 @@ export class BrowserPageFetcher {
           get: () => undefined,
         });
       });
+      if (this.config.browserHeadless) {
+        await normalizeHeadlessUserAgent(this.page);
+      }
     } catch (error) {
       await this.dispose({ suppressCloseError: true });
       throw error;

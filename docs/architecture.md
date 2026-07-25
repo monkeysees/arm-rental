@@ -459,6 +459,11 @@ container has
 the `SYS_ADMIN` capability required by Puppeteer's sandboxed Docker runtime to
 create Chrome's short-lived PID and network namespaces; it remains non-root,
 read-only, portless, and uses Chrome's sandbox rather than `--no-sandbox`.
+After startup, headless Chromium's runtime-derived user agent is preserved
+except for normalizing its `HeadlessChrome/` product token to `Chrome/`.
+List.am otherwise re-challenges the same production profile solely because the
+headless token differs from the verified headful session. The code does not
+hard-code a browser version or replace any other user-agent field.
 Launch initialization, navigation, renderer, challenge, abort, and graceful
 shutdown paths close the Puppeteer browser, terminate its remaining owned child
 when necessary, and remove the runtime root. A later crawl starts a fresh

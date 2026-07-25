@@ -146,6 +146,28 @@ test("background macOS launch keeps remote control on loopback", async (t) => {
   assert.equal(commands[0][1].includes("--remote-debugging-pipe"), false);
 });
 
+test("headless launch normalizes only Chromium's headless user-agent token", async (t) => {
+  const config = await temporaryConfig(t);
+  const assignedUserAgents = [];
+  const page = browserPage({
+    evaluate: async () =>
+      "Mozilla/5.0 Chrome-compatible HeadlessChrome/150.0.7871.181 Safari/537.36",
+    setUserAgent: async (userAgent) => assignedUserAgents.push(userAgent),
+  });
+  const fetcher = new BrowserPageFetcher(config, {
+    puppeteerImpl: {
+      launch: async () => launchedBrowser(page),
+    },
+  });
+
+  await fetcher.start();
+  await fetcher.close();
+
+  assert.deepEqual(assignedUserAgents, [
+    "Mozilla/5.0 Chrome-compatible Chrome/150.0.7871.181 Safari/537.36",
+  ]);
+});
+
 test("challenge detection emits an alertable event and closes Chrome", async (t) => {
   const config = await temporaryConfig(t);
   const events = [];

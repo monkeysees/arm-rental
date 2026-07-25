@@ -16,14 +16,21 @@ ops_cleanup() {
 }
 
 ops_begin backup rental-backup
+ops_set_step acquire-operations-lock
 ops_acquire_lock
+ops_set_step validate-runtime-contract
 ops_validate_runtime_contract
+ops_set_step verify-backup-mount
 ops_require_backup_mount
 
 # Set the cleanup boundary before requesting the stop. A partial or timed-out
 # stop must still be followed by an idempotent start and readiness check.
 OPS_RESTART_REQUIRED=1
+ops_set_step stop-application
 ops_stop_application
+ops_set_step create-snapshot
 ops_compose run --rm --no-deps bot node src/recovery-cli.js backup
+ops_set_step locate-snapshot
 snapshot=$(ops_latest_snapshot)
+ops_set_step validate-snapshot
 ops_validate_snapshot "$snapshot"

@@ -73,10 +73,15 @@ bounded by the running container's start time; retained alert events from an
 older container lifecycle remain queryable as logs but cannot become current
 alert state. Monitoring defers with a successful, structured skip while a
 serialized production operation owns the shared lock, preventing an expected
-deployment observation window from becoming a scheduled-job failure. The
-snapshot and `rentalctl timers` expose the same complete seven-timer inventory,
-including the reboot check, so its failed result participates in scheduled-job
-alert evaluation. Host reconciliation installs `rentalctl` as a stable launcher
+deployment observation window from becoming a scheduled-job failure. Alert
+transitions carry bounded, non-secret reasons and are recorded in the host
+journal before outbound delivery. Scheduled-operation lifecycle records name
+the semantic step that completed or failed; the monitor combines that step with
+allowlisted structured unit-journal evidence and falls back to systemd result
+and exit status. The snapshot and `rentalctl timers` expose this failure reason
+for the same complete seven-timer inventory, including the reboot check, so its
+failed result participates in scheduled-job alert evaluation. Host
+reconciliation installs `rentalctl` as a stable launcher
 that selects the verified current release and falls back to the bootstrap
 bundle only before a first release exists; operator diagnostics therefore
 advance atomically with the active operations implementation.

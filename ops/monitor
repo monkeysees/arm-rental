@@ -13,6 +13,7 @@ RENTAL_OPS_LOCK_FILE="${RENTAL_OPS_LOCK_FILE:-${RENTAL_OPERATIONS_LOCK_FILE:-$RE
 ALERT_STATE="$RENTAL_OPS_STATE_DIR/alerts.json"
 METRICS_STATE="$RENTAL_OPS_STATE_DIR/metrics-latest.json"
 terminal_recorded=false
+monitor_step=initializing
 
 emit_record() {
   local severity="$1" event="$2" message="$3"
@@ -21,14 +22,44 @@ emit_record() {
     --arg severity "$severity" \
     --arg event "$event" \
     --arg message "$message" \
-    '{timestamp: $timestamp, severity: $severity, event: $event, message: $message}' |
+    --arg step "${4:-}" \
+    '{
+      timestamp: $timestamp,
+      severity: $severity,
+      event: $event,
+      message: $message,
+      step: (if $step == "" then null else $step end)
+    }' |
     "$SYSTEMD_CAT_BIN" --identifier=rental-monitor --priority="$severity"
+}
+
+emit_alert_transition_record() {
+  local transition="$1"
+  "$JQ_BIN" -c \
+    --arg timestamp "$(date -u +%Y-%m-%dT%H:%M:%SZ)" '
+      {
+        timestamp: $timestamp,
+        severity: "info",
+        event: ("monitor.alert." + .status),
+        message: ("Monitoring alert " + .status + ": " + .name),
+        alertName: .name,
+        alertSeverity: .severity,
+        alertStatus: .status,
+        reason: (.reason // null),
+        firstObservedAt: .firstObservedAt,
+        lastObservedAt: .lastObservedAt,
+        sourceRevision: .sourceRevision,
+        runbook: .runbook
+      }
+    ' <<<"$transition" |
+    "$SYSTEMD_CAT_BIN" --identifier=rental-monitor --priority=info
 }
 
 failed() {
   local exit_status=$?
   if [[ "$terminal_recorded" == false ]]; then
-    emit_record error monitor.failed "Local monitoring evaluation failed" || true
+    emit_record \
+      error monitor.failed "Local monitoring evaluation failed" "$monitor_step" || true
   fi
   exit "$exit_status"
 }
@@ -64,6 +95,12 @@ send_telegram_alert() {
     [
       ("alert " + .status + ": " + .name),
       ("severity: " + .severity),
+      (if (.reason // "") == ""
+       then empty
+       elif .status == "resolved"
+       then ("previous reason: " + .reason)
+       else ("reason: " + .reason)
+       end),
       ("first: " + .firstObservedAt),
       ("last: " + .lastObservedAt),
       ("host: " + $host),
@@ -88,6 +125,7 @@ main() {
   install -d -m 0750 "$(dirname -- "$RENTAL_OPS_LOCK_FILE")"
   exec 9>"$RENTAL_OPS_LOCK_FILE"
   emit_record info monitor.started "Local monitoring evaluation started"
+  monitor_step=acquire-operations-lock
   if ! flock -n 9; then
     emit_record \
       info monitor.skipped \
@@ -96,8 +134,10 @@ main() {
     return
   fi
 
-  local metrics previous now readiness_failures desired transition_plan next_state
+  local metrics previous now readiness_failures desired transition_plan transition next_state
+  monitor_step=collect-observability-snapshot
   metrics="$(write_metrics_snapshot "$METRICS_STATE")"
+  monitor_step=evaluate-alerts
   now="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
   if [[ -r "$ALERT_STATE" ]] && "$JQ_BIN" -e . "$ALERT_STATE" >/dev/null 2>&1; then
     previous="$(<"$ALERT_STATE")"
@@ -116,42 +156,66 @@ main() {
   desired="$("$JQ_BIN" -cn \
     --argjson metrics "$metrics" \
     --argjson readinessFailures "$readiness_failures" '
-      def alert($name; $severity; $runbook):
-        {name: $name, severity: $severity, runbook: $runbook};
+      def alert($name; $severity; $runbook; $reason):
+        {name: $name, severity: $severity, runbook: $runbook, reason: $reason};
       [
         ($metrics.applicationAlerts[]?
           | select(.status == "firing")
           | alert(.name; (.severity // "warning");
-              ("rentalctl logs --since 1h --event alert.firing"))),
+              ("rentalctl logs --since 1h --event alert.firing");
+              ("application alert remains firing; first observed "
+                + .firstObservedAt))),
         (select($metrics.windows["10m"].applicationStarts > 3)
           | alert("process_restart_loop"; "error";
-              "rentalctl logs --since 30m --event application.started")),
+              "rentalctl logs --since 30m --event application.started";
+              (($metrics.windows["10m"].applicationStarts | tostring)
+                + " application starts occurred within 10 minutes"))),
         (select($readinessFailures >= 2)
-          | alert("readiness_failure"; "error"; "rentalctl status")),
+          | alert("readiness_failure"; "error"; "rentalctl status";
+              (($readinessFailures | tostring)
+                + " consecutive readiness probes failed"))),
         (select(
             ($metrics.deployment.present | not)
             or ($metrics.deployment.running | not)
             or $metrics.deployment.restartCount >= 5
           )
-          | alert("container_unavailable"; "error"; "rentalctl status")),
+          | alert("container_unavailable"; "error"; "rentalctl status";
+              ("present=" + ($metrics.deployment.present | tostring)
+                + ", running=" + ($metrics.deployment.running | tostring)
+                + ", health=" + ($metrics.deployment.health // "unknown")
+                + ", restart count="
+                + (($metrics.deployment.restartCount // "unknown") | tostring)))),
         ($metrics.windows["1h"].stateWrites[]?
           | select((.durationMs.p95 // 0) > 500)
           | alert("state_write_latency"; "warning";
-              "rentalctl metrics --since 1h")),
+              "rentalctl metrics --since 1h";
+              ("state " + .state + " write p95 is "
+                + (.durationMs.p95 | tostring) + " ms"))),
         ($metrics.filesystems[]?
           | select((.available | not) or (.usedPercent // 0) >= 80)
           | alert(("filesystem_capacity_" + .name); "error";
-              "rentalctl status")),
+              "rentalctl status";
+              (if (.available | not)
+               then ("filesystem " + .name + " is unavailable")
+               else ("filesystem " + .name + " is "
+                 + (.usedPercent | tostring) + "% used")
+               end))),
         (select(($metrics.journal.diskBytes // 0) >= 966367642)
           | alert("journal_capacity"; "warning";
-              "journalctl --disk-usage")),
+              "journalctl --disk-usage";
+              ("journal uses " + ($metrics.journal.diskBytes | tostring)
+                + " bytes; warning threshold is 966367642 bytes"))),
         ($metrics.timers[]?
           | select(
               (.activeState != null and .activeState != "active")
               or (.lastResult != null and .lastResult != "success")
               or (.exitStatus != null and .exitStatus != 0)
             )
-          | alert(("scheduled_job_" + .name); "error"; "rentalctl timers"))
+          | alert(("scheduled_job_" + .name); "error"; "rentalctl timers";
+              (.failureReason //
+                ("service result=" + (.lastResult // "unknown")
+                  + ", exit status="
+                  + ((.exitStatus // "unknown") | tostring)))))
       ]
       | unique_by(.name)
     ')"
@@ -177,7 +241,14 @@ main() {
             ([
               $next[]
               | . as $candidate
-              | select(($old | map(.name) | index($candidate.name)) == null)
+              | ($old | map(select(.name == $candidate.name)) | first) as $prior
+              | select(
+                  $prior == null
+                  or (
+                    ($prior.reason // "") == ""
+                    and ($candidate.reason // "") != ""
+                  )
+                )
             ] + [
               $old[]
               | . as $prior
@@ -192,11 +263,15 @@ main() {
         }
     ')"
 
+  monitor_step=deliver-alert-transitions
   while IFS= read -r encoded; do
     [[ -n "$encoded" ]] || continue
-    send_telegram_alert "$("$JQ_BIN" -nr --arg encoded "$encoded" '$encoded | @base64d')"
+    transition="$("$JQ_BIN" -nr --arg encoded "$encoded" '$encoded | @base64d')"
+    emit_alert_transition_record "$transition"
+    send_telegram_alert "$transition"
   done < <("$JQ_BIN" -r '.transitions[] | @base64' <<<"$transition_plan")
 
+  monitor_step=persist-alert-state
   next_state="$("$JQ_BIN" -cn \
     --arg now "$now" \
     --argjson count "$readiness_failures" \

@@ -6,7 +6,11 @@ SCRIPT_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
 source "$SCRIPT_DIR/lib/operations.sh"
 
 ops_begin storage-check rental-storage-check
+ops_set_step acquire-operations-lock
 ops_acquire_lock
+ops_set_step validate-runtime-contract
 ops_validate_runtime_contract
+ops_set_step verify-backup-mount
 ops_require_backup_mount
+ops_set_step check-disk-capacity
 ops_compose run --rm --no-deps bot node src/recovery-cli.js disk-check

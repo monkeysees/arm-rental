@@ -17,12 +17,18 @@ ops_cleanup() {
 }
 
 ops_begin maintenance rental-maintenance
+ops_set_step acquire-operations-lock
 ops_acquire_lock
+ops_set_step validate-runtime-contract
 ops_validate_runtime_contract
+ops_set_step verify-backup-mount
 ops_require_backup_mount
 
+ops_set_step locate-snapshot
 snapshot=$(ops_latest_snapshot)
+ops_set_step validate-snapshot
 ops_validate_snapshot "$snapshot"
+ops_set_step verify-snapshot-freshness
 created_at=$(jq --raw-output '.createdAt // empty' "$snapshot/manifest.json")
 created_epoch=$(date --date="$created_at" +%s)
 now_epoch=$(date +%s)
@@ -33,8 +39,10 @@ if ((backup_age < 0 || backup_age > RENTAL_MAINTENANCE_BACKUP_MAX_AGE_SECONDS));
 fi
 
 OPS_RESTART_REQUIRED=1
+ops_set_step stop-application
 ops_stop_application
 set +e
+ops_set_step run-maintenance
 ops_compose run --rm --no-deps bot node src/maintenance-cli.js report
 maintenance_status=$?
 set -e

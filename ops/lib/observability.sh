@@ -165,6 +165,115 @@ journal_status_json() {
   "$JQ_BIN" -cn --argjson bytes "$((kilobytes * 1024))" '{diskBytes: $bytes}'
 }
 
+timer_failure_reason() {
+  local timer="$1" last_trigger="$2" active_state="$3" last_result="$4" exit_status="$5"
+  local journal="" reason=""
+  local -a journal_args
+  journal_args=(
+    --no-pager
+    --quiet
+    --output=json
+    --lines=100
+    --unit="${timer}.service"
+  )
+  if [[ -n "$last_trigger" && "$last_trigger" != "n/a" ]]; then
+    journal_args+=(--since "$last_trigger")
+  fi
+  journal="$("$JOURNALCTL_BIN" "${journal_args[@]}" 2>/dev/null || true)"
+
+  reason="$("$JQ_BIN" -sr '
+    def record:
+      (.MESSAGE // "")
+      | try fromjson catch null
+      | select(type == "object");
+    def safe_name:
+      if type == "string" and test("^[a-zA-Z][a-zA-Z0-9_.-]{0,127}$")
+      then . else null end;
+    def safe_code:
+      if type == "string"
+        and test("^([A-Z][A-Z0-9_.-]{0,63}|[0-9]{3})$")
+      then . else null end;
+    def percent:
+      ((. * 10000 | round) / 100 | tostring) + "%";
+    [
+      to_entries[]
+      | .key as $index
+      | (.value | record) as $record
+      | if $record.event == "alert.firing"
+           and $record.alertName == "low_disk"
+           and ($record.freeFraction | type) == "number"
+           and ($record.warningThreshold | type) == "number"
+           and $record.freeFraction >= 0
+           and $record.freeFraction <= 1
+           and $record.warningThreshold >= 0
+           and $record.warningThreshold <= 1
+        then {
+          priority: 4,
+          index: $index,
+          reason: ("low disk: " + ($record.freeFraction | percent)
+            + " free is below the " + ($record.warningThreshold | percent)
+            + " threshold")
+        }
+        elif $record.event == "alert.firing"
+          and (($record.alertName | safe_name) != null)
+        then {
+          priority: 4,
+          index: $index,
+          reason: ("application alert " + $record.alertName
+            + (($record.code // $record.error.code // null | safe_code) as $code
+              | if $code == null then "" else " (" + $code + ")" end))
+        }
+        elif $record.severity == "error"
+          and (($record.step | safe_name) != null)
+        then {
+          priority: 3,
+          index: $index,
+          reason: ("failed during " + $record.step)
+        }
+        elif $record.severity == "error"
+          and (($record.event | safe_name) != null)
+        then {
+          priority: 3,
+          index: $index,
+          reason: ($record.event
+            + (($record.code // $record.error.code // null | safe_code) as $code
+              | if $code == null then "" else " (" + $code + ")" end))
+        }
+        elif $record.result == "failure"
+          and (($record.step | safe_name) != null)
+        then {
+          priority: 2,
+          index: $index,
+          reason: ("failed during " + $record.step)
+        }
+        elif $record.result == "failure"
+          and (($record.event | safe_name) != null)
+        then {
+          priority: 1,
+          index: $index,
+          reason: $record.event
+        }
+        else empty
+        end
+    ]
+    | sort_by([.priority, .index])
+    | last.reason // empty
+  ' <<<"$journal")"
+
+  if [[ -n "$reason" ]]; then
+    printf '%s\n' "$reason"
+  elif [[ -n "$active_state" && "$active_state" != "active" ]]; then
+    printf 'timer state is %s\n' "$active_state"
+  elif [[ -n "$last_result" && "$last_result" != "success" ]]; then
+    printf 'service result is %s%s\n' \
+      "$last_result" "${exit_status:+ (exit $exit_status)}"
+  elif [[ -n "$exit_status" && "$exit_status" != "0" ]]; then
+    printf 'service exited with status %s\n' "$exit_status"
+  else
+    printf 'systemd reported an unhealthy scheduled job\n'
+  fi
+}
+
 timer_status_json() {
   local timers=(
     rental-deploy
@@ -175,7 +284,7 @@ timer_status_json() {
     rental-restore-drill
     rental-reboot-check
   )
-  local timer properties service_properties
+  local timer properties service_properties entry reason
   local output='[]'
 
   for timer in "${timers[@]}"; do
@@ -186,18 +295,17 @@ timer_status_json() {
     service_properties="$("$SYSTEMCTL_BIN" show "${timer}.service" \
       --property=Result \
       --property=ExecMainStatus 2>/dev/null || true)"
-    output="$("$JQ_BIN" -cn \
+    entry="$("$JQ_BIN" -cn \
       --arg name "$timer" \
       --arg properties "$properties" \
-      --arg service "$service_properties" \
-      --argjson current "$output" '
+      --arg service "$service_properties" '
         def value($text; $key):
           ($text | split("\n")
             | map(select(startswith($key + "=")))
             | first // ""
             | split("=")[1:] | join("="))
           | if . == "" or . == "n/a" then null else . end;
-        $current + [{
+        {
           name: $name,
           activeState: value($properties; "ActiveState"),
           lastSuccess: value($properties; "LastTriggerUSec"),
@@ -206,8 +314,25 @@ timer_status_json() {
           exitStatus:
             (value($service; "ExecMainStatus") as $status
              | if $status == null then null else ($status | tonumber? // null) end)
-        }]
+        }
       ')"
+    if "$JQ_BIN" -e '
+      (.activeState != null and .activeState != "active")
+      or (.lastResult != null and .lastResult != "success")
+      or (.exitStatus != null and .exitStatus != 0)
+    ' <<<"$entry" >/dev/null; then
+      reason="$(timer_failure_reason \
+        "$timer" \
+        "$("$JQ_BIN" -r '.lastSuccess // ""' <<<"$entry")" \
+        "$("$JQ_BIN" -r '.activeState // ""' <<<"$entry")" \
+        "$("$JQ_BIN" -r '.lastResult // ""' <<<"$entry")" \
+        "$("$JQ_BIN" -r 'if .exitStatus == null then "" else .exitStatus end' <<<"$entry")")"
+      entry="$("$JQ_BIN" -c --arg reason "$reason" '. + {failureReason: $reason}' <<<"$entry")"
+    else
+      entry="$("$JQ_BIN" -c '. + {failureReason: null}' <<<"$entry")"
+    fi
+    output="$("$JQ_BIN" -cn \
+      --argjson current "$output" --argjson entry "$entry" '$current + [$entry]')"
   done
   printf '%s\n' "$output"
 }

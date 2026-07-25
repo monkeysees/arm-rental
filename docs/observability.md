@@ -102,20 +102,28 @@ ratios and percentiles.
 
 Primary events are `crawl.succeeded`, `crawl.failed`, `retry.scheduled`,
 `state.write.completed`, `state.write.failed`, `maintenance.report`,
-`alert.firing`, and `alert.resolved`.
+`alert.firing`, `alert.resolved`, `monitor.alert.firing`, and
+`monitor.alert.resolved`.
 
 ## Alert evaluation and delivery
 
 `ops/monitor` uses the shared operations lock and atomically stores state in
 `/var/lib/rental-apartments-ops/alerts.json`. It sends one Telegram owner
 message when an alert fires and one when it resolves; unchanged evaluations
-are not resent.
+are not resent. An alert already firing from the prior reason-less state format
+receives one enriched firing message after upgrade.
 
 The evaluator covers application alerts, restart loops, two consecutive
 readiness failures, exhausted/missing containers, state-write p95 over 500 ms,
-filesystem/journal capacity, and failed systemd jobs. Messages contain only
-name, severity, first/last observation, host alias, source revision, and a
-local runbook command. Credentials come from
+filesystem/journal capacity, and failed systemd jobs. Messages include a safe,
+bounded reason alongside the name, severity, first/last observation, host
+alias, source revision, and local runbook command. For scheduled jobs, the
+monitor reads at most 100 unit-journal records since the most recent trigger
+and accepts only structured event names, error codes, operation steps, and
+allowlisted capacity fields. It falls back to the systemd result and exit code
+when no structured cause exists. Every transition is written locally as a
+structured `monitor.alert.firing` or `monitor.alert.resolved` record before
+Telegram delivery. Credentials come from
 `/etc/rental-apartments/env`; curl receives URL and form configuration on stdin
 so token and owner destination never enter argv or journal records.
 

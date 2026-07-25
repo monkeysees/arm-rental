@@ -11,8 +11,11 @@ source "$SCRIPT_DIR/lib/common.sh"
 : "${RENTAL_REBOOT_REQUIRED_FILE:=/var/run/reboot-required}"
 
 ops_begin reboot-check rental-reboot-check
+ops_set_step acquire-operations-lock
 ops_acquire_lock
+ops_set_step inspect-reboot-requirement
 if [[ -e $RENTAL_REBOOT_REQUIRED_FILE ]]; then
   [[ -f $RENTAL_REBOOT_REQUIRED_FILE && ! -L $RENTAL_REBOOT_REQUIRED_FILE ]]
+  ops_set_step request-reboot
   systemctl reboot --no-block
 fi

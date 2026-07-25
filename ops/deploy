@@ -68,12 +68,15 @@ deployment_validate_actor "$actor" || {
 }
 
 ops_begin deployment rental-deploy
+ops_set_step acquire-operations-lock
 ops_acquire_lock
+ops_set_step validate-operator-input
 ops_require_absolute_path "RENTAL_ENV_FILE" "$RENTAL_ENV_FILE"
 [[ -f $RENTAL_ENV_FILE && ! -L $RENTAL_ENV_FILE ]]
 [[ $(stat --format='%a' "$RENTAL_ENV_FILE") == 600 ]]
 
 if [[ -n $clear_quarantine ]]; then
+  ops_set_step clear-quarantine
   deployment_clear_quarantine "$clear_quarantine"
   deployment_emit deployment.quarantine.cleared success "$clear_quarantine"
   exit 0
@@ -81,11 +84,13 @@ fi
 
 # Preflight checks are intentionally value-free: failures identify only the
 # missing boundary and never render production configuration or credentials.
+ops_set_step validate-host-preflight
 findmnt --mountpoint "$RENTAL_BACKUP_ROOT" >/dev/null
 (( $(df --output=avail -k "$RENTAL_OPS_STATE_DIR" | tail -n 1) >= RENTAL_MINIMUM_FREE_KB ))
 docker info >/dev/null
 docker volume inspect "$RENTAL_BACKUP_VOLUME" >/dev/null
 
+ops_set_step authenticate-registry
 repository=$(deployment_read_setting GHCR_IMAGE_REPOSITORY)
 username=$(deployment_read_setting GHCR_USERNAME)
 token=$(deployment_read_setting GHCR_READ_TOKEN)
@@ -99,6 +104,7 @@ install -d -m 0700 "$DOCKER_CONFIG"
 printf '%s' "$token" | docker login ghcr.io --username "$username" --password-stdin >/dev/null
 unset token
 
+ops_set_step discover-candidate
 DEPLOYMENT_CANDIDATE=$(deployment_resolve_discovery "$repository")
 if [[ -f $RENTAL_IMAGE_ENV_FILE ]]; then
   DEPLOYMENT_PREVIOUS=$(ops_read_image_reference)
@@ -122,12 +128,14 @@ if deployment_is_quarantined "$DEPLOYMENT_CANDIDATE"; then
   exit 0
 fi
 
+ops_set_step inspect-candidate
 DEPLOYMENT_SOURCE_REVISION=$(
   docker image inspect \
     --format '{{index .Config.Labels "org.opencontainers.image.revision"}}' \
     "$DEPLOYMENT_CANDIDATE"
 )
 [[ $DEPLOYMENT_SOURCE_REVISION =~ ^[0-9a-f]{40}$ ]]
+ops_set_step stage-release
 bundle_directory="$DEPLOYMENT_TEMPORARY_DIR/release-bundle"
 deployment_extract_release_bundle \
   "$repository" "$DEPLOYMENT_SOURCE_REVISION" "$bundle_directory"
@@ -158,15 +166,19 @@ if [[ ${RENTAL_DEPLOY_TEST_MODE:-0} == 1 ]]; then
 fi
 
 if [[ $DEPLOYMENT_FIRST_INSTALL == true ]]; then
+  ops_set_step validate-first-install-storage
   deployment_validate_first_install_storage
 else
   DEPLOYMENT_RESTART_REQUIRED=1
+  ops_set_step stop-application
   ops_stop_application
+  ops_set_step create-predeploy-snapshot
   ops_compose run --rm --no-deps bot node src/recovery-cli.js backup
   DEPLOYMENT_SNAPSHOT=$(ops_latest_snapshot)
   ops_validate_snapshot "$DEPLOYMENT_SNAPSHOT"
 fi
 
+ops_set_step launch-and-observe-candidate
 started_epoch=$(date +%s)
 expected_channel=skipped
 if [[ -n $(deployment_read_optional_setting TELEGRAM_CHANNEL_ID) ]]; then
@@ -185,6 +197,7 @@ fi
 set -e
 
 if ((candidate_status == 0)); then
+  ops_set_step finalize-candidate
   set +e
   deployment_switch_current "$DEPLOYMENT_RELEASE" "$DEPLOYMENT_CANDIDATE"
   finalize_status=$?
@@ -226,6 +239,7 @@ if ((candidate_status == 0)); then
   fi
 fi
 
+ops_set_step quarantine-rejected-candidate
 deployment_write_quarantine \
   "$DEPLOYMENT_CANDIDATE" "$DEPLOYMENT_SOURCE_REVISION" \
   candidate-verification-failed
@@ -243,6 +257,7 @@ if [[ $DEPLOYMENT_FIRST_INSTALL == true ]]; then
 fi
 
 rollback_result=failed
+ops_set_step rollback-candidate
 set +e
 deployment_compose \
   "$DEPLOYMENT_RELEASE" "$DEPLOYMENT_CANDIDATE_ENV" stop bot
@@ -275,4 +290,5 @@ deployment_write_evidence \
   failed "$actor" "$DEPLOYMENT_CANDIDATE" "$DEPLOYMENT_PREVIOUS" \
   "$DEPLOYMENT_SOURCE_REVISION" "$DEPLOYMENT_SNAPSHOT" false \
   "$rollback_result" "$DEPLOYMENT_RELEASE" >/dev/null
+ops_set_step candidate-verification-failed
 exit 1

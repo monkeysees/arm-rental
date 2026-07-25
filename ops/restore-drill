@@ -74,18 +74,26 @@ ops_cleanup() {
 }
 
 ops_begin restore-drill rental-restore-drill
+ops_set_step acquire-operations-lock
 ops_acquire_lock
+ops_set_step validate-runtime-contract
 ops_validate_runtime_contract
+ops_set_step verify-backup-mount
 ops_require_backup_mount
+ops_set_step validate-temporary-root
 ops_require_absolute_path "RENTAL_RESTORE_TMP_ROOT" "$RENTAL_RESTORE_TMP_ROOT"
 [[ $RENTAL_CONTAINER_UID =~ ^[0-9]+$ ]]
 [[ $RENTAL_CONTAINER_GID =~ ^[0-9]+$ ]]
 
+ops_set_step locate-snapshot
 snapshot=$(ops_latest_snapshot)
+ops_set_step validate-snapshot
 ops_validate_snapshot "$snapshot"
+ops_set_step resolve-runtime-inputs
 container_snapshot=$(ops_snapshot_container_path "$snapshot")
 image=$(ops_read_image_reference)
 
+ops_set_step create-isolated-storage
 install -d -m 0700 "$RENTAL_RESTORE_TMP_ROOT"
 OPS_RUN_ID="$(date --utc +%Y%m%dT%H%M%SZ)-$$-$RANDOM"
 OPS_TEMP_CONTAINER="rental-apartments-restore-drill-$OPS_RUN_ID"
@@ -109,6 +117,7 @@ OPS_TEMP_VOLUME_CREATED=1
 
 # The drill command is recovery-only, receives a noncredential token, and has
 # no network. It can neither poll Telegram nor call send/edit endpoints.
+ops_set_step create-restore-container
 docker create \
   --name "$OPS_TEMP_CONTAINER" \
   --label com.rental-apartments.temporary=true \
@@ -124,8 +133,10 @@ docker create \
   "$image" \
   node src/recovery-cli.js restore "$container_snapshot" >/dev/null
 OPS_TEMP_CONTAINER_CREATED=1
+ops_set_step run-isolated-restore
 docker start --attach "$OPS_TEMP_CONTAINER"
 
+ops_set_step verify-recovery-time
 elapsed=$(($(date +%s) - OPS_STARTED_AT))
 if ((elapsed > RENTAL_RESTORE_RTO_SECONDS)); then
   printf 'Restore drill exceeded its recovery-time objective\n' >&2

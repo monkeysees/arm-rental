@@ -212,12 +212,13 @@ timers_command() {
   (($# == 0)) || observability_die "timers accepts no options"
   timer_status_json |
     "$JQ_BIN" -r '
-      [["TIMER", "LAST", "NEXT", "RESULT"]]
+      [["TIMER", "LAST", "NEXT", "RESULT", "REASON"]]
       + map([
           .name,
           (.lastSuccess // "never"),
           (.nextRun // "unknown"),
-          (.lastResult // "unknown")
+          (.lastResult // "unknown"),
+          (.failureReason // "-")
         ])
       | .[] | @tsv
     ' | column -t -s $'\t'

@@ -18,17 +18,20 @@ ops_emit_record() {
   local result=$3
   local exit_code=$4
   local duration_ms=$5
+  local step=${6:-}
 
   jq --compact-output --null-input \
     --arg event "$event" \
     --arg result "$result" \
     --argjson exitCode "$exit_code" \
     --argjson durationMs "$duration_ms" \
+    --arg step "$step" \
     '{
       event: $event,
       result: $result,
       exitCode: $exitCode,
-      durationMs: $durationMs
+      durationMs: $durationMs,
+      step: (if $step == "" then null else $step end)
     }' |
     systemd-cat --identifier="$identifier" --priority=info
 }
@@ -44,7 +47,7 @@ ops_acquire_lock() {
 ops_exit_handler() {
   local status=$?
   local cleanup_status=0
-  local finished_at duration_ms result event
+  local finished_at duration_ms result event failed_step=$OPS_STEP
 
   trap - EXIT HUP INT TERM
   set +e
@@ -54,6 +57,7 @@ ops_exit_handler() {
   fi
   if ((status == 0 && cleanup_status != 0)); then
     status=$cleanup_status
+    failed_step=cleanup
   fi
   finished_at=$(date +%s)
   duration_ms=$(((finished_at - OPS_STARTED_AT) * 1000))
@@ -64,7 +68,8 @@ ops_exit_handler() {
     result=failure
     event="${OPS_OPERATION}.failed"
   fi
-  ops_emit_record "$OPS_IDENTIFIER" "$event" "$result" "$status" "$duration_ms"
+  ops_emit_record \
+    "$OPS_IDENTIFIER" "$event" "$result" "$status" "$duration_ms" "$failed_step"
   exit "$status"
 }
 
@@ -77,7 +82,8 @@ ops_begin() {
   OPS_OPERATION=$1
   OPS_IDENTIFIER=${2:-"rental-$1"}
   OPS_STARTED_AT=$(date +%s)
-  export OPS_OPERATION OPS_IDENTIFIER OPS_STARTED_AT
+  OPS_STEP=initializing
+  export OPS_OPERATION OPS_IDENTIFIER OPS_STARTED_AT OPS_STEP
 
   trap ops_exit_handler EXIT
   trap 'ops_signal_handler 129' HUP
@@ -85,4 +91,9 @@ ops_begin() {
   trap 'ops_signal_handler 143' TERM
   ops_emit_record \
     "$OPS_IDENTIFIER" "${OPS_OPERATION}.started" "started" 0 0
+}
+
+ops_set_step() {
+  OPS_STEP=$1
+  export OPS_STEP
 }

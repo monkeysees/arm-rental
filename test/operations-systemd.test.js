@@ -178,6 +178,13 @@ function assertLifecycle(log, operation, result) {
     1,
   );
   assert.match(log, new RegExp(`"result":"${result}"`, "u"));
+  assert.match(
+    log,
+    new RegExp(
+      `"event":"${operation}\\.(completed|failed)"[^\\n]+"step":"[a-z-]+"`,
+      "u",
+    ),
+  );
 }
 
 test("backup validates the published snapshot and restores readiness across each failure boundary", async (t) => {

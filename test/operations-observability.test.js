@@ -55,11 +55,18 @@ async function fakeHost(
   await execute(join(root, "mkdir-bin"), [bin]);
   await execute(join(root, "mkdir-bin"), [state]);
   const journal = join(root, "journal.jsonl");
+  const unitJournal = join(root, "unit-journal.jsonl");
   await copyFile(fixture, journal);
+  await writeFile(unitJournal, "");
 
   await executable(
     join(bin, "journalctl"),
-    '#!/bin/sh\ncat "$RENTAL_TEST_JOURNAL"\n',
+    `#!/bin/sh
+case " $* " in
+  *" --unit="*) cat "$RENTAL_TEST_UNIT_JOURNAL" ;;
+  *) cat "$RENTAL_TEST_JOURNAL" ;;
+esac
+`,
   );
   await executable(
     join(bin, "docker"),
@@ -76,6 +83,8 @@ exit 1
     join(bin, "systemctl"),
     `#!/bin/sh
 case "$2" in
+  rental-storage-check.timer) printf 'ActiveState=active\\nLastTriggerUSec=Sat 2026-07-25 11:55:00 UTC\\nNextElapseUSecRealtime=Sat 2026-07-25 12:05:00 UTC\\n' ;;
+  rental-storage-check.service) printf 'Result=%s\\nExecMainStatus=%s\\n' "\${RENTAL_TEST_STORAGE_RESULT:-success}" "\${RENTAL_TEST_STORAGE_EXIT_STATUS:-0}" ;;
   *.timer) printf 'ActiveState=active\\nLastTriggerUSec=Sat 2026-07-25 11:55:00 UTC\\nNextElapseUSecRealtime=Sat 2026-07-25 12:05:00 UTC\\n' ;;
   *.service) printf 'Result=success\\nExecMainStatus=0\\n' ;;
 esac
@@ -95,7 +104,7 @@ esac
   );
   await executable(
     join(bin, "curl"),
-    '#!/bin/sh\ncat >/dev/null\nprintf "sent\\n" >>"$RENTAL_TEST_CURL_CALLS"\n',
+    '#!/bin/sh\ncat >>"$RENTAL_TEST_CURL_PAYLOADS"\nprintf "sent\\n" >>"$RENTAL_TEST_CURL_CALLS"\n',
   );
   await executable(
     join(bin, "flock"),
@@ -115,6 +124,7 @@ exit ${operationsLockAvailable ? 0 : 1}
     bin,
     state,
     journal,
+    unitJournal,
     env: {
       ...process.env,
       PATH: `${bin}:${process.env.PATH}`,
@@ -126,8 +136,10 @@ exit ${operationsLockAvailable ? 0 : 1}
       SYSTEMD_CAT_BIN: join(bin, "systemd-cat"),
       CURL_BIN: join(bin, "curl"),
       RENTAL_TEST_JOURNAL: journal,
+      RENTAL_TEST_UNIT_JOURNAL: unitJournal,
       RENTAL_TEST_SYSTEMD_LOG: join(root, "systemd.log"),
       RENTAL_TEST_CURL_CALLS: join(root, "curl.calls"),
+      RENTAL_TEST_CURL_PAYLOADS: join(root, "curl.payloads"),
       RENTAL_OPS_STATE_DIR: state,
       RENTAL_OPS_LOCK_FILE: join(root, "operations.lock"),
       RENTAL_ENV_FILE: envFile,
@@ -224,6 +236,100 @@ test("monitor sends only firing and resolved transitions and keeps redacted fall
   const serviceLog = await readFile(host.env.RENTAL_TEST_SYSTEMD_LOG, "utf8");
   assert.doesNotMatch(serviceLog, /abcdefghijklmnopqrstuvwxyz|123456789/u);
   assert.match(serviceLog, /monitor\.succeeded/u);
+});
+
+test("scheduled-job alerts explain the latest structured failure reason", async (t) => {
+  const host = await fakeHost(t);
+  await writeFile(
+    host.unitJournal,
+    `${JSON.stringify({
+      MESSAGE: JSON.stringify({
+        severity: "warn",
+        event: "alert.firing",
+        alertName: "low_disk",
+        freeFraction: 0.125,
+        warningThreshold: 0.2,
+      }),
+    })}\n${JSON.stringify({
+      MESSAGE: JSON.stringify({
+        event: "storage-check.failed",
+        result: "failure",
+        exitCode: 2,
+        durationMs: 1000,
+        step: "check-disk-capacity",
+      }),
+    })}\n`,
+  );
+  const env = {
+    ...host.env,
+    RENTAL_TEST_STORAGE_RESULT: "exit-code",
+    RENTAL_TEST_STORAGE_EXIT_STATUS: "2",
+  };
+
+  const timers = await execute(rentalctl, ["timers"], { env });
+  assert.match(
+    timers.stdout,
+    /rental-storage-check.*exit-code.*low disk: 12\.5% free is below the 20% threshold/u,
+  );
+
+  await writeFile(
+    join(host.state, "alerts.json"),
+    JSON.stringify({
+      schemaVersion: 1,
+      readinessFailureCount: 0,
+      alerts: [
+        {
+          name: "scheduled_job_rental-storage-check",
+          severity: "error",
+          runbook: "rentalctl timers",
+          status: "firing",
+          firstObservedAt: "2026-07-25T11:56:00Z",
+          lastObservedAt: "2026-07-25T11:56:00Z",
+          sourceRevision: "a".repeat(40),
+        },
+      ],
+    }),
+  );
+  await execute(monitor, [], { env });
+  const alertState = JSON.parse(
+    await readFile(join(host.state, "alerts.json"), "utf8"),
+  );
+  const scheduledJob = alertState.alerts.find(
+    ({ name }) => name === "scheduled_job_rental-storage-check",
+  );
+  assert.equal(
+    scheduledJob.reason,
+    "low disk: 12.5% free is below the 20% threshold",
+  );
+  const telegramPayload = await readFile(
+    host.env.RENTAL_TEST_CURL_PAYLOADS,
+    "utf8",
+  );
+  assert.match(
+    telegramPayload,
+    /reason: low disk: 12\.5% free is below the 20% threshold/u,
+  );
+  const serviceLog = await readFile(host.env.RENTAL_TEST_SYSTEMD_LOG, "utf8");
+  assert.match(serviceLog, /"event":"monitor\.alert\.firing"/u);
+  assert.match(serviceLog, /"reason":"low disk: 12\.5% free/u);
+
+  await writeFile(
+    host.unitJournal,
+    `${JSON.stringify({
+      MESSAGE: JSON.stringify({
+        event: "storage-check.failed",
+        result: "failure",
+        exitCode: 1,
+        durationMs: 0,
+        step: "verify-backup-mount",
+      }),
+    })}\n`,
+  );
+  const fallback = await execute(rentalctl, ["timers"], { env });
+  assert.match(
+    fallback.stdout,
+    /rental-storage-check.*failed during verify-backup-mount/u,
+  );
 });
 
 test("monitor ignores application alerts from an earlier container lifecycle", async (t) => {

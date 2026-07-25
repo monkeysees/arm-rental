@@ -464,6 +464,9 @@ except for normalizing its `HeadlessChrome/` product token to `Chrome/`.
 List.am otherwise re-challenges the same production profile solely because the
 headless token differs from the verified headful session. The code does not
 hard-code a browser version or replace any other user-agent field.
+Optional scrolling uses short Node-side pacing delays around synchronous
+browser evaluations; headless page-timer throttling therefore cannot consume
+the browser protocol timeout or block the following content read.
 Launch initialization, navigation, renderer, challenge, abort, and graceful
 shutdown paths close the Puppeteer browser, terminate its remaining owned child
 when necessary, and remove the runtime root. A later crawl starts a fresh

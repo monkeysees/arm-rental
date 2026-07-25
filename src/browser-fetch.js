@@ -206,22 +206,26 @@ async function launchHiddenMacChrome(
 }
 
 async function simulateUserActions(page) {
-  await page.evaluate(async () => {
-    const wait = (milliseconds) =>
-      new Promise((resolve) => {
-        setTimeout(resolve, milliseconds);
-      });
-    const maximumScroll = Math.min(
+  const maximumScroll = await page.evaluate(() =>
+    Math.min(
       Math.max(0, document.documentElement.scrollHeight - window.innerHeight),
       1_600,
-    );
+    ),
+  );
 
-    for (let scrolled = 0; scrolled < maximumScroll; scrolled += 320) {
+  for (let scrolled = 0; scrolled < maximumScroll; scrolled += 320) {
+    await page.evaluate(() => {
       window.scrollBy({ top: 320, behavior: "smooth" });
-      await wait(150);
-    }
-    if (maximumScroll > 0) window.scrollTo({ top: 0, behavior: "instant" });
-  });
+    });
+    // Browser-page timers can be throttled heavily in headless mode. Keep the
+    // pacing delay in Node so this optional interaction remains bounded.
+    await delay(150);
+  }
+  if (maximumScroll > 0) {
+    await page.evaluate(() => {
+      window.scrollTo({ top: 0, behavior: "instant" });
+    });
+  }
 }
 
 async function normalizeHeadlessUserAgent(page) {

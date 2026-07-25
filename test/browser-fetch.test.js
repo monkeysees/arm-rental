@@ -233,6 +233,40 @@ test("interactive challenge completion returns the verified page", async (t) => 
   assert.match(statuses[0], /Complete it there once/u);
 });
 
+test("browser interaction pacing does not depend on throttled page timers", async (t) => {
+  const config = await temporaryConfig(t, { browserHeadless: false });
+  const evaluations = [];
+  const page = browserPage({
+    evaluate: async (callback) => {
+      evaluations.push(callback.toString());
+      return evaluations.length === 1 ? 640 : undefined;
+    },
+  });
+  const fetcher = new BrowserPageFetcher(config, {
+    platform: "linux",
+    puppeteerImpl: {
+      launch: async () => launchedBrowser(page),
+    },
+  });
+
+  await fetcher.fetch("https://www.list.am/");
+  await fetcher.close();
+
+  assert.equal(evaluations.length, 4);
+  assert.equal(
+    evaluations.some((source) => source.includes("setTimeout")),
+    false,
+  );
+  assert.equal(
+    evaluations.filter((source) => source.includes("scrollBy")).length,
+    2,
+  );
+  assert.equal(
+    evaluations.filter((source) => source.includes("scrollTo")).length,
+    1,
+  );
+});
+
 test("a runtime failure is cleaned up and the next fetch launches a fresh browser", async (t) => {
   const config = await temporaryConfig(t);
   const launchOptions = [];

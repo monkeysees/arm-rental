@@ -6,8 +6,9 @@ into another handbook.
 
 | Incident or change                                  | Canonical runbook                                                                               |
 | --------------------------------------------------- | ----------------------------------------------------------------------------------------------- |
+| Fresh production launch                             | [Deploy production from scratch](deployment-from-scratch.md)                                    |
 | Deploy and rollback                                 | [Release and rollback](release-and-rollback.md)                                                 |
-| Launch approval                                     | [Launch checklist](release-and-rollback.md#launch-checklist)                                    |
+| Launch approval                                     | [Launch approval](deployment-from-scratch.md#phase-10-approve-launch)                           |
 | Rotate Telegram token                               | [Telegram token rotation](token-rotation.md)                                                    |
 | Complete or transfer browser verification           | [Production browser operations](browser-operations.md)                                          |
 | Restore persistent state                            | [Persistent-state restore](state-recovery.md#restore-procedure)                                 |

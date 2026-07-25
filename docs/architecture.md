@@ -41,6 +41,10 @@ crawl operation rather than process existence alone.
 The current implementation evidence, outstanding deployment checks, and launch
 blockers are tracked in
 [`docs/production-readiness-status.md`](production-readiness-status.md).
+The operator control flow from reviewed source through publication, host
+reconciliation, first deployment, acceptance evidence, and later unattended
+deployment is defined in the canonical
+[`docs/deployment-from-scratch.md`](deployment-from-scratch.md) runbook.
 
 ### Production environment boundary
 
@@ -518,10 +522,12 @@ a rehearsed backward-compatible schema or restores the snapshot before the old
 artifact starts. Staging rehearsal executes the candidate transition and
 snapshot-backed stop-first rollback, then leaves the previous staging artifact
 running. The independent backup volume is externally provisioned and mounted
-separately from application data. Procedures, evidence receipts, escalation,
-and the launch checklist are in
-[`docs/release-and-rollback.md`](release-and-rollback.md); all operator
-procedures are indexed in
+separately from application data. Release and rollback procedures, evidence
+receipts, and escalation are in
+[`docs/release-and-rollback.md`](release-and-rollback.md). The initial launch
+sequence and approval boundary are in
+[`docs/deployment-from-scratch.md`](deployment-from-scratch.md), and all
+operator procedures are indexed in
 [`docs/operational-runbooks.md`](operational-runbooks.md).
 
 ## Runtime flow

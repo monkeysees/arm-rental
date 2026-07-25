@@ -44,6 +44,11 @@ evidence.
 
 ## Remaining launch evidence
 
+Follow the canonical
+[deployment-from-scratch checklist](deployment-from-scratch.md) for the
+operator sequence, command locations, expected results, stop conditions, and
+final approval record.
+
 Resolve these in order:
 
 1. Obtain green required hosted CI, including

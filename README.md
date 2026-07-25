@@ -227,8 +227,11 @@ Production uses persistent local journald storage and the SSH-only
 response checks are documented in
 [docs/observability.md](docs/observability.md).
 
-Production deploy/rollback commands, launch approval, and the complete
-operational runbook index are documented in
+For a first production launch, follow the single canonical
+[deployment-from-scratch checklist](docs/deployment-from-scratch.md). It
+identifies which commands run on the operator machine, GitHub Actions, and the
+VPS, and continues through final acceptance evidence. Production
+deploy/rollback details and the complete operational index are documented in
 [docs/release-and-rollback.md](docs/release-and-rollback.md) and
 [docs/operational-runbooks.md](docs/operational-runbooks.md).
 

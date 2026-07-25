@@ -153,6 +153,7 @@ test("production Compose preserves independent data and backup volumes", async (
 
 test("operations index covers every required runbook and each canonical page is actionable", async () => {
   const files = [
+    "docs/deployment-from-scratch.md",
     "docs/release-and-rollback.md",
     "docs/token-rotation.md",
     "docs/browser-operations.md",
@@ -186,6 +187,7 @@ test("operations index covers every required runbook and each canonical page is 
     "utf8",
   );
   for (const topic of [
+    "Fresh production launch",
     "Deploy and rollback",
     "Rotate Telegram token",
     "browser verification",
@@ -197,5 +199,38 @@ test("operations index covers every required runbook and each canonical page is 
     "Low disk or growing state",
   ]) {
     assert.match(index, new RegExp(topic, "iu"));
+  }
+
+  const launchRunbook = await readFile(
+    new URL("../docs/deployment-from-scratch.md", import.meta.url),
+    "utf8",
+  );
+  for (const required of [
+    /Where commands run/u,
+    /Required CI/u,
+    /Publish production/u,
+    /infra\/hcloud\/bootstrap\.sh --check/u,
+    /rentalctl status/u,
+    /production-exercise finalize/u,
+    /Subsequent deployments/u,
+  ]) {
+    assert.match(launchRunbook, required);
+  }
+
+  for (const entrypoint of [
+    "README.md",
+    "docs/architecture.md",
+    "docs/operational-runbooks.md",
+    "docs/production-readiness-status.md",
+  ]) {
+    const content = await readFile(
+      new URL(`../${entrypoint}`, import.meta.url),
+      "utf8",
+    );
+    assert.match(
+      content,
+      /deployment-from-scratch\.md/u,
+      `${entrypoint} does not identify the canonical launch runbook`,
+    );
   }
 });

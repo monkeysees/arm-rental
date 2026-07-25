@@ -70,7 +70,10 @@ ssh -t production rentalctl logs --ui --since 24h
 24 hours of application records and atomically replaces
 `/var/lib/rental-apartments-ops/metrics-latest.json`. It records one
 `monitor.started` and exactly one `monitor.succeeded` or `monitor.failed`
-record under `SYSLOG_IDENTIFIER=rental-monitor`.
+record under `SYSLOG_IDENTIFIER=rental-monitor`. When a deployment or another
+serialized production operation owns the shared lock, the monitor instead
+records `monitor.skipped` and exits successfully; the next timer invocation
+resumes evaluation after the operation completes.
 
 The stable snapshot covers image/revision, container health, readiness, uptime
 and restarts; last preflight/crawl; 1-hour and 24-hour crawl totals, ratios,

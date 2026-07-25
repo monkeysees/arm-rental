@@ -87,9 +87,15 @@ main() {
   install -d -m 0750 "$RENTAL_OPS_STATE_DIR"
   install -d -m 0750 "$(dirname -- "$RENTAL_OPS_LOCK_FILE")"
   exec 9>"$RENTAL_OPS_LOCK_FILE"
-  flock -n 9 || observability_die "another production operation holds the lock"
-
   emit_record info monitor.started "Local monitoring evaluation started"
+  if ! flock -n 9; then
+    emit_record \
+      info monitor.skipped \
+      "Local monitoring evaluation deferred while a production operation holds the lock"
+    terminal_recorded=true
+    return
+  fi
+
   local metrics previous now readiness_failures desired transition_plan next_state
   metrics="$(write_metrics_snapshot "$METRICS_STATE")"
   now="$(date -u +%Y-%m-%dT%H:%M:%SZ)"

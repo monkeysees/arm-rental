@@ -42,7 +42,10 @@ function alertRecord(observedAt, event = "alert.firing") {
 
 async function fakeHost(
   t,
-  { containerStartedAt = "2026-07-25T11:00:00Z" } = {},
+  {
+    containerStartedAt = "2026-07-25T11:00:00Z",
+    operationsLockAvailable = true,
+  } = {},
 ) {
   const root = await mkdtemp(join(tmpdir(), "rental-observability-"));
   t.after(() => rm(root, { recursive: true, force: true }));
@@ -94,7 +97,12 @@ esac
     join(bin, "curl"),
     '#!/bin/sh\ncat >/dev/null\nprintf "sent\\n" >>"$RENTAL_TEST_CURL_CALLS"\n',
   );
-  await executable(join(bin, "flock"), "#!/bin/sh\nexit 0\n");
+  await executable(
+    join(bin, "flock"),
+    `#!/bin/sh
+exit ${operationsLockAvailable ? 0 : 1}
+`,
+  );
   const envFile = join(root, "env");
   await writeFile(
     envFile,
@@ -222,4 +230,21 @@ test("monitor ignores application alerts from an earlier container lifecycle", a
     metrics.applicationAlerts.map(({ name, status }) => ({ name, status })),
     [{ name: "browser_challenge", status: "firing" }],
   );
+});
+
+test("monitor defers successfully while a production operation owns the lock", async (t) => {
+  const host = await fakeHost(t, { operationsLockAvailable: false });
+  await execute(monitor, [], { env: host.env });
+
+  await assert.rejects(
+    readFile(join(host.state, "metrics-latest.json"), "utf8"),
+    { code: "ENOENT" },
+  );
+  await assert.rejects(readFile(host.env.RENTAL_TEST_CURL_CALLS, "utf8"), {
+    code: "ENOENT",
+  });
+  const serviceLog = await readFile(host.env.RENTAL_TEST_SYSTEMD_LOG, "utf8");
+  assert.match(serviceLog, /monitor\.started/u);
+  assert.match(serviceLog, /monitor\.skipped/u);
+  assert.doesNotMatch(serviceLog, /monitor\.(succeeded|failed)/u);
 });

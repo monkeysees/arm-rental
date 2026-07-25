@@ -71,7 +71,9 @@ deduplicated outbound alert route, while the failed systemd unit and retained
 journal records remain the delivery fallback. Derived application alerts are
 bounded by the running container's start time; retained alert events from an
 older container lifecycle remain queryable as logs but cannot become current
-alert state.
+alert state. Monitoring defers with a successful, structured skip while a
+serialized production operation owns the shared lock, preventing an expected
+deployment observation window from becoming a scheduled-job failure.
 
 ### Systemd operations
 

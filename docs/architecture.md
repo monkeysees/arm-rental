@@ -467,6 +467,11 @@ On constrained Linux hosts, combining that flag with headless mode can cause
 Chromium's renderer scheduler to stall navigation and page evaluation even
 though the browser process remains healthy. Interactive launches retain the
 configured minimized behavior.
+Before every launch, the fetcher checks Chromium's profile-owner PID. If no
+owner is alive, it removes only Chromium's known `SingletonLock`,
+`SingletonCookie`, and `SingletonSocket` symlinks left by an interrupted
+process. A non-symlink singleton entry or a live owner fails closed, preventing
+recovery code from deleting unexpected profile data.
 After a successful headless page capture, the fetcher closes the sandboxed
 Chromium process. The next page starts a fresh process against the same durable
 profile, preserving List.am verification cookies while preventing renderer and

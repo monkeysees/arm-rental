@@ -1,6 +1,15 @@
 import { execFile } from "node:child_process";
 import { createHash } from "node:crypto";
-import { access, chmod, mkdir, mkdtemp, readlink, rm } from "node:fs/promises";
+import {
+  access,
+  chmod,
+  lstat,
+  mkdir,
+  mkdtemp,
+  readlink,
+  rm,
+  unlink,
+} from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
@@ -13,6 +22,11 @@ const executeFile = promisify(execFile);
 const LOOPBACK_DEBUG_ADDRESS = "127.0.0.1";
 const PROCESS_EXIT_TIMEOUT_MS = 2_000;
 const DEFAULT_DISK_CACHE_MAX_BYTES = 64 * 1024 * 1024;
+const CHROME_SINGLETON_NAMES = [
+  "SingletonLock",
+  "SingletonCookie",
+  "SingletonSocket",
+];
 export const BROWSER_VERIFICATION_COMMAND = "npm run browser:verify";
 export const BROWSER_CHALLENGE_EVENT = "browser.challenge";
 
@@ -61,6 +75,32 @@ async function activeProfileProcessId(profileDirectory) {
   } catch (error) {
     if (error.code === "ENOENT" || error.code === "EINVAL") return undefined;
     throw error;
+  }
+}
+
+async function removeStaleProfileSingletons(profileDirectory) {
+  const processId = await activeProfileProcessId(profileDirectory);
+  if (processId) {
+    throw new Error(
+      `Chrome profile is in use by process ${processId}. Close that Chrome process before retrying.`,
+    );
+  }
+
+  for (const name of CHROME_SINGLETON_NAMES) {
+    const singletonPath = path.join(profileDirectory, name);
+    let metadata;
+    try {
+      metadata = await lstat(singletonPath);
+    } catch (error) {
+      if (error.code === "ENOENT") continue;
+      throw error;
+    }
+    if (!metadata.isSymbolicLink()) {
+      throw new Error(
+        `Chrome profile singleton ${name} is not a symbolic link; refusing to remove it.`,
+      );
+    }
+    await unlink(singletonPath);
   }
 }
 
@@ -272,6 +312,11 @@ export class BrowserPageFetcher {
     if (this.browser?.connected && this.page && !this.page.isClosed()) return;
 
     await this.dispose({ suppressCloseError: true });
+    await mkdir(this.config.browserProfileDir, {
+      recursive: true,
+      mode: 0o700,
+    });
+    await removeStaleProfileSingletons(this.config.browserProfileDir);
     const executablePath = await findChromeExecutable(
       this.config.chromeExecutablePath,
     );

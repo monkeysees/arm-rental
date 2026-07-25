@@ -1,5 +1,7 @@
 import assert from "node:assert/strict";
-import { readdir, readFile } from "node:fs/promises";
+import { mkdtemp, readdir, readFile, rm } from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
 import test from "node:test";
 
 import { BrowserPageFetcher } from "../src/browser-fetch.js";
@@ -125,7 +127,11 @@ test("removed deployment-environment paths cannot return unnoticed", async () =>
   }
 });
 
-test("production browser launch keeps the sandbox and restricts debugging to loopback", async () => {
+test("production browser launch keeps the sandbox and restricts debugging to loopback", async (t) => {
+  const persistentDirectory = await mkdtemp(
+    path.join(os.tmpdir(), "rental-deployment-isolation-"),
+  );
+  t.after(() => rm(persistentDirectory, { recursive: true, force: true }));
   let launchOptions;
   let assignedUserAgent;
   const page = {
@@ -148,7 +154,7 @@ test("production browser launch keeps the sandbox and restricts debugging to loo
   const fetcher = new BrowserPageFetcher(
     {
       browserHeadless: true,
-      browserProfileDir: "/persistent/chrome-profile",
+      browserProfileDir: path.join(persistentDirectory, "chrome-profile"),
       browserProtocolTimeoutMs: 30_000,
       browserStartMinimized: true,
       chromeExecutablePath: process.execPath,

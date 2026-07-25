@@ -1,5 +1,12 @@
 import assert from "node:assert/strict";
-import { access, mkdtemp, rm } from "node:fs/promises";
+import {
+  access,
+  mkdir,
+  mkdtemp,
+  rm,
+  symlink,
+  writeFile,
+} from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -105,6 +112,48 @@ test("executable discovery fails clearly when the configured path is absent", as
     findChromeExecutable("/definitely/missing/chrome", "unsupported"),
     /Chrome was not found/u,
   );
+});
+
+test("launch removes only stale Chromium singleton symlinks", async (t) => {
+  const config = await temporaryConfig(t);
+  await mkdir(config.browserProfileDir, { recursive: true });
+  for (const [name, target] of [
+    ["SingletonLock", "stale-container-99999999"],
+    ["SingletonCookie", "stale-cookie"],
+    ["SingletonSocket", "/tmp/stale-chromium-socket"],
+  ]) {
+    await symlink(target, path.join(config.browserProfileDir, name));
+  }
+  const fetcher = new BrowserPageFetcher(config, {
+    puppeteerImpl: {
+      launch: async () => launchedBrowser(browserPage()),
+    },
+  });
+
+  await fetcher.start();
+  await fetcher.close();
+
+  for (const name of ["SingletonLock", "SingletonCookie", "SingletonSocket"]) {
+    await assertMissing(path.join(config.browserProfileDir, name));
+  }
+});
+
+test("launch refuses to remove unexpected singleton files", async (t) => {
+  const config = await temporaryConfig(t);
+  await mkdir(config.browserProfileDir, { recursive: true });
+  await writeFile(path.join(config.browserProfileDir, "SingletonCookie"), "");
+  let launched = false;
+  const fetcher = new BrowserPageFetcher(config, {
+    puppeteerImpl: {
+      launch: async () => {
+        launched = true;
+        return launchedBrowser(browserPage());
+      },
+    },
+  });
+
+  await assert.rejects(fetcher.start(), /is not a symbolic link/u);
+  assert.equal(launched, false);
 });
 
 test("background macOS launch keeps remote control on loopback", async (t) => {

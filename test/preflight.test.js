@@ -175,7 +175,7 @@ test("preflight validates every state target and all external boundaries before 
   ]);
 });
 
-test("unsupported and target-mismatched state fails closed without changing files", async (t) => {
+test("unsupported and malformed state fails closed without changing files", async (t) => {
   const config = await temporaryConfig(t);
   const cases = [
     {
@@ -192,12 +192,12 @@ test("unsupported and target-mismatched state fails closed without changing file
     {
       filename: config.telegramStateFile,
       state: {
-        version: 1,
+        version: 2,
         type: "telegram-bot",
-        ownerId: 999,
+        users: [],
       },
-      reason: /target mismatch/u,
-      schema: { type: "telegram-bot", version: 1 },
+      reason: /schema contents are malformed/u,
+      schema: { type: "telegram-bot", version: 2 },
     },
   ];
 

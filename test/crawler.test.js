@@ -45,6 +45,10 @@ function memoryState(initial = {}) {
   };
 }
 
+function defaultDeliveries(state) {
+  return state.files.get(config.deliveryStateFile).recipients.default;
+}
+
 test("initial crawl parses pages 1 through 10 and stores every apartment", async () => {
   const state = memoryState();
   const fetched = [];
@@ -81,10 +85,15 @@ test("initial crawl parses pages 1 through 10 and stores every apartment", async
     Object.keys(state.files.get(config.apartmentsStateFile).apartments).length,
     10,
   );
-  assert.deepEqual(
-    Object.keys(state.files.get(config.deliveryStateFile).skipped).sort(),
-    ["10", "4", "5", "6", "7", "8", "9"],
-  );
+  assert.deepEqual(Object.keys(defaultDeliveries(state).skipped).sort(), [
+    "10",
+    "4",
+    "5",
+    "6",
+    "7",
+    "8",
+    "9",
+  ]);
 
   const nextResult = await crawlApartments(
     { ...config, initialDeliveryLimit: 3 },
@@ -225,10 +234,7 @@ test("a failed Telegram delivery remains pending without losing discovery", asyn
     Object.keys(state.files.get(config.apartmentsStateFile).apartments).sort(),
     ["1", "2", "3"],
   );
-  assert.deepEqual(
-    Object.keys(state.files.get(config.deliveryStateFile).notified),
-    ["1"],
-  );
+  assert.deepEqual(Object.keys(defaultDeliveries(state).notified), ["1"]);
 
   const retried = [];
   await crawlApartments(config, {
@@ -287,13 +293,54 @@ test("delivery filters skip non-matching apartments without losing discovery", a
   assert.equal(result.discoveredCount, 4);
   assert.equal(result.notifiedCount, 1);
   assert.equal(result.filteredCount, 3);
-  assert.deepEqual(
-    Object.keys(state.files.get(config.deliveryStateFile).filtered).sort(),
-    ["1", "3", "4"],
-  );
+  assert.deepEqual(Object.keys(defaultDeliveries(state).filtered).sort(), [
+    "1",
+    "3",
+    "4",
+  ]);
   assert.equal(
     Object.keys(state.files.get(config.apartmentsStateFile).apartments).length,
     4,
+  );
+});
+
+test("one crawl maintains independent delivery histories for multiple users", async () => {
+  const state = memoryState();
+  const delivered = { 42: [], 99: [] };
+
+  const result = await crawlApartments(
+    { ...config, initialPageCount: 1 },
+    {
+      ...state,
+      fetchPage: async () => new Response(page("3", "2", "1")),
+      privateDeliveries: [
+        {
+          recipientId: "42",
+          filters: emptyFilters(),
+          deliverApartment: async ({ itemId }) => delivered[42].push(itemId),
+        },
+        {
+          recipientId: "99",
+          filters: { rooms: { min: 3, max: 3 } },
+          deliverApartment: async ({ itemId }) => delivered[99].push(itemId),
+        },
+      ],
+      now: () => new Date("2026-07-24T12:00:00Z"),
+    },
+  );
+
+  assert.deepEqual(delivered[42], ["1", "2", "3"]);
+  assert.deepEqual(delivered[99], []);
+  assert.equal(result.notifiedCount, 3);
+  const deliveryState = state.files.get(config.deliveryStateFile);
+  assert.deepEqual(Object.keys(deliveryState.recipients["42"].notified), [
+    "1",
+    "2",
+    "3",
+  ]);
+  assert.deepEqual(
+    Object.keys(deliveryState.recipients["99"].filtered).sort(),
+    ["1", "2", "3"],
   );
 });
 
@@ -534,7 +581,7 @@ test("an updated apartment is delivered again privately when it still matches fi
     /Telegram unavailable/u,
   );
   assert.equal(
-    state.files.get(config.deliveryStateFile).notified["50"],
+    defaultDeliveries(state).notified["50"],
     "2026-07-24T12:00:00.000Z",
   );
 
@@ -549,7 +596,7 @@ test("an updated apartment is delivered again privately when it still matches fi
   assert.equal(retry.notifiedCount, 1);
   assert.deepEqual(delivered, ["Original title", "Updated title"]);
   assert.equal(
-    state.files.get(config.deliveryStateFile).notified["50"],
+    defaultDeliveries(state).notified["50"],
     "2026-07-24T12:02:00.000Z",
   );
 

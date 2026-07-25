@@ -7,11 +7,11 @@ Runtime resources retain the established `rental-apartments` prefix so existing
 production paths, systemd units, and persistent storage remain stable.
 
 The application discovers long-term apartment rentals from List.am for a
-private owner-only Telegram bot and, when configured, a public Telegram channel.
+multi-user private Telegram bot and, when configured, a public Telegram channel.
 It reads only the site's **Regular Ads** section and ignores **Top Ads**. The
-configured Telegram owner is the only account allowed to activate and control
-private monitoring; channel crawling and publication are
-activation-independent.
+configured Telegram owner remains the exclusive server-alert destination, but
+any user can activate a private subscription and control their own filters.
+Channel crawling and publication are activation-independent.
 
 All bot-generated Telegram replies, notification labels, channel hashtags, and
 missing-value fallbacks are in Russian. Apartment messages omit the posting
@@ -654,12 +654,11 @@ operator procedures are indexed in
    persistent-directory singleton lease, and runs the startup preflight. Only a
    ready result permits the reusable Chrome-backed page fetcher and Telegram bot
    to enter their long-running loops.
-2. One loop in `src/bot.js` long-polls Telegram. A private `/start` from
-   `TELEGRAM_OWNER_ID` activates persistent private monitoring; all other users
-   and group chats are ignored. `/filters` and the inline start button expose
-   persistent price, room, and hierarchical location controls. Range values are
-   collected from the owner's next text message; `/cancel` abandons pending
-   input.
+2. One loop in `src/bot.js` long-polls Telegram. A private `/start` from any
+   Telegram user activates that user's persistent subscription; group chats are
+   ignored. `/filters` and the inline start button expose per-user price, room,
+   and hierarchical location controls. Range values are collected from that
+   user's next text message; `/cancel` abandons only that user's pending input.
 3. A crawl loop runs when private monitoring is active or a channel is
    configured. With neither condition, it waits for activation. After apartment
    state is saved, private admission/delivery and `src/channel.js` publication
@@ -695,13 +694,16 @@ operator procedures are indexed in
    the latest persisted rate and replaces its rate audit; otherwise the prior
    canonical price and audit remain unchanged.
 9. Newly discovered and updated records are atomically committed before
-   Telegram delivery begins. First-time private `src/filters.js` admission is
-   terminal: non-matches become filtered, and on an empty private delivery
-   history only the latest matching `INITIAL_DELIVERY_LIMIT` are selected. A
-   previously delivered apartment becomes pending again when its source
-   `updatedAt` is later than its last successful private notification and it
-   matches the current private filters. Source order is reversed so selected
-   messages are delivered oldest first, then acknowledged one at a time.
+   Telegram delivery begins. The crawl fans out across active users, each with
+   independent `src/filters.js` admission and delivery history. First-time
+   admission is terminal: non-matches become filtered, and on an empty user
+   delivery history only the latest matching `INITIAL_DELIVERY_LIMIT` are
+   selected. A previously delivered apartment becomes pending again when its
+   source `updatedAt` is later than that user's last successful notification and
+   it matches that user's current filters. Source order is reversed so selected
+   messages are delivered oldest first, then acknowledged one at a time. A
+   terminal private-chat delivery error deactivates only the unavailable user;
+   it does not terminate other subscriptions or channel publication.
 10. `src/channel.js` independently evaluates environment filters. With no
     compatible channel state, it atomically classifies the full apartment order:
     the latest matching `INITIAL_DELIVERY_LIMIT` become `pending`, older matches
@@ -724,7 +726,7 @@ operator procedures are indexed in
 
 ## Filter model
 
-Private filters live in Telegram bot state and default to no restrictions.
+Private filters live per user in Telegram bot state and default to no restrictions.
 Price and room filters each have nullable inclusive `min` and `max` bounds.
 Price input and comparison are always in AMD, using the apartment's canonical
 `amountAmd`; the private notification still renders `originalAmount` and
@@ -777,13 +779,19 @@ The `.data` directory must be mounted on persistent storage in production.
 - `exchange-rates.json` stores one validated, atomic CBA snapshot containing
   USD, EUR, and RUB quote amounts and rates, its fetch timestamp, and its CBA
   effective date. It is reusable across process restarts.
-- `telegram-deliveries.json` tracks each private item ID's latest successful
-  delivery timestamp and the intentionally skipped portion of initial history.
-  Its `filtered` index records listings rejected by the private filters active
-  on first admission. New and updated selected messages remain retryable until
-  their successful delivery timestamp reaches the source update timestamp.
-- `telegram-bot.json` stores owner identity, activation, private chat ID,
-  Telegram update offset, optional private filters, and pending range-input mode.
+- `telegram-deliveries.json` stores a delivery state machine per private user,
+  tracking item IDs' latest successful delivery timestamps and intentionally
+  skipped initial history. Each user's `filtered` index records listings
+  rejected by their filters on first admission. New and updated selected
+  messages remain retryable until that user's successful delivery timestamp
+  reaches the source update timestamp.
+- `telegram-bot.json` stores the Telegram update offset and a map of private
+  users with activation, chat ID, optional filters, and pending range-input
+  mode. Version-1 owner-only state is migrated in memory to the version-2 user
+  map, retaining the former private recipient ID for delivery-history migration,
+  and persisted on the next update. Bot state is deliberately not bound to
+  `TELEGRAM_OWNER_ID`, so rotating the server-alert recipient does not invalidate
+  private subscriptions.
 - `telegram-channel-deliveries.json` is a separate channel state machine keyed
   by item ID. It stores terminal `filtered` and `skipped_initial` admissions,
   retryable `pending` entries, and `published` entries with Telegram message ID,
@@ -852,9 +860,11 @@ filter-classification behavior.
 Filter tests cover optional/open ranges, regions, places, composed criteria, and
 AMD comparison of foreign source prices. Exchange-rate tests cover SOAP parsing,
 atomic validation, daily refresh, hourly failure backoff, restart reuse, and
-conversion audit fields. Telegram tests cover owner-only activation,
-interactive filter configuration, Yerevan-first selection, Russian formatting
-and fallbacks, rate-limit retries, and channel/private runtime isolation.
+conversion audit fields. Telegram tests cover multi-user private activation,
+independent interactive filter configuration, Yerevan-first selection, Russian
+formatting and fallbacks, rate-limit retries, and channel/private runtime
+isolation. Crawler integration tests prove that one crawl maintains independent
+delivery classifications and acknowledgements for multiple users.
 Channel integration tests cover configuration validation and composition,
 initial classification/order, partial-send restart recovery, canonical-AMD
 hashtags, edits and retries, and missing-message replacement.

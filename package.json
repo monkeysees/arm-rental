@@ -2,7 +2,7 @@
   "name": "rental-apartments-bot",
   "version": "1.0.0",
   "private": true,
-  "description": "Admin-only Telegram bot that discovers long-term apartment rentals on List.am.",
+  "description": "Multi-user Telegram bot that discovers long-term apartment rentals on List.am.",
   "type": "module",
   "scripts": {
     "start": "node --env-file-if-exists=.env src/index.js",

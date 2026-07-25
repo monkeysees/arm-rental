@@ -1,5 +1,9 @@
 import { extractRegularApartments } from "./list-am.js";
-import { apartmentMatchesFilters, emptyFilters } from "./filters.js";
+import {
+  apartmentMatchesFilters,
+  emptyFilters,
+  normalizeFilters,
+} from "./filters.js";
 import {
   currencyCode,
   normalizeApartmentPrice,
@@ -65,12 +69,45 @@ export function compatibleApartmentState(state, template) {
 export function compatibleDeliveryState(state, template) {
   return Boolean(
     state &&
-    state.version === 1 &&
+    [1, 2].includes(state.version) &&
     state.type === "telegram-deliveries" &&
     state.urlTemplate === template &&
-    state.notified &&
-    typeof state.notified === "object" &&
-    !Array.isArray(state.notified),
+    (state.version === 1
+      ? state.notified &&
+        typeof state.notified === "object" &&
+        !Array.isArray(state.notified)
+      : state.recipients &&
+        typeof state.recipients === "object" &&
+        !Array.isArray(state.recipients)),
+  );
+}
+
+function deliveryRecipientState(state = {}) {
+  return {
+    notified: state.notified || {},
+    skipped: state.skipped || {},
+    filtered: state.filtered || {},
+    initialSelectionApplied:
+      state.initialSelectionApplied ??
+      Object.keys(state.notified || {}).length > 0,
+  };
+}
+
+export function deliveryStateCounts(state) {
+  const recipients =
+    state?.version === 2
+      ? Object.values(state.recipients || {})
+      : state
+        ? [state]
+        : [];
+  return recipients.reduce(
+    (counts, recipient) => ({
+      recipients: counts.recipients + 1,
+      notified: counts.notified + Object.keys(recipient.notified || {}).length,
+      skipped: counts.skipped + Object.keys(recipient.skipped || {}).length,
+      filtered: counts.filtered + Object.keys(recipient.filtered || {}).length,
+    }),
+    { recipients: 0, notified: 0, skipped: 0, filtered: 0 },
   );
 }
 
@@ -182,12 +219,32 @@ export async function crawlApartments(
     loadState = readState,
     saveState = writeState,
     deliverApartment,
+    privateDeliveries,
+    legacyRecipientId,
     exchangeRates,
     filters = emptyFilters(),
     now = () => new Date(),
     afterStateSaved,
   } = {},
 ) {
+  const deliveryTargets =
+    privateDeliveries ||
+    (deliverApartment
+      ? [
+          {
+            recipientId: "default",
+            filters,
+            deliverApartment,
+          },
+        ]
+      : []);
+  const recipientIds = deliveryTargets.map(({ recipientId }) =>
+    String(recipientId),
+  );
+  if (new Set(recipientIds).size !== recipientIds.length) {
+    throw new Error("Private delivery recipient IDs must be unique");
+  }
+
   const stored = await loadState(config.apartmentsStateFile);
   const compatible = compatibleApartmentState(stored, config.listUrlTemplate);
   const previousApartments = compatible
@@ -355,121 +412,145 @@ export async function crawlApartments(
   let skippedCount = 0;
   let filteredCount = 0;
   const privateDelivery = async () => {
-    if (!deliverApartment) return;
+    if (deliveryTargets.length === 0) return;
     const storedDeliveries = await loadState(config.deliveryStateFile);
     let deliveryState = compatibleDeliveryState(
       storedDeliveries,
       config.listUrlTemplate,
     )
-      ? {
-          ...storedDeliveries,
-          skipped: storedDeliveries.skipped || {},
-          filtered: storedDeliveries.filtered || {},
-          initialSelectionApplied:
-            storedDeliveries.initialSelectionApplied ??
-            Object.keys(storedDeliveries.notified).length > 0,
-        }
+      ? storedDeliveries.version === 2
+        ? {
+            ...storedDeliveries,
+            recipients: Object.fromEntries(
+              Object.entries(storedDeliveries.recipients).map(
+                ([recipientId, recipient]) => [
+                  recipientId,
+                  deliveryRecipientState(recipient),
+                ],
+              ),
+            ),
+          }
+        : {
+            version: 2,
+            type: "telegram-deliveries",
+            urlTemplate: config.listUrlTemplate,
+            recipients: {
+              [legacyRecipientId || recipientIds[0]]:
+                deliveryRecipientState(storedDeliveries),
+            },
+          }
       : {
-          version: 1,
+          version: 2,
           type: "telegram-deliveries",
           urlTemplate: config.listUrlTemplate,
-          notified: {},
-          skipped: {},
-          filtered: {},
-          initialSelectionApplied: false,
+          recipients: {},
         };
 
-    if (!deliveryState.initialSelectionApplied && apartmentOrder.length > 0) {
-      const classifiedAt = now().toISOString();
-      const matchingIds = apartmentOrder.filter((itemId) =>
-        apartmentMatchesFilters(apartments[itemId], filters),
-      );
-      const matchingIdSet = new Set(matchingIds);
-      const selectedIds = new Set(
-        matchingIds.slice(0, config.initialDeliveryLimit),
-      );
-      const skipped = Object.fromEntries(
-        matchingIds
-          .filter((itemId) => !selectedIds.has(itemId))
-          .map((itemId) => [itemId, classifiedAt]),
-      );
-      const filtered = Object.fromEntries(
-        apartmentOrder
-          .filter((itemId) => !matchingIdSet.has(itemId))
-          .map((itemId) => [itemId, classifiedAt]),
-      );
-      skippedCount = Object.keys(skipped).length;
-      filteredCount = Object.keys(filtered).length;
+    const saveRecipient = async (recipientId, recipient) => {
       deliveryState = {
         ...deliveryState,
-        initialSelectionApplied: true,
-        skipped: {
-          ...deliveryState.skipped,
-          ...skipped,
-        },
-        filtered: {
-          ...deliveryState.filtered,
-          ...filtered,
-        },
+        recipients: { ...deliveryState.recipients, [recipientId]: recipient },
       };
-      // Persist the initial selection before delivery so restarts cannot enqueue
-      // omitted historical or non-matching apartments.
       await saveState(config.deliveryStateFile, deliveryState);
-    }
+    };
 
-    const unclassifiedIds = apartmentOrder.filter(
-      (itemId) =>
-        !deliveryState.notified[itemId] &&
-        !deliveryState.skipped[itemId] &&
-        !deliveryState.filtered[itemId],
-    );
-    const newlyFilteredIds = unclassifiedIds.filter(
-      (itemId) => !apartmentMatchesFilters(apartments[itemId], filters),
-    );
-    if (newlyFilteredIds.length > 0) {
-      const filteredAt = now().toISOString();
-      deliveryState = {
-        ...deliveryState,
-        filtered: {
-          ...deliveryState.filtered,
-          ...Object.fromEntries(
-            newlyFilteredIds.map((itemId) => [itemId, filteredAt]),
-          ),
-        },
-      };
-      filteredCount += newlyFilteredIds.length;
-      await saveState(config.deliveryStateFile, deliveryState);
-    }
+    for (const target of deliveryTargets) {
+      const recipientId = String(target.recipientId);
+      const recipientFilters = normalizeFilters(target.filters);
+      let recipient = deliveryRecipientState(
+        deliveryState.recipients[recipientId],
+      );
 
-    // List.am is newest-first; reversing its stable order sends by date ascending.
-    const pending = [...apartmentOrder]
-      .reverse()
-      .filter((itemId) => {
-        const deliveredAt = deliveryState.notified[itemId];
-        if (deliveredAt) {
-          return (
-            hasUpdateAfterDelivery(apartments[itemId], deliveredAt) &&
-            apartmentMatchesFilters(apartments[itemId], filters)
-          );
-        }
-        return (
-          !deliveryState.skipped[itemId] && !deliveryState.filtered[itemId]
+      if (!recipient.initialSelectionApplied && apartmentOrder.length > 0) {
+        const classifiedAt = now().toISOString();
+        const matchingIds = apartmentOrder.filter((itemId) =>
+          apartmentMatchesFilters(apartments[itemId], recipientFilters),
         );
-      })
-      .map((itemId) => apartments[itemId])
-      .filter(Boolean);
+        const matchingIdSet = new Set(matchingIds);
+        const selectedIds = new Set(
+          matchingIds.slice(0, config.initialDeliveryLimit),
+        );
+        const skipped = Object.fromEntries(
+          matchingIds
+            .filter((itemId) => !selectedIds.has(itemId))
+            .map((itemId) => [itemId, classifiedAt]),
+        );
+        const filtered = Object.fromEntries(
+          apartmentOrder
+            .filter((itemId) => !matchingIdSet.has(itemId))
+            .map((itemId) => [itemId, classifiedAt]),
+        );
+        skippedCount += Object.keys(skipped).length;
+        filteredCount += Object.keys(filtered).length;
+        recipient = {
+          ...recipient,
+          initialSelectionApplied: true,
+          skipped: { ...recipient.skipped, ...skipped },
+          filtered: { ...recipient.filtered, ...filtered },
+        };
+        // Persist classification before sending so a restart cannot enqueue
+        // historical apartments that were intentionally omitted for this user.
+        await saveRecipient(recipientId, recipient);
+      }
 
-    for (const apartment of pending) {
-      await deliverApartment(apartment);
-      deliveryState = {
-        ...deliveryState,
-        notified: {
-          ...deliveryState.notified,
-          [apartment.itemId]: now().toISOString(),
-        },
-      };
-      await saveState(config.deliveryStateFile, deliveryState);
-      notifiedCount += 1;
+      const unclassifiedIds = apartmentOrder.filter(
+        (itemId) =>
+          !recipient.notified[itemId] &&
+          !recipient.skipped[itemId] &&
+          !recipient.filtered[itemId],
+      );
+      const newlyFilteredIds = unclassifiedIds.filter(
+        (itemId) =>
+          !apartmentMatchesFilters(apartments[itemId], recipientFilters),
+      );
+      if (newlyFilteredIds.length > 0) {
+        const filteredAt = now().toISOString();
+        recipient = {
+          ...recipient,
+          filtered: {
+            ...recipient.filtered,
+            ...Object.fromEntries(
+              newlyFilteredIds.map((itemId) => [itemId, filteredAt]),
+            ),
+          },
+        };
+        filteredCount += newlyFilteredIds.length;
+        await saveRecipient(recipientId, recipient);
+      }
+
+      // List.am is newest-first; reverse its stable order for ascending delivery.
+      const pending = [...apartmentOrder]
+        .reverse()
+        .filter((itemId) => {
+          const deliveredAt = recipient.notified[itemId];
+          if (deliveredAt) {
+            return (
+              hasUpdateAfterDelivery(apartments[itemId], deliveredAt) &&
+              apartmentMatchesFilters(apartments[itemId], recipientFilters)
+            );
+          }
+          return !recipient.skipped[itemId] && !recipient.filtered[itemId];
+        })
+        .map((itemId) => apartments[itemId])
+        .filter(Boolean);
+
+      for (const apartment of pending) {
+        try {
+          await target.deliverApartment(apartment);
+        } catch (error) {
+          if (error.privateRecipientUnavailable) break;
+          throw error;
+        }
+        recipient = {
+          ...recipient,
+          notified: {
+            ...recipient.notified,
+            [apartment.itemId]: now().toISOString(),
+          },
+        };
+        await saveRecipient(recipientId, recipient);
+        notifiedCount += 1;
+      }
     }
   };
 

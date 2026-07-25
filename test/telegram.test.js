@@ -1,7 +1,11 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { processUpdates, runTelegramBot } from "../src/bot.js";
+import {
+  compatibleBotState,
+  processUpdates,
+  runTelegramBot,
+} from "../src/bot.js";
 import {
   formatApartmentMessage,
   isStartCommand,
@@ -18,6 +22,17 @@ const initialState = {
   updateOffset: 0,
 };
 
+test("multi-user bot state is independent of the server-alert owner", () => {
+  assert.equal(
+    compatibleBotState({ version: 2, type: "telegram-bot", users: {} }),
+    true,
+  );
+  assert.equal(
+    compatibleBotState({ version: 1, type: "telegram-bot", ownerId: 99 }),
+    true,
+  );
+});
+
 function update(updateId, fromId, text, type = "private") {
   return {
     update_id: updateId,
@@ -29,22 +44,22 @@ function update(updateId, fromId, text, type = "private") {
   };
 }
 
-function callback(updateId, data, messageId = 100) {
+function callback(updateId, data, messageId = 100, fromId = 42) {
   return {
     update_id: updateId,
     callback_query: {
       id: `query-${updateId}`,
-      from: { id: 42 },
+      from: { id: fromId },
       data,
       message: {
         message_id: messageId,
-        chat: { id: 42, type: "private" },
+        chat: { id: fromId, type: "private" },
       },
     },
   };
 }
 
-test("only a private /start from the configured owner activates the bot", async () => {
+test("any user can activate the bot in a private chat", async () => {
   const sent = [];
   const saved = [];
   const state = await processUpdates(
@@ -62,12 +77,14 @@ test("only a private /start from the configured owner activates the bot", async 
     },
   );
 
-  assert.equal(state.active, true);
-  assert.equal(state.chatId, 42);
+  assert.equal(state.version, 2);
+  assert.equal(state.users["99"].active, true);
+  assert.equal(state.users["42"].active, true);
   assert.equal(state.updateOffset, 14);
   assert.deepEqual(
     sent.map(([chatId, text]) => [chatId, text]),
     [
+      [99, "Мониторинг объявлений запущен."],
       [42, "Мониторинг объявлений запущен."],
       [42, "Мониторинг объявлений уже запущен."],
     ],
@@ -76,7 +93,7 @@ test("only a private /start from the configured owner activates the bot", async 
   assert.equal(saved.at(-1).updateOffset, 14);
 });
 
-test("owner configures ranges and multiple locations through Telegram", async () => {
+test("a user configures ranges and multiple locations through Telegram", async () => {
   const sent = [];
   const edited = [];
   const answered = [];
@@ -104,9 +121,12 @@ test("owner configures ranges and multiple locations through Telegram", async ()
     },
   );
 
-  assert.deepEqual(state.filters.price, { min: 150_000, max: 300_000 });
-  assert.deepEqual(state.filters.locations, ["p:0:1", "r:1"]);
-  assert.equal(state.pendingFilterInput, null);
+  assert.deepEqual(state.users["42"].filters.price, {
+    min: 150_000,
+    max: 300_000,
+  });
+  assert.deepEqual(state.users["42"].filters.locations, ["p:0:1", "r:1"]);
+  assert.equal(state.users["42"].pendingFilterInput, null);
   assert.equal(state.updateOffset, 29);
   assert.equal(answered.length, 7);
   const locationsView = edited.find((entry) =>
@@ -140,8 +160,32 @@ test("filter changes are persisted before the menu is refreshed", async () => {
     },
   );
 
-  assert.deepEqual(state.filters.locations, ["r:0"]);
+  assert.deepEqual(state.users["42"].filters.locations, ["r:0"]);
   assert.deepEqual(events.slice(0, 3), ["answer", "save", "edit"]);
+});
+
+test("private users maintain independent filter input and settings", async () => {
+  const state = await processUpdates(
+    [callback(40, "f:price", 100, 99), update(41, 99, "200000-250000")],
+    config,
+    initialState,
+    {
+      sendMessage: async () => {},
+      editMessage: async () => {},
+      answerCallback: async () => {},
+      saveState: async () => {},
+    },
+  );
+
+  assert.deepEqual(state.users["99"].filters.price, {
+    min: 200_000,
+    max: 250_000,
+  });
+  assert.equal(state.users["99"].pendingFilterInput, null);
+  assert.deepEqual(state.users["42"].filters.price, {
+    min: null,
+    max: null,
+  });
 });
 
 test("Telegram helpers format normalized apartment data", () => {
@@ -337,7 +381,7 @@ test("TelegramApi serializes interactive filter controls", async () => {
   ]);
 });
 
-test("/start wakes the monitor and sends apartments to the owner chat", async () => {
+test("/start wakes the monitor and sends apartments to the activated user", async () => {
   const controller = new AbortController();
   const sent = [];
   let updateCalls = 0;
@@ -369,8 +413,8 @@ test("/start wakes the monitor and sends apartments to the owner chat", async ()
       signal: controller.signal,
       loadState: async () => undefined,
       saveState: async () => {},
-      crawl: async (_config, { deliverApartment }) => {
-        await deliverApartment({
+      crawl: async (_config, { privateDeliveries }) => {
+        await privateDeliveries[0].deliverApartment({
           itemId: "100",
           title: "Apartment 100",
           price: { amount: 200_000, currency: "֏" },
@@ -465,7 +509,7 @@ test("an enabled channel crawls and publishes without private activation", async
       saveState: async () => {},
       crawl: async (_config, options) => {
         crawlCalls += 1;
-        privateDelivery = options.deliverApartment;
+        privateDelivery = options.privateDeliveries;
         await options.afterStateSaved({
           apartments: {},
           apartmentOrder: [],
@@ -526,7 +570,7 @@ test("a channel failure does not prevent an active private delivery", async () =
       saveState: async () => {},
       crawl: async (_config, options) => {
         await Promise.all([
-          options.deliverApartment({
+          options.privateDeliveries[0].deliverApartment({
             itemId: "100",
             title: "Apartment 100",
             price: { amount: 200_000, currency: "֏" },
@@ -557,4 +601,133 @@ test("a channel failure does not prevent an active private delivery", async () =
   assert.match(sent[0][1], /^Apartment 100/u);
   assert.equal(errors.length, 1);
   assert.equal(errors[0][1].component, "telegram-channel");
+});
+
+test("a blocked private user is deactivated without stopping the bot", async () => {
+  const controller = new AbortController();
+  const saved = [];
+  const deactivations = [];
+  const blocked = new Error("Forbidden: bot was blocked by the user");
+  blocked.code = "ERR_TELEGRAM_API";
+  blocked.terminal = true;
+  const activeUserState = {
+    version: 2,
+    type: "telegram-bot",
+    ownerId: 42,
+    updateOffset: 0,
+    users: {
+      99: {
+        active: true,
+        chatId: 99,
+        filters: {},
+        pendingFilterInput: null,
+      },
+    },
+  };
+  const api = {
+    getUpdates: async (_offset, _timeout, signal) =>
+      new Promise((resolve) => {
+        signal.addEventListener("abort", () => resolve([]), { once: true });
+      }),
+    sendMessage: async () => {
+      throw blocked;
+    },
+  };
+
+  await runTelegramBot(
+    {
+      telegramBotToken: "token",
+      telegramOwnerId: 42,
+      telegramStateFile: "/state/bot.json",
+      telegramPollTimeoutSeconds: 25,
+      timeoutMs: 1_000,
+      pollIntervalMs: 60_000,
+    },
+    {
+      api,
+      signal: controller.signal,
+      loadState: async () => activeUserState,
+      saveState: async (_filename, value) => saved.push(structuredClone(value)),
+      crawl: async (_config, { privateDeliveries }) => {
+        await assert.rejects(
+          privateDeliveries[0].deliverApartment({
+            itemId: "100",
+            title: "Apartment 100",
+            price: { amount: 200_000, currency: "֏" },
+            url: "https://www.list.am/ru/item/100",
+          }),
+          (error) => error.privateRecipientUnavailable === true,
+        );
+        return {
+          status: "unchanged",
+          pagesParsed: 1,
+          discoveredCount: 0,
+          updatedCount: 0,
+          notifiedCount: 0,
+          skippedCount: 0,
+          filteredCount: 0,
+          totalCount: 1,
+        };
+      },
+      onPrivateUserDeactivated: async (event) => {
+        deactivations.push(event);
+      },
+      onResult: () => controller.abort(),
+    },
+  );
+
+  assert.equal(saved.at(-1).users["99"].active, false);
+  assert.deepEqual(deactivations, [{ reason: "ERR_TELEGRAM_API" }]);
+});
+
+test("a terminal command reply deactivates only that private user", async () => {
+  const controller = new AbortController();
+  const saved = [];
+  let updateCalls = 0;
+  const blocked = new Error("Forbidden: bot was blocked by the user");
+  blocked.code = "ERR_TELEGRAM_API";
+  blocked.terminal = true;
+  const api = {
+    getUpdates: async (_offset, _timeout, signal) => {
+      updateCalls += 1;
+      if (updateCalls === 1) return [update(1, 99, "/start")];
+      return new Promise((resolve) => {
+        signal.addEventListener("abort", () => resolve([]), { once: true });
+      });
+    },
+    sendMessage: async () => {
+      throw blocked;
+    },
+  };
+
+  await runTelegramBot(
+    {
+      telegramBotToken: "token",
+      telegramOwnerId: 42,
+      telegramStateFile: "/state/bot.json",
+      telegramPollTimeoutSeconds: 25,
+      timeoutMs: 1_000,
+      pollIntervalMs: 60_000,
+    },
+    {
+      api,
+      signal: controller.signal,
+      loadState: async () => undefined,
+      saveState: async (_filename, value) => saved.push(structuredClone(value)),
+      crawl: async () => ({
+        status: "unchanged",
+        pagesParsed: 1,
+        discoveredCount: 0,
+        updatedCount: 0,
+        notifiedCount: 0,
+        skippedCount: 0,
+        filteredCount: 0,
+        totalCount: 0,
+      }),
+      onPrivateUserDeactivated: () => controller.abort(),
+    },
+  );
+
+  assert.equal(saved.at(-1).updateOffset, 2);
+  assert.equal(saved.at(-1).users["99"].active, false);
 });

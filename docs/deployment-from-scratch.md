@@ -295,10 +295,11 @@ sudo rentalctl status
 sudo rentalctl logs --since 30m --event crawl.succeeded
 ```
 
-For a private-only first installation, send `/start` to the bot from the
-configured owner account as soon as Telegram polling begins. This activates the
-first crawl and is persisted for later unattended deployments. A configured
-channel crawls without private activation.
+For a private-only first installation, any intended user can send `/start` to
+the bot in a private chat as soon as Telegram polling begins. This activates
+the first crawl and is persisted for later unattended deployments. A
+configured channel crawls without private activation. Server alerts continue
+to use only `TELEGRAM_OWNER_ID` as their destination.
 
 Deployment success requires ready startup preflight, healthy private probes,
 one successful crawl, the configured Telegram/channel permission result, and

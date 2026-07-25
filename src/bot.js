@@ -12,7 +12,6 @@ import {
   toggleWholeRegion,
 } from "./filter-ui.js";
 import {
-  emptyFilters,
   LOCATION_REGIONS,
   normalizeFilters,
   parseRangeInput,
@@ -25,23 +24,98 @@ import {
 } from "./telegram.js";
 import { ExponentialBackoff, isExpectedExternalFailure } from "./retry.js";
 
-export function compatibleBotState(state, ownerId) {
+export function compatibleBotState(state) {
   return Boolean(
     state &&
-    state.version === 1 &&
+    [1, 2].includes(state.version) &&
     state.type === "telegram-bot" &&
-    state.ownerId === ownerId,
+    (state.version === 1
+      ? Number.isSafeInteger(state.ownerId) && state.ownerId > 0
+      : state.users &&
+        typeof state.users === "object" &&
+        !Array.isArray(state.users)),
   );
 }
 
-function withFilterDefaults(state) {
+function withFilterDefaults(user) {
   return {
-    ...state,
-    filters: normalizeFilters(state?.filters),
-    pendingFilterInput: ["price", "rooms"].includes(state?.pendingFilterInput)
-      ? state.pendingFilterInput
+    ...user,
+    active: Boolean(user?.active),
+    filters: normalizeFilters(user?.filters),
+    pendingFilterInput: ["price", "rooms"].includes(user?.pendingFilterInput)
+      ? user.pendingFilterInput
       : null,
   };
+}
+
+function defaultUser(chatId) {
+  return withFilterDefaults({ active: false, chatId });
+}
+
+function withBotDefaults(state) {
+  if (state.version === 1) {
+    const chatId = state.chatId ?? state.ownerId;
+    return {
+      version: 2,
+      type: state.type,
+      updateOffset: state.updateOffset || 0,
+      legacyRecipientId: String(chatId),
+      users: {
+        [chatId]: withFilterDefaults({
+          active: state.active,
+          chatId,
+          filters: state.filters,
+          pendingFilterInput: state.pendingFilterInput,
+        }),
+      },
+    };
+  }
+
+  const users = Object.fromEntries(
+    Object.entries(state.users || {})
+      .filter(([chatId, user]) => {
+        const parsedChatId = Number(chatId);
+        return (
+          Number.isSafeInteger(parsedChatId) &&
+          parsedChatId > 0 &&
+          user &&
+          typeof user === "object" &&
+          !Array.isArray(user)
+        );
+      })
+      .map(([chatId, user]) => [
+        chatId,
+        withFilterDefaults({ ...user, chatId: Number(chatId) }),
+      ]),
+  );
+
+  return {
+    version: 2,
+    type: state.type,
+    updateOffset: state.updateOffset || 0,
+    ...(typeof state.legacyRecipientId === "string"
+      ? { legacyRecipientId: state.legacyRecipientId }
+      : {}),
+    users,
+  };
+}
+
+function userState(state, chatId) {
+  return state.users[String(chatId)] || defaultUser(chatId);
+}
+
+function withUserState(state, chatId, user) {
+  return {
+    ...state,
+    users: {
+      ...state.users,
+      [chatId]: withFilterDefaults({ ...user, chatId }),
+    },
+  };
+}
+
+function activeUsers(state) {
+  return Object.values(state.users).filter(({ active }) => active);
 }
 
 function waitForActivation(signal, subscribe) {
@@ -220,42 +294,53 @@ export async function processUpdates(
     onActivated = () => {},
   },
 ) {
-  let current = withFilterDefaults(state);
-  const actions = { sendMessage, editMessage, saveState };
+  let current = withBotDefaults(state);
 
   for (const update of updates) {
     current = { ...current, updateOffset: update.update_id + 1 };
     const query = update.callback_query;
-    const isOwnerPrivateCallback =
-      query?.from?.id === config.telegramOwnerId &&
-      query.message?.chat?.type === "private" &&
-      query.message.chat.id === config.telegramOwnerId;
+    const isPrivateCallback =
+      query?.message?.chat?.type === "private" &&
+      query.from?.id === query.message.chat.id;
 
     if (query) {
       await answerCallback(query.id);
-      if (isOwnerPrivateCallback && query.data?.startsWith("f:")) {
-        current = await processFilterCallback(query, current, actions);
+      if (isPrivateCallback && query.data?.startsWith("f:")) {
+        const chatId = query.message.chat.id;
+        const actions = {
+          sendMessage,
+          editMessage,
+          saveState: async (user) => {
+            current = withUserState(current, chatId, user);
+            await saveState(current);
+          },
+        };
+        const user = await processFilterCallback(
+          query,
+          userState(current, chatId),
+          actions,
+        );
+        current = withUserState(current, chatId, user);
       }
       continue;
     }
 
     const message = update.message;
-    const isOwnerPrivateChat =
-      message?.from?.id === config.telegramOwnerId &&
-      message.chat?.type === "private" &&
-      message.chat.id === config.telegramOwnerId;
+    const isPrivateChat =
+      message?.chat?.type === "private" && message.from?.id === message.chat.id;
 
-    if (isOwnerPrivateChat && isStartCommand(message.text)) {
-      const wasActive = current.active;
-      current = {
-        ...current,
+    if (isPrivateChat && isStartCommand(message.text)) {
+      const user = userState(current, message.chat.id);
+      const wasActive = user.active;
+      current = withUserState(current, message.chat.id, {
+        ...user,
         active: true,
         chatId: message.chat.id,
-      };
+      });
       await saveState(current);
       onActivated(current);
       await sendMessage(
-        current.chatId,
+        message.chat.id,
         wasActive
           ? "Мониторинг объявлений уже запущен."
           : "Мониторинг объявлений запущен.",
@@ -264,36 +349,41 @@ export async function processUpdates(
       continue;
     }
 
-    if (!isOwnerPrivateChat) continue;
+    if (!isPrivateChat) continue;
+
+    let user = userState(current, message.chat.id);
 
     if (/^\/filters(?:@[a-z0-9_]+)?(?:\s|$)/iu.test(message.text || "")) {
-      current = { ...current, pendingFilterInput: null };
-      const view = filtersMenu(current.filters);
+      user = { ...user, pendingFilterInput: null };
+      current = withUserState(current, message.chat.id, user);
+      const view = filtersMenu(user.filters);
       await saveState(current);
       await sendMessage(message.chat.id, view.text, view.replyMarkup);
       continue;
     }
 
     if (/^\/cancel(?:@[a-z0-9_]+)?(?:\s|$)/iu.test(message.text || "")) {
-      current = { ...current, pendingFilterInput: null };
+      user = { ...user, pendingFilterInput: null };
+      current = withUserState(current, message.chat.id, user);
       await saveState(current);
       await sendMessage(message.chat.id, "Ввод фильтра отменён.");
       continue;
     }
 
-    if (current.pendingFilterInput && message.text) {
+    if (user.pendingFilterInput && message.text) {
       try {
-        const range = parseRangeInput(message.text, current.pendingFilterInput);
-        current = {
-          ...current,
+        const range = parseRangeInput(message.text, user.pendingFilterInput);
+        user = {
+          ...user,
           filters: {
-            ...current.filters,
-            [current.pendingFilterInput]: range,
+            ...user.filters,
+            [user.pendingFilterInput]: range,
           },
           pendingFilterInput: null,
         };
+        current = withUserState(current, message.chat.id, user);
         await saveState(current);
-        const view = filtersMenu(current.filters);
+        const view = filtersMenu(user.filters);
         await sendMessage(message.chat.id, view.text, view.replyMarkup);
       } catch (error) {
         await sendMessage(
@@ -321,6 +411,7 @@ export async function runTelegramBot(
     onResult = () => {},
     onError = () => {},
     onMonitoringState = () => {},
+    onPrivateUserDeactivated = () => {},
     onTelegramSuccess = () => {},
     onChannelOperation = () => {},
     onChannelFilterFingerprintChange = () => {},
@@ -336,27 +427,33 @@ export async function runTelegramBot(
     onRetry,
   });
   const stored = await loadState(config.telegramStateFile);
-  let state = compatibleBotState(stored, config.telegramOwnerId)
-    ? withFilterDefaults(stored)
+  let state = compatibleBotState(stored)
+    ? withBotDefaults(stored)
     : {
-        version: 1,
+        version: 2,
         type: "telegram-bot",
-        ownerId: config.telegramOwnerId,
-        active: false,
-        chatId: null,
         updateOffset: 0,
-        filters: emptyFilters(),
-        pendingFilterInput: null,
+        users: {},
       };
   let activationWaiter;
   await onMonitoringState({
-    active: state.active,
+    active: activeUsers(state).length > 0,
     channelConfigured: Boolean(config.telegramChannelId),
   });
 
   const activate = () => {
     activationWaiter?.();
     activationWaiter = undefined;
+  };
+  const deactivateUnavailableUser = async (chatId, reason) => {
+    const user = userState(state, chatId);
+    state = withUserState(state, chatId, { ...user, active: false });
+    await saveState(config.telegramStateFile, state);
+    await onMonitoringState({
+      active: activeUsers(state).length > 0,
+      channelConfigured: Boolean(config.telegramChannelId),
+    });
+    await onPrivateUserDeactivated({ reason });
   };
   const updateBackoff = new ExponentialBackoff({
     baseDelayMs: config.externalRetryBaseMs || 1_000,
@@ -370,16 +467,43 @@ export async function runTelegramBot(
   const updateLoop = async () => {
     while (!signal?.aborted) {
       try {
+        const unavailableUsers = new Map();
         const updates = await api.getUpdates(
           state.updateOffset,
           config.telegramPollTimeoutSeconds,
           signal,
         );
         state = await processUpdates(updates, config, state, {
-          sendMessage: (chatId, text, replyMarkup) =>
-            api.sendMessage(chatId, text, signal, replyMarkup),
-          editMessage: (chatId, messageId, text, replyMarkup) =>
-            api.editMessageText(chatId, messageId, text, signal, replyMarkup),
+          sendMessage: async (chatId, text, replyMarkup) => {
+            try {
+              return await api.sendMessage(chatId, text, signal, replyMarkup);
+            } catch (error) {
+              if (!error.terminal) throw error;
+              unavailableUsers.set(
+                chatId,
+                error.code || "ERR_TELEGRAM_PRIVATE_UNAVAILABLE",
+              );
+              return undefined;
+            }
+          },
+          editMessage: async (chatId, messageId, text, replyMarkup) => {
+            try {
+              return await api.editMessageText(
+                chatId,
+                messageId,
+                text,
+                signal,
+                replyMarkup,
+              );
+            } catch (error) {
+              if (!error.terminal) throw error;
+              unavailableUsers.set(
+                chatId,
+                error.code || "ERR_TELEGRAM_PRIVATE_UNAVAILABLE",
+              );
+              return undefined;
+            }
+          },
           answerCallback: (callbackQueryId) =>
             api.answerCallbackQuery(callbackQueryId, signal),
           saveState: (value) => saveState(config.telegramStateFile, value),
@@ -387,11 +511,14 @@ export async function runTelegramBot(
             state = activatedState;
             activate();
             void onMonitoringState({
-              active: state.active,
+              active: activeUsers(state).length > 0,
               channelConfigured: Boolean(config.telegramChannelId),
             });
           },
         });
+        for (const [chatId, reason] of unavailableUsers) {
+          await deactivateUnavailableUser(chatId, reason);
+        }
         await onTelegramSuccess();
         updateBackoff.reset();
       } catch (error) {
@@ -415,7 +542,7 @@ export async function runTelegramBot(
 
   const monitorLoop = async () => {
     while (!signal?.aborted) {
-      if (!state.active && !config.telegramChannelId) {
+      if (activeUsers(state).length === 0 && !config.telegramChannelId) {
         await waitForActivation(signal, (resolve) => {
           activationWaiter = resolve;
         });
@@ -428,7 +555,7 @@ export async function runTelegramBot(
       try {
         const exchangeRates = await exchangeRateService?.getSnapshot(signal);
         failureComponent = "list_am";
-        const privateChatId = state.active ? state.chatId : null;
+        const privateUsers = activeUsers(state);
         let channelResult = {
           sentCount: 0,
           editedCount: 0,
@@ -437,16 +564,38 @@ export async function runTelegramBot(
         };
         const result = await crawl(config, {
           fetchPage: pageFetch,
-          filters: state.filters,
           exchangeRates,
-          ...(privateChatId
+          ...(privateUsers.length > 0
             ? {
-                deliverApartment: (apartment) =>
-                  api.sendMessage(
-                    privateChatId,
-                    formatApartmentMessage(apartment),
-                    signal,
-                  ),
+                privateDeliveries: privateUsers.map((user) => ({
+                  recipientId: String(user.chatId),
+                  filters: user.filters,
+                  deliverApartment: async (apartment) => {
+                    try {
+                      await api.sendMessage(
+                        user.chatId,
+                        formatApartmentMessage(apartment),
+                        signal,
+                      );
+                    } catch (error) {
+                      error.privateDeliveryFailure = true;
+                      if (error.terminal) {
+                        // A user can block the bot at any time. Remove that
+                        // private subscription without terminating monitoring
+                        // for every other user or the public channel.
+                        await deactivateUnavailableUser(
+                          user.chatId,
+                          error.code || "ERR_TELEGRAM_PRIVATE_UNAVAILABLE",
+                        );
+                        error.privateRecipientUnavailable = true;
+                        error.terminal = false;
+                      }
+                      throw error;
+                    }
+                  },
+                })),
+                legacyRecipientId:
+                  state.legacyRecipientId || String(config.telegramOwnerId),
               }
             : {}),
           ...(config.telegramChannelId
@@ -497,10 +646,13 @@ export async function runTelegramBot(
         });
       } catch (error) {
         if (signal?.aborted) return;
+        const component = error.channelPermissionFailure
+          ? "telegram-channel"
+          : error.privateDeliveryFailure
+            ? "telegram"
+            : failureComponent;
         await onError(error, {
-          component: error.channelPermissionFailure
-            ? "telegram-channel"
-            : failureComponent,
+          component,
           crawlFailure: true,
           crawlId,
           durationMs: Date.now() - crawlStartedAt,
@@ -509,7 +661,7 @@ export async function runTelegramBot(
         if (isExpectedExternalFailure(error)) {
           const retryDelayMs = crawlBackoff.nextDelay();
           await onRetry({
-            component: failureComponent,
+            component,
             operation: "crawl",
             crawlId,
             delayMs: retryDelayMs,

@@ -22,6 +22,7 @@ import { compatibleChannelState } from "./channel.js";
 import {
   compatibleApartmentState,
   compatibleDeliveryState,
+  deliveryStateCounts,
 } from "./crawler.js";
 import { compatibleExchangeRateSnapshot } from "./exchange-rates.js";
 import { acquireSingletonLock } from "./singleton-lock.js";
@@ -95,17 +96,13 @@ function stateSpecifications(config, root) {
       compatible: (state) =>
         compatibleDeliveryState(state, config.listUrlTemplate),
       emptyCounts: { notified: 0, skipped: 0, filtered: 0 },
-      counts: (state) => ({
-        notified: Object.keys(state.notified).length,
-        skipped: Object.keys(state.skipped || {}).length,
-        filtered: Object.keys(state.filtered || {}).length,
-      }),
+      counts: deliveryStateCounts,
     },
     {
       name: "bot",
       filename: relocated(config, root, config.telegramStateFile),
       compatible: (state) =>
-        compatibleBotState(state, config.telegramOwnerId) &&
+        compatibleBotState(state) &&
         Number.isSafeInteger(state.updateOffset) &&
         state.updateOffset >= 0,
       emptyCounts: { updateOffset: 0 },

@@ -11,6 +11,7 @@ import { compatibleChannelState } from "./channel.js";
 import {
   compatibleApartmentState,
   compatibleDeliveryState,
+  deliveryStateCounts,
 } from "./crawler.js";
 import { compatibleExchangeRateSnapshot } from "./exchange-rates.js";
 import { checkDiskSpace } from "./recovery.js";
@@ -64,11 +65,11 @@ function stateSpecifications(config) {
       compatible: (state) =>
         compatibleDeliveryState(state, config.listUrlTemplate),
       counts: (state) => {
-        const notified = Object.keys(state.notified).length;
-        const skipped = Object.keys(state.skipped || {}).length;
-        const filtered = Object.keys(state.filtered || {}).length;
+        const { recipients, notified, skipped, filtered } =
+          deliveryStateCounts(state);
         return {
           entryCount: notified + skipped + filtered,
+          recipients,
           notified,
           skipped,
           filtered,
@@ -98,7 +99,7 @@ function stateSpecifications(config) {
       name: "telegram",
       filename: config.telegramStateFile,
       compatible: (state) =>
-        compatibleBotState(state, config.telegramOwnerId) &&
+        compatibleBotState(state) &&
         Number.isSafeInteger(state.updateOffset) &&
         state.updateOffset >= 0,
       counts: (state) => ({

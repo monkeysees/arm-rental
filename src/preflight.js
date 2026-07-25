@@ -98,7 +98,7 @@ function stateSpecifications(config) {
     {
       filename: config.deliveryStateFile,
       types: new Set(["telegram-deliveries"]),
-      versions: new Set([1]),
+      versions: new Set([1, 2]),
       targetMatches: (state) => state.urlTemplate === config.listUrlTemplate,
       targetName: "List.am URL template",
       compatible: (state) =>
@@ -125,10 +125,10 @@ function stateSpecifications(config) {
     {
       filename: config.telegramStateFile,
       types: new Set(["telegram-bot"]),
-      versions: new Set([1]),
-      targetMatches: (state) => state.ownerId === config.telegramOwnerId,
-      targetName: "configured Telegram owner",
-      compatible: (state) => compatibleBotState(state, config.telegramOwnerId),
+      versions: new Set([1, 2]),
+      targetMatches: () => true,
+      targetName: "Telegram bot update stream",
+      compatible: compatibleBotState,
     },
   ];
 }

@@ -109,13 +109,7 @@ test("removed deployment-environment paths cannot return unnoticed", async () =>
 
   const docsDirectory = new URL("../docs/", import.meta.url);
   const operationalDocs = (await readdir(docsDirectory))
-    .filter(
-      (file) =>
-        file.endsWith(".md") &&
-        !new Set(["architecture.md", "production-automation-spec.md"]).has(
-          file,
-        ),
-    )
+    .filter((file) => file.endsWith(".md") && file !== "architecture.md")
     .map((file) => `docs/${file}`);
   for (const file of ["README.md", ...operationalDocs]) {
     const document = await readProjectFile(file);

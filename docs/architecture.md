@@ -10,8 +10,9 @@ The application discovers long-term apartment rentals from List.am for a
 multi-user private Telegram bot and, when configured, a public Telegram channel.
 It reads only the site's **Regular Ads** section and ignores **Top Ads**.
 Private access defaults to `public`, in which any private sender may use the
-bot; `owner` restricts controls to `TELEGRAM_OWNER_ID`, and `allowlist` adds the
-IDs configured in `TELEGRAM_ALLOWED_USER_IDS`. The owner is always authorized
+bot; `owner` restricts controls to `TELEGRAM_OWNER_ID`, and `allowlist` requires
+at least one unique non-owner ID in `TELEGRAM_ALLOWED_USER_IDS`. The owner must
+not be repeated there, is always authorized,
 and remains the exclusive server-alert recipient in every mode. The service has
 no private-user admission cap. Channel crawling and publication are independent
 of private access and activation.
@@ -619,7 +620,7 @@ lease, weekly maintenance removes only enumerated reconstructible HTTP,
 bytecode, GPU, Dawn, Graphite, and shader cache directories. Cookie, local
 storage, IndexedDB, Service Worker, preference, and browser-verification data
 are outside the cleanup set. Cache targets that are not real directories fail
-closed. There is no apartment or delivery deletion path. Future coordinated
+closed. There is no shared apartment or channel-delivery deletion path. Future coordinated
 archive/prune rules and their mandatory restart/redelivery tests are specified
 in [`docs/state-maintenance.md`](state-maintenance.md).
 
@@ -670,9 +671,16 @@ operator procedures are indexed in
    has proved that its chat ID is the same value. Persisted users excluded by a
    narrower deployment policy remain unchanged and suspended at runtime; a
    later policy expansion restores their saved activation choice. A reserved
-   persisted-user routing hook permits the deletion workflow to remain
-   reachable for suspended users without allowing unknown users to create
-   state. `/filters` opens the same per-user price, room, and hierarchical
+   persisted-user routing hook permits `/delete_my_data` to remain reachable
+   for suspended users without allowing unknown users to create state. Russian
+   confirmation and cancellation controls precede deletion. Confirmation first
+   persists an inactive marker; recovery then cancels the recipient's product
+   wait, drains classification/send/acknowledgement work, removes private
+   delivery history, removes the bot user without changing the global update
+   offset, and clears only that user's token buckets. Startup and every update
+   loop resume markers before activation or delivery. Unknown users receive a
+   bounded no-data reply, and completed users may register as new inactive
+   subscriptions. `/filters` opens the same per-user price, room, and hierarchical
    location controls. Authorized private messages and callbacks share a
    per-sender, continuously refilled in-memory token bucket. Denied `/start`
    replies and excessive-request replies each have a separate five-minute
@@ -837,15 +845,19 @@ The `.data` directory must be mounted on persistent storage in production.
   rejected by their filters on first admission. New and updated selected
   messages remain retryable until that user's successful delivery timestamp
   reaches the source update timestamp.
-- `telegram-bot.json` stores the Telegram update offset and a map of private
+- `telegram-bot.json` schema version 3 stores the Telegram update offset and a map of private
   users with activation, chat ID, initial-send choice, optional filters, and
   pending range-input mode. A missing initial-send choice from older state
   defaults to sending the initial selection for backward compatibility.
-  Version-1 owner-only state is migrated in memory to the version-2 user map,
+  Version-1 owner-only and version-2 multi-user state are strictly validated
+  and migrated in memory to the version-3 user map,
   retaining the former private recipient ID for delivery-history migration, and
   persisted on the next update. Bot state is deliberately not bound to
   `TELEGRAM_OWNER_ID`, so rotating the server-alert recipient does not invalidate
-  private subscriptions. Access mode and allowlist are deployment configuration,
+  private subscriptions. A version-3 `deletionPendingAt` marker makes a user
+  effectively inactive and cannot appear in an older schema, preventing older
+  readers from silently ignoring an in-progress deletion. Access mode and
+  allowlist are deployment configuration,
   not persisted user attributes; policy narrowing therefore suspends records
   without rewriting activation, filters, initial-send choice, or delivery
   history. Update processing and concurrent unavailable-recipient deactivation
@@ -858,8 +870,10 @@ The `.data` directory must be mounted on persistent storage in production.
 - Private apartment-delivery buckets are also process-local and use the same
   monotonic, 15-minute idle-eviction and restart-reset model. Their map has no
   admission capacity and contains only recipients with recent delivery work;
-  waiting or in-flight work cannot be evicted. User deletion has a dedicated
-  bucket-clear seam without making limiter state durable.
+  waiting or in-flight work cannot be evicted. User deletion aborts the target
+  bucket, drains the complete recipient worker through a per-recipient barrier,
+  and uses a shared delivery-state mutation chain so peer writes cannot restore
+  removed history. Its five-minute response gate survives bucket cleanup.
 - `telegram-channel-deliveries.json` is a separate channel state machine keyed
   by item ID. It stores terminal `filtered` and `skipped_initial` admissions,
   retryable `pending` entries, and `published` entries with Telegram message ID,
@@ -905,6 +919,9 @@ is retained as displayed by List.am.
   structured events contain only fixed reasons, access mode, and configured
   rate; sender IDs, chat IDs, message text, and callback data stay inside the
   operational Telegram request path and never become telemetry or health data.
+- Deletion telemetry contains only fixed workflow phase and recovery fields.
+  It never contains sender IDs, filters, or delivery classifications. A failed
+  completion reply cannot restore already deleted data.
 - Private and channel classifications are persisted before messages are sent.
   Successful deliveries are acknowledged immediately. Shutdown aborts a
   private product-rate wait without sending or acknowledging its apartment, so

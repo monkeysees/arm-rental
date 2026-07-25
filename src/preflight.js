@@ -125,7 +125,7 @@ function stateSpecifications(config) {
     {
       filename: config.telegramStateFile,
       types: new Set(["telegram-bot"]),
-      versions: new Set([1, 2]),
+      versions: new Set([1, 2, 3]),
       targetMatches: () => true,
       targetName: "Telegram bot update stream",
       compatible: compatibleBotState,

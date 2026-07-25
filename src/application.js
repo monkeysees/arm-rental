@@ -199,6 +199,19 @@ export async function runApplication({
           event: "telegram.user.rate_limited",
           updatesPerMinute,
         }),
+      onPrivateUserDeletionPending: () =>
+        logger.info("Private user deletion started", {
+          event: "telegram.private.deletion.pending",
+        }),
+      onPrivateUserDeletionCancelled: () =>
+        logger.info("Private user deletion cancelled", {
+          event: "telegram.private.deletion.cancelled",
+        }),
+      onPrivateUserDeletionCompleted: ({ recovered }) =>
+        logger.info("Private user deletion completed", {
+          event: "telegram.private.deletion.completed",
+          recovered,
+        }),
       onPrivateUserDeactivated: ({ reason }) =>
         logger.warn("Unavailable private subscription deactivated", {
           event: "telegram.private.deactivated",

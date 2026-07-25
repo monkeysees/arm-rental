@@ -3,8 +3,9 @@ import { performance } from "node:perf_hooks";
 import { setTimeout as delay } from "node:timers/promises";
 
 import { publishChannelApartments } from "./channel.js";
-import { crawlApartments } from "./crawler.js";
+import { crawlApartments, removeDeliveryRecipient } from "./crawler.js";
 import {
+  deleteDataMenu,
   filtersMenu,
   initialDeliveryMenu,
   locationsMenu,
@@ -27,6 +28,7 @@ import {
 import { ExponentialBackoff, isExpectedExternalFailure } from "./retry.js";
 import {
   createPrivateRateLimits,
+  PrivateDeliveryBarrier,
   PrivateDeliveryRateLimiter,
 } from "./rate-limit.js";
 
@@ -34,18 +36,140 @@ const ACCESS_DENIED_TEXT = (senderId) =>
   `Доступ к боту ограничен. Ваш Telegram ID: ${senderId}.`;
 const RATE_LIMITED_TEXT =
   "Слишком много запросов. Пожалуйста, попробуйте ещё раз позже.";
+const DELETE_NO_DATA_TEXT = "У бота нет сохранённых данных для удаления.";
+const DELETE_CANCELLED_TEXT = "Удаление данных отменено.";
+const DELETE_COMPLETED_TEXT = "Ваши данные удалены.";
+const DELETE_CONFIRM_CALLBACK = "d:confirm";
+const DELETE_CANCEL_CALLBACK = "d:cancel";
+
+function plainObject(value) {
+  return Boolean(value && typeof value === "object" && !Array.isArray(value));
+}
+
+function positiveSafeInteger(value) {
+  return Number.isSafeInteger(value) && value > 0;
+}
+
+function validDeletionTimestamp(value) {
+  if (typeof value !== "string") return false;
+  const parsed = new Date(value);
+  return !Number.isNaN(parsed.valueOf()) && parsed.toISOString() === value;
+}
+
+function compatibleFilters(filters) {
+  if (!plainObject(filters)) return false;
+  if (
+    !plainObject(filters.price) ||
+    !plainObject(filters.rooms) ||
+    !Array.isArray(filters.locations)
+  ) {
+    return false;
+  }
+  const normalized = normalizeFilters(filters);
+  const exactKeys = (value, keys) =>
+    Object.keys(value).sort().join(",") === [...keys].sort().join(",");
+  return (
+    exactKeys(filters, ["price", "rooms", "locations"]) &&
+    exactKeys(filters.price, ["min", "max"]) &&
+    exactKeys(filters.rooms, ["min", "max"]) &&
+    ["min", "max"].every(
+      (key) =>
+        filters.price[key] === normalized.price[key] &&
+        filters.rooms[key] === normalized.rooms[key],
+    ) &&
+    filters.locations.length === normalized.locations.length &&
+    filters.locations.every(
+      (value, index) => value === normalized.locations[index],
+    )
+  );
+}
+
+function compatibleBotUser(user, chatId, version) {
+  if (!plainObject(user)) return false;
+  if (user.chatId !== chatId) return false;
+  if (user.active !== undefined && typeof user.active !== "boolean") {
+    return false;
+  }
+  if (
+    user.sendInitialApartments !== undefined &&
+    typeof user.sendInitialApartments !== "boolean"
+  ) {
+    return false;
+  }
+  if (
+    user.pendingFilterInput !== undefined &&
+    user.pendingFilterInput !== null &&
+    !["price", "rooms"].includes(user.pendingFilterInput)
+  ) {
+    return false;
+  }
+  if (user.filters !== undefined && !compatibleFilters(user.filters)) {
+    return false;
+  }
+  if (version < 3 && Object.hasOwn(user, "deletionPendingAt")) return false;
+  if (user.deletionPendingAt === undefined) return true;
+  return (
+    validDeletionTimestamp(user.deletionPendingAt) &&
+    user.active === false &&
+    user.pendingFilterInput === null
+  );
+}
 
 export function compatibleBotState(state) {
-  return Boolean(
-    state &&
-    [1, 2].includes(state.version) &&
-    state.type === "telegram-bot" &&
-    (state.version === 1
-      ? Number.isSafeInteger(state.ownerId) && state.ownerId > 0
-      : state.users &&
-        typeof state.users === "object" &&
-        !Array.isArray(state.users)),
-  );
+  if (
+    !plainObject(state) ||
+    ![1, 2, 3].includes(state.version) ||
+    state.type !== "telegram-bot" ||
+    Object.hasOwn(state, "deletionPendingAt") ||
+    !Number.isSafeInteger(state.updateOffset) ||
+    state.updateOffset < 0
+  ) {
+    return false;
+  }
+
+  if (state.version === 1) {
+    if (
+      !positiveSafeInteger(state.ownerId) ||
+      !(
+        state.chatId === undefined ||
+        state.chatId === null ||
+        positiveSafeInteger(state.chatId)
+      ) ||
+      Object.hasOwn(state, "deletionPendingAt")
+    ) {
+      return false;
+    }
+    const chatId = state.chatId ?? state.ownerId;
+    return compatibleBotUser(
+      {
+        chatId,
+        active: state.active,
+        sendInitialApartments: state.sendInitialApartments,
+        filters: state.filters,
+        pendingFilterInput: state.pendingFilterInput,
+      },
+      chatId,
+      1,
+    );
+  }
+  if (!plainObject(state.users)) return false;
+  if (state.legacyRecipientId !== undefined) {
+    const legacyRecipientId = Number(state.legacyRecipientId);
+    if (
+      !positiveSafeInteger(legacyRecipientId) ||
+      String(legacyRecipientId) !== state.legacyRecipientId
+    ) {
+      return false;
+    }
+  }
+  return Object.entries(state.users).every(([key, user]) => {
+    const chatId = Number(key);
+    return (
+      positiveSafeInteger(chatId) &&
+      String(chatId) === key &&
+      compatibleBotUser(user, chatId, state.version)
+    );
+  });
 }
 
 function withFilterDefaults(user) {
@@ -64,18 +188,22 @@ function defaultUser(chatId) {
   return withFilterDefaults({ active: false, chatId });
 }
 
-function withBotDefaults(state) {
+export function migrateBotState(state) {
+  if (!compatibleBotState(state)) {
+    throw new TypeError("Telegram bot state has an incompatible schema");
+  }
   if (state.version === 1) {
     const chatId = state.chatId ?? state.ownerId;
     return {
-      version: 2,
+      version: 3,
       type: state.type,
-      updateOffset: state.updateOffset || 0,
+      updateOffset: state.updateOffset,
       legacyRecipientId: String(chatId),
       users: {
         [chatId]: withFilterDefaults({
           active: state.active,
           chatId,
+          sendInitialApartments: state.sendInitialApartments,
           filters: state.filters,
           pendingFilterInput: state.pendingFilterInput,
         }),
@@ -84,27 +212,16 @@ function withBotDefaults(state) {
   }
 
   const users = Object.fromEntries(
-    Object.entries(state.users || {})
-      .filter(([chatId, user]) => {
-        const parsedChatId = Number(chatId);
-        return (
-          Number.isSafeInteger(parsedChatId) &&
-          parsedChatId > 0 &&
-          user &&
-          typeof user === "object" &&
-          !Array.isArray(user)
-        );
-      })
-      .map(([chatId, user]) => [
-        chatId,
-        withFilterDefaults({ ...user, chatId: Number(chatId) }),
-      ]),
+    Object.entries(state.users).map(([chatId, user]) => [
+      chatId,
+      withFilterDefaults({ ...user, chatId: Number(chatId) }),
+    ]),
   );
 
   return {
-    version: 2,
+    version: 3,
     type: state.type,
-    updateOffset: state.updateOffset || 0,
+    updateOffset: state.updateOffset,
     ...(typeof state.legacyRecipientId === "string"
       ? { legacyRecipientId: state.legacyRecipientId }
       : {}),
@@ -128,6 +245,27 @@ function withUserState(state, chatId, user) {
 
 function persistedUser(state, senderId) {
   return Object.hasOwn(state.users, String(senderId));
+}
+
+function withoutUser(state, senderId) {
+  const users = { ...state.users };
+  delete users[String(senderId)];
+  const next = { ...state, users };
+  if (next.legacyRecipientId === String(senderId)) {
+    delete next.legacyRecipientId;
+  }
+  return next;
+}
+
+function deletionUpdateKind(update) {
+  const callbackData = update.callback_query?.data;
+  if (callbackData === DELETE_CONFIRM_CALLBACK) return "confirm";
+  if (callbackData === DELETE_CANCEL_CALLBACK) return "cancel";
+  return /^\/delete_my_data(?:@[a-z0-9_]+)?(?:\s|$)/iu.test(
+    update.message?.text || "",
+  )
+    ? "request"
+    : null;
 }
 
 export function isPrivateUserAuthorized(config, senderId) {
@@ -349,11 +487,15 @@ export async function processUpdates(
     onSubscriptionChanged = async () => {},
     onAccessDenied = async () => {},
     onUserRateLimited = async () => {},
+    onDeletionPending = async () => {},
+    onDeletionCancelled = async () => {},
+    onDeletionCallbackError = async () => {},
     isPersistedUserAccessBypass = () => false,
     rateLimits,
+    now = () => new Date(),
   },
 ) {
-  let current = withBotDefaults(state);
+  let current = migrateBotState(state);
   const effectiveRateLimits =
     rateLimits ??
     createPrivateRateLimits(config.telegramUserUpdatesPerMinute ?? 30);
@@ -375,9 +517,36 @@ export async function processUpdates(
     }
 
     const { message, senderId } = context;
+    const deletionKind = deletionUpdateKind(update);
+    const hasPersistedUser = persistedUser(current, senderId);
+    if (deletionKind && !hasPersistedUser) {
+      if (
+        isPrivateUserAuthorized(config, senderId) &&
+        !effectiveRateLimits.tryConsumeUpdate(senderId, update.update_id)
+      ) {
+        await saveState(current);
+        if (effectiveRateLimits.rateLimitedEvents.tryAcquire("aggregate")) {
+          await onUserRateLimited({
+            updatesPerMinute: config.telegramUserUpdatesPerMinute ?? 30,
+          });
+        }
+        if (query) await answerCallback(query.id);
+        if (effectiveRateLimits.rateLimitedResponses.tryAcquire(senderId)) {
+          await sendMessage(senderId, RATE_LIMITED_TEXT);
+        }
+        continue;
+      }
+      await saveState(current);
+      if (query) await answerCallback(query.id);
+      if (effectiveRateLimits.deletionResponses.tryAcquire(senderId)) {
+        await sendMessage(senderId, DELETE_NO_DATA_TEXT);
+      }
+      continue;
+    }
     const accessBypass =
-      persistedUser(current, senderId) &&
-      isPersistedUserAccessBypass({ update, senderId });
+      hasPersistedUser &&
+      (Boolean(deletionKind) ||
+        isPersistedUserAccessBypass({ update, senderId }));
     if (!accessBypass && !isPrivateUserAuthorized(config, senderId)) {
       // A rejected update still advances durably before any later response or
       // callback acknowledgement can fail.
@@ -410,6 +579,69 @@ export async function processUpdates(
       if (query) await answerCallback(query.id);
       if (effectiveRateLimits.rateLimitedResponses.tryAcquire(senderId)) {
         await sendMessage(senderId, RATE_LIMITED_TEXT);
+      }
+      continue;
+    }
+
+    const persisted = hasPersistedUser ? userState(current, senderId) : null;
+    if (persisted?.deletionPendingAt) {
+      await saveState(current);
+      if (query) await answerCallback(query.id);
+      continue;
+    }
+
+    if (deletionKind === "request") {
+      await saveState(current);
+      if (effectiveRateLimits.deletionResponses.tryAcquire(senderId)) {
+        const view = deleteDataMenu();
+        await sendMessage(senderId, view.text, view.replyMarkup);
+        effectiveRateLimits.activateDeletionConfirmation(senderId);
+      }
+      continue;
+    }
+
+    if (deletionKind === "cancel") {
+      const validConfirmation =
+        effectiveRateLimits.retireDeletionConfirmation(senderId);
+      await saveState(current);
+      await answerCallback(query.id);
+      if (validConfirmation) {
+        await editMessage(
+          senderId,
+          query.message.message_id,
+          DELETE_CANCELLED_TEXT,
+        );
+        await onDeletionCancelled();
+      }
+      continue;
+    }
+
+    if (deletionKind === "confirm") {
+      if (!effectiveRateLimits.hasDeletionConfirmation(senderId)) {
+        await saveState(current);
+        await answerCallback(query.id);
+        continue;
+      }
+      const user = userState(current, senderId);
+      current = withUserState(current, senderId, {
+        ...user,
+        active: false,
+        pendingFilterInput: null,
+        deletionPendingAt: now().toISOString(),
+      });
+      await saveState(current);
+      effectiveRateLimits.retireDeletionConfirmation(senderId);
+      if (user.active) {
+        await onSubscriptionChanged(current, {
+          active: false,
+          sendInitialApartments: user.sendInitialApartments,
+        });
+      }
+      await onDeletionPending();
+      try {
+        await answerCallback(query.id);
+      } catch (error) {
+        await onDeletionCallbackError(error);
       }
       continue;
     }
@@ -557,6 +789,9 @@ export async function runTelegramBot(
     onPrivateAccessState = () => {},
     onPrivateAccessDenied = () => {},
     onPrivateUserRateLimited = () => {},
+    onPrivateUserDeletionPending = () => {},
+    onPrivateUserDeletionCancelled = () => {},
+    onPrivateUserDeletionCompleted = () => {},
     onPrivateMonitoringChanged = () => {},
     onPrivateUserDeactivated = () => {},
     onTelegramSuccess = () => {},
@@ -575,26 +810,19 @@ export async function runTelegramBot(
     onRetry,
   });
   const stored = await loadState(config.telegramStateFile);
-  let state = compatibleBotState(stored)
-    ? withBotDefaults(stored)
-    : {
-        version: 2,
-        type: "telegram-bot",
-        updateOffset: 0,
-        users: {},
-      };
+  let state =
+    stored === undefined
+      ? {
+          version: 3,
+          type: "telegram-bot",
+          updateOffset: 0,
+          users: {},
+        }
+      : migrateBotState(stored);
   let activationWaiter;
   let lastCrawlAttemptStartedAt;
   let botStateMutation = Promise.resolve();
-  const withBotStateMutation = (operation) => {
-    const pending = botStateMutation.then(operation);
-    botStateMutation = pending.catch(() => {});
-    return pending;
-  };
-  const persistBotState = async (value) => {
-    await saveState(config.telegramStateFile, value);
-    state = value;
-  };
+  let deliveryStateMutation = Promise.resolve();
   const privateRateLimits = createPrivateRateLimits(
     config.telegramUserUpdatesPerMinute ?? 30,
     { ...(monotonicNow ? { monotonicNow } : {}) },
@@ -604,6 +832,63 @@ export async function runTelegramBot(
     sleep,
     ...(monotonicNow ? { monotonicNow } : {}),
   });
+  const privateDeliveryBarrier = new PrivateDeliveryBarrier();
+  const withDeliveryStateMutation = (operation) => {
+    const pending = deliveryStateMutation.then(operation);
+    deliveryStateMutation = pending.catch(() => {});
+    return pending;
+  };
+  const withBotStateMutation = (operation) => {
+    const pending = botStateMutation.then(operation);
+    botStateMutation = pending.catch(() => {});
+    return pending;
+  };
+  const persistBotState = async (value) => {
+    await saveState(config.telegramStateFile, value);
+    state = value;
+    privateRateLimits.acknowledgeOffset(value.updateOffset);
+  };
+
+  const pendingDeletionIds = () =>
+    Object.values(state.users)
+      .filter(({ deletionPendingAt }) => Boolean(deletionPendingAt))
+      .map(({ chatId }) => chatId);
+  const recoverPendingDeletions = async (recovered) => {
+    for (const senderId of pendingDeletionIds()) {
+      privateDeliveryBarrier.block(senderId);
+      await privateDeliveryRateLimiter.cancelRecipient(senderId);
+      await privateDeliveryBarrier.drain(senderId);
+      await withDeliveryStateMutation(() =>
+        removeDeliveryRecipient(config, senderId, {
+          legacyRecipientId: state.legacyRecipientId,
+          loadState,
+          saveState,
+        }),
+      );
+
+      const removed = await withBotStateMutation(async () => {
+        const user = state.users[String(senderId)];
+        if (!user?.deletionPendingAt) return false;
+        await persistBotState(withoutUser(state, senderId));
+        return true;
+      });
+      privateRateLimits.clearSenderBuckets(senderId);
+      privateDeliveryRateLimiter.clearRecipient(senderId);
+      privateDeliveryBarrier.clear(senderId);
+      if (!removed) continue;
+      await onPrivateUserDeletionCompleted({ recovered });
+      try {
+        await api.sendMessage(senderId, DELETE_COMPLETED_TEXT, signal);
+      } catch (error) {
+        await onError(error, {
+          component: "telegram",
+          operation: "private-data-deletion-completion",
+        });
+      }
+    }
+  };
+
+  await recoverPendingDeletions(true);
   let lastAccessSummary;
   const reportAccessState = async () => {
     const summary = privateAccessSummary(state, config);
@@ -651,6 +936,9 @@ export async function runTelegramBot(
   const updateLoop = async () => {
     while (!signal?.aborted) {
       try {
+        if (pendingDeletionIds().length > 0) {
+          await recoverPendingDeletions(true);
+        }
         privateRateLimits.pruneInactive();
         privateDeliveryRateLimiter.pruneInactive();
         const unavailableUsers = new Map();
@@ -712,9 +1000,19 @@ export async function runTelegramBot(
             },
             onAccessDenied: onPrivateAccessDenied,
             onUserRateLimited: onPrivateUserRateLimited,
+            onDeletionPending: onPrivateUserDeletionPending,
+            onDeletionCancelled: onPrivateUserDeletionCancelled,
+            onDeletionCallbackError: (error) =>
+              onError(error, {
+                component: "telegram",
+                operation: "private-data-deletion-callback",
+              }),
             rateLimits: privateRateLimits,
           }),
         );
+        if (pendingDeletionIds().length > 0) {
+          await recoverPendingDeletions(false);
+        }
         await reportAccessState();
         for (const [chatId, reason] of unavailableUsers) {
           await deactivateUnavailableUser(chatId, reason);
@@ -810,11 +1108,13 @@ export async function runTelegramBot(
                     filters: user.filters,
                     sendInitialApartments: user.sendInitialApartments,
                     isAuthorized,
+                    runDeliveryWorker: (operation) =>
+                      privateDeliveryBarrier.run(user.chatId, operation),
                     deliverApartment: async (apartment) => {
                       try {
                         await privateDeliveryRateLimiter.run(
                           String(user.chatId),
-                          async () => {
+                          async (deliverySignal) => {
                             if (!isAuthorized()) {
                               const error = new Error(
                                 "Private recipient is no longer available",
@@ -825,7 +1125,7 @@ export async function runTelegramBot(
                             await api.sendMessage(
                               user.chatId,
                               formatApartmentMessage(apartment),
-                              signal,
+                              deliverySignal,
                             );
                           },
                           { signal },
@@ -837,10 +1137,12 @@ export async function runTelegramBot(
                           // A user can block the bot at any time. Remove that
                           // private subscription without terminating monitoring
                           // for every other user or the public channel.
-                          await deactivateUnavailableUser(
-                            user.chatId,
-                            error.code || "ERR_TELEGRAM_PRIVATE_UNAVAILABLE",
-                          );
+                          if (isAuthorized()) {
+                            await deactivateUnavailableUser(
+                              user.chatId,
+                              error.code || "ERR_TELEGRAM_PRIVATE_UNAVAILABLE",
+                            );
+                          }
                           error.privateRecipientUnavailable = true;
                           error.terminal = false;
                         }
@@ -851,6 +1153,7 @@ export async function runTelegramBot(
                 }),
                 legacyRecipientId:
                   state.legacyRecipientId || String(config.telegramOwnerId),
+                deliveryStateMutation: withDeliveryStateMutation,
               }
             : {}),
           ...(config.telegramChannelId

@@ -55,6 +55,23 @@ export function initialDeliveryMenu(limit = 100) {
   };
 }
 
+export function deleteDataMenu() {
+  return {
+    text: [
+      "Удалить все ваши данные?",
+      "",
+      "Будут удалены фильтры и история уведомлений, а мониторинг остановится.",
+      "При новой регистрации подписка будет создана заново, и потребуется снова выбрать, отправлять ли уже найденные квартиры.",
+    ].join("\n"),
+    replyMarkup: {
+      inline_keyboard: [
+        [button("Удалить мои данные", "d:confirm")],
+        [button("Отмена", "d:cancel")],
+      ],
+    },
+  };
+}
+
 export function locationsMenu(filters) {
   const selected = new Set(normalizeFilters(filters).locations);
   const inlineKeyboard = LOCATION_REGIONS.map((region, regionIndex) => {

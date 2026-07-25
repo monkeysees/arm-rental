@@ -133,6 +133,7 @@ test("preflight validates every state target and all external boundaries before 
       version: 1,
       type: "telegram-bot",
       ownerId: config.telegramOwnerId,
+      updateOffset: 0,
     }),
   ]);
   const events = [];
@@ -194,10 +195,39 @@ test("unsupported and malformed state fails closed without changing files", asyn
       state: {
         version: 2,
         type: "telegram-bot",
+        updateOffset: 0,
         users: [],
       },
       reason: /schema contents are malformed/u,
       schema: { type: "telegram-bot", version: 2 },
+    },
+    {
+      filename: config.telegramStateFile,
+      state: {
+        version: 2,
+        type: "telegram-bot",
+        updateOffset: 10,
+        users: {
+          42: {
+            chatId: 42,
+            active: false,
+            deletionPendingAt: "2026-07-26T12:00:00.000Z",
+          },
+        },
+      },
+      reason: /schema contents are malformed/u,
+      schema: { type: "telegram-bot", version: 2 },
+    },
+    {
+      filename: config.telegramStateFile,
+      state: {
+        version: 3,
+        type: "telegram-bot",
+        updateOffset: -1,
+        users: {},
+      },
+      reason: /schema contents are malformed/u,
+      schema: { type: "telegram-bot", version: 3 },
     },
   ];
 

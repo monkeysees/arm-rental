@@ -61,8 +61,9 @@ npm start
 
 Private access defaults to `public`, so any Telegram user can send `/start` to
 the bot in a private chat. Set `TELEGRAM_ACCESS_MODE=owner` to permit only
-`TELEGRAM_OWNER_ID`, or use `allowlist` to permit the owner plus the unique IDs
-in `TELEGRAM_ALLOWED_USER_IDS`. The owner remains the server-alert recipient in
+`TELEGRAM_OWNER_ID`, or use `allowlist` to permit the owner plus at least one
+unique non-owner ID in `TELEGRAM_ALLOWED_USER_IDS`. Do not repeat the owner in
+that list. The owner remains the server-alert recipient in
 every mode and is not itself the access policy. The service has no private-user
 admission cap; configured rate limits apply independently to each authorized
 sender and private recipient. Public-channel publishing is independent of the
@@ -74,6 +75,10 @@ starting monitoring, so filters can be chosen first. Use **Запустить
 begin notifications; use **Остановить мониторинг** to pause them. Each user's
 monitoring state and filters survive process restarts, and apartment
 notifications are delivered independently. `/filters` opens the same controls.
+Every persisted user, including one suspended by a narrower access policy, can
+use `/delete_my_data` to remove their filters and private notification history.
+Deletion requires confirmation, stops monitoring, and makes a later `/start`
+a new inactive subscription that must choose initial-delivery behavior again.
 
 Every filter is optional:
 
@@ -198,7 +203,7 @@ details.
 | `TELEGRAM_BOT_TOKEN`                     | required                                 | Token issued by BotFather                                            |
 | `TELEGRAM_OWNER_ID`                      | required                                 | Server-alert recipient; always authorized for private controls       |
 | `TELEGRAM_ACCESS_MODE`                   | `public`                                 | Private access: public, owner, or allowlist                          |
-| `TELEGRAM_ALLOWED_USER_IDS`              | blank                                    | Unique positive IDs added in allowlist mode                          |
+| `TELEGRAM_ALLOWED_USER_IDS`              | blank                                    | Unique non-owner IDs; at least one in allowlist mode                 |
 | `TELEGRAM_USER_UPDATES_PER_MINUTE`       | `30`                                     | Accepted private updates per user each minute                        |
 | `TELEGRAM_PRIVATE_DELIVERIES_PER_MINUTE` | `20`                                     | Apartment notifications per private recipient each minute            |
 | `TELEGRAM_CHANNEL_ID`                    | blank                                    | Public `@username`; blank disables channel                           |

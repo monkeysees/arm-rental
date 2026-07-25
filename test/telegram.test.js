@@ -4,6 +4,7 @@ import test from "node:test";
 import {
   compatibleBotState,
   isPrivateUserAuthorized,
+  migrateBotState,
   privateAccessSummary,
   processUpdates,
   runTelegramBot,
@@ -27,13 +28,76 @@ const initialState = {
 
 test("multi-user bot state is independent of the server-alert owner", () => {
   assert.equal(
-    compatibleBotState({ version: 2, type: "telegram-bot", users: {} }),
+    compatibleBotState({
+      version: 2,
+      type: "telegram-bot",
+      updateOffset: 0,
+      users: {},
+    }),
     true,
   );
   assert.equal(
-    compatibleBotState({ version: 1, type: "telegram-bot", ownerId: 99 }),
+    compatibleBotState({
+      version: 1,
+      type: "telegram-bot",
+      ownerId: 99,
+      updateOffset: 0,
+    }),
     true,
   );
+});
+
+test("legacy bot state migrates strictly to schema version three", () => {
+  const legacy = migrateBotState({
+    version: 1,
+    type: "telegram-bot",
+    ownerId: 99,
+    chatId: 99,
+    active: true,
+    updateOffset: 12,
+  });
+  assert.equal(legacy.version, 3);
+  assert.equal(legacy.updateOffset, 12);
+  assert.equal(legacy.users[99].chatId, 99);
+  assert.equal(legacy.users[99].active, true);
+
+  const versionTwo = migrateBotState({
+    version: 2,
+    type: "telegram-bot",
+    updateOffset: 13,
+    users: { 99: { chatId: 99, active: false } },
+  });
+  assert.equal(versionTwo.version, 3);
+  assert.equal(versionTwo.users[99].chatId, 99);
+
+  for (const invalid of [
+    {
+      version: 2,
+      type: "telegram-bot",
+      updateOffset: 0,
+      users: { 99: { active: false } },
+    },
+    {
+      version: 2,
+      type: "telegram-bot",
+      updateOffset: 0,
+      users: {
+        99: {
+          chatId: 99,
+          deletionPendingAt: "2026-07-26T12:00:00.000Z",
+        },
+      },
+    },
+    {
+      version: 3,
+      type: "telegram-bot",
+      updateOffset: "13",
+      users: {},
+    },
+  ]) {
+    assert.equal(compatibleBotState(invalid), false);
+    assert.throws(() => migrateBotState(invalid), /incompatible schema/u);
+  }
 });
 
 test("private access modes authorize owners and configured users", () => {
@@ -532,7 +596,7 @@ test("private users explicitly start and stop monitoring from the setup panel", 
     },
   );
 
-  assert.equal(state.version, 2);
+  assert.equal(state.version, 3);
   assert.equal(state.users["99"].active, false);
   assert.equal(state.users["42"].active, false);
   assert.equal(state.users["42"].sendInitialApartments, false);
@@ -936,7 +1000,7 @@ test("private controls cannot interrupt the singleton crawl interval", async () 
     type: "telegram-bot",
     updateOffset: 0,
     users: {
-      42: { active: true, chatId: 42, filters: {} },
+      42: { active: true, chatId: 42 },
     },
   };
   const api = {
@@ -1019,7 +1083,7 @@ test("stopping during an activation cadence wait returns to dormancy", async () 
     version: 2,
     type: "telegram-bot",
     updateOffset: 0,
-    users: { 42: { active: true, chatId: 42, filters: {} } },
+    users: { 42: { active: true, chatId: 42 } },
   };
   const api = {
     getUpdates: async (_offset, _timeout, signal) => {
@@ -1114,7 +1178,7 @@ test("private controls cannot bypass crawl failure backoff", async () => {
     type: "telegram-bot",
     updateOffset: 0,
     users: {
-      42: { active: true, chatId: 42, filters: {} },
+      42: { active: true, chatId: 42 },
     },
   };
   const api = {
@@ -1500,7 +1564,6 @@ test("a blocked private user is deactivated without stopping the bot", async () 
       99: {
         active: true,
         chatId: 99,
-        filters: {},
         pendingFilterInput: null,
       },
     },

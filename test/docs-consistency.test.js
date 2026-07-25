@@ -229,6 +229,18 @@ test("access documentation agrees on modes, defaults, and owner routing", async 
       "TELEGRAM_ACCESS_MODE",
       "must state that authorized private users have no admission limit",
     );
+    requireDocumentation(
+      /at least one/iu.test(contents) && /non-owner/iu.test(contents),
+      filename,
+      "TELEGRAM_ALLOWED_USER_IDS",
+      "must require at least one non-owner ID in allowlist mode",
+    );
+    requireDocumentation(
+      /(?:do\s+not|must\s+not)[^.]{0,80}(?:repeat|repeated)/iu.test(contents),
+      filename,
+      "TELEGRAM_ALLOWED_USER_IDS",
+      "must forbid repeating the owner in the allowlist",
+    );
   }
 
   const deployment = documents[2];

@@ -93,6 +93,60 @@ function deliveryRecipientState(state = {}) {
   };
 }
 
+function normalizedDeliveryState(stored, template, legacyRecipientId) {
+  if (!compatibleDeliveryState(stored, template)) {
+    return {
+      version: 2,
+      type: "telegram-deliveries",
+      urlTemplate: template,
+      recipients: {},
+    };
+  }
+  if (stored.version === 2) {
+    return {
+      ...stored,
+      recipients: Object.fromEntries(
+        Object.entries(stored.recipients).map(([recipientId, recipient]) => [
+          recipientId,
+          deliveryRecipientState(recipient),
+        ]),
+      ),
+    };
+  }
+  if (!legacyRecipientId) {
+    throw new Error("Legacy private-delivery state requires a recipient ID");
+  }
+  return {
+    version: 2,
+    type: "telegram-deliveries",
+    urlTemplate: template,
+    recipients: {
+      [String(legacyRecipientId)]: deliveryRecipientState(stored),
+    },
+  };
+}
+
+export async function removeDeliveryRecipient(
+  config,
+  recipientId,
+  { legacyRecipientId, loadState = readState, saveState = writeState } = {},
+) {
+  const stored = await loadState(config.deliveryStateFile);
+  if (stored === undefined) return false;
+  if (!compatibleDeliveryState(stored, config.listUrlTemplate)) {
+    throw new Error("Private-delivery state has an incompatible schema");
+  }
+  const state = normalizedDeliveryState(
+    stored,
+    config.listUrlTemplate,
+    legacyRecipientId,
+  );
+  const recipients = { ...state.recipients };
+  const removed = delete recipients[String(recipientId)];
+  await saveState(config.deliveryStateFile, { ...state, recipients });
+  return removed;
+}
+
 export function deliveryStateCounts(state) {
   const recipients =
     state?.version === 2
@@ -225,6 +279,7 @@ export async function crawlApartments(
     filters = emptyFilters(),
     now = () => new Date(),
     afterStateSaved,
+    deliveryStateMutation,
   } = {},
 ) {
   const deliveryTargets =
@@ -414,44 +469,31 @@ export async function crawlApartments(
   const privateDelivery = async () => {
     if (deliveryTargets.length === 0) return;
     const storedDeliveries = await loadState(config.deliveryStateFile);
-    let deliveryState = compatibleDeliveryState(
+    let deliveryState = normalizedDeliveryState(
       storedDeliveries,
       config.listUrlTemplate,
-    )
-      ? storedDeliveries.version === 2
-        ? {
-            ...storedDeliveries,
-            recipients: Object.fromEntries(
-              Object.entries(storedDeliveries.recipients).map(
-                ([recipientId, recipient]) => [
-                  recipientId,
-                  deliveryRecipientState(recipient),
-                ],
-              ),
-            ),
-          }
-        : {
-            version: 2,
-            type: "telegram-deliveries",
-            urlTemplate: config.listUrlTemplate,
-            recipients: {
-              [legacyRecipientId || recipientIds[0]]:
-                deliveryRecipientState(storedDeliveries),
-            },
-          }
-      : {
-          version: 2,
-          type: "telegram-deliveries",
-          urlTemplate: config.listUrlTemplate,
-          recipients: {},
-        };
+      legacyRecipientId || recipientIds[0],
+    );
 
     // Recipient workers run concurrently, but their independent histories live
     // in one JSON file. Merge and persist them through one failure-latching
     // chain so a whole-file replacement cannot lose a peer acknowledgement.
     let deliveryStateWrites = Promise.resolve();
+    const mutateDeliveryState =
+      deliveryStateMutation ||
+      ((operation) => {
+        deliveryStateWrites = deliveryStateWrites.then(operation);
+        return deliveryStateWrites;
+      });
     const saveRecipient = (recipientId, recipient) => {
-      deliveryStateWrites = deliveryStateWrites.then(async () => {
+      return mutateDeliveryState(async () => {
+        if (deliveryStateMutation) {
+          deliveryState = normalizedDeliveryState(
+            await loadState(config.deliveryStateFile),
+            config.listUrlTemplate,
+            legacyRecipientId || recipientIds[0],
+          );
+        }
         deliveryState = {
           ...deliveryState,
           recipients: {
@@ -461,7 +503,6 @@ export async function crawlApartments(
         };
         await saveState(config.deliveryStateFile, deliveryState);
       });
-      return deliveryStateWrites;
     };
 
     const deliverRecipient = async (target) => {
@@ -568,7 +609,11 @@ export async function crawlApartments(
     };
 
     const outcomes = await Promise.allSettled(
-      deliveryTargets.map(deliverRecipient),
+      deliveryTargets.map((target) =>
+        target.runDeliveryWorker
+          ? target.runDeliveryWorker(() => deliverRecipient(target))
+          : deliverRecipient(target),
+      ),
     );
     const failed = outcomes.find(({ status }) => status === "rejected");
     if (failed) throw failed.reason;

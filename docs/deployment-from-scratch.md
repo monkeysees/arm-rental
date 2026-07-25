@@ -139,8 +139,9 @@ POLL_INTERVAL_MS=60000
 
 Private access defaults to `public`, which permits any private sender subject
 to the per-user rate limits. `owner` permits only `TELEGRAM_OWNER_ID`;
-`allowlist` permits the owner plus the unique positive IDs in
-`TELEGRAM_ALLOWED_USER_IDS`. Leave the allowlist blank in `public` and `owner`
+`allowlist` permits the owner plus at least one unique positive non-owner ID in
+`TELEGRAM_ALLOWED_USER_IDS`; do not repeat `TELEGRAM_OWNER_ID` there. Leave the
+allowlist blank in `public` and `owner`
 modes. The owner is always authorized and remains the server-alert recipient;
 the access mode never changes alert routing. There is no private-user admission
 cap.

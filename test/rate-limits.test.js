@@ -5,6 +5,7 @@ import {
   PRIVATE_DELIVERY_BURST,
   PRIVATE_LIMITER_IDLE_MS,
   PRIVATE_RESPONSE_WINDOW_MS,
+  PrivateDeliveryBarrier,
   PrivateDeliveryRateLimiter,
   ResponseWindowGate,
   TokenBucketStore,
@@ -139,6 +140,27 @@ test("private rate-limit state clears one sender without imposing capacity", () 
   );
 });
 
+test("deletion clears only target token buckets and retains response gating", async () => {
+  const limits = createPrivateRateLimits(5, { monotonicNow: () => 0 });
+  limits.tryConsumeUpdate(42, 1);
+  limits.tryConsumeUpdate(99, 2);
+  limits.deletionResponses.tryAcquire(42);
+  limits.clearSenderBuckets(42);
+  assert.equal(limits.inboundUpdates.size, 1);
+  assert.equal(limits.cachedUpdateDecisionCount, 1);
+  assert.equal(limits.deletionResponses.tryAcquire(42), false);
+
+  const deliveries = new PrivateDeliveryRateLimiter({
+    deliveriesPerMinute: 20,
+    monotonicNow: () => 0,
+  });
+  await deliveries.run("42", async () => {});
+  await deliveries.run("99", async () => {});
+  assert.equal(deliveries.size, 2);
+  await deliveries.cancelRecipient("42");
+  assert.equal(deliveries.size, 1);
+});
+
 test("inbound update retries reuse accepted and rejected decisions", () => {
   const clock = fakeClock();
   const limits = createPrivateRateLimits(5, { monotonicNow: clock.now });
@@ -162,6 +184,26 @@ test("inbound update retries reuse accepted and rejected decisions", () => {
     true,
     "the rejected replay did not spend the refilled token",
   );
+});
+
+test("durable offsets prune replay decisions while failed writes retain them", () => {
+  const limits = createPrivateRateLimits(5, { monotonicNow: () => 0 });
+
+  assert.equal(limits.tryConsumeUpdate(42, 10), true);
+  assert.equal(limits.cachedUpdateDecisionCount, 1);
+  assert.equal(
+    limits.tryConsumeUpdate(42, 10),
+    true,
+    "a failed write can replay the original decision",
+  );
+  limits.acknowledgeOffset(11);
+  assert.equal(limits.cachedUpdateDecisionCount, 0);
+
+  for (let updateId = 11; updateId < 2_011; updateId += 1) {
+    limits.tryConsumeUpdate(42, updateId);
+    limits.acknowledgeOffset(updateId + 1);
+  }
+  assert.equal(limits.cachedUpdateDecisionCount, 0);
 });
 
 test("private delivery buckets preserve burst, fractional refill, and restart reset", async () => {
@@ -243,6 +285,71 @@ test("private delivery waits abort and active operations resist idle eviction", 
   clock.advance(PRIVATE_LIMITER_IDLE_MS);
   assert.equal(limiter.pruneInactive(), 1);
   assert.equal(limiter.size, 0);
+});
+
+test("recipient deletion cancels product waits and drains full delivery work", async () => {
+  let waitStarted;
+  const waiting = new Promise((resolve) => {
+    waitStarted = resolve;
+  });
+  const limiter = new PrivateDeliveryRateLimiter({
+    deliveriesPerMinute: 1,
+    monotonicNow: () => 0,
+    sleep: async (_milliseconds, _value, { signal }) => {
+      waitStarted();
+      await new Promise((resolve, reject) => {
+        signal.addEventListener("abort", () => reject(signal.reason), {
+          once: true,
+        });
+      });
+    },
+  });
+  for (let index = 0; index < PRIVATE_DELIVERY_BURST; index += 1) {
+    await limiter.run("42", async () => {});
+  }
+  const productWait = limiter.run("42", async () => {
+    assert.fail("cancelled delivery must not invoke Telegram");
+  });
+  await waiting;
+  await limiter.cancelRecipient("42");
+  await assert.rejects(
+    productWait,
+    (error) =>
+      error.name === "AbortError" && error.privateRecipientUnavailable === true,
+  );
+  assert.equal(limiter.size, 0);
+
+  const barrier = new PrivateDeliveryBarrier();
+  let releaseWorker;
+  const worker = barrier.run(
+    "42",
+    () => new Promise((resolve) => (releaseWorker = resolve)),
+  );
+  barrier.block("42");
+  assert.equal(barrier.size, 1);
+  let drained = false;
+  const drain = barrier.drain("42").then(() => {
+    drained = true;
+  });
+  await Promise.resolve();
+  assert.equal(drained, false);
+  assert.equal(await barrier.run("42", async () => {}), false);
+  releaseWorker();
+  await Promise.all([worker, drain]);
+  assert.equal(drained, true);
+  assert.equal(barrier.size, 1);
+  assert.equal(barrier.clear("42"), true);
+  assert.equal(barrier.size, 0);
+});
+
+test("delivery barriers release ordinary recipient entries", async () => {
+  const barrier = new PrivateDeliveryBarrier();
+
+  for (let recipientId = 1; recipientId <= 10_000; recipientId += 1) {
+    assert.equal(await barrier.run(recipientId, async () => {}), true);
+  }
+
+  assert.equal(barrier.size, 0);
 });
 
 test("Telegram retry_after remains authoritative after a product-rate wait", async () => {

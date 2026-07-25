@@ -125,6 +125,8 @@ export class PrivateDeliveryRateLimiter {
       refilledAt: now,
       lastActivityAt: now,
       activeOperations: 0,
+      abortController: new AbortController(),
+      drainWaiters: new Set(),
     };
     this.buckets.set(key, bucket);
     return bucket;
@@ -152,17 +154,47 @@ export class PrivateDeliveryRateLimiter {
 
     this.pruneInactive();
     const bucket = this.#bucket(String(key));
+    const operationSignal = signal
+      ? AbortSignal.any([signal, bucket.abortController.signal])
+      : bucket.abortController.signal;
     bucket.activeOperations += 1;
     bucket.lastActivityAt = this.#nowAfter(bucket.lastActivityAt);
 
     try {
-      await this.#acquire(bucket, signal);
-      return await operation();
+      await this.#acquire(bucket, operationSignal);
+      return await operation(operationSignal);
+    } catch (error) {
+      if (bucket.abortController.signal.aborted) {
+        throw bucket.abortController.signal.reason;
+      }
+      throw error;
     } finally {
       bucket.activeOperations -= 1;
       bucket.lastActivityAt = this.#nowAfter(bucket.lastActivityAt);
+      if (bucket.activeOperations === 0) {
+        for (const resolve of bucket.drainWaiters) resolve();
+        bucket.drainWaiters.clear();
+      }
       this.pruneInactive();
     }
+  }
+
+  async cancelRecipient(recipientId) {
+    const key = String(recipientId);
+    const bucket = this.buckets.get(key);
+    if (!bucket) return false;
+
+    const reason = new DOMException(
+      "Private recipient deletion cancelled delivery",
+      "AbortError",
+    );
+    reason.privateRecipientUnavailable = true;
+    bucket.abortController.abort(reason);
+    if (bucket.activeOperations > 0) {
+      await new Promise((resolve) => bucket.drainWaiters.add(resolve));
+    }
+    if (this.buckets.get(key) === bucket) this.buckets.delete(key);
+    return true;
   }
 
   pruneInactive(now = this.monotonicNow()) {
@@ -186,6 +218,64 @@ export class PrivateDeliveryRateLimiter {
 
   get size() {
     return this.buckets.size;
+  }
+}
+
+/**
+ * Prevents a deletion from racing a recipient's classification, send, or
+ * acknowledgement work. Different recipients remain independent.
+ */
+export class PrivateDeliveryBarrier {
+  constructor() {
+    this.entries = new Map();
+  }
+
+  #entry(recipientId) {
+    const key = String(recipientId);
+    let entry = this.entries.get(key);
+    if (!entry) {
+      entry = { blocked: false, active: 0, drainWaiters: new Set() };
+      this.entries.set(key, entry);
+    }
+    return [key, entry];
+  }
+
+  async run(recipientId, operation) {
+    const [key, entry] = this.#entry(recipientId);
+    if (entry.blocked) return false;
+    entry.active += 1;
+    try {
+      await operation();
+      return true;
+    } finally {
+      entry.active -= 1;
+      if (entry.active === 0) {
+        for (const resolve of entry.drainWaiters) resolve();
+        entry.drainWaiters.clear();
+        if (!entry.blocked && this.entries.get(key) === entry) {
+          this.entries.delete(key);
+        }
+      }
+    }
+  }
+
+  block(recipientId) {
+    const [, entry] = this.#entry(recipientId);
+    entry.blocked = true;
+  }
+
+  async drain(recipientId) {
+    const [, entry] = this.#entry(recipientId);
+    if (entry.active === 0) return;
+    await new Promise((resolve) => entry.drainWaiters.add(resolve));
+  }
+
+  clear(recipientId) {
+    return this.entries.delete(String(recipientId));
+  }
+
+  get size() {
+    return this.entries.size;
   }
 }
 
@@ -222,6 +312,11 @@ export class ResponseWindowGate {
     return this.lastResponses.delete(key);
   }
 
+  has(key) {
+    this.pruneExpired();
+    return this.lastResponses.has(key);
+  }
+
   get size() {
     return this.lastResponses.size;
   }
@@ -238,6 +333,8 @@ export function createPrivateRateLimits(
   });
   const accessDeniedResponses = new ResponseWindowGate({ monotonicNow });
   const rateLimitedResponses = new ResponseWindowGate({ monotonicNow });
+  const deletionResponses = new ResponseWindowGate({ monotonicNow });
+  const deletionConfirmations = new ResponseWindowGate({ monotonicNow });
   const rateLimitedEvents = new ResponseWindowGate({ monotonicNow });
   const inboundUpdateDecisions = new Map();
 
@@ -252,7 +349,20 @@ export function createPrivateRateLimits(
     inboundUpdates,
     accessDeniedResponses,
     rateLimitedResponses,
+    deletionResponses,
     rateLimitedEvents,
+    activateDeletionConfirmation(senderId) {
+      deletionConfirmations.delete(senderId);
+      deletionConfirmations.tryAcquire(senderId);
+    },
+    hasDeletionConfirmation(senderId) {
+      return deletionConfirmations.has(senderId);
+    },
+    retireDeletionConfirmation(senderId) {
+      return deletionConfirmations.has(senderId)
+        ? deletionConfirmations.delete(senderId)
+        : false;
+    },
     tryConsumeUpdate(senderId, updateId) {
       if (!Number.isSafeInteger(updateId)) {
         return inboundUpdates.tryConsume(senderId);
@@ -275,6 +385,8 @@ export function createPrivateRateLimits(
       inboundUpdates.pruneInactive();
       accessDeniedResponses.pruneExpired();
       rateLimitedResponses.pruneExpired();
+      deletionResponses.pruneExpired();
+      deletionConfirmations.pruneExpired();
       rateLimitedEvents.pruneExpired();
       pruneUpdateDecisions();
     },
@@ -283,6 +395,27 @@ export function createPrivateRateLimits(
       accessDeniedResponses.delete(senderId);
       rateLimitedResponses.delete(senderId);
       inboundUpdateDecisions.delete(senderId);
+    },
+    clearSenderBuckets(senderId) {
+      inboundUpdates.delete(senderId);
+      inboundUpdateDecisions.delete(senderId);
+      deletionConfirmations.delete(senderId);
+    },
+    acknowledgeOffset(updateOffset) {
+      if (!Number.isSafeInteger(updateOffset) || updateOffset < 0) return;
+      for (const [senderId, entry] of inboundUpdateDecisions) {
+        for (const updateId of entry.decisions.keys()) {
+          if (updateId < updateOffset) entry.decisions.delete(updateId);
+        }
+        if (entry.decisions.size === 0) inboundUpdateDecisions.delete(senderId);
+      }
+    },
+    get cachedUpdateDecisionCount() {
+      let count = 0;
+      for (const entry of inboundUpdateDecisions.values()) {
+        count += entry.decisions.size;
+      }
+      return count;
     },
   };
 }

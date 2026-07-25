@@ -120,6 +120,9 @@ test("application lifecycle drives crawl and exchange-rate readiness", async () 
         reason: "not_authorized",
       });
       callbacks.onPrivateUserRateLimited({ updatesPerMinute: 5 });
+      callbacks.onPrivateUserDeletionPending();
+      callbacks.onPrivateUserDeletionCancelled();
+      callbacks.onPrivateUserDeletionCompleted({ recovered: true });
       callbacks.onMonitoringState({
         active: false,
         channelConfigured: true,
@@ -207,6 +210,16 @@ test("application lifecycle drives crawl and exchange-rate readiness", async () 
         message === "Graceful shutdown completed" &&
         context.signal === "SIGTERM",
     ),
+  );
+  assert.deepEqual(
+    infoRecords
+      .filter(({ context }) => context?.event?.includes("private.deletion"))
+      .map(({ context }) => context),
+    [
+      { event: "telegram.private.deletion.pending" },
+      { event: "telegram.private.deletion.cancelled" },
+      { event: "telegram.private.deletion.completed", recovered: true },
+    ],
   );
   assert.ok(
     infoRecords.some(

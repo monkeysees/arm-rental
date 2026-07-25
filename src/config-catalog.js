@@ -93,7 +93,7 @@ export const CONFIGURATION_CATALOG = Object.freeze([
     configKey: "telegramAllowedUserIds",
     type: "positive safe integer list",
     constraints:
-      "Comma-separated unique positive IDs; mode-specific rules are validated with the access policy.",
+      "Comma-separated unique positive IDs; allowlist mode requires at least one non-owner ID, the owner must not be repeated, and other modes require a blank value.",
     defaultValue: "",
     identifierSensitive: true,
     purpose: "Adds private users when access mode is allowlist.",

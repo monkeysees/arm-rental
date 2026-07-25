@@ -1,8 +1,9 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { crawlApartments } from "../src/crawler.js";
+import { crawlApartments, removeDeliveryRecipient } from "../src/crawler.js";
 import { emptyFilters } from "../src/filters.js";
+import { PrivateDeliveryBarrier } from "../src/rate-limit.js";
 import { LIST_AM_URL_TEMPLATE } from "../src/target.js";
 
 const config = {
@@ -424,6 +425,77 @@ test("slow recipients do not block peers or channel publication", async () => {
   const recipients = state.files.get(config.deliveryStateFile).recipients;
   assert.deepEqual(Object.keys(recipients[42].notified), ["1", "2", "3"]);
   assert.deepEqual(Object.keys(recipients[99].notified), ["1", "2", "3"]);
+});
+
+test("deletion drains target acknowledgements without blocking peers or channel", async () => {
+  const state = memoryState();
+  const barrier = new PrivateDeliveryBarrier();
+  let deliveryStateMutation = Promise.resolve();
+  const mutateDeliveryState = (operation) => {
+    const pending = deliveryStateMutation.then(operation);
+    deliveryStateMutation = pending.catch(() => {});
+    return pending;
+  };
+  let targetAuthorized = true;
+  let releaseTarget;
+  const targetReleased = new Promise((resolve) => {
+    releaseTarget = resolve;
+  });
+  let targetStarted;
+  const targetReady = new Promise((resolve) => {
+    targetStarted = resolve;
+  });
+  let peerCompleted;
+  const peerReady = new Promise((resolve) => {
+    peerCompleted = resolve;
+  });
+  let channelPublished = false;
+
+  const crawling = crawlApartments(
+    { ...config, initialPageCount: 1 },
+    {
+      ...state,
+      deliveryStateMutation: mutateDeliveryState,
+      fetchPage: async () => new Response(page("2", "1")),
+      privateDeliveries: [
+        {
+          recipientId: "42",
+          isAuthorized: () => targetAuthorized,
+          runDeliveryWorker: (operation) => barrier.run("42", operation),
+          deliverApartment: async () => {
+            targetStarted();
+            await targetReleased;
+          },
+        },
+        {
+          recipientId: "99",
+          deliverApartment: async ({ itemId }) => {
+            if (itemId === "2") peerCompleted();
+          },
+        },
+      ],
+      afterStateSaved: async () => {
+        channelPublished = true;
+      },
+      now: () => new Date("2026-07-24T12:00:00Z"),
+    },
+  );
+
+  await targetReady;
+  targetAuthorized = false;
+  barrier.block("42");
+  const drained = barrier.drain("42");
+  await peerReady;
+  assert.equal(channelPublished, true);
+  releaseTarget();
+  await drained;
+  await mutateDeliveryState(() => removeDeliveryRecipient(config, "42", state));
+  barrier.clear("42");
+  await crawling;
+
+  const recipients = state.files.get(config.deliveryStateFile).recipients;
+  assert.equal(recipients[42], undefined);
+  assert.deepEqual(Object.keys(recipients[99].notified), ["1", "2"]);
 });
 
 test("private delivery rechecks live authorization without blocking peers", async () => {

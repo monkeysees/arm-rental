@@ -22,8 +22,10 @@ and trap callbacks. Systemd verification runs against a temporary filesystem
 root with explicit Docker/network stubs and executable placeholders, so clean
 runners validate unit dependencies and command declarations without needing the
 production host layout. Compose disables environment-file and host-path
-resolution during this static render, while its normalized model and consistency
-checks remain enabled.
+resolution during this static render. The validator first asserts and replaces
+only the production secret-file path in a temporary Compose copy with an empty
+temporary environment file; its normalized model and consistency checks remain
+enabled.
 
 Coverage thresholds and the measured source glob live in `package.json` so the
 same gate runs locally and in CI. Lowering either threshold or adding an

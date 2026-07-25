@@ -34,9 +34,10 @@ removed secondary-environment paths, and rejects external logging/metrics
 servers. Systemd verification uses a temporary root with declared dependency
 stubs and command placeholders instead of assuming production paths exist on
 the runner. Compose rendering skips production environment-file and host-path
-resolution but retains model consistency checks. Fake-command integration tests
-prove the aggregator invokes every validator without requiring Docker or
-systemd locally.
+resolution, after asserting and replacing only the production secret-file path
+in a temporary Compose copy, but retains model consistency checks. Fake-command
+integration tests prove the aggregator invokes every validator without
+requiring Docker or systemd locally.
 
 ## Pre-deploy safety boundary
 

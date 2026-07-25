@@ -83,14 +83,27 @@ systemd-analyze \
   verify "${staged_unit_files[@]}"
 
 image_environment="$temporary_directory/current-image.env"
+compose_contract="$temporary_directory/compose.production.yaml"
+contract_runtime_environment="$temporary_directory/runtime.env"
 rendered_compose="$temporary_directory/compose.json"
 printf 'RENTAL_APARTMENTS_IMAGE=ghcr.io/example/rental-apartments@sha256:%064d\n' 0 \
   >"$image_environment"
+: >"$contract_runtime_environment"
+
+grep -Eq \
+  '^[[:space:]]*-[[:space:]]+/etc/rental-apartments/env[[:space:]]*$' \
+  compose.production.yaml
+sed \
+  "s|/etc/rental-apartments/env|$contract_runtime_environment|" \
+  compose.production.yaml >"$compose_contract"
+! grep -Eq \
+  '^[[:space:]]*-[[:space:]]+/etc/rental-apartments/env[[:space:]]*$' \
+  "$compose_contract"
 
 docker compose \
   --project-name rental-apartments-contract \
   --env-file "$image_environment" \
-  --file compose.production.yaml \
+  --file "$compose_contract" \
   config --no-env-resolution --no-path-resolution --format json \
   >"$rendered_compose"
 

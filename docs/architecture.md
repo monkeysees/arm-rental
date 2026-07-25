@@ -191,8 +191,11 @@ synthetic Docker/network dependencies and executable placeholders for declared
 production paths. This keeps dependency and command validation active without
 requiring CI to reproduce the VPS directory layout.
 Compose rendering similarly disables environment-file and host-path resolution
-while retaining model normalization and consistency checks, so the static gate
-does not require production secrets or directories.
+while retaining model normalization and consistency checks. Before rendering,
+the validator asserts and replaces exactly the production secret-file path in a
+temporary Compose copy with an empty temporary environment file. The committed
+production path remains unchanged, and the static gate does not require
+production secrets or directories.
 
 Build arguments bind the image to the full Git revision and SHA-256 digest of
 `package-lock.json`; the Dockerfile validates both and records them alongside

@@ -100,7 +100,7 @@ exit 70
   );
   assert.match(
     commands,
-    /docker compose .*config --no-env-resolution --no-path-resolution --format json/u,
+    /docker compose .*compose\.production\.yaml config --no-env-resolution --no-path-resolution --format json/u,
   );
   assert.doesNotMatch(commands, /(?:^|\n)rg /u);
 });

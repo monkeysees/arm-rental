@@ -677,6 +677,9 @@ operator procedures are indexed in
    per-sender, continuously refilled in-memory token bucket. Denied `/start`
    replies and excessive-request replies each have a separate five-minute
    response gate; callbacks are acknowledged without editing their messages.
+   The inbound decision for a sender and Telegram update ID is reused across a
+   transient replay, preventing a failed durable write or later reply from
+   charging the same update twice.
    These process-local controls expire after inactivity and reset on restart,
    while the service retains no admission capacity for persisted private
    users. The start callback first asks whether to send up to
@@ -696,7 +699,9 @@ operator procedures are indexed in
    dormant loop only after the configured crawl interval has elapsed since its
    last attempt; repeated controls, filter changes, denied updates, and future
    deletion actions neither move that timestamp nor reset crawl-failure
-   backoff.
+   backoff. The loop rechecks effective recipients after this cadence wait, so
+   a user who stops meanwhile returns it to dormancy without starting or dating
+   another crawl attempt.
 4. A separate activation-independent loop asks `src/exchange-rates.js` for the
    persisted CBA snapshot. The service refreshes USD, EUR, and RUB together when
    it is at least 24 hours old. A failed refresh keeps the last snapshot active
@@ -727,8 +732,12 @@ operator procedures are indexed in
    canonical price and audit remain unchanged.
 9. Newly discovered and updated records are atomically committed before
    Telegram delivery begins. The crawl fans out across authorized active users,
-   each with
-   independent `src/filters.js` admission and delivery history. First-time
+   each with independent `src/filters.js` admission and delivery history.
+   Recipient workers run concurrently so a slow user does not delay peers or
+   channel publication, while every user's worker remains sequential and
+   oldest-first. Because those workers share one private-delivery file, their
+   classifications and acknowledgements are merged through a serialized,
+   failure-latching state-write chain. First-time
    admission is terminal: non-matches become filtered, and on an empty user
    delivery history either the latest matching `INITIAL_DELIVERY_LIMIT` are
    selected or, when that user declined the initial selection, all existing
@@ -736,10 +745,15 @@ operator procedures are indexed in
    previously delivered apartment becomes pending again when its
    source `updatedAt` is later than that user's last successful notification and
    it matches that user's current filters. Source order is reversed so selected
-   messages are delivered oldest first, then acknowledged one at a time. A live
-   authorization predicate is checked before any recipient classification and
-   immediately before each send, so a narrowed policy cannot mutate a suspended
-   user's delivery history during a long batch. A
+   messages are delivered oldest first, then acknowledged one at a time. Each
+   private recipient has a process-local token bucket with a fixed burst of five
+   apartment messages and continuous refill at the configured per-minute rate.
+   Initial selections, new apartments, and updated-apartment redelivery all use
+   this boundary; control replies and public-channel operations do not. A live
+   authorization predicate is checked before any recipient classification and,
+   after any product-rate wait, immediately before each send, so a narrowed
+   policy cannot mutate a suspended user's delivery history during a long batch.
+   A
    terminal private-chat delivery error deactivates only the unavailable user;
    it does not terminate other subscriptions or channel publication.
 10. `src/channel.js` independently evaluates environment filters. With no
@@ -834,11 +848,18 @@ The `.data` directory must be mounted on persistent storage in production.
   private subscriptions. Access mode and allowlist are deployment configuration,
   not persisted user attributes; policy narrowing therefore suspends records
   without rewriting activation, filters, initial-send choice, or delivery
-  history.
+  history. Update processing and concurrent unavailable-recipient deactivation
+  share one serialized mutation boundary; outer in-memory state advances only
+  after its matching durable write succeeds.
 - Inbound token buckets and denial-response timestamps are deliberately absent
   from JSON state. They use a monotonic process clock, evict entries after 15
   minutes of inactivity, and start empty after restart. The maps grow with
   recently active senders, not with the unlimited persisted-user population.
+- Private apartment-delivery buckets are also process-local and use the same
+  monotonic, 15-minute idle-eviction and restart-reset model. Their map has no
+  admission capacity and contains only recipients with recent delivery work;
+  waiting or in-flight work cannot be evicted. User deletion has a dedicated
+  bucket-clear seam without making limiter state durable.
 - `telegram-channel-deliveries.json` is a separate channel state machine keyed
   by item ID. It stores terminal `filtered` and `skipped_initial` admissions,
   retryable `pending` entries, and `published` entries with Telegram message ID,
@@ -876,15 +897,19 @@ is retained as displayed by List.am.
   hourly. With no previous snapshot, foreign-price normalization fails before
   apartment state is written.
 - Telegram HTTP 429 responses honor `retry_after` and are retried up to three
-  times.
+  times. One product-rate token covers that logical apartment operation;
+  Telegram's requested retry delay remains authoritative and is neither capped
+  nor shortened by the private-delivery limiter.
 - Policy and inbound-rate rejections durably advance the global Telegram update
   offset before any callback acknowledgement or user-facing response. Their
   structured events contain only fixed reasons, access mode, and configured
   rate; sender IDs, chat IDs, message text, and callback data stay inside the
   operational Telegram request path and never become telemetry or health data.
 - Private and channel classifications are persisted before messages are sent.
-  Successful deliveries are acknowledged immediately. A restart cannot turn a
-  rejected listing into an unexpected backlog.
+  Successful deliveries are acknowledged immediately. Shutdown aborts a
+  private product-rate wait without sending or acknowledging its apartment, so
+  it remains pending after restart. A restart cannot turn a rejected listing
+  into an unexpected backlog.
 - Channel sends fail independently and leave entries pending. Failed edits and
   age-based reposts retain their prior acknowledged message metadata for a
   later retry. Per-operation structured logs distinguish send, edit, and repost

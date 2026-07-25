@@ -446,16 +446,26 @@ export async function crawlApartments(
           recipients: {},
         };
 
-    const saveRecipient = async (recipientId, recipient) => {
-      deliveryState = {
-        ...deliveryState,
-        recipients: { ...deliveryState.recipients, [recipientId]: recipient },
-      };
-      await saveState(config.deliveryStateFile, deliveryState);
+    // Recipient workers run concurrently, but their independent histories live
+    // in one JSON file. Merge and persist them through one failure-latching
+    // chain so a whole-file replacement cannot lose a peer acknowledgement.
+    let deliveryStateWrites = Promise.resolve();
+    const saveRecipient = (recipientId, recipient) => {
+      deliveryStateWrites = deliveryStateWrites.then(async () => {
+        deliveryState = {
+          ...deliveryState,
+          recipients: {
+            ...deliveryState.recipients,
+            [recipientId]: recipient,
+          },
+        };
+        await saveState(config.deliveryStateFile, deliveryState);
+      });
+      return deliveryStateWrites;
     };
 
-    for (const target of deliveryTargets) {
-      if (target.isAuthorized?.() === false) continue;
+    const deliverRecipient = async (target) => {
+      if (target.isAuthorized?.() === false) return;
       const recipientId = String(target.recipientId);
       const recipientFilters = normalizeFilters(target.filters);
       let recipient = deliveryRecipientState(
@@ -555,7 +565,13 @@ export async function crawlApartments(
         await saveRecipient(recipientId, recipient);
         notifiedCount += 1;
       }
-    }
+    };
+
+    const outcomes = await Promise.allSettled(
+      deliveryTargets.map(deliverRecipient),
+    );
+    const failed = outcomes.find(({ status }) => status === "rejected");
+    if (failed) throw failed.reason;
   };
 
   const [privateOutcome, channelOutcome] = await Promise.allSettled([

@@ -344,6 +344,88 @@ test("one crawl maintains independent delivery histories for multiple users", as
   );
 });
 
+test("slow recipients do not block peers or channel publication", async () => {
+  const state = memoryState();
+  const delivered = { 42: [], 99: [] };
+  let releaseSlowRecipient;
+  const slowRecipientReleased = new Promise((resolve) => {
+    releaseSlowRecipient = resolve;
+  });
+  let slowRecipientStarted;
+  const slowRecipientReady = new Promise((resolve) => {
+    slowRecipientStarted = resolve;
+  });
+  let peerFinished;
+  const peerReady = new Promise((resolve) => {
+    peerFinished = resolve;
+  });
+  let deliveryWrites = 0;
+  let concurrentDeliveryWrites = 0;
+  let maximumConcurrentDeliveryWrites = 0;
+  let channelPublished = false;
+  const saveState = async (filename, value) => {
+    if (filename === config.deliveryStateFile) {
+      deliveryWrites += 1;
+      concurrentDeliveryWrites += 1;
+      maximumConcurrentDeliveryWrites = Math.max(
+        maximumConcurrentDeliveryWrites,
+        concurrentDeliveryWrites,
+      );
+      await Promise.resolve();
+    }
+    state.files.set(filename, structuredClone(value));
+    if (filename === config.deliveryStateFile) concurrentDeliveryWrites -= 1;
+  };
+
+  const crawling = crawlApartments(
+    { ...config, initialPageCount: 1 },
+    {
+      ...state,
+      saveState,
+      fetchPage: async () => new Response(page("3", "2", "1")),
+      privateDeliveries: [
+        {
+          recipientId: "42",
+          deliverApartment: async ({ itemId }) => {
+            delivered[42].push(itemId);
+            if (itemId === "1") {
+              slowRecipientStarted();
+              await slowRecipientReleased;
+            }
+          },
+        },
+        {
+          recipientId: "99",
+          deliverApartment: async ({ itemId }) => {
+            delivered[99].push(itemId);
+            if (itemId === "3") peerFinished();
+          },
+        },
+      ],
+      afterStateSaved: async () => {
+        channelPublished = true;
+      },
+      now: () => new Date("2026-07-24T12:00:00Z"),
+    },
+  );
+
+  await slowRecipientReady;
+  await peerReady;
+  assert.equal(channelPublished, true);
+  assert.deepEqual(delivered[42], ["1"]);
+  assert.deepEqual(delivered[99], ["1", "2", "3"]);
+
+  releaseSlowRecipient();
+  const result = await crawling;
+  assert.deepEqual(delivered[42], ["1", "2", "3"]);
+  assert.equal(result.notifiedCount, 6);
+  assert.ok(deliveryWrites > 0);
+  assert.equal(maximumConcurrentDeliveryWrites, 1);
+  const recipients = state.files.get(config.deliveryStateFile).recipients;
+  assert.deepEqual(Object.keys(recipients[42].notified), ["1", "2", "3"]);
+  assert.deepEqual(Object.keys(recipients[99].notified), ["1", "2", "3"]);
+});
+
 test("private delivery rechecks live authorization without blocking peers", async () => {
   const state = memoryState();
   const delivered = { 7: [], 42: [], 99: [] };

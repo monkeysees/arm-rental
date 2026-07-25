@@ -25,7 +25,10 @@ import {
   TelegramApi,
 } from "./telegram.js";
 import { ExponentialBackoff, isExpectedExternalFailure } from "./retry.js";
-import { createPrivateRateLimits } from "./rate-limit.js";
+import {
+  createPrivateRateLimits,
+  PrivateDeliveryRateLimiter,
+} from "./rate-limit.js";
 
 const ACCESS_DENIED_TEXT = (senderId) =>
   `Доступ к боту ограничен. Ваш Telegram ID: ${senderId}.`;
@@ -396,7 +399,7 @@ export async function processUpdates(
 
     if (
       !accessBypass &&
-      !effectiveRateLimits.inboundUpdates.tryConsume(senderId)
+      !effectiveRateLimits.tryConsumeUpdate(senderId, update.update_id)
     ) {
       await saveState(current);
       if (effectiveRateLimits.rateLimitedEvents.tryAcquire("aggregate")) {
@@ -582,10 +585,25 @@ export async function runTelegramBot(
       };
   let activationWaiter;
   let lastCrawlAttemptStartedAt;
+  let botStateMutation = Promise.resolve();
+  const withBotStateMutation = (operation) => {
+    const pending = botStateMutation.then(operation);
+    botStateMutation = pending.catch(() => {});
+    return pending;
+  };
+  const persistBotState = async (value) => {
+    await saveState(config.telegramStateFile, value);
+    state = value;
+  };
   const privateRateLimits = createPrivateRateLimits(
     config.telegramUserUpdatesPerMinute ?? 30,
     { ...(monotonicNow ? { monotonicNow } : {}) },
   );
+  const privateDeliveryRateLimiter = new PrivateDeliveryRateLimiter({
+    deliveriesPerMinute: config.telegramPrivateDeliveriesPerMinute ?? 20,
+    sleep,
+    ...(monotonicNow ? { monotonicNow } : {}),
+  });
   let lastAccessSummary;
   const reportAccessState = async () => {
     const summary = privateAccessSummary(state, config);
@@ -605,10 +623,15 @@ export async function runTelegramBot(
     activationWaiter = undefined;
   };
   const deactivateUnavailableUser = async (chatId, reason) => {
-    if (!persistedUser(state, chatId)) return;
-    const user = userState(state, chatId);
-    state = withUserState(state, chatId, { ...user, active: false });
-    await saveState(config.telegramStateFile, state);
+    const changed = await withBotStateMutation(async () => {
+      if (!persistedUser(state, chatId)) return false;
+      const user = userState(state, chatId);
+      await persistBotState(
+        withUserState(state, chatId, { ...user, active: false }),
+      );
+      return true;
+    });
+    if (!changed) return;
     await onMonitoringState({
       active: effectiveActiveUsers(state, config).length > 0,
       channelConfigured: Boolean(config.telegramChannelId),
@@ -629,66 +652,69 @@ export async function runTelegramBot(
     while (!signal?.aborted) {
       try {
         privateRateLimits.pruneInactive();
+        privateDeliveryRateLimiter.pruneInactive();
         const unavailableUsers = new Map();
         const updates = await api.getUpdates(
           state.updateOffset,
           config.telegramPollTimeoutSeconds,
           signal,
         );
-        state = await processUpdates(updates, config, state, {
-          sendMessage: async (chatId, text, replyMarkup) => {
-            try {
-              return await api.sendMessage(chatId, text, signal, replyMarkup);
-            } catch (error) {
-              if (!error.terminal) throw error;
-              unavailableUsers.set(
-                chatId,
-                error.code || "ERR_TELEGRAM_PRIVATE_UNAVAILABLE",
-              );
-              return undefined;
-            }
-          },
-          editMessage: async (chatId, messageId, text, replyMarkup) => {
-            try {
-              return await api.editMessageText(
-                chatId,
-                messageId,
-                text,
-                signal,
-                replyMarkup,
-              );
-            } catch (error) {
-              if (!error.terminal) throw error;
-              unavailableUsers.set(
-                chatId,
-                error.code || "ERR_TELEGRAM_PRIVATE_UNAVAILABLE",
-              );
-              return undefined;
-            }
-          },
-          answerCallback: (callbackQueryId) =>
-            api.answerCallbackQuery(callbackQueryId, signal),
-          saveState: (value) => saveState(config.telegramStateFile, value),
-          onSubscriptionChanged: async (
-            changedState,
-            { active, sendInitialApartments },
-          ) => {
-            state = changedState;
-            if (active) activate();
-            await onMonitoringState({
-              active: effectiveActiveUsers(state, config).length > 0,
-              channelConfigured: Boolean(config.telegramChannelId),
-            });
-            await onPrivateMonitoringChanged({
-              active,
-              activeUserCount: effectiveActiveUsers(state, config).length,
-              sendInitialApartments,
-            });
-          },
-          onAccessDenied: onPrivateAccessDenied,
-          onUserRateLimited: onPrivateUserRateLimited,
-          rateLimits: privateRateLimits,
-        });
+        state = await withBotStateMutation(() =>
+          processUpdates(updates, config, state, {
+            sendMessage: async (chatId, text, replyMarkup) => {
+              try {
+                return await api.sendMessage(chatId, text, signal, replyMarkup);
+              } catch (error) {
+                if (!error.terminal) throw error;
+                unavailableUsers.set(
+                  chatId,
+                  error.code || "ERR_TELEGRAM_PRIVATE_UNAVAILABLE",
+                );
+                return undefined;
+              }
+            },
+            editMessage: async (chatId, messageId, text, replyMarkup) => {
+              try {
+                return await api.editMessageText(
+                  chatId,
+                  messageId,
+                  text,
+                  signal,
+                  replyMarkup,
+                );
+              } catch (error) {
+                if (!error.terminal) throw error;
+                unavailableUsers.set(
+                  chatId,
+                  error.code || "ERR_TELEGRAM_PRIVATE_UNAVAILABLE",
+                );
+                return undefined;
+              }
+            },
+            answerCallback: (callbackQueryId) =>
+              api.answerCallbackQuery(callbackQueryId, signal),
+            saveState: persistBotState,
+            onSubscriptionChanged: async (
+              changedState,
+              { active, sendInitialApartments },
+            ) => {
+              state = changedState;
+              if (active) activate();
+              await onMonitoringState({
+                active: effectiveActiveUsers(state, config).length > 0,
+                channelConfigured: Boolean(config.telegramChannelId),
+              });
+              await onPrivateMonitoringChanged({
+                active,
+                activeUserCount: effectiveActiveUsers(state, config).length,
+                sendInitialApartments,
+              });
+            },
+            onAccessDenied: onPrivateAccessDenied,
+            onUserRateLimited: onPrivateUserRateLimited,
+            rateLimits: privateRateLimits,
+          }),
+        );
         await reportAccessState();
         for (const [chatId, reason] of unavailableUsers) {
           await deactivateUnavailableUser(chatId, reason);
@@ -744,6 +770,13 @@ export async function runTelegramBot(
         }
       }
 
+      if (
+        effectiveActiveUsers(state, config).length === 0 &&
+        !config.telegramChannelId
+      ) {
+        continue;
+      }
+
       let failureComponent = "cba";
       const crawlId = randomUUID();
       const crawlStartedAt = Date.now();
@@ -763,42 +796,59 @@ export async function runTelegramBot(
           exchangeRates,
           ...(privateUsers.length > 0
             ? {
-                privateDeliveries: privateUsers.map((user) => ({
-                  recipientId: String(user.chatId),
-                  filters: user.filters,
-                  sendInitialApartments: user.sendInitialApartments,
-                  isAuthorized: () => {
+                privateDeliveries: privateUsers.map((user) => {
+                  const isAuthorized = () => {
                     const currentUser = state.users[String(user.chatId)];
                     return Boolean(
                       currentUser?.active &&
                       !currentUser.deletionPendingAt &&
                       isPrivateUserAuthorized(config, user.chatId),
                     );
-                  },
-                  deliverApartment: async (apartment) => {
-                    try {
-                      await api.sendMessage(
-                        user.chatId,
-                        formatApartmentMessage(apartment),
-                        signal,
-                      );
-                    } catch (error) {
-                      error.privateDeliveryFailure = true;
-                      if (error.terminal) {
-                        // A user can block the bot at any time. Remove that
-                        // private subscription without terminating monitoring
-                        // for every other user or the public channel.
-                        await deactivateUnavailableUser(
-                          user.chatId,
-                          error.code || "ERR_TELEGRAM_PRIVATE_UNAVAILABLE",
+                  };
+                  return {
+                    recipientId: String(user.chatId),
+                    filters: user.filters,
+                    sendInitialApartments: user.sendInitialApartments,
+                    isAuthorized,
+                    deliverApartment: async (apartment) => {
+                      try {
+                        await privateDeliveryRateLimiter.run(
+                          String(user.chatId),
+                          async () => {
+                            if (!isAuthorized()) {
+                              const error = new Error(
+                                "Private recipient is no longer available",
+                              );
+                              error.privateRecipientUnavailable = true;
+                              throw error;
+                            }
+                            await api.sendMessage(
+                              user.chatId,
+                              formatApartmentMessage(apartment),
+                              signal,
+                            );
+                          },
+                          { signal },
                         );
-                        error.privateRecipientUnavailable = true;
-                        error.terminal = false;
+                      } catch (error) {
+                        if (error.privateRecipientUnavailable) throw error;
+                        error.privateDeliveryFailure = true;
+                        if (error.terminal) {
+                          // A user can block the bot at any time. Remove that
+                          // private subscription without terminating monitoring
+                          // for every other user or the public channel.
+                          await deactivateUnavailableUser(
+                            user.chatId,
+                            error.code || "ERR_TELEGRAM_PRIVATE_UNAVAILABLE",
+                          );
+                          error.privateRecipientUnavailable = true;
+                          error.terminal = false;
+                        }
+                        throw error;
                       }
-                      throw error;
-                    }
-                  },
-                })),
+                    },
+                  };
+                }),
                 legacyRecipientId:
                   state.legacyRecipientId || String(config.telegramOwnerId),
               }

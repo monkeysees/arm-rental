@@ -38,6 +38,23 @@ export function filtersMenu(filters, active = false) {
   };
 }
 
+export function initialDeliveryMenu(limit = 100) {
+  return {
+    text: [
+      "Отправить уже найденные квартиры?",
+      "",
+      `Перед запуском мониторинга бот может отправить до ${limit} последних подходящих квартир. Или можно начать только с новых объявлений.`,
+    ].join("\n"),
+    replyMarkup: {
+      inline_keyboard: [
+        [button("Да, отправить", "m:start:initial")],
+        [button("Нет, только новые", "m:start:new")],
+        [button("← К фильтрам", "f:menu")],
+      ],
+    },
+  };
+}
+
 export function locationsMenu(filters) {
   const selected = new Set(normalizeFilters(filters).locations);
   const inlineKeyboard = LOCATION_REGIONS.map((region, regionIndex) => {

@@ -663,11 +663,14 @@ operator procedures are indexed in
    Telegram user creates or reopens that user's control panel without changing
    an existing monitoring choice; a new user is inactive by default and group
    chats are ignored. `/filters` opens the same per-user price, room, and
-   hierarchical location controls. Inline start and stop callbacks durably
-   toggle only that user's delivery state before refreshing the panel, wake the
-   dormant crawl loop on activation, and update readiness state on either
-   transition. Range values are collected from that user's next text message;
-   `/cancel` abandons only that user's pending input.
+   hierarchical location controls. The start callback first asks whether to
+   send up to `INITIAL_DELIVERY_LIMIT` existing matches or monitor new listings
+   only; monitoring remains inactive until that choice is persisted. The final
+   start and stop callbacks durably toggle only that user's delivery state
+   before refreshing the panel, wake the dormant crawl loop on activation, and
+   update readiness state on either transition. Range values are collected
+   from that user's next text message; `/cancel` abandons only that user's
+   pending input.
 3. A crawl loop runs when private monitoring is active or a channel is
    configured. With neither condition, it waits for activation. After apartment
    state is saved, private admission/delivery and `src/channel.js` publication
@@ -706,8 +709,10 @@ operator procedures are indexed in
    Telegram delivery begins. The crawl fans out across active users, each with
    independent `src/filters.js` admission and delivery history. First-time
    admission is terminal: non-matches become filtered, and on an empty user
-   delivery history only the latest matching `INITIAL_DELIVERY_LIMIT` are
-   selected. A previously delivered apartment becomes pending again when its
+   delivery history either the latest matching `INITIAL_DELIVERY_LIMIT` are
+   selected or, when that user declined the initial selection, all existing
+   matches are atomically marked `skipped_initial`. The default limit is 100. A
+   previously delivered apartment becomes pending again when its
    source `updatedAt` is later than that user's last successful notification and
    it matches that user's current filters. Source order is reversed so selected
    messages are delivered oldest first, then acknowledged one at a time. A
@@ -795,10 +800,12 @@ The `.data` directory must be mounted on persistent storage in production.
   messages remain retryable until that user's successful delivery timestamp
   reaches the source update timestamp.
 - `telegram-bot.json` stores the Telegram update offset and a map of private
-  users with activation, chat ID, optional filters, and pending range-input
-  mode. Version-1 owner-only state is migrated in memory to the version-2 user
-  map, retaining the former private recipient ID for delivery-history migration,
-  and persisted on the next update. Bot state is deliberately not bound to
+  users with activation, chat ID, initial-send choice, optional filters, and
+  pending range-input mode. A missing initial-send choice from older state
+  defaults to sending the initial selection for backward compatibility.
+  Version-1 owner-only state is migrated in memory to the version-2 user map,
+  retaining the former private recipient ID for delivery-history migration, and
+  persisted on the next update. Bot state is deliberately not bound to
   `TELEGRAM_OWNER_ID`, so rotating the server-alert recipient does not invalidate
   private subscriptions.
 - `telegram-channel-deliveries.json` is a separate channel state machine keyed

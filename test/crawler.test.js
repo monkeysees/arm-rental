@@ -344,6 +344,47 @@ test("one crawl maintains independent delivery histories for multiple users", as
   );
 });
 
+test("a user can skip the initial selection and receive later apartments", async () => {
+  const state = memoryState();
+  const delivered = [];
+  const privateDelivery = {
+    recipientId: "42",
+    filters: emptyFilters(),
+    sendInitialApartments: false,
+    deliverApartment: async ({ itemId }) => delivered.push(itemId),
+  };
+
+  const initialResult = await crawlApartments(
+    { ...config, initialPageCount: 1 },
+    {
+      ...state,
+      fetchPage: async () => new Response(page("3", "2", "1")),
+      privateDeliveries: [privateDelivery],
+      now: () => new Date("2026-07-24T12:00:00Z"),
+    },
+  );
+
+  assert.deepEqual(delivered, []);
+  assert.equal(initialResult.notifiedCount, 0);
+  assert.equal(initialResult.skippedCount, 3);
+  assert.deepEqual(
+    Object.keys(
+      state.files.get(config.deliveryStateFile).recipients["42"].skipped,
+    ).sort(),
+    ["1", "2", "3"],
+  );
+
+  const laterResult = await crawlApartments(config, {
+    ...state,
+    fetchPage: async () => new Response(page("4", "3", "2", "1")),
+    privateDeliveries: [privateDelivery],
+    now: () => new Date("2026-07-24T12:01:00Z"),
+  });
+
+  assert.deepEqual(delivered, ["4"]);
+  assert.equal(laterResult.notifiedCount, 1);
+});
+
 test("crawler stores converted AMD prices and delivers the original price data", async () => {
   const state = memoryState();
   const delivered = [];

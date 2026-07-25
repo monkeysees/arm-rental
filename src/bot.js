@@ -5,6 +5,7 @@ import { publishChannelApartments } from "./channel.js";
 import { crawlApartments } from "./crawler.js";
 import {
   filtersMenu,
+  initialDeliveryMenu,
   locationsMenu,
   regionMenu,
   resetFilters,
@@ -41,6 +42,7 @@ function withFilterDefaults(user) {
   return {
     ...user,
     active: Boolean(user?.active),
+    sendInitialApartments: user?.sendInitialApartments !== false,
     filters: normalizeFilters(user?.filters),
     pendingFilterInput: ["price", "rooms"].includes(user?.pendingFilterInput)
       ? user.pendingFilterInput
@@ -299,13 +301,37 @@ export async function processUpdates(
 
     if (query) {
       await answerCallback(query.id);
-      if (isPrivateCallback && ["m:start", "m:stop"].includes(query.data)) {
+      if (isPrivateCallback && query.data === "m:start") {
         const chatId = query.message.chat.id;
         const user = userState(current, chatId);
-        const active = query.data === "m:start";
+        current = withUserState(current, chatId, {
+          ...user,
+          pendingFilterInput: null,
+        });
+        await saveState(current);
+        await showFilterView(
+          chatId,
+          query.message.message_id,
+          initialDeliveryMenu(config.initialDeliveryLimit),
+          { sendMessage, editMessage },
+        );
+        continue;
+      }
+      if (
+        isPrivateCallback &&
+        ["m:start:initial", "m:start:new", "m:stop"].includes(query.data)
+      ) {
+        const chatId = query.message.chat.id;
+        const user = userState(current, chatId);
+        const active = query.data !== "m:stop";
+        const sendInitialApartments =
+          query.data === "m:stop"
+            ? user.sendInitialApartments
+            : query.data === "m:start:initial";
         current = withUserState(current, chatId, {
           ...user,
           active,
+          sendInitialApartments,
           pendingFilterInput: null,
         });
         await saveState(current);
@@ -316,7 +342,10 @@ export async function processUpdates(
           { sendMessage, editMessage },
         );
         if (user.active !== active) {
-          await onSubscriptionChanged(current, { active });
+          await onSubscriptionChanged(current, {
+            active,
+            sendInitialApartments,
+          });
         }
         continue;
       }
@@ -516,7 +545,10 @@ export async function runTelegramBot(
           answerCallback: (callbackQueryId) =>
             api.answerCallbackQuery(callbackQueryId, signal),
           saveState: (value) => saveState(config.telegramStateFile, value),
-          onSubscriptionChanged: async (changedState, { active }) => {
+          onSubscriptionChanged: async (
+            changedState,
+            { active, sendInitialApartments },
+          ) => {
             state = changedState;
             if (active) activate();
             await onMonitoringState({
@@ -526,6 +558,7 @@ export async function runTelegramBot(
             await onPrivateMonitoringChanged({
               active,
               activeUserCount: activeUsers(state).length,
+              sendInitialApartments,
             });
           },
         });
@@ -583,6 +616,7 @@ export async function runTelegramBot(
                 privateDeliveries: privateUsers.map((user) => ({
                   recipientId: String(user.chatId),
                   filters: user.filters,
+                  sendInitialApartments: user.sendInitialApartments,
                   deliverApartment: async (apartment) => {
                     try {
                       await api.sendMessage(

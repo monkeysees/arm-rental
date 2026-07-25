@@ -174,7 +174,7 @@ export function getConfig(env = process.env, cwd = process.cwd()) {
     ),
     initialDeliveryLimit: positiveInteger(
       env.INITIAL_DELIVERY_LIMIT,
-      10,
+      100,
       "INITIAL_DELIVERY_LIMIT",
     ),
     apartmentsStateFile: path.resolve(

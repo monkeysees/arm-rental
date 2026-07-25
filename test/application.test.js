@@ -115,6 +115,7 @@ test("application lifecycle drives crawl and exchange-rate readiness", async () 
       callbacks.onPrivateMonitoringChanged({
         active: true,
         activeUserCount: 1,
+        sendInitialApartments: false,
       });
       callbacks.onResult({
         crawlId: "69a3b980-24ce-494b-a1e5-cdb4ff9dc659",
@@ -193,7 +194,8 @@ test("application lifecycle drives crawl and exchange-rate readiness", async () 
       ({ context }) =>
         context?.event === "telegram.private.monitoring.changed" &&
         context.active === true &&
-        context.activeUserCount === 1,
+        context.activeUserCount === 1 &&
+        context.sendInitialApartments === false,
     ),
   );
   assert.ok(

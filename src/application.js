@@ -186,11 +186,16 @@ export async function runApplication({
           event: "telegram.private.deactivated",
           reason,
         }),
-      onPrivateMonitoringChanged: ({ active, activeUserCount }) =>
+      onPrivateMonitoringChanged: ({
+        active,
+        activeUserCount,
+        sendInitialApartments,
+      }) =>
         logger.info("Private monitoring state changed", {
           event: "telegram.private.monitoring.changed",
           active,
           activeUserCount,
+          sendInitialApartments,
         }),
       onTelegramSuccess: () =>
         healthMonitor?.recordComponentSuccess("telegram"),

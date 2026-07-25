@@ -70,7 +70,7 @@ test("private users explicitly start and stop monitoring from the setup panel", 
       update(11, 42, "/start", "group"),
       update(12, 42, "/start"),
       callback(13, "m:start"),
-      callback(14, "m:start"),
+      callback(14, "m:start:new"),
       callback(15, "m:stop"),
     ],
     config,
@@ -87,14 +87,26 @@ test("private users explicitly start and stop monitoring from the setup panel", 
   assert.equal(state.version, 2);
   assert.equal(state.users["99"].active, false);
   assert.equal(state.users["42"].active, false);
+  assert.equal(state.users["42"].sendInitialApartments, false);
   assert.equal(state.updateOffset, 16);
   assert.equal(sent.length, 2);
   assert.match(sent[0][1], /Мониторинг: остановлен/u);
   assert.equal(sent[0][2].inline_keyboard.at(-1)[0].callback_data, "m:start");
-  assert.match(edited[0][2], /Мониторинг: запущен/u);
-  assert.equal(edited[0][3].inline_keyboard.at(-1)[0].callback_data, "m:stop");
+  assert.match(edited[0][2], /Отправить уже найденные квартиры/u);
+  assert.match(edited[1][2], /Мониторинг: запущен/u);
+  assert.equal(edited[1][3].inline_keyboard.at(-1)[0].callback_data, "m:stop");
   assert.match(edited.at(-1)[2], /Мониторинг: остановлен/u);
-  assert.deepEqual(subscriptionChanges, [{ active: true }, { active: false }]);
+  assert.deepEqual(subscriptionChanges, [
+    { active: true, sendInitialApartments: false },
+    { active: false, sendInitialApartments: false },
+  ]);
+  assert.equal(
+    saved.some(
+      (value) =>
+        value.updateOffset === 14 && value.users["42"]?.active === false,
+    ),
+    true,
+  );
   assert.equal(
     saved.some((value) => value.users["42"]?.active === true),
     true,
@@ -399,7 +411,11 @@ test("the start button wakes the monitor after /start setup", async () => {
     getUpdates: async (_offset, _timeout, signal) => {
       updateCalls += 1;
       if (updateCalls === 1) {
-        return [update(1, 42, "/start"), callback(2, "m:start")];
+        return [
+          update(1, 42, "/start"),
+          callback(2, "m:start"),
+          callback(3, "m:start:initial"),
+        ];
       }
       return new Promise((resolve) => {
         signal.addEventListener("abort", () => resolve([]), { once: true });
@@ -430,6 +446,7 @@ test("the start button wakes the monitor after /start setup", async () => {
       loadState: async () => undefined,
       saveState: async () => {},
       crawl: async (_config, { privateDeliveries }) => {
+        assert.equal(privateDeliveries[0].sendInitialApartments, true);
         await privateDeliveries[0].deliverApartment({
           itemId: "100",
           title: "Apartment 100",
@@ -455,7 +472,8 @@ test("the start button wakes the monitor after /start setup", async () => {
     [42, 42],
   );
   assert.match(sent[0][1], /Мониторинг: остановлен/u);
-  assert.match(edited[0][1], /Мониторинг: запущен/u);
+  assert.match(edited[0][1], /Отправить уже найденные квартиры/u);
+  assert.match(edited[1][1], /Мониторинг: запущен/u);
   assert.equal(sent[1][1].startsWith("Apartment 100"), true);
 });
 

@@ -27,8 +27,10 @@ earlier apartments first, then later apartments.
 
 When no delivery history exists, all discovered apartments are stored but only
 the latest `INITIAL_DELIVERY_LIMIT` matching apartments are sent. The default
-is 10. Older matching apartments are marked as skipped and non-matching ones
-as filtered; neither group will be sent after a restart or filter change.
+is 100. Before monitoring starts, each user chooses whether to receive that
+initial selection or begin with new listings only. Older matching apartments
+are marked as skipped and non-matching ones as filtered; neither group will be
+sent after a restart or filter change.
 
 ## Requirements
 
@@ -59,7 +61,8 @@ npm start
 Any Telegram user can send `/start` to the bot in a private chat. Group-chat
 commands are ignored. `/start` opens the user's controls without starting
 monitoring, so filters can be chosen first. Use **Запустить мониторинг** to
-begin notifications and **Остановить мониторинг** to pause them. Each user's
+choose whether to receive up to 100 existing matches and then begin
+notifications; use **Остановить мониторинг** to pause them. Each user's
 monitoring state and filters survive process restarts, and apartment
 notifications are delivered independently. `/filters` opens the same controls.
 
@@ -180,41 +183,41 @@ details.
 
 ## Configuration
 
-| Variable                        | Default                                  | Purpose                                         |
-| ------------------------------- | ---------------------------------------- | ----------------------------------------------- |
-| `NODE_ENV`                      | `development`                            | Runtime mode: development, test, or production  |
-| `TELEGRAM_BOT_TOKEN`            | required                                 | Token issued by BotFather                       |
-| `TELEGRAM_OWNER_ID`             | required                                 | Owner-only server alert destination             |
-| `TELEGRAM_CHANNEL_ID`           | blank                                    | Public `@username`; blank disables channel      |
-| `CHANNEL_FILTER_PRICE_AMD`      | blank                                    | Optional channel AMD price range                |
-| `CHANNEL_FILTER_ROOMS`          | blank                                    | Optional channel room-count range               |
-| `CHANNEL_FILTER_LOCATIONS`      | `region:Ереван`                          | Comma-separated channel location selectors      |
-| `DATA_DIRECTORY`                | `.data`                                  | Persistent state, profile, and singleton lease  |
-| `CHANNEL_DELIVERY_STATE_FILE`   | `.data/telegram-channel-deliveries.json` | Channel admission and publication state         |
-| `APARTMENTS_STATE_FILE`         | `.data/apartments.json`                  | Apartment database                              |
-| `DELIVERY_STATE_FILE`           | `.data/telegram-deliveries.json`         | Per-user sent, skipped, filtered apartments     |
-| `EXCHANGE_RATES_STATE_FILE`     | `.data/exchange-rates.json`              | Last validated CBA rate snapshot                |
-| `TELEGRAM_STATE_FILE`           | `.data/telegram-bot.json`                | Per-user activation, filters, and update offset |
-| `TELEGRAM_POLL_TIMEOUT_SECONDS` | `25`                                     | Telegram long-poll duration                     |
-| `POLL_INTERVAL_MS`              | `60000`                                  | Delay between crawls                            |
-| `INITIAL_PAGE_COUNT`            | `10`                                     | Pages parsed with an empty apartment database   |
-| `INITIAL_DELIVERY_LIMIT`        | `10`                                     | Latest initial private/channel selection size   |
-| `TIMEOUT_MS`                    | `30000`                                  | Browser navigation and API timeout              |
-| `EXTERNAL_RETRY_BASE_MS`        | `1000`                                   | Initial network/5xx retry delay                 |
-| `EXTERNAL_RETRY_MAX_MS`         | `60000`                                  | Retry cap; cannot exceed five minutes           |
-| `BROWSER_PROFILE_DIR`           | `.data/chrome-profile`                   | Persistent Chrome profile                       |
-| `BROWSER_HEADLESS`              | `false`                                  | Run Chrome headlessly                           |
-| `BROWSER_CHALLENGE_TIMEOUT_MS`  | `120000`                                 | Verification wait duration                      |
-| `BROWSER_PROTOCOL_TIMEOUT_MS`   | `30000`                                  | Chrome command timeout                          |
-| `BROWSER_CACHE_MAX_BYTES`       | `67108864`                               | Chrome HTTP disk-cache cap in bytes             |
-| `BROWSER_DEBUG_PORT`            | `49222`                                  | Local background-Chrome control port            |
-| `CHROME_EXECUTABLE_PATH`        | auto-detected                            | Chrome/Chromium executable                      |
-| `BACKUP_DIRECTORY`              | blank                                    | Independent snapshot destination                |
-| `BACKUP_DAILY_RETENTION`        | `7`                                      | Daily recovery points to retain (minimum 7)     |
-| `BACKUP_WEEKLY_RETENTION`       | `4`                                      | Weekly recovery points to retain (minimum 4)    |
-| `DISK_FREE_WARNING_PERCENT`     | `20`                                     | Low-disk warning threshold                      |
-| `HEALTH_HOST`                   | `127.0.0.1`                              | Private health bind; loopback addresses only    |
-| `HEALTH_PORT`                   | `8787`                                   | Private liveness/readiness port                 |
+| Variable                        | Default                                  | Purpose                                                              |
+| ------------------------------- | ---------------------------------------- | -------------------------------------------------------------------- |
+| `NODE_ENV`                      | `development`                            | Runtime mode: development, test, or production                       |
+| `TELEGRAM_BOT_TOKEN`            | required                                 | Token issued by BotFather                                            |
+| `TELEGRAM_OWNER_ID`             | required                                 | Owner-only server alert destination                                  |
+| `TELEGRAM_CHANNEL_ID`           | blank                                    | Public `@username`; blank disables channel                           |
+| `CHANNEL_FILTER_PRICE_AMD`      | blank                                    | Optional channel AMD price range                                     |
+| `CHANNEL_FILTER_ROOMS`          | blank                                    | Optional channel room-count range                                    |
+| `CHANNEL_FILTER_LOCATIONS`      | `region:Ереван`                          | Comma-separated channel location selectors                           |
+| `DATA_DIRECTORY`                | `.data`                                  | Persistent state, profile, and singleton lease                       |
+| `CHANNEL_DELIVERY_STATE_FILE`   | `.data/telegram-channel-deliveries.json` | Channel admission and publication state                              |
+| `APARTMENTS_STATE_FILE`         | `.data/apartments.json`                  | Apartment database                                                   |
+| `DELIVERY_STATE_FILE`           | `.data/telegram-deliveries.json`         | Per-user sent, skipped, filtered apartments                          |
+| `EXCHANGE_RATES_STATE_FILE`     | `.data/exchange-rates.json`              | Last validated CBA rate snapshot                                     |
+| `TELEGRAM_STATE_FILE`           | `.data/telegram-bot.json`                | Per-user activation, initial-send choice, filters, and update offset |
+| `TELEGRAM_POLL_TIMEOUT_SECONDS` | `25`                                     | Telegram long-poll duration                                          |
+| `POLL_INTERVAL_MS`              | `60000`                                  | Delay between crawls                                                 |
+| `INITIAL_PAGE_COUNT`            | `10`                                     | Pages parsed with an empty apartment database                        |
+| `INITIAL_DELIVERY_LIMIT`        | `100`                                    | Latest initial private/channel selection size                        |
+| `TIMEOUT_MS`                    | `30000`                                  | Browser navigation and API timeout                                   |
+| `EXTERNAL_RETRY_BASE_MS`        | `1000`                                   | Initial network/5xx retry delay                                      |
+| `EXTERNAL_RETRY_MAX_MS`         | `60000`                                  | Retry cap; cannot exceed five minutes                                |
+| `BROWSER_PROFILE_DIR`           | `.data/chrome-profile`                   | Persistent Chrome profile                                            |
+| `BROWSER_HEADLESS`              | `false`                                  | Run Chrome headlessly                                                |
+| `BROWSER_CHALLENGE_TIMEOUT_MS`  | `120000`                                 | Verification wait duration                                           |
+| `BROWSER_PROTOCOL_TIMEOUT_MS`   | `30000`                                  | Chrome command timeout                                               |
+| `BROWSER_CACHE_MAX_BYTES`       | `67108864`                               | Chrome HTTP disk-cache cap in bytes                                  |
+| `BROWSER_DEBUG_PORT`            | `49222`                                  | Local background-Chrome control port                                 |
+| `CHROME_EXECUTABLE_PATH`        | auto-detected                            | Chrome/Chromium executable                                           |
+| `BACKUP_DIRECTORY`              | blank                                    | Independent snapshot destination                                     |
+| `BACKUP_DAILY_RETENTION`        | `7`                                      | Daily recovery points to retain (minimum 7)                          |
+| `BACKUP_WEEKLY_RETENTION`       | `4`                                      | Weekly recovery points to retain (minimum 4)                         |
+| `DISK_FREE_WARNING_PERCENT`     | `20`                                     | Low-disk warning threshold                                           |
+| `HEALTH_HOST`                   | `127.0.0.1`                              | Private health bind; loopback addresses only                         |
+| `HEALTH_PORT`                   | `8787`                                   | Private liveness/readiness port                                      |
 
 Production backup and recovery commands are documented in
 [docs/state-recovery.md](docs/state-recovery.md). The backup destination must

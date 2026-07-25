@@ -34,7 +34,7 @@ function permissions(details) {
   return details.mode & 0o777;
 }
 
-test("configuration uses the requested target and ten initial pages", () => {
+test("configuration uses the requested target and initial crawl defaults", () => {
   const config = getConfig(
     {
       TELEGRAM_BOT_TOKEN: "token",
@@ -45,7 +45,7 @@ test("configuration uses the requested target and ten initial pages", () => {
 
   assert.equal(config.listUrlTemplate, LIST_AM_URL_TEMPLATE);
   assert.equal(config.initialPageCount, 10);
-  assert.equal(config.initialDeliveryLimit, 10);
+  assert.equal(config.initialDeliveryLimit, 100);
   assert.equal(
     pageUrl(1, config.listUrlTemplate),
     "https://www.list.am/ru/category/56/1?n=0&cmtype=0&crc=0&gl=2&srt=3",

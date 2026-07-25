@@ -467,9 +467,11 @@ export async function crawlApartments(
           apartmentMatchesFilters(apartments[itemId], recipientFilters),
         );
         const matchingIdSet = new Set(matchingIds);
-        const selectedIds = new Set(
-          matchingIds.slice(0, config.initialDeliveryLimit),
-        );
+        const initialDeliveryLimit =
+          target.sendInitialApartments === false
+            ? 0
+            : config.initialDeliveryLimit;
+        const selectedIds = new Set(matchingIds.slice(0, initialDeliveryLimit));
         const skipped = Object.fromEntries(
           matchingIds
             .filter((itemId) => !selectedIds.has(itemId))

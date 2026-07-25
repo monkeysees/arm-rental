@@ -181,7 +181,10 @@ unscanned image from becoming the deployable output.
 The aggregate production contract uses baseline POSIX/GNU text tooling supplied
 by the runner rather than optional hosted-image utilities. Its integration test
 places a failing `rg` executable first on `PATH`, preventing an undeclared
-ripgrep dependency from returning unnoticed as runner images evolve.
+ripgrep dependency from returning unnoticed as runner images evolve. ShellCheck
+blocks warning- and error-severity findings; style and informational heuristics
+remain non-blocking because jq programs and trap callbacks intentionally use
+constructs that those lower-severity checks cannot distinguish from mistakes.
 
 Build arguments bind the image to the full Git revision and SHA-256 digest of
 `package-lock.json`; the Dockerfile validates both and records them alongside

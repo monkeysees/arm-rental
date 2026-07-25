@@ -91,7 +91,7 @@ exit 70
   assert.equal(result.status, 0, result.stderr);
   assert.match(result.stdout, /Production deployment contract validated/u);
   const commands = await readFile(log, "utf8");
-  assert.match(commands, /shellcheck --external-sources/u);
+  assert.match(commands, /shellcheck --severity=warning --external-sources/u);
   assert.match(commands, /systemd-analyze verify/u);
   assert.match(
     commands,

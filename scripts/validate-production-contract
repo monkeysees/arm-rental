@@ -27,7 +27,7 @@ done < <(
 )
 ((${#shell_files[@]} > 0))
 bash -n "${shell_files[@]}"
-shellcheck --external-sources "${shell_files[@]}"
+shellcheck --severity=warning --external-sources "${shell_files[@]}"
 
 unit_files=()
 while IFS= read -r unit_file; do

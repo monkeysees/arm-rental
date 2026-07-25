@@ -15,7 +15,10 @@ audits production dependencies with
 The aggregate production contract is intentionally limited to baseline runner
 tools plus Docker, jq, ShellCheck, and systemd-analyze. It uses `grep` for text
 contracts instead of relying on optional hosted-image packages such as
-ripgrep; its integration test fails if `rg` is invoked.
+ripgrep; its integration test fails if `rg` is invoked. ShellCheck is enforced
+at warning severity and above. Its style and informational heuristics are not
+release gates because they report false positives for intentional jq programs
+and trap callbacks.
 
 Coverage thresholds and the measured source glob live in `package.json` so the
 same gate runs locally and in CI. Lowering either threshold or adding an

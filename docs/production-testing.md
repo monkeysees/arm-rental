@@ -1,124 +1,87 @@
-# Production-focused testing
+# Production testing
 
-The ordinary `npm test` suite covers deployment boundaries without network
-credentials:
+Production is the only deployed environment. Testing is split between
+deterministic CI gates that run without live credentials and post-deploy
+verification against the production service. `NODE_ENV=test` exists only for
+code tests; it is not a deployment target.
 
-- `test/browser-fetch.test.js` covers Chrome executable discovery, launch
-  failure cleanup, List.am challenge detection, a fresh launch after renderer
-  failure, protocol-close failure, and owned-child termination.
-- `test/browser-operation.test.js` covers interactive-to-headless profile reuse
-  across restart and browser/lease cleanup.
-- `test/state.test.js`, `test/config.test.js`, `test/preflight.test.js`,
-  `test/singleton.test.js`, and `test/recovery.test.js` cover restrictive file
-  modes, file and directory flush failures, rename rollback, incompatible
-  schemas, real cross-process lease contention, and recovery from an intact
-  validated snapshot.
-- `test/staging.test.js` exercises smoke and soak contracts with fakes. It has
-  no real bot token and contacts no external service.
+## Deterministic CI integration gates
 
-The commands below are excluded from CI because they require a provisioned
-staging host, live external services, and at least 24 hours.
+Every candidate must pass `npm run check` and `npm run test:coverage` before an
+image can be published. The suite exercises the production boundaries with
+fakes, local HTTP servers, temporary directories, and real child processes:
 
-## Dedicated staging boundary
+- browser tests cover Chrome discovery, profile reuse across restarts,
+  challenge detection, renderer and protocol failures, and process cleanup;
+- state, configuration, preflight, singleton, and recovery tests cover
+  restrictive modes, durable atomic writes, incompatible schemas, cross-process
+  lease contention, snapshot validation, and exact restore;
+- release contract tests reject mutable artifacts, incomplete observation
+  windows, non-production environments, and removed commands;
+- deployment contract tests inspect the Dockerfile, Compose definition, and
+  build context without requiring production credentials.
 
-Never share the bot, channel, persistent directory, Chrome profile, or health
-port with production. Create a separate BotFather bot and a private Telegram
-channel with no public `@username`. Add the staging bot as an administrator
-with **Post Messages** and **Edit Messages**. Obtain the private channel's
-numeric ID, which begins with `-100`.
+The hosted workflow additionally runs the production dependency audit, builds
+the exact production image, verifies the pinned Node and Chrome executables,
+runs image execution checks, and blocks publication on the configured
+high/critical vulnerability scan. These gates are reproducible and must make no
+Telegram, List.am, or CBA call.
 
-Run the exact scanned release artifact with production behavior and these
-additional staging settings:
+## Pre-deploy safety boundary
 
-```dotenv
-NODE_ENV=production
-DEPLOYMENT_ENVIRONMENT=staging
-ALLOW_STAGING_TESTS=true
-DATA_DIRECTORY=/srv/rental-apartments-staging
-TELEGRAM_BOT_TOKEN=replace-with-dedicated-staging-token
-TELEGRAM_OWNER_ID=replace-with-staging-owner-id
-STAGING_TELEGRAM_BOT_ID=replace-with-dedicated-staging-bot-id
-STAGING_TELEGRAM_CHANNEL_ID=-1001234567890
-TELEGRAM_CHANNEL_ID=
-BROWSER_HEADLESS=true
-CHROME_EXECUTABLE_PATH=/opt/chrome/chrome
-```
+The approved candidate is the immutable digest that passed every CI gate. Before
+replacing the running singleton, the deployment process must:
 
-`TELEGRAM_CHANNEL_ID` must be unset. This prevents the test process from using
-the application's publication channel; smoke reaches only the numeric private
-test channel and makes read-only identity and permission checks.
+1. verify the digest and production-only Compose contract;
+2. stop the current service;
+3. create and validate an atomic production snapshot;
+4. retain the previous immutable digest and its release bundle;
+5. start the candidate stop-first against the unchanged named data volume.
 
-Provision
-`DATA_DIRECTORY/.staging-test-environment.json` with mode `0600`. Its IDs must
-match the environment:
+There is no parallel canary or live test bot. A candidate defect can therefore
+reach production before verification catches it. Snapshot-backed rollback,
+small releases, immutable artifacts, and the single-writer stop-first boundary
+are the compensating controls.
 
-```json
-{
-  "type": "rental-apartments-staging-environment",
-  "version": 1,
-  "environment": "staging",
-  "botId": 700,
-  "channelId": -1001234567890
-}
-```
+## Post-deploy production verification
 
-Both commands fail before external access or process launch when the explicit
-confirmation, marker, mode, bot ID, channel ID, private-channel shape, or data
-directory is wrong. Never place this marker on a production volume.
+The deployment is successful only after the candidate:
 
-## Staging smoke
+- completes startup preflight with Telegram authentication and the configured
+  channel permission result;
+- reports private `/live` and `/ready` checks successfully;
+- emits one `crawl.succeeded` event for the deployed digest;
+- demonstrates the expected private/channel delivery mode without resending
+  acknowledged apartments;
+- remains ready for one complete poll interval plus five minutes.
 
-With the application stopped, run:
+The verifier must use sanitized structured events and private health probes. It
+must not print secrets, publish a health port, create test deliveries, reset
+state, bypass a List.am challenge, or interfere deliberately with upstream
+services.
 
-```sh
-npm run staging:smoke
-```
+If any required check fails after mutation, stop the candidate, restore the
+verified pre-deploy snapshot, restart the previous immutable digest, and require
+readiness. Preserve sanitized failure and rollback evidence for the operations
+record. A failed rollback is an incident and must leave the service unit failed
+rather than retrying the same quarantined candidate indefinitely.
 
-The command acquires the singleton lease and performs two passes with newly
-constructed clients. The initial pass authenticates the expected bot, verifies
-private-channel post/edit permissions, parses at least one live List.am Regular
-Ad, forces a live CBA retrieval, and atomically persists the rate snapshot,
-browser verification evidence, and a staging smoke record. It then closes
-Chrome and releases the lease.
+## Production-only operational checks
 
-The restarted pass reacquires the lease with new Telegram, Chrome, and CBA
-clients, repeats the Telegram/List.am checks, loads the CBA snapshot instead of
-refreshing it, and verifies all persisted evidence. Cleanup is required again.
-A JSON result is printed; any check or cleanup failure exits nonzero. Smoke
-does not publish a Telegram message or mutate production delivery state.
+Potentially disruptive behavior is tested deterministically in CI. Live
+production checks are limited to observing normal behavior or using isolated
+data:
 
-## Minimum 24-hour soak
+- use an isolated temporary restore volume for recovery drills, and never start
+  polling or delivery from it;
+- validate alert routing with safe evaluator inputs and test notifications,
+  without revoking the live token, changing channel permissions, or injecting
+  crawl failures;
+- perform interactive browser verification only while the production service is
+  stopped and holding the same persistent profile;
+- retain the CI result, image digest, snapshot manifest, deploy receipt, final
+  readiness, crawl ID, and rollback result when applicable.
 
-Run smoke first, privately activate the staging bot with `/start`, then run:
-
-```sh
-npm run staging:soak
-```
-
-The command starts `src/index.js`, waits for `/ready`, and samples the complete
-service process tree and staging files every five minutes for at least 24
-hours. It measures aggregate RSS growth, Chrome child count, Chrome profile
-growth, enumerated reconstructible cache growth, and captured log growth.
-
-It ends with SIGTERM and requires a clean exit within 45 seconds. The JSON
-result is printed and atomically written to
-`DATA_DIRECTORY/.staging-soak/result.json`; service output is captured in
-`DATA_DIRECTORY/.staging-soak/service.log`. Monitor errors, early exit,
-exceeded ceilings, forced termination, signals, and nonzero exit all fail.
-
-Defaults are 256 MiB RSS growth, 16 Chrome processes, 512 MiB profile growth,
-the browser cache cap plus 16 MiB, and 1 GiB log growth. Operators may configure
-stricter or explicitly reviewed higher ceilings:
-
-```dotenv
-STAGING_SOAK_SAMPLE_INTERVAL_MS=300000
-STAGING_SOAK_MAX_MEMORY_GROWTH_BYTES=268435456
-STAGING_SOAK_MAX_CHROME_PROCESSES=16
-STAGING_SOAK_MAX_PROFILE_GROWTH_BYTES=536870912
-STAGING_SOAK_MAX_CACHE_GROWTH_BYTES=83886080
-STAGING_SOAK_MAX_LOG_GROWTH_BYTES=1073741824
-```
-
-`STAGING_SOAK_DURATION_MS` may lengthen the test, but values below `86400000`
-are rejected. Preserve the result with release evidence and investigate
-violations rather than raising a ceiling without review.
+Refer to [release-and-rollback.md](release-and-rollback.md) for deployment
+commands and [state-recovery.md](state-recovery.md) for isolated restore
+validation.

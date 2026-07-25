@@ -85,17 +85,14 @@ process.
 
 ## Response checks
 
-Exercise each alert in staging before production:
+Integration tests exercise restart-loop, readiness, browser-challenge,
+credential, permission, crawl-failure, stale-rate, backup, restore, and
+low-disk alert inputs. In production, validate routing with synthetic sanitized
+evaluator records and a dedicated test notification; do not restart the live
+container repeatedly, revoke its token, change its channel permissions, load
+stale state, or inject upstream failures.
 
-1. restart the container four times inside ten minutes;
-2. request `/ready` with monitoring stale;
-3. use a disposable challenged browser profile;
-4. use a revoked test bot token and remove its test-channel permissions;
-5. inject five crawl failures;
-6. load a snapshot older than 48 hours;
-7. run backup and validation against an inaccessible destination;
-8. set a test disk threshold above current free space.
-
-Confirm firing and resolved notifications arrive at the on-call route, contain
-no token, Telegram API URL credential, owner identifier, apartment payload, or
-full health error stack, and link back to the filtered log search.
+Confirm firing and resolved test notifications arrive at the owner route,
+contain no token, Telegram API URL credential, owner identifier, apartment
+payload, or full health error stack, and identify the matching local journal
+query.

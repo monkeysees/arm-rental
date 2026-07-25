@@ -42,6 +42,15 @@ The current implementation evidence, outstanding deployment checks, and launch
 blockers are tracked in
 [`docs/production-readiness-status.md`](production-readiness-status.md).
 
+### Production environment boundary
+
+Production is the sole deployed environment. `development` and `test` are
+code-execution modes only; neither represents deployed infrastructure. Release
+confidence comes from deterministic CI integration tests, dependency and image
+gates, a verified pre-deploy snapshot, and production post-deploy verification.
+Static contract tests prevent the removed staging, soak, and rehearsal paths
+from returning.
+
 ### Health and readiness boundary
 
 `src/health.js` owns a sanitized, in-memory operational projection. It does not

@@ -95,8 +95,8 @@ successful crawl without historical resend.
 Keep the service stopped and escalate when the source of corruption is unknown,
 the backup hash/schema/counts fail, related delivery state may be inconsistent,
 no retained artifact understands the schema, target identity genuinely
-changed, a migration has not passed staging, or reset could duplicate private
-or channel delivery.
+changed, a migration has not passed deterministic compatibility and restore
+tests, or reset could duplicate private or channel delivery.
 
 ## Telegram credentials or channel permissions
 

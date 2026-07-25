@@ -6,7 +6,7 @@ into another handbook.
 
 | Incident or change                                  | Canonical runbook                                                                               |
 | --------------------------------------------------- | ----------------------------------------------------------------------------------------------- |
-| Deploy, rollback, staging rehearsal                 | [Release and rollback](release-and-rollback.md)                                                 |
+| Deploy and rollback                                 | [Release and rollback](release-and-rollback.md)                                                 |
 | Launch approval                                     | [Launch checklist](release-and-rollback.md#launch-checklist)                                    |
 | Rotate Telegram token                               | [Telegram token rotation](token-rotation.md)                                                    |
 | Complete or transfer browser verification           | [Production browser operations](browser-operations.md)                                          |

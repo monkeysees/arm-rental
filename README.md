@@ -217,15 +217,15 @@ Production backup and recovery commands are documented in
 [docs/state-recovery.md](docs/state-recovery.md). The backup destination must
 not share the application volume.
 
-Production-focused browser and persistence coverage, the dedicated staging
-smoke, and the minimum 24-hour resource soak are documented in
+Deterministic CI integration gates and post-deploy production verification are
+documented in
 [docs/production-testing.md](docs/production-testing.md).
 
 Production log collection, retention, alert routing, and response checks are
 documented in [docs/observability.md](docs/observability.md).
 
-Production deploy/rollback commands, staging rehearsal, launch approval, and
-the complete operational runbook index are documented in
+Production deploy/rollback commands, launch approval, and the complete
+operational runbook index are documented in
 [docs/release-and-rollback.md](docs/release-and-rollback.md) and
 [docs/operational-runbooks.md](docs/operational-runbooks.md).
 

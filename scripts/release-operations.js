@@ -9,7 +9,7 @@ const DIGEST_REFERENCE =
   /^(?:sha256:[a-f0-9]{64}|[a-z0-9][a-z0-9._/-]*(?::[a-z0-9._-]+)?@sha256:[a-f0-9]{64})$/u;
 const SNAPSHOT_PATH =
   /^\/app-backups\/(?:daily|weekly)\/[a-zA-Z0-9][a-zA-Z0-9._:-]*$/u;
-const OPERATIONS = new Set(["validate", "deploy", "rollback", "rehearse"]);
+const OPERATIONS = new Set(["validate", "deploy", "rollback"]);
 const DELIVERY_MODES = new Set(["private", "channel", "both"]);
 const STATE_STRATEGIES = new Set(["compatible", "restore"]);
 const ARGUMENT_NAMES = new Set([
@@ -24,20 +24,19 @@ const ARGUMENT_NAMES = new Set([
   "state-strategy",
   "evidence-file",
   "compose-file",
-  "project-name",
 ]);
 
 function usage() {
   return [
     "Usage:",
-    "  node scripts/release-operations.js validate|deploy|rollback|rehearse \\",
-    "    --environment production|staging --operator NAME \\",
+    "  node scripts/release-operations.js validate|deploy|rollback \\",
+    "    --environment production --operator NAME \\",
     "    --image IMMUTABLE_REF --previous-image IMMUTABLE_REF \\",
     "    --snapshot /app-backups/daily/ID --poll-interval-ms MS \\",
     "    --observation-minutes MINUTES --delivery private|channel|both \\",
     "    [--state-strategy compatible|restore] [--evidence-file PATH] [--dry-run]",
     "",
-    "rehearse requires --environment staging. validate and --dry-run never invoke Docker.",
+    "validate and --dry-run never invoke Docker.",
   ].join("\n");
 }
 
@@ -97,12 +96,12 @@ function immutableReference(value, name) {
  * The resulting contract is also the machine-readable dry-run output.
  */
 export function createReleaseContract(raw) {
-  const environment = requiredString(raw.environment, "environment");
-  if (!new Set(["production", "staging"]).has(environment)) {
-    throw new Error("--environment must be production or staging");
+  if (!OPERATIONS.has(raw.operation)) {
+    throw new Error("operation must be validate, deploy, or rollback");
   }
-  if (raw.operation === "rehearse" && environment !== "staging") {
-    throw new Error("rehearse is restricted to --environment staging");
+  const environment = requiredString(raw.environment, "environment");
+  if (environment !== "production") {
+    throw new Error("--environment must be production");
   }
 
   const operator = requiredString(raw.operator, "operator");
@@ -162,11 +161,7 @@ export function createReleaseContract(raw) {
   const composeFile = path.resolve(
     raw["compose-file"] || "compose.production.yaml",
   );
-  const projectName =
-    raw["project-name"] ||
-    (environment === "production"
-      ? "rental-apartments"
-      : "rental-apartments-staging");
+  const projectName = "rental-apartments";
 
   return {
     schemaVersion: 1,
@@ -236,7 +231,6 @@ function releaseEnvironment(contract, image) {
   return {
     ...process.env,
     RENTAL_APARTMENTS_IMAGE: image,
-    DEPLOYMENT_ENVIRONMENT: contract.environment,
   };
 }
 
@@ -254,6 +248,8 @@ async function inspectComposeContract(contract) {
 
   if (
     bot?.container_name !== "rental-apartments-bot" ||
+    bot?.labels?.["com.rental-apartments.environment"] !== "production" ||
+    bot?.environment?.NODE_ENV !== "production" ||
     bot?.read_only !== true ||
     bot?.deploy?.replicas !== 1 ||
     bot?.deploy?.update_config?.order !== "stop-first" ||
@@ -528,9 +524,6 @@ async function executeRelease(contract) {
   try {
     await startImage(contract, contract.image);
     const evidence = await waitForEvidence(contract, startedAt);
-    if (contract.operation === "rehearse") {
-      await recoverPrevious(contract);
-    }
     return writeEvidence(contract, runtime, evidence, startedAt);
   } catch (error) {
     // Candidate preflight may update the Chrome profile or a rate snapshot.

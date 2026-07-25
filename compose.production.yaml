@@ -5,7 +5,7 @@ services:
     # invocation fail instead of starting a second writer.
     container_name: rental-apartments-bot
     labels:
-      com.rental-apartments.environment: ${DEPLOYMENT_ENVIRONMENT:-production}
+      com.rental-apartments.environment: production
     init: true
     user: "node"
     read_only: true

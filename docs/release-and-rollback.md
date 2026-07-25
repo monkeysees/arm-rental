@@ -1,4 +1,4 @@
-# Release, rollback, rehearsal, and launch
+# Release, rollback, and launch
 
 This is the canonical deploy and rollback runbook. It uses the application’s
 real startup boundary: configuration, storage, singleton acquisition, and the
@@ -16,14 +16,15 @@ Docker image ID (`sha256:...`); tags are rejected.
 - CI quality, coverage, audit, image scan, and artifact jobs passed for the
   exact source revision.
 - The exact scanned archive was loaded or the digest-pinned registry artifact
-  was pulled on an isolated staging host and then production. Do not rebuild.
+  was pulled in production. Do not rebuild.
 - Docker Compose v2, `jq`, the deployed Compose file, mode-`0600`
   `.env.production`, the named `rental-apartments-data` volume, and the
   separately provisioned external `rental-apartments-backups` volume exist.
-- Staging smoke and the 24-hour soak passed for this artifact. The staging
-  release/rollback rehearsal below passed and its evidence receipt is retained.
-- Browser verification, alert exercises, restore drill, and the
-  [launch checklist](#launch-checklist) are complete.
+- Deterministic CI integration tests, coverage, dependency audit, image
+  execution checks, and the blocking vulnerability scan passed for this
+  artifact.
+- Browser verification, production alert checks, an isolated restore drill,
+  and the [launch checklist](#launch-checklist) are complete.
 - The change window names one accountable operator and lasts at least
   `POLL_INTERVAL_MS + 300000` milliseconds.
 
@@ -164,10 +165,10 @@ escalate if automatic recovery does not return the old release to ready.
 
 ## Rollback
 
-Use `restore` unless the release notes and a staging rehearsal prove that every
-state schema written by the current release is backward compatible. The
-rollback target is `--image`; the currently running release is
-`--previous-image`, so a failed rollback can be recovered safely.
+Use `restore` unless deterministic compatibility tests prove that every state
+schema written by the current release is backward compatible. The rollback
+target is `--image`; the currently running release is `--previous-image`, so a
+failed rollback can be recovered safely.
 
 ```sh
 export CURRENT_IMAGE="$(docker inspect --format '{{.Config.Image}}' rental-apartments-bot)"
@@ -199,37 +200,6 @@ compatibility is uncertain, restore fails, the singleton cannot stop, browser
 verification is required, Telegram/channel behavior differs, no successful
 crawl arrives, or readiness regresses.
 
-## Staging rehearsal and dry run
-
-Use a dedicated staging host/Docker context, bot, private channel, data volume,
-backup volume, Chrome profile, collector tag, and health namespace. Confirm the
-context before running:
-
-```sh
-test "$(docker context show)" = "rental-apartments-staging"
-npm run release:rehearse -- \
-  --environment staging \
-  --operator "$OPERATOR" \
-  --image "$CANDIDATE_IMAGE" \
-  --previous-image "$PREVIOUS_IMAGE" \
-  --snapshot "$SNAPSHOT" \
-  --poll-interval-ms "$POLL_INTERVAL_MS" \
-  --observation-minutes "$OBSERVATION_MINUTES" \
-  --delivery channel \
-  --state-strategy restore \
-  --evidence-file "/var/lib/rental-apartments-staging/releases/rehearsal.json"
-```
-
-`rehearse` refuses `--environment production`. It deploys and observes the
-candidate only in staging, then stops it, restores the staging snapshot, starts
-the previous staging artifact, and checks readiness. A successful receipt is
-the rollback-rehearsal evidence. Add `--dry-run` to any operation to validate
-and print its ordered plan without invoking Docker or writing files.
-
-Never place the staging marker or staging credentials on production. Never use
-a production Docker context for rehearsal. Escalate if context isolation cannot
-be proven or the restored previous staging artifact is not ready.
-
 ## Launch checklist
 
 The named operator records each item and its evidence location. Unchecked or
@@ -240,19 +210,20 @@ verbal-only items block launch.
 - [ ] Production configuration was peer-reviewed without rendering secrets;
       the secret file/facility and data directory modes are correct.
 - [ ] The production data volume and independently managed backup volume exist,
-      have capacity, and are not shared with staging.
+      have capacity, and use distinct filesystems.
 - [ ] Singleton contention, stop-first behavior, graceful SIGTERM, and bounded
-      restart were demonstrated with no overlapping writers.
-- [ ] The exact scanned artifact passed staging smoke and the minimum 24-hour
-      soak; result files and resource graphs are retained.
+      restart are covered by integration tests and production observation with
+      no overlapping writers.
+- [ ] The exact artifact passed deterministic integration tests, coverage,
+      dependency audit, image execution checks, and vulnerability scan.
 - [ ] Interactive browser verification and headless smoke passed on the
       production runtime, service account, profile, and outbound IP.
-- [ ] `/live`, `/ready`, external log collection, and every critical alert were
-      exercised without exposing secrets.
-- [ ] A complete restore met the one-hour RTO on a clean staging host; counts,
-      update offset, schemas, and browser verification matched.
-- [ ] `release:rehearse` deployed and rolled back the exact artifact in staging;
-      its receipt identifies the operator, snapshot, images, crawl, and checks.
+- [ ] `/live`, `/ready`, log retention, and safe critical-alert checks were
+      exercised in production without exposing secrets or disrupting normal
+      delivery.
+- [ ] An isolated restore drill from the newest production snapshot matched
+      counts, update offset, schemas, and browser verification without starting
+      bot polling or delivery.
 - [ ] A fresh production snapshot was taken and validated; its ID and manifest
       summary are attached to the change.
 - [ ] Candidate and previous immutable artifacts are present and retained
@@ -264,7 +235,6 @@ verbal-only items block launch.
       private/channel behavior.
 
 Production launch evidence is necessarily external to the repository. Store CI
-links, staging receipts, soak results, restore record, alert notifications,
-snapshot validation, production receipt, and change approval in the controlled
-operations record; do not commit credentials, live identifiers, or production
-logs.
+links, restore records, alert notifications, snapshot validation, production
+receipt, and change approval in the controlled operations record; do not commit
+credentials, live identifiers, or production logs.

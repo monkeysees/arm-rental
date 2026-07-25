@@ -104,8 +104,8 @@ Do not edit a snapshot or restore from a `.snapshot-*.tmp` directory.
 
 Prerequisites:
 
-- a clean staging or production host with the exact target/owner/channel
-  configuration expected by the snapshot;
+- an isolated temporary volume on the production host with the exact
+  target/owner/channel metadata expected by the snapshot;
 - the independently stored snapshot mounted read-only or otherwise protected;
 - the application data filesystem mounted and writable;
 - Chrome at the production version;
@@ -155,10 +155,10 @@ window remains at-least-once.
 
 ## Drill, rollback, and escalation
 
-Perform the complete procedure on a clean staging host before production launch
-and at least quarterly. Record the snapshot ID, counts, offset, browser result,
-start/end times, and whether the one-hour RTO was met. Never use the production
-Telegram channel for the drill.
+Perform the drill against an isolated temporary volume before production launch
+and at least quarterly. Validate the restored files and browser profile without
+starting bot polling or delivery. Record the snapshot ID, counts, offset,
+browser result, start/end times, and whether the one-hour RTO was met.
 
 If restore fails, keep the service stopped. The command attempts an automatic
 rollback to the pre-restore managed files. Validate those files with startup

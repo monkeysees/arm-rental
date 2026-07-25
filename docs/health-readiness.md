@@ -83,7 +83,6 @@ docker inspect --format '{{json .NetworkSettings.Ports}}' \
 ```
 
 After startup, wait for the first required crawl, then run both probe commands
-above. Stop the container process in a staging deployment and confirm the
-bounded restart policy returns it to a live state. Simulate crawl failures only
-with test doubles or an isolated staging target; do not deliberately interfere
-with List.am, Telegram, or CBA in production.
+above. Integration tests exercise process termination, bounded restart, and
+crawl-failure readiness transitions. Do not inject failures or deliberately
+interfere with List.am, Telegram, or CBA in production.

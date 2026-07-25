@@ -43,14 +43,22 @@ test("release contract requires immutable artifacts and a complete observation w
   }
 });
 
-test("rehearsal is staging-only and contract validation does not invoke Docker", async () => {
+test("release contract is production-only and validation does not invoke Docker", async () => {
+  assert.throws(
+    () =>
+      createReleaseContract({
+        ...completeArguments,
+        environment: "staging",
+      }),
+    /environment must be production/iu,
+  );
   assert.throws(
     () =>
       createReleaseContract({
         ...completeArguments,
         operation: "rehearse",
       }),
-    /restricted.*staging/iu,
+    /operation must be validate, deploy, or rollback/iu,
   );
 
   const script = new URL("../scripts/release-operations.js", import.meta.url);
@@ -58,7 +66,7 @@ test("rehearsal is staging-only and contract validation does not invoke Docker",
     script.pathname,
     "validate",
     "--environment",
-    "staging",
+    "production",
     "--operator",
     "Alex Operator",
     "--image",
@@ -77,9 +85,15 @@ test("rehearsal is staging-only and contract validation does not invoke Docker",
   const result = JSON.parse(stdout);
   assert.equal(result.status, "validated");
   assert.equal(result.mutation, "none");
-  assert.equal(result.contract.environment, "staging");
+  assert.equal(result.contract.environment, "production");
+  assert.equal(result.contract.projectName, "rental-apartments");
   assert.match(result.plan.join("\n"), /stop old container/iu);
   assert.match(result.plan.join("\n"), /retain the previous image/iu);
+
+  await assert.rejects(
+    executeFile(process.execPath, [script.pathname, "rehearse"]),
+    /Usage:/u,
+  );
 });
 
 test("release evidence requires ready preflight, crawl, and expected channel behavior", () => {
@@ -127,10 +141,8 @@ test("production Compose preserves independent data and backup volumes", async (
   );
   assert.match(compose, /- rental-apartments-data:\/app\/\.data/u);
   assert.match(compose, /- rental-apartments-backups:\/app-backups/u);
-  assert.match(
-    compose,
-    /com\.rental-apartments\.environment: \$\{DEPLOYMENT_ENVIRONMENT:-production\}/u,
-  );
+  assert.match(compose, /com\.rental-apartments\.environment: production/u);
+  assert.doesNotMatch(compose, /DEPLOYMENT_ENVIRONMENT/u);
   assert.match(
     compose,
     /rental-apartments-backups:\s+name: rental-apartments-backups\s+external: true/su,
@@ -174,7 +186,7 @@ test("operations index covers every required runbook and each canonical page is 
     "utf8",
   );
   for (const topic of [
-    "Deploy, rollback",
+    "Deploy and rollback",
     "Rotate Telegram token",
     "browser verification",
     "Restore persistent state",

@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { readFile } from "node:fs/promises";
+import { readdir, readFile } from "node:fs/promises";
 import test from "node:test";
 
 import { BrowserPageFetcher } from "../src/browser-fetch.js";
@@ -77,6 +77,44 @@ test("production observability requires external retention and alert routing", a
     "low_disk",
   ]) {
     assert.match(runbook, new RegExp(`\\b${alertName}\\b`, "u"));
+  }
+});
+
+test("removed deployment-environment paths cannot return unnoticed", async () => {
+  const manifest = JSON.parse(await readProjectFile("package.json"));
+  for (const command of ["staging:smoke", "staging:soak", "release:rehearse"]) {
+    assert.equal(manifest.scripts[command], undefined);
+  }
+
+  for (const file of [
+    "src/staging-guard.js",
+    "src/staging-smoke-cli.js",
+    "src/staging-smoke.js",
+    "src/staging-soak-cli.js",
+    "src/staging-soak-runtime.js",
+    "src/staging-soak.js",
+    "test/staging.test.js",
+  ]) {
+    await assert.rejects(readProjectFile(file), { code: "ENOENT" });
+  }
+
+  const docsDirectory = new URL("../docs/", import.meta.url);
+  const operationalDocs = (await readdir(docsDirectory))
+    .filter(
+      (file) =>
+        file.endsWith(".md") &&
+        !new Set(["architecture.md", "production-automation-spec.md"]).has(
+          file,
+        ),
+    )
+    .map((file) => `docs/${file}`);
+  for (const file of ["README.md", ...operationalDocs]) {
+    const document = await readProjectFile(file);
+    assert.doesNotMatch(
+      document,
+      /\bstaging\b|\brehears(?:al|e|ed|ing)?\b|\b24-hour soak\b/iu,
+      `${file} must describe the production-only deployment model`,
+    );
   }
 });
 

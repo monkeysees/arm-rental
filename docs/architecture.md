@@ -106,6 +106,10 @@ reconciliation and an idempotent host reconciler. Ambiguous selection and
 immutable server, SSH-key, or volume drift fail closed; no resource deletion or
 replacement path exists. Cloud-init establishes the key-only deployment
 account and invokes the same reconciler used for later SSH-based updates.
+The reviewed initial production target is a Hetzner `cx23` server in the
+Nuremberg `nbg1` location. These remain explicit bootstrap inputs so a later
+capacity or location change requires operator review rather than an implicit
+default.
 
 The delete-protected backup volume is mounted by filesystem UUID and exposed
 through a bind-backed external Docker volume. Persistent journald retention is

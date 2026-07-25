@@ -159,8 +159,8 @@ as `ubuntu-24.04`. Review the available values with `hcloud` or the Hetzner
 console, then export the selected configuration:
 
 ```sh
-export HCLOUD_SERVER_TYPE=cpx22
-export HCLOUD_LOCATION=fsn1
+export HCLOUD_SERVER_TYPE=cx23
+export HCLOUD_LOCATION=nbg1
 export HCLOUD_IMAGE_ID=replace-with-reviewed-numeric-image-id
 export HCLOUD_VOLUME_SIZE_GB=20
 export HCLOUD_SSH_PUBLIC_KEY_FILE=/secure/path/rental-production.pub

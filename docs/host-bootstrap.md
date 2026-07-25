@@ -15,8 +15,8 @@ ID during review; a mutable image description such as `ubuntu-24.04` is not an
 acceptable input.
 
 ```sh
-export HCLOUD_SERVER_TYPE=cpx22
-export HCLOUD_LOCATION=fsn1
+export HCLOUD_SERVER_TYPE=cx23
+export HCLOUD_LOCATION=nbg1
 export HCLOUD_IMAGE_ID=123456789
 export HCLOUD_VOLUME_SIZE_GB=20
 export HCLOUD_SSH_PUBLIC_KEY_FILE="$PWD/operator-production.pub"

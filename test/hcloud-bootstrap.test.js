@@ -73,14 +73,14 @@ if [[ $action == list ]]; then
       server=4
       [[ $FAKE_SCENARIO == drift ]] && server=null
       [[ $FAKE_SCENARIO == create && ! -e $FAKE_STATE/server ]] && server=null
-      printf '[{"id":3,"name":"rental-apartments-production-backups","size":20,"location":{"name":"fsn1"},"server":%s,"protection":{"delete":true},%s}]\\n' "$server" "$labels"
+      printf '[{"id":3,"name":"rental-apartments-production-backups","size":20,"location":{"name":"nbg1"},"server":%s,"protection":{"delete":true},%s}]\\n' "$server" "$labels"
       ;;
     server)
       duplicate=''
       if [[ $FAKE_SCENARIO == duplicate ]]; then
-        duplicate=',{"id":5,"name":"other-server","server_type":{"name":"cpx22"},"datacenter":{"location":{"name":"fsn1"}},"image":{"id":12345},"public_net":{"ipv4":{"ip":"192.0.2.11"}},"protection":{"delete":true},'"$labels"'}'
+        duplicate=',{"id":5,"name":"other-server","server_type":{"name":"cx23"},"datacenter":{"location":{"name":"nbg1"}},"image":{"id":12345},"public_net":{"ipv4":{"ip":"192.0.2.11"}},"protection":{"delete":true},'"$labels"'}'
       fi
-      printf '[{"id":4,"name":"rental-apartments-production","server_type":{"name":"cpx22"},"datacenter":{"location":{"name":"fsn1"}},"image":{"id":12345},"public_net":{"ipv4":{"ip":"192.0.2.10"}},"protection":{"delete":true},%s}%s]\\n' "$labels" "$duplicate"
+      printf '[{"id":4,"name":"rental-apartments-production","server_type":{"name":"cx23"},"datacenter":{"location":{"name":"nbg1"}},"image":{"id":12345},"public_net":{"ipv4":{"ip":"192.0.2.10"}},"protection":{"delete":true},%s}%s]\\n' "$labels" "$duplicate"
       ;;
   esac
   exit 0
@@ -126,8 +126,8 @@ fi
       FAKE_BUNDLE_DIR: root,
       FAKE_STATE: root,
       FAKE_SCENARIO: scenario,
-      HCLOUD_SERVER_TYPE: "cpx22",
-      HCLOUD_LOCATION: "fsn1",
+      HCLOUD_SERVER_TYPE: "cx23",
+      HCLOUD_LOCATION: "nbg1",
       HCLOUD_IMAGE_ID: "12345",
       HCLOUD_VOLUME_SIZE_GB: "20",
       HCLOUD_SSH_PUBLIC_KEY_FILE: publicKey,

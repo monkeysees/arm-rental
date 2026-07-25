@@ -207,6 +207,83 @@ test("deployment observation uses the application poll default and rejects ambig
   );
 });
 
+test("first deployment creates and verifies an empty Compose-owned data volume", async (t) => {
+  const temporaryDirectory = await mkdtemp(
+    join(tmpdir(), "deploy-data-volume-"),
+  );
+  t.after(() => rm(temporaryDirectory, { recursive: true, force: true }));
+  const fakeDirectory = join(temporaryDirectory, "bin");
+  const mountpoint = join(temporaryDirectory, "volume-data");
+  const marker = join(temporaryDirectory, "created");
+  const log = join(temporaryDirectory, "docker.log");
+  await executeFile("mkdir", ["-p", fakeDirectory, mountpoint]);
+  const docker = join(fakeDirectory, "docker");
+  await writeFile(
+    docker,
+    `#!/usr/bin/env bash
+set -eu
+printf '%s\\n' "$*" >>"$FAKE_DOCKER_LOG"
+if [[ $1 == volume && $2 == inspect && $3 == rental-apartments-data ]]; then
+  [[ -f $FAKE_DOCKER_MARKER ]]
+  exit
+fi
+if [[ $1 == volume && $2 == create ]]; then
+  touch "$FAKE_DOCKER_MARKER"
+  printf '%s\\n' rental-apartments-data
+  exit
+fi
+if [[ $1 == volume && $2 == inspect && $3 == --format ]]; then
+  if [[ $4 == *Mountpoint* ]]; then
+    printf '%s\\n' "$FAKE_DOCKER_MOUNTPOINT"
+  else
+    printf '%s\\n' 'rental-apartments-data|local|rental-apartments|rental-apartments-data'
+  fi
+  exit
+fi
+exit 9
+`,
+  );
+  await chmod(docker, 0o755);
+  const script = `
+    set -Eeuo pipefail
+    RENTAL_OPS_STATE_DIR=$1/state
+    source ops/lib/common.sh
+    source ops/lib/deployment.sh
+    deployment_validate_empty_storage
+  `;
+  const environment = {
+    ...process.env,
+    PATH: `${fakeDirectory}:${process.env.PATH}`,
+    FAKE_DOCKER_LOG: log,
+    FAKE_DOCKER_MARKER: marker,
+    FAKE_DOCKER_MOUNTPOINT: mountpoint,
+  };
+  await executeFile(
+    "bash",
+    ["-c", script, "deployment-data-volume-test", temporaryDirectory],
+    { cwd: new URL("..", import.meta.url), env: environment },
+  );
+  const dockerCalls = await readFile(log, "utf8");
+  assert.match(
+    dockerCalls,
+    /volume create --driver local --label com\.docker\.compose\.project=rental-apartments --label com\.docker\.compose\.volume=rental-apartments-data rental-apartments-data/u,
+  );
+
+  await writeFile(join(mountpoint, "unexpected-state"), "must fail\n");
+  await assert.rejects(
+    executeFile(
+      "bash",
+      ["-c", script, "deployment-data-volume-test", temporaryDirectory],
+      { cwd: new URL("..", import.meta.url), env: environment },
+    ),
+    (error) =>
+      error.code === 65 &&
+      error.stderr.includes(
+        "First deployment requires an empty application data volume",
+      ),
+  );
+});
+
 test("deployment evidence is exclusive and retention tracks three complete releases", async (t) => {
   const temporaryDirectory = await mkdtemp(join(tmpdir(), "deploy-evidence-"));
   t.after(() => rm(temporaryDirectory, { recursive: true, force: true }));

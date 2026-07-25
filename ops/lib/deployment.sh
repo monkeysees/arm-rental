@@ -356,8 +356,27 @@ deployment_validate_compose() {
 }
 
 deployment_validate_empty_storage() {
-  local mountpoint
-  mountpoint=$(docker volume inspect --format '{{.Mountpoint}}' rental-apartments-data)
+  local identity mountpoint
+  if ! docker volume inspect rental-apartments-data >/dev/null 2>&1; then
+    docker volume create \
+      --driver local \
+      --label com.docker.compose.project=rental-apartments \
+      --label com.docker.compose.volume=rental-apartments-data \
+      rental-apartments-data >/dev/null
+  fi
+  identity=$(
+    docker volume inspect \
+      --format '{{.Name}}|{{.Driver}}|{{index .Labels "com.docker.compose.project"}}|{{index .Labels "com.docker.compose.volume"}}' \
+      rental-apartments-data
+  )
+  [[ $identity == \
+    "rental-apartments-data|local|rental-apartments|rental-apartments-data" ]] || {
+    printf 'Application data volume does not match the production identity\n' >&2
+    return 65
+  }
+  mountpoint=$(
+    docker volume inspect --format '{{.Mountpoint}}' rental-apartments-data
+  )
   ops_require_absolute_path "data volume mountpoint" "$mountpoint"
   [[ -d $mountpoint && ! -L $mountpoint ]]
   [[ -z $(find "$mountpoint" -mindepth 1 -maxdepth 1 -print -quit) ]] || {

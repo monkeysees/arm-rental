@@ -1,0 +1,12 @@
+[Unit]
+Description=Evaluate rental apartments health and alerts every five minutes
+
+[Timer]
+OnCalendar=*-*-* *:00/5:00 UTC
+Persistent=true
+RandomizedDelaySec=30s
+AccuracySec=15s
+Unit=rental-monitor.service
+
+[Install]
+WantedBy=timers.target

@@ -16,6 +16,7 @@ into another handbook.
 | Telegram private or channel failure                 | [Telegram delivery response](runtime-incidents.md#telegram-private-or-channel-delivery-failure) |
 | Stale singleton or Chrome lock                      | [Stale-lock response](runtime-incidents.md#stale-singleton-or-chrome-lock)                      |
 | Low disk or growing state                           | [Capacity response](state-maintenance.md#low-disk-and-state-growth-response)                    |
+| Failed or overdue scheduled operation               | [Systemd operations](#systemd-operations)                                                       |
 | Current status, logs, timers, and local alerts      | [Production observability](observability.md)                                                    |
 
 Every linked runbook records prerequisites, checks that do not make the
@@ -30,6 +31,43 @@ operator, UTC start time, affected environment, immutable image reference,
 snapshot ID, and sanitized symptom. After recovery, attach command exit codes,
 health results, relevant event names/reason codes, and end time. Attach full
 logs only to access-controlled storage.
+
+## Systemd operations
+
+Routine operation is owned by `rental-apartments.service` and the deploy,
+monitor, storage-check, backup, maintenance, restore-drill, and reboot-check
+timers. Use `rentalctl timers` for the compact view and systemd for a specific
+failure:
+
+```sh
+rentalctl status
+rentalctl timers
+systemctl --failed
+systemctl status rental-backup.service
+journalctl -u rental-backup.service --since -2d
+```
+
+All short-lived operations have a bounded runtime, emit one start and one
+terminal record, and contend on
+`/var/lib/rental-apartments-ops/operations.lock`. A nonzero result and a missing
+terminal success are both monitor failures. Do not invoke the underlying Node
+maintenance/recovery commands directly: doing so bypasses the shared lock and
+the application restart trap.
+
+After investigating and correcting a failed scheduled job, trigger its service
+once and verify its terminal record. Do not start a second instance while
+another production operation is active:
+
+```sh
+systemctl start rental-backup.service
+systemctl status rental-backup.service
+journalctl -u rental-backup.service --since -30m
+```
+
+The weekly reboot check uses the same lock and only asks systemd for a
+nonblocking reboot when `/var/run/reboot-required` is a regular file. Docker
+and host boot return the immutable current digest through
+`rental-apartments.service`.
 
 Begin incident triage with `rentalctl status`, then `rentalctl timers` and a
 bounded `rentalctl logs --since 30m` query. Apply an event filter before

@@ -1,0 +1,12 @@
+[Unit]
+Description=Run the isolated rental apartments restore drill monthly
+
+[Timer]
+OnCalendar=Sun *-*-01..07 05:00:00 UTC
+Persistent=true
+RandomizedDelaySec=10min
+AccuracySec=1min
+Unit=rental-restore-drill.service
+
+[Install]
+WantedBy=timers.target

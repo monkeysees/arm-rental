@@ -1,0 +1,14 @@
+[Unit]
+Description=Reboot after security updates only when operations are idle
+After=rental-backup.service
+
+[Service]
+Type=oneshot
+ExecStart=/opt/rental-apartments/current/ops/reboot-check
+TimeoutStartSec=5min
+RuntimeMaxSec=5min
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectHome=yes
+ProtectSystem=strict
+ReadWritePaths=/var/lib/rental-apartments-ops

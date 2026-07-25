@@ -1,0 +1,29 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+
+SCRIPT_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
+# shellcheck source=ops/lib/operations.sh
+source "$SCRIPT_DIR/lib/operations.sh"
+
+OPS_RESTART_REQUIRED=0
+
+ops_cleanup() {
+  local _original_status=$1
+  if ((OPS_RESTART_REQUIRED == 0)); then
+    return 0
+  fi
+  ops_start_application
+}
+
+ops_begin backup rental-backup
+ops_acquire_lock
+ops_validate_runtime_contract
+ops_require_backup_mount
+
+# Set the cleanup boundary before requesting the stop. A partial or timed-out
+# stop must still be followed by an idempotent start and readiness check.
+OPS_RESTART_REQUIRED=1
+ops_stop_application
+ops_compose run --rm --no-deps bot node src/recovery-cli.js backup
+snapshot=$(ops_latest_snapshot)
+ops_validate_snapshot "$snapshot"

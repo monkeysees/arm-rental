@@ -1,0 +1,41 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+
+SCRIPT_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
+# shellcheck source=ops/lib/operations.sh
+source "$SCRIPT_DIR/lib/operations.sh"
+
+: "${RENTAL_MAINTENANCE_BACKUP_MAX_AGE_SECONDS:=7200}"
+OPS_RESTART_REQUIRED=0
+
+ops_cleanup() {
+  local _original_status=$1
+  if ((OPS_RESTART_REQUIRED == 0)); then
+    return 0
+  fi
+  ops_start_application
+}
+
+ops_begin maintenance rental-maintenance
+ops_acquire_lock
+ops_validate_runtime_contract
+ops_require_backup_mount
+
+snapshot=$(ops_latest_snapshot)
+ops_validate_snapshot "$snapshot"
+created_at=$(jq --raw-output '.createdAt // empty' "$snapshot/manifest.json")
+created_epoch=$(date --date="$created_at" +%s)
+now_epoch=$(date +%s)
+backup_age=$((now_epoch - created_epoch))
+if ((backup_age < 0 || backup_age > RENTAL_MAINTENANCE_BACKUP_MAX_AGE_SECONDS)); then
+  printf 'Newest valid backup is not recent enough for maintenance\n' >&2
+  exit 69
+fi
+
+OPS_RESTART_REQUIRED=1
+ops_stop_application
+set +e
+ops_compose run --rm --no-deps bot node src/maintenance-cli.js report
+maintenance_status=$?
+set -e
+exit "$maintenance_status"

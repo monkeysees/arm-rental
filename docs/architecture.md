@@ -62,6 +62,18 @@ timer status; no observability server or inbound port exists. Telegram is the
 deduplicated outbound alert route, while the failed systemd unit and retained
 journal records remain the delivery fallback.
 
+### Systemd operations
+
+Systemd owns the singleton application and recurring backup, storage,
+maintenance, monitoring, restore-drill, and reboot-check jobs. Every short-lived
+operation serializes through
+`/var/lib/rental-apartments-ops/operations.lock`, emits structured lifecycle
+records, and has a bounded runtime. Stop-the-world wrappers install their
+restart and readiness cleanup before stopping the application. Recovery points
+remain on the separately mounted backup filesystem, while monthly restore
+drills use exactly named and labeled temporary resources with networking,
+Telegram polling, and delivery disabled.
+
 ### Health and readiness boundary
 
 `src/health.js` owns a sanitized, in-memory operational projection. It does not

@@ -1,0 +1,18 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+
+SCRIPT_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
+# shellcheck source=ops/lib/common.sh
+source "$SCRIPT_DIR/lib/common.sh"
+
+: "${RENTAL_OPS_STATE_DIR:=/var/lib/rental-apartments-ops}"
+: "${RENTAL_OPS_LOCK_FILE:=$RENTAL_OPS_STATE_DIR/operations.lock}"
+: "${RENTAL_OPS_LOCK_WAIT_SECONDS:=0}"
+: "${RENTAL_REBOOT_REQUIRED_FILE:=/var/run/reboot-required}"
+
+ops_begin reboot-check rental-reboot-check
+ops_acquire_lock
+if [[ -e $RENTAL_REBOOT_REQUIRED_FILE ]]; then
+  [[ -f $RENTAL_REBOOT_REQUIRED_FILE && ! -L $RENTAL_REBOOT_REQUIRED_FILE ]]
+  systemctl reboot --no-block
+fi

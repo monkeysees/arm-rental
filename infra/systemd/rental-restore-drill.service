@@ -1,0 +1,18 @@
+[Unit]
+Description=Validate the newest rental apartments snapshot in isolation
+Requires=docker.service
+After=docker.service rental-backup.service
+RequiresMountsFor=/mnt/rental-apartments-backups
+
+[Service]
+Type=oneshot
+ExecStart=/opt/rental-apartments/current/ops/restore-drill
+TimeoutStartSec=70min
+RuntimeMaxSec=70min
+KillSignal=SIGTERM
+TimeoutStopSec=2min
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectHome=yes
+ProtectSystem=strict
+ReadWritePaths=/mnt/rental-apartments-backups /var/lib/rental-apartments-ops

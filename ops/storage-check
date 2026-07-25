@@ -1,0 +1,12 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+
+SCRIPT_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
+# shellcheck source=ops/lib/operations.sh
+source "$SCRIPT_DIR/lib/operations.sh"
+
+ops_begin storage-check rental-storage-check
+ops_acquire_lock
+ops_validate_runtime_contract
+ops_require_backup_mount
+ops_compose run --rm --no-deps bot node src/recovery-cli.js disk-check

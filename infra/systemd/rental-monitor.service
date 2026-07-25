@@ -1,0 +1,15 @@
+[Unit]
+Description=Calculate rental apartments metrics and evaluate local alerts
+Requires=docker.service
+After=docker.service rental-apartments.service
+
+[Service]
+Type=oneshot
+ExecStart=/opt/rental-apartments/current/ops/monitor
+TimeoutStartSec=4min
+RuntimeMaxSec=4min
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectHome=yes
+ProtectSystem=strict
+ReadWritePaths=/var/lib/rental-apartments-ops

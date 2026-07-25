@@ -1,0 +1,12 @@
+[Unit]
+Description=Run the rental apartments snapshot every day
+
+[Timer]
+OnCalendar=*-*-* 03:15:00 UTC
+Persistent=true
+RandomizedDelaySec=5min
+AccuracySec=1min
+Unit=rental-backup.service
+
+[Install]
+WantedBy=timers.target

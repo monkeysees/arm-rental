@@ -1,0 +1,12 @@
+[Unit]
+Description=Run rental apartments maintenance every Sunday
+
+[Timer]
+OnCalendar=Sun *-*-* 04:00:00 UTC
+Persistent=true
+RandomizedDelaySec=5min
+AccuracySec=1min
+Unit=rental-maintenance.service
+
+[Install]
+WantedBy=timers.target

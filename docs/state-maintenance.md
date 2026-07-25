@@ -7,10 +7,10 @@ data.
 
 ## Weekly report
 
-`npm run maintenance:report` acquires the same singleton lease as the service.
-Stop the bot before running it. A live bot makes the command fail with
-`ERR_SINGLETON_LOCKED` before it reads state or changes the Chrome profile.
-Take a successful backup first.
+The maintenance CLI acquires the same singleton lease as the service. The
+systemd wrapper stops the bot before invoking it. A live bot makes the command
+fail with `ERR_SINGLETON_LOCKED` before it reads state or changes the Chrome
+profile. Take a successful backup first.
 
 The command validates every present state schema and emits one
 `maintenance.report` JSON log record containing:
@@ -41,24 +41,24 @@ state basename, serialized bytes, outcome, and total `durationMs`. The log
 collector must calculate a rolling p95 by state file and alert when p95 exceeds
 500 ms. Telemetry failures cannot fail or roll back a durable state write.
 
-For a Compose deployment, a weekly scheduler should run this stop-the-service
-sequence from the deployed release directory:
+`rental-maintenance.timer` runs every Sunday at 04:00 UTC with
+`Persistent=true`. Its `ops/maintain` wrapper acquires the shared operations
+lock and validates that the newest published snapshot completed in the prior
+two hours. A missing, invalid, stale, or future-dated snapshot fails before the
+bot is stopped. Once stopping begins, an exit trap always restarts
+`rental-apartments.service` and requires the container to return healthy.
 
 ```sh
-docker compose -f compose.production.yaml stop bot
-report_status=0
-docker compose -f compose.production.yaml run --rm --no-deps bot npm run maintenance:report ||
-  report_status=$?
-docker compose -f compose.production.yaml up -d bot
-exit "$report_status"
+systemctl status rental-maintenance.timer
+systemctl list-timers rental-maintenance.timer
+journalctl -u rental-maintenance.service --since -8d
 ```
 
-The wrapper must restart the bot even when the report exits nonzero (a shell
-trap is recommended), forward command logs to the production collector, alert
-when the scheduled run is missing, and verify `/ready` after restart. Expected
-output is a `maintenance.report` event followed by firing or resolved
-state-size events. Schedule it once per week after the daily backup has
-completed.
+Threshold exit `2` remains visible as a failed unit and alerting result, but
+does not skip restart/readiness cleanup. Expected output is one
+`maintenance.started`, a `maintenance.report`, the firing or resolved
+state-size events, and exactly one `maintenance.completed` or
+`maintenance.failed` terminal record.
 
 ## Browser cache boundary
 
@@ -70,9 +70,9 @@ directories; an unexpected file or symbolic link fails closed.
 
 The maintenance command never removes `Cookies`, `Local Storage`, `IndexedDB`,
 Service Worker storage, login data, preferences, or
-`.rental-apartments-verification.json`. After maintenance, the scheduler's
-restart and readiness check exercises the retained profile. Run
-`npm run browser:smoke` if readiness reports a browser challenge.
+`.rental-apartments-verification.json`. After maintenance, the systemd
+wrapper's restart and readiness check exercises the retained profile. Follow
+the browser-operations runbook if readiness reports a browser challenge.
 
 ## Retention and future pruning policy
 
@@ -128,23 +128,26 @@ manually deleting JSON entries.
 ### Prerequisites and safe checks
 
 Prerequisites are a named operator, current snapshot, access to filesystem
-capacity and external log retention, and the active immutable artifact. Run
-safe checks without listing state contents:
+capacity and the local persistent journal, and the active immutable artifact.
+Run safe checks without listing state contents or bypassing the operations
+lock:
 
 ```sh
-npm run storage:check
-df -h .data
-du -x -h --max-depth=2 .data | sort -h
-docker compose --file compose.production.yaml stop bot
-docker compose --file compose.production.yaml run --rm --no-deps bot \
-  npm run maintenance:report
+systemctl status rental-storage-check.service rental-maintenance.service
+journalctl -u rental-storage-check.service -u rental-maintenance.service \
+  --since -8d
+df -h /var/lib/docker/volumes/rental-apartments-data/_data
+du -x -h --max-depth=2 \
+  /var/lib/docker/volumes/rental-apartments-data/_data | sort -h
 ```
 
-The bot must be stopped for the report. Expected healthy output is
+For an explicit maintenance retry, use
+`systemctl start rental-maintenance.service`; do not run the image command
+directly. Expected healthy output is
 `storage.disk_ok`, a `maintenance.report`, more than 20% free space, state files
 below 25 MiB, and no `state_file_growth`/`state_sqlite_migration` firing event.
-Restart in a trap or immediately after the report even when it exits `2`;
-threshold exit `2` is an alert, not corruption.
+Threshold exit `2` is an alert, not corruption; the wrapper has already
+restored and tested readiness before it returns that status.
 
 ### Recovery, expected output, and escalation
 

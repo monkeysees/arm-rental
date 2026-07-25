@@ -1,0 +1,12 @@
+[Unit]
+Description=Check rental apartments storage every hour
+
+[Timer]
+OnCalendar=*-*-* *:00:00 UTC
+Persistent=true
+RandomizedDelaySec=5min
+AccuracySec=1min
+Unit=rental-storage-check.service
+
+[Install]
+WantedBy=timers.target

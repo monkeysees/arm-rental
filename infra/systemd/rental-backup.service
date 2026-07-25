@@ -1,0 +1,16 @@
+[Unit]
+Description=Create and validate the daily rental apartments snapshot
+Requires=docker.service
+After=docker.service rental-apartments.service
+RequiresMountsFor=/mnt/rental-apartments-backups
+
+[Service]
+Type=oneshot
+ExecStart=/opt/rental-apartments/current/ops/backup
+TimeoutStartSec=30min
+RuntimeMaxSec=30min
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectHome=yes
+ProtectSystem=strict
+ReadWritePaths=/mnt/rental-apartments-backups /var/lib/rental-apartments-ops

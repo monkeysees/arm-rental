@@ -31,46 +31,48 @@ Prerequisites:
 - the independent backup filesystem is mounted and writable by the service
   account;
 - the service supervisor can stop and start the singleton cleanly;
-- the scheduler has a failure notification for a nonzero command exit.
+- the local monitor evaluates nonzero results and missing terminal success.
 
 The snapshot includes several independently written JSON files and the browser
 profile, so the bot **must be stopped**. The command also acquires the same
 singleton lease as the application and fails with `ERR_SINGLETON_LOCKED` if a
 live process remains. Never bypass this lease.
 
-For the supported production Compose deployment, configure the scheduler with a
-trap so restart happens even when backup fails:
+`rental-backup.timer` owns the supported production schedule. It runs every day
+at 03:15 UTC with a bounded randomized delay and `Persistent=true`, so a missed
+run is recovered after boot. The service calls `ops/backup`, which acquires
+`/var/lib/rental-apartments-ops/operations.lock`, installs its restart trap,
+stops `rental-apartments.service`, creates and validates the snapshot in the
+immutable current image, starts the service, and requires Docker health to
+return `healthy`.
 
 ```sh
-backup_status=0
-trap 'docker compose --file compose.production.yaml up --detach bot' EXIT
-docker compose --file compose.production.yaml stop bot
-docker compose --file compose.production.yaml run --rm --no-deps bot \
-  npm run backup || backup_status=$?
-docker compose --file compose.production.yaml up --detach bot
-trap - EXIT
-exit "$backup_status"
+systemctl status rental-backup.timer
+systemctl list-timers rental-backup.timer
+journalctl -u rental-backup.service --since today
 ```
 
 `RENTAL_APARTMENTS_IMAGE` must remain the running immutable reference. Preserve
-the start step in the scheduler's failure cleanup while still alerting on
-backup failure. Expected output includes
+the service restart failure cleanup while investigating backup failure.
+Expected output includes
 `storage.disk_ok`, `backup.started`, and `backup.completed`. A success identifies
 the immutable `daily/<timestamp>` recovery point and, on Sunday UTC, its weekly
 copy.
 
-`npm run backup` performs schema, target, counts, update-offset, profile, and
+The recovery CLI performs schema, target, counts, update-offset, profile, and
 checksum validation before publishing the snapshot. It never deletes the
 newest seven daily or four weekly points. If it fails, the temporary snapshot
-is removed, existing recovery points remain unchanged, and the bot can be
-restarted after the operator records the failure.
+is removed, existing recovery points remain unchanged, and the wrapper still
+returns the bot to readiness before reporting failure.
 
 ## Disk-free check and response
 
-Run this from the host monitoring scheduler at least as often as backup:
+`rental-storage-check.timer` runs hourly and catches up missed checks after
+boot. Inspect it without starting an overlapping operation:
 
 ```sh
-npm run storage:check
+systemctl status rental-storage-check.timer
+journalctl -u rental-storage-check.service --since -2h
 ```
 
 It exits `2` and emits `storage.low_disk` when available blocks fall below 20%
@@ -86,12 +88,14 @@ It exits `2` and emits `storage.low_disk` when available blocks fall below 20%
 
 ## Safe snapshot checks
 
-List recovery points without modifying them:
+List recovery points without modifying them. The scheduled monthly check always
+selects the newest published daily snapshot and validates it before restore:
 
 ```sh
 find "$BACKUP_DIRECTORY/daily" "$BACKUP_DIRECTORY/weekly" \
   -mindepth 1 -maxdepth 1 -type d -print
-npm run backup:validate -- "$BACKUP_DIRECTORY/daily/<timestamp>"
+systemctl start rental-restore-drill.service
+journalctl -u rental-restore-drill.service --since -2h
 ```
 
 Expected validation reports the apartment count, private-delivery
@@ -117,16 +121,16 @@ managed state aside, installs the staged entries, and validates the result. If
 installation fails, it moves the prior files and profile back before returning
 an error.
 
-```sh
-export SNAPSHOT='/app-backups/daily/<timestamp>'
-docker compose --file compose.production.yaml stop bot
-docker compose --file compose.production.yaml run --rm --no-deps bot \
-  npm run backup:validate -- "$SNAPSHOT"
-docker compose --file compose.production.yaml run --rm --no-deps bot \
-  npm run restore -- "$SNAPSHOT"
-docker compose --file compose.production.yaml run --rm --no-deps bot \
-  npm run browser:smoke
-```
+Production restore is a break-glass procedure, distinct from the nondestructive
+drill. Open an incident, disable the deploy timer, acquire
+`/var/lib/rental-apartments-ops/operations.lock`, and install a shell exit trap
+that starts `rental-apartments.service` before stopping it. Use the exact
+current image to run `node src/recovery-cli.js validate <snapshot>` and then
+`node src/recovery-cli.js restore <snapshot>`. Keep the backup mount read-only
+until the selected point has passed validation. Do not run either command
+against the live service or outside the shared lock. If restore fails and the
+application cannot pass preflight, cancel the restart in the trap and preserve
+the automatic restore rollback directory for diagnosis.
 
 Do not start polling after `restore` alone. The structural verification record
 proves which profile was captured; `browser:smoke` is the required live check
@@ -142,10 +146,11 @@ Compare the restore output with the selected manifest:
 - exchange-rate schema contains USD, EUR, and RUB;
 - browser smoke parses the Regular Ads container.
 
-Only after all checks pass:
+Only after all checks pass, start the supervised singleton:
 
 ```sh
-docker compose --file compose.production.yaml up --detach bot
+systemctl start rental-apartments.service
+docker inspect --format '{{.State.Health.Status}}' rental-apartments-bot
 ```
 
 Confirm startup preflight is ready and observe one normal crawl before closing
@@ -155,10 +160,23 @@ window remains at-least-once.
 
 ## Drill, rollback, and escalation
 
-Perform the drill against an isolated temporary volume before production launch
-and at least quarterly. Validate the restored files and browser profile without
-starting bot polling or delivery. Record the snapshot ID, counts, offset,
-browser result, start/end times, and whether the one-hour RTO was met.
+`rental-restore-drill.timer` runs on the first Sunday of every month at 05:00
+UTC. `ops/restore-drill` validates the newest point, creates a uniquely named
+and labeled bind-backed Docker volume, and restores into that isolated data
+directory with `--network none`, a noncredential Telegram token, and polling
+and delivery explicitly disabled. It never attaches the production bot or data
+volume. Cleanup checks the exact container name, volume name, run ID, labels,
+directory, and marker before removing anything. A mismatched resource is
+preserved and fails the unit. Duration over one hour also fails the unit so the
+monitor opens the RTO alert without the drill itself invoking Telegram.
+
+Inspect the schedule and last drill:
+
+```sh
+systemctl list-timers rental-restore-drill.timer
+systemctl status rental-restore-drill.service
+journalctl -u rental-restore-drill.service --since -35d
+```
 
 If restore fails, keep the service stopped. The command attempts an automatic
 rollback to the pre-restore managed files. Validate those files with startup

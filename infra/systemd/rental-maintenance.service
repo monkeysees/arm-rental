@@ -1,0 +1,16 @@
+[Unit]
+Description=Run bounded weekly rental apartments state maintenance
+Requires=docker.service
+After=docker.service rental-backup.service
+RequiresMountsFor=/mnt/rental-apartments-backups
+
+[Service]
+Type=oneshot
+ExecStart=/opt/rental-apartments/current/ops/maintain
+TimeoutStartSec=30min
+RuntimeMaxSec=30min
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectHome=yes
+ProtectSystem=strict
+ReadWritePaths=/mnt/rental-apartments-backups /var/lib/rental-apartments-ops

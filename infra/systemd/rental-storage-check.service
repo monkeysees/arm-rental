@@ -1,0 +1,16 @@
+[Unit]
+Description=Check rental apartments production storage capacity
+Requires=docker.service
+After=docker.service
+RequiresMountsFor=/mnt/rental-apartments-backups
+
+[Service]
+Type=oneshot
+ExecStart=/opt/rental-apartments/current/ops/storage-check
+TimeoutStartSec=5min
+RuntimeMaxSec=5min
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectHome=yes
+ProtectSystem=strict
+ReadWritePaths=/var/lib/rental-apartments-ops

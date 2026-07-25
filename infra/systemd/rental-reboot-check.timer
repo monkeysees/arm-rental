@@ -1,0 +1,12 @@
+[Unit]
+Description=Check weekly whether a security-update reboot is required
+
+[Timer]
+OnCalendar=Sun *-*-* 03:45:00 UTC
+Persistent=true
+RandomizedDelaySec=5min
+AccuracySec=1min
+Unit=rental-reboot-check.service
+
+[Install]
+WantedBy=timers.target

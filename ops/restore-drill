@@ -1,0 +1,133 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+
+SCRIPT_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
+# shellcheck source=ops/lib/operations.sh
+source "$SCRIPT_DIR/lib/operations.sh"
+
+: "${RENTAL_RESTORE_TMP_ROOT:=$RENTAL_OPS_STATE_DIR/restore-drills}"
+: "${RENTAL_RESTORE_RTO_SECONDS:=3600}"
+: "${RENTAL_CONTAINER_UID:=1000}"
+: "${RENTAL_CONTAINER_GID:=1000}"
+
+OPS_TEMP_CONTAINER_CREATED=0
+OPS_TEMP_VOLUME_CREATED=0
+OPS_TEMP_DIRECTORY_CREATED=0
+OPS_TEMP_CONTAINER=""
+OPS_TEMP_VOLUME=""
+OPS_TEMP_DIRECTORY=""
+OPS_RUN_ID=""
+
+ops_validate_run_id() {
+  [[ $OPS_RUN_ID =~ ^[0-9]{8}T[0-9]{6}Z-[0-9]+-[0-9]+$ ]]
+}
+
+ops_validate_temp_container() {
+  local identity
+  ops_validate_run_id
+  [[ $OPS_TEMP_CONTAINER == "rental-apartments-restore-drill-$OPS_RUN_ID" ]]
+  identity=$(
+    docker inspect --format='{{.Name}}|{{index .Config.Labels "com.rental-apartments.temporary"}}|{{index .Config.Labels "com.rental-apartments.operation"}}|{{index .Config.Labels "com.rental-apartments.run-id"}}' \
+      "$OPS_TEMP_CONTAINER"
+  )
+  [[ $identity == "/$OPS_TEMP_CONTAINER|true|restore-drill|$OPS_RUN_ID" ]]
+}
+
+ops_validate_temp_volume() {
+  local identity
+  ops_validate_run_id
+  [[ $OPS_TEMP_VOLUME == "rental-apartments-restore-drill-$OPS_RUN_ID" ]]
+  identity=$(
+    docker volume inspect --format='{{.Name}}|{{index .Labels "com.rental-apartments.temporary"}}|{{index .Labels "com.rental-apartments.operation"}}|{{index .Labels "com.rental-apartments.run-id"}}' \
+      "$OPS_TEMP_VOLUME"
+  )
+  [[ $identity == "$OPS_TEMP_VOLUME|true|restore-drill|$OPS_RUN_ID" ]]
+}
+
+ops_validate_temp_directory() {
+  local root resolved_directory marker
+  ops_validate_run_id
+  root=$(realpath -- "$RENTAL_RESTORE_TMP_ROOT")
+  resolved_directory=$(realpath -- "$OPS_TEMP_DIRECTORY")
+  [[ $resolved_directory == "$root/$OPS_RUN_ID" ]]
+  [[ ! -L $OPS_TEMP_DIRECTORY ]]
+  marker=$OPS_TEMP_DIRECTORY/.rental-restore-drill-label
+  [[ -f $marker && ! -L $marker ]]
+  [[ $(<"$marker") == "$OPS_RUN_ID" ]]
+}
+
+ops_cleanup() {
+  local _original_status=$1
+
+  if ((OPS_TEMP_CONTAINER_CREATED != 0)); then
+    ops_validate_temp_container || return 74
+    docker rm --force "$OPS_TEMP_CONTAINER" >/dev/null || return $?
+  fi
+  if ((OPS_TEMP_VOLUME_CREATED != 0)); then
+    ops_validate_temp_volume || return 74
+    docker volume rm "$OPS_TEMP_VOLUME" >/dev/null || return $?
+  fi
+  if ((OPS_TEMP_DIRECTORY_CREATED != 0)); then
+    ops_validate_temp_directory || return 74
+    rm -rf -- "$OPS_TEMP_DIRECTORY" || return $?
+  fi
+}
+
+ops_begin restore-drill rental-restore-drill
+ops_acquire_lock
+ops_validate_runtime_contract
+ops_require_backup_mount
+ops_require_absolute_path "RENTAL_RESTORE_TMP_ROOT" "$RENTAL_RESTORE_TMP_ROOT"
+[[ $RENTAL_CONTAINER_UID =~ ^[0-9]+$ ]]
+[[ $RENTAL_CONTAINER_GID =~ ^[0-9]+$ ]]
+
+snapshot=$(ops_latest_snapshot)
+ops_validate_snapshot "$snapshot"
+container_snapshot=$(ops_snapshot_container_path "$snapshot")
+image=$(ops_read_image_reference)
+
+install -d -m 0700 "$RENTAL_RESTORE_TMP_ROOT"
+OPS_RUN_ID="$(date --utc +%Y%m%dT%H%M%SZ)-$$-$RANDOM"
+OPS_TEMP_CONTAINER="rental-apartments-restore-drill-$OPS_RUN_ID"
+OPS_TEMP_VOLUME=$OPS_TEMP_CONTAINER
+OPS_TEMP_DIRECTORY="$RENTAL_RESTORE_TMP_ROOT/$OPS_RUN_ID"
+install -d -m 0700 "$OPS_TEMP_DIRECTORY"
+printf '%s\n' "$OPS_RUN_ID" >"$OPS_TEMP_DIRECTORY/.rental-restore-drill-label"
+chown "$RENTAL_CONTAINER_UID:$RENTAL_CONTAINER_GID" "$OPS_TEMP_DIRECTORY"
+OPS_TEMP_DIRECTORY_CREATED=1
+
+docker volume create \
+  --driver local \
+  --label com.rental-apartments.temporary=true \
+  --label com.rental-apartments.operation=restore-drill \
+  --label "com.rental-apartments.run-id=$OPS_RUN_ID" \
+  --opt type=none \
+  --opt o=bind \
+  --opt "device=$OPS_TEMP_DIRECTORY" \
+  "$OPS_TEMP_VOLUME" >/dev/null
+OPS_TEMP_VOLUME_CREATED=1
+
+# The drill command is recovery-only, receives a noncredential token, and has
+# no network. It can neither poll Telegram nor call send/edit endpoints.
+docker create \
+  --name "$OPS_TEMP_CONTAINER" \
+  --label com.rental-apartments.temporary=true \
+  --label com.rental-apartments.operation=restore-drill \
+  --label "com.rental-apartments.run-id=$OPS_RUN_ID" \
+  --network none \
+  --env-file "$RENTAL_ENV_FILE" \
+  --env TELEGRAM_BOT_TOKEN=restore-drill-disabled \
+  --env TELEGRAM_DELIVERY_DISABLED=true \
+  --env TELEGRAM_POLLING_DISABLED=true \
+  --mount "source=$OPS_TEMP_VOLUME,target=/app/.data" \
+  --mount "source=$RENTAL_BACKUP_VOLUME,target=/app-backups,readonly" \
+  "$image" \
+  node src/recovery-cli.js restore "$container_snapshot" >/dev/null
+OPS_TEMP_CONTAINER_CREATED=1
+docker start --attach "$OPS_TEMP_CONTAINER"
+
+elapsed=$(($(date +%s) - OPS_STARTED_AT))
+if ((elapsed > RENTAL_RESTORE_RTO_SECONDS)); then
+  printf 'Restore drill exceeded its recovery-time objective\n' >&2
+  exit 2
+fi

@@ -10,7 +10,7 @@ services:
     user: "node"
     read_only: true
     env_file:
-      - .env.production
+      - /etc/rental-apartments/env
     environment:
       NODE_ENV: production
       DATA_DIRECTORY: /app/.data

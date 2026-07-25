@@ -1,0 +1,31 @@
+[Unit]
+Description=Rental apartments production bot
+Requires=docker.service
+After=docker.service network-online.target
+Wants=network-online.target
+ConditionPathExists=/opt/rental-apartments/current/compose.production.yaml
+ConditionPathExists=/etc/rental-apartments/env
+ConditionPathExists=/var/lib/rental-apartments-ops/current-image.env
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+WorkingDirectory=/opt/rental-apartments/current
+EnvironmentFile=/var/lib/rental-apartments-ops/current-image.env
+EnvironmentFile=/etc/rental-apartments/env
+ExecStartPre=/usr/bin/grep --quiet --extended-regexp ^RENTAL_APARTMENTS_IMAGE=[a-zA-Z0-9._/:@-]+@sha256:[0-9a-f]{64}$ /var/lib/rental-apartments-ops/current-image.env
+ExecStart=/usr/bin/docker compose --project-name rental-apartments --project-directory /opt/rental-apartments/current --file /opt/rental-apartments/current/compose.production.yaml up --detach --wait --wait-timeout 240 bot
+ExecReload=/usr/bin/docker compose --project-name rental-apartments --project-directory /opt/rental-apartments/current --file /opt/rental-apartments/current/compose.production.yaml up --detach --wait --wait-timeout 240 bot
+ExecStop=/usr/bin/docker compose --project-name rental-apartments --project-directory /opt/rental-apartments/current --file /opt/rental-apartments/current/compose.production.yaml stop --timeout 45 bot
+TimeoutStartSec=5min
+TimeoutStopSec=1min
+Restart=on-failure
+RestartSec=15s
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectHome=yes
+ProtectSystem=strict
+ReadWritePaths=/var/lib/rental-apartments-ops
+
+[Install]
+WantedBy=multi-user.target

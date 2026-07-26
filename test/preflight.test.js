@@ -8,12 +8,14 @@ import test from "node:test";
 import { runApplication } from "../src/application.js";
 import { BrowserVerificationRequiredError } from "../src/browser-fetch.js";
 import { getConfig } from "../src/config.js";
+import { crawlApartments } from "../src/crawler.js";
 import {
   PreflightError,
   runStartupPreflight,
   StateCompatibilityError,
 } from "../src/preflight.js";
 import { TelegramApiError } from "../src/telegram.js";
+import { ListAmIntegrityReason } from "../src/source-integrity.js";
 
 const REGULAR_ADS_HTML = `
   <div id="contentr">
@@ -21,6 +23,7 @@ const REGULAR_ADS_HTML = `
       <div class="dltitle"><div class="pt">Apartment</div></div>
       <div class="p">220000 ֏</div>
       <div class="at">Кентрон, 2 ком., 50 кв.м., 3/5 этаж</div>
+      <div class="d">Friday, July 24, 2026, 14:31</div>
     </a>
   </div>`;
 
@@ -181,9 +184,11 @@ test("preflight records parsed unique apartments rather than raw candidates", as
   const verificationCounts = [];
   const diagnosticHtml = `
     <div id="contentr">
-      <a class="fav-item-info-container" href="/ru/item/200">Apartment</a>
+      <a class="fav-item-info-container" href="/ru/item/200">
+        <div class="l">Apartment</div>
+        <div class="d">Friday, July 24, 2026, 14:31</div>
+      </a>
       <a class="fav-item-info-container" href="/item/200">Duplicate</a>
-      <a class="fav-item-info-container" href="/item/not-numeric">Rejected</a>
     </div>`;
 
   const result = await runStartupPreflight(config, {
@@ -201,6 +206,62 @@ test("preflight records parsed unique apartments rather than raw candidates", as
 
   assert.equal(result.status, "ready");
   assert.deepEqual(verificationCounts, [1]);
+});
+
+test("preflight and runtime report the same integrity reason without writes", async (t) => {
+  const config = await temporaryConfig(t);
+  const missingTitleHtml = `
+    <div id="contentr">
+      <a class="fav-item-info-container" href="/item/200">
+        <div class="d">Friday, July 24, 2026, 14:31</div>
+      </a>
+    </div>`;
+  const verificationCounts = [];
+  let preflightError;
+
+  await assert.rejects(
+    runStartupPreflight(config, {
+      storageValidated: true,
+      singletonLock: singletonLock(config),
+      browserFetcher: {
+        start: async () => {},
+        fetch: async () => new Response(missingTitleHtml),
+      },
+      exchangeRateService: { getSnapshot: async () => ratesSnapshot() },
+      api: telegramApi(),
+      recordVerification: async (_config, count) =>
+        verificationCounts.push(count),
+    }),
+    (error) => {
+      preflightError = error;
+      return (
+        error.code === "ERR_LIST_AM_SOURCE_INTEGRITY" &&
+        error.details.reason ===
+          ListAmIntegrityReason.TITLE_COMPLETENESS_BELOW_THRESHOLD
+      );
+    },
+  );
+
+  let runtimeError;
+  const runtimeWrites = [];
+  await assert.rejects(
+    crawlApartments(
+      { ...config, initialPageCount: 1 },
+      {
+        loadState: async () => undefined,
+        saveState: async (...arguments_) => runtimeWrites.push(arguments_),
+        fetchPage: async () => new Response(missingTitleHtml),
+      },
+    ),
+    (error) => {
+      runtimeError = error;
+      return error.code === "ERR_LIST_AM_SOURCE_INTEGRITY";
+    },
+  );
+
+  assert.equal(preflightError.details.reason, runtimeError.reason);
+  assert.deepEqual(verificationCounts, []);
+  assert.deepEqual(runtimeWrites, []);
 });
 
 test("unsupported and malformed state fails closed without changing files", async (t) => {

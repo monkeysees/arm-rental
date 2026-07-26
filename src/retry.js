@@ -25,6 +25,7 @@ function positiveDelay(value, name) {
 
 export function isExpectedExternalFailure(error) {
   if (error?.terminal) return false;
+  if (error?.code === "ERR_LIST_AM_SOURCE_INTEGRITY") return true;
   if (
     Number.isSafeInteger(error?.httpStatus) &&
     error.httpStatus >= 500 &&

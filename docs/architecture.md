@@ -916,6 +916,20 @@ comma-separated card metadata, making parsing independent of localized labels
 such as `ком.`, `кв.м.`, and `этаж`. The original posting date is retained as
 displayed by List.am.
 
+Every fetched page is passed through one hard source-integrity evaluator before
+the crawler considers empty pagination, a repeated page, or the posting-date
+watermark. The evaluator applies deterministic reason precedence for a missing
+Regular Ads section, an empty first page, parse success below 90%, rejected
+identities, and first-page title/date completeness below 90%; percentage
+boundaries use integer multiplication. Later empty pages remain valid. The
+crawler performs this validation while its discoveries are still in memory, so
+an invalid page cannot write apartment or delivery state or invoke private or
+channel delivery. Startup preflight and browser verification use the same
+evaluator and record verification only after validation. Source-integrity
+errors are recoverable external failures and therefore use bounded crawl
+backoff; readiness, alert, metric, and dedicated integrity-event projection is
+integrated with the operational surfaces separately.
+
 ## Failure handling
 
 - HTTP, browser challenge, malformed apartment/private state, and private

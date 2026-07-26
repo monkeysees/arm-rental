@@ -1,9 +1,9 @@
 import { acquireSingletonLock } from "./singleton-lock.js";
 import { BrowserPageFetcher } from "./browser-fetch.js";
 import { validateStartupConfig } from "./config.js";
-import { parseRegularApartments } from "./list-am.js";
 import { pageUrl } from "./target.js";
 import { recordBrowserVerification } from "./browser-verification-state.js";
+import { parseAndEvaluateRegularApartments } from "./source-integrity.js";
 
 export async function runBrowserOperation(
   config,
@@ -61,9 +61,11 @@ export async function runBrowserOperation(
           `List.am returned HTTP ${response?.status || "unknown"}`,
         );
       }
-      regularAdsCount = parseRegularApartments(
+      const diagnostics = parseAndEvaluateRegularApartments(
         await response.text(),
-      ).parsedCount;
+        { page: attempt + 1 },
+      );
+      regularAdsCount ??= diagnostics.parsedCount;
     }
     await recordVerification(config, regularAdsCount);
     return {

@@ -4,6 +4,7 @@ import test from "node:test";
 import { crawlApartments, removeDeliveryRecipient } from "../src/crawler.js";
 import { emptyFilters } from "../src/filters.js";
 import { PrivateDeliveryBarrier } from "../src/rate-limit.js";
+import { ListAmIntegrityReason } from "../src/source-integrity.js";
 import { LIST_AM_URL_TEMPLATE } from "../src/target.js";
 
 const config = {
@@ -132,9 +133,6 @@ test("crawler consumes normalized apartments from page diagnostics", async () =>
               <div class="d">Friday, July 24, 2026, 14:31</div>
             </a>
             <a class="fav-item-info-container" href="/ru/item/500">Duplicate</a>
-            <a class="fav-item-info-container" href="/ru/item/501bad">
-              Rejected identity
-            </a>
           </div>`),
       now: () => new Date("2026-07-24T12:00:00Z"),
     },
@@ -145,6 +143,120 @@ test("crawler consumes normalized apartments from page diagnostics", async () =>
     Object.keys(state.files.get(config.apartmentsStateFile).apartments),
     ["500"],
   );
+});
+
+test("a later empty page is a valid pagination terminator", async () => {
+  const state = memoryState();
+  let fetchCount = 0;
+
+  const result = await crawlApartments(config, {
+    ...state,
+    fetchPage: async () => {
+      fetchCount += 1;
+      return new Response(
+        fetchCount === 1 ? page("700") : '<div id="contentr"></div>',
+      );
+    },
+    now: () => new Date("2026-07-24T12:00:00Z"),
+  });
+
+  assert.equal(fetchCount, 2);
+  assert.equal(result.pagesParsed, 2);
+  assert.equal(result.exhausted, true);
+  assert.deepEqual(
+    Object.keys(state.files.get(config.apartmentsStateFile).apartments),
+    ["700"],
+  );
+});
+
+test("a late integrity failure leaves apartment, delivery, and channel state untouched", async () => {
+  const deliverySeed = {
+    version: 2,
+    type: "telegram-deliveries",
+    urlTemplate: config.listUrlTemplate,
+    recipients: {},
+  };
+  const state = memoryState({
+    [config.deliveryStateFile]: deliverySeed,
+  });
+  const writes = [];
+  const privateSends = [];
+  const channelCallbacks = [];
+  let fetchCount = 0;
+  const invalidRepeatedPage = page("800").replace(
+    /\s*<\/div>\s*$/u,
+    '<a class="fav-item-info-container" href="/item/invalid">Rejected</a></div>',
+  );
+
+  await assert.rejects(
+    crawlApartments(
+      { ...config, initialPageCount: 2 },
+      {
+        ...state,
+        saveState: async (...arguments_) => writes.push(arguments_),
+        fetchPage: async () => {
+          fetchCount += 1;
+          return new Response(
+            fetchCount === 1 ? page("800") : invalidRepeatedPage,
+          );
+        },
+        deliverApartment: async (...arguments_) =>
+          privateSends.push(arguments_),
+        afterStateSaved: async (...arguments_) =>
+          channelCallbacks.push(arguments_),
+      },
+    ),
+    (error) =>
+      error.reason === ListAmIntegrityReason.IDENTITY_REJECTION &&
+      error.page === 2,
+  );
+
+  assert.equal(fetchCount, 2);
+  assert.deepEqual(writes, []);
+  assert.deepEqual(privateSends, []);
+  assert.deepEqual(channelCallbacks, []);
+  assert.equal(state.files.has(config.apartmentsStateFile), false);
+  assert.deepEqual(state.files.get(config.deliveryStateFile), deliverySeed);
+});
+
+test("integrity validation precedes posting-date watermark termination", async () => {
+  const apartmentSeed = {
+    version: 2,
+    type: "list-am-apartments",
+    urlTemplate: config.listUrlTemplate,
+    apartments: {
+      900: {
+        itemId: "900",
+        date: "Friday, July 24, 2026, 14:31",
+        firstSeenAt: "2026-07-24T10:00:00.000Z",
+      },
+    },
+    apartmentOrder: ["900"],
+  };
+  const state = memoryState({ [config.apartmentsStateFile]: apartmentSeed });
+  const invalidWatermarkPage = datedPage([
+    "899",
+    "Friday, July 24, 2026, 14:30",
+  ]).replace(
+    /\s*<\/div>\s*$/u,
+    '<a class="fav-item-info-container" href="/item/invalid">Rejected</a></div>',
+  );
+  let writes = 0;
+
+  await assert.rejects(
+    crawlApartments(config, {
+      ...state,
+      saveState: async () => {
+        writes += 1;
+      },
+      fetchPage: async () => new Response(invalidWatermarkPage),
+    }),
+    (error) =>
+      error.reason === ListAmIntegrityReason.IDENTITY_REJECTION &&
+      error.page === 1,
+  );
+  assert.equal(writes, 0);
+  assert.deepEqual(state.files.get(config.apartmentsStateFile), apartmentSeed);
 });
 
 test("later crawl continues past known IDs until the latest known date", async () => {

@@ -15,6 +15,10 @@ import {
   TelegramApi,
 } from "../src/telegram.js";
 import { createPrivateRateLimits } from "../src/rate-limit.js";
+import {
+  ListAmIntegrityReason,
+  ListAmSourceIntegrityError,
+} from "../src/source-integrity.js";
 
 const config = { telegramOwnerId: 42 };
 const initialState = {
@@ -1229,6 +1233,68 @@ test("private controls cannot bypass crawl failure backoff", async () => {
   assert.equal(crawlCalls, 1);
   assert.equal(retries.length, 1);
   assert.ok(retries[0] >= 800 && retries[0] <= 1_000);
+});
+
+test("source-integrity failure uses crawl backoff and recovers", async () => {
+  const controller = new AbortController();
+  const retryDelays = [];
+  let crawlCalls = 0;
+  const state = {
+    version: 3,
+    type: "telegram-bot",
+    updateOffset: 0,
+    users: {
+      42: { active: true, chatId: 42 },
+    },
+  };
+  const api = {
+    getUpdates: async (_offset, _timeout, signal) =>
+      new Promise((resolve) => {
+        signal.addEventListener("abort", () => resolve([]), { once: true });
+      }),
+  };
+
+  await runTelegramBot(
+    {
+      telegramBotToken: "token",
+      telegramOwnerId: 42,
+      telegramAccessMode: "public",
+      telegramUserUpdatesPerMinute: 30,
+      telegramStateFile: "/state/bot.json",
+      telegramPollTimeoutSeconds: 25,
+      timeoutMs: 1_000,
+      pollIntervalMs: 60_000,
+      externalRetryBaseMs: 1_000,
+      externalRetryMaxMs: 60_000,
+    },
+    {
+      api,
+      signal: controller.signal,
+      loadState: async () => state,
+      saveState: async () => {},
+      sleep: async (milliseconds, _value, { signal }) => {
+        signal.throwIfAborted();
+        retryDelays.push(milliseconds);
+      },
+      crawl: async () => {
+        crawlCalls += 1;
+        if (crawlCalls === 1) {
+          throw new ListAmSourceIntegrityError(
+            ListAmIntegrityReason.IDENTITY_REJECTION,
+            { page: 1 },
+          );
+        }
+        return {};
+      },
+      onError: async () => {},
+      onRetry: async () => {},
+      onResult: () => controller.abort(),
+    },
+  );
+
+  assert.equal(crawlCalls, 2);
+  assert.equal(retryDelays.length, 1);
+  assert.ok(retryDelays[0] >= 800 && retryDelays[0] <= 1_000);
 });
 
 test("exchange rates refresh without private monitoring activation", async () => {

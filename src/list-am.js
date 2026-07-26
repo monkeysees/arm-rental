@@ -2,6 +2,8 @@ import * as cheerio from "cheerio";
 import { postingDateSortValue } from "./posting-date.js";
 
 const LIST_AM_ORIGIN = "https://www.list.am";
+export const REGULAR_SECTION_MISSING_CODE =
+  "ERR_LIST_AM_REGULAR_SECTION_MISSING";
 const ITEM_PATH = /^\/(?:[a-z]{2}\/)?item\/(\d+)\/?$/u;
 const PRICE_NUMBER = /\d[\d\s.,]*/u;
 const CURRENCIES = ["֏", "$", "€", "₽", "£", "AMD", "USD", "EUR", "RUB", "GBP"];
@@ -53,7 +55,9 @@ export function parseDetails(value) {
 function regularCards($) {
   const $section = $("#contentr").first();
   if ($section.length === 0) {
-    throw new Error("Could not find the List.am Regular Ads section");
+    const error = new Error("Could not find the List.am Regular Ads section");
+    error.code = REGULAR_SECTION_MISSING_CODE;
+    throw error;
   }
 
   const outsideTopAds = (_index, element) =>

@@ -9,6 +9,7 @@ const REGULAR_ADS_HTML = `
       <div class="dltitle"><div class="pt">Apartment</div></div>
       <div class="p">220000 ֏</div>
       <div class="at">Кентрон, 2 ком., 50 кв.м., 3/5 этаж</div>
+      <div class="d">Friday, July 24, 2026, 14:31</div>
     </a>
   </div>`;
 
@@ -91,6 +92,29 @@ test("interactive verification persists in the profile consumed by a restarted h
     "browser:close",
     "lock:release",
   ]);
+});
+
+test("production verification retains page-one count after validating later pages", async () => {
+  let fetchCount = 0;
+  const recorded = [];
+  const result = await runBrowserOperation(config(), {
+    requireProduction: true,
+    validateConfig: async () => {},
+    acquireLock: async () => ({ release: async () => {} }),
+    browserFetcherFactory: () => ({
+      fetch: async () => {
+        fetchCount += 1;
+        return new Response(
+          fetchCount === 1 ? REGULAR_ADS_HTML : '<div id="contentr"></div>',
+        );
+      },
+      close: async () => {},
+    }),
+    recordVerification: async (_config, count) => recorded.push(count),
+  });
+
+  assert.equal(result.regularAdsCount, 1);
+  assert.deepEqual(recorded, [1]);
 });
 
 test("an active service lease prevents operator access to the browser profile", async () => {

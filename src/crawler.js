@@ -1,4 +1,3 @@
-import { parseRegularApartments } from "./list-am.js";
 import {
   apartmentMatchesFilters,
   emptyFilters,
@@ -12,6 +11,7 @@ import {
 import { readState, writeState } from "./state.js";
 import { pageUrl } from "./target.js";
 import { postingDateSortValue } from "./posting-date.js";
+import { parseAndEvaluateRegularApartments } from "./source-integrity.js";
 
 export function compatibleApartmentState(state, template) {
   return Boolean(
@@ -262,7 +262,7 @@ export async function crawlApartments(
       pageUrl(page, config.listUrlTemplate),
       fetchPage,
     );
-    const { apartments } = parseRegularApartments(html);
+    const { apartments } = parseAndEvaluateRegularApartments(html, { page });
     pagesParsed += 1;
 
     if (apartments.length === 0) {

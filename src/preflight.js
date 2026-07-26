@@ -11,11 +11,14 @@ import {
   compatibleDeliveryState,
 } from "./crawler.js";
 import { compatibleExchangeRateSnapshot } from "./exchange-rates.js";
-import { parseRegularApartments } from "./list-am.js";
 import { readState } from "./state.js";
 import { pageUrl } from "./target.js";
 import { TelegramApi, TelegramApiError } from "./telegram.js";
 import { recordBrowserVerification } from "./browser-verification-state.js";
+import {
+  LIST_AM_SOURCE_INTEGRITY_ERROR,
+  parseAndEvaluateRegularApartments,
+} from "./source-integrity.js";
 
 const CHECK_NAMES = [
   "storage",
@@ -387,7 +390,10 @@ export async function runStartupPreflight(
           `List.am returned HTTP ${response?.status || "unknown"}`,
         );
       }
-      const diagnostics = parseRegularApartments(await response.text());
+      const diagnostics = parseAndEvaluateRegularApartments(
+        await response.text(),
+        { page: 1 },
+      );
       await recordVerification(config, diagnostics.parsedCount);
     } catch (error) {
       if (
@@ -403,6 +409,17 @@ export async function runStartupPreflight(
             status: "browser_verification_required",
             remediationCommand:
               error.remediationCommand || BROWSER_VERIFICATION_COMMAND,
+          },
+        );
+      }
+      if (error?.code === LIST_AM_SOURCE_INTEGRITY_ERROR) {
+        throw new PreflightError(
+          "list_am",
+          "The configured List.am target failed source-integrity checks.",
+          {
+            cause: error,
+            code: error.code,
+            details: error.details,
           },
         );
       }

@@ -137,9 +137,9 @@ fi
   return { root, log, restoreRoot, environment };
 }
 
-function runScript(name, environment) {
+function runScript(name, environment, args = []) {
   return new Promise((resolve) => {
-    const child = spawn(path.join(repositoryRoot, "ops", name), {
+    const child = spawn(path.join(repositoryRoot, "ops", name), args, {
       cwd: repositoryRoot,
       env: environment,
       stdio: ["ignore", "pipe", "pipe"],
@@ -222,6 +222,63 @@ test("storage check preserves non-contention lock failures", async (t) => {
     commands,
     /storage-check\.(completed|skipped)|src\/recovery-cli\.js disk-check/u,
   );
+});
+
+test("unattended deploy defers only for genuine lock contention", async (t) => {
+  const scenarios = [
+    {
+      name: "busy lock",
+      lockStatus: "75",
+      expectedStatus: 0,
+      terminalEvent: "skipped",
+      terminalResult: "skipped",
+      terminalExitCode: 0,
+    },
+    {
+      name: "lock error",
+      lockStatus: "66",
+      expectedStatus: 66,
+      terminalEvent: "failed",
+      terminalResult: "failure",
+      terminalExitCode: 66,
+    },
+    {
+      name: "explicit operator contention",
+      lockStatus: "75",
+      args: ["--actor", "operator:test"],
+      expectedStatus: 75,
+      terminalEvent: "failed",
+      terminalResult: "failure",
+      terminalExitCode: 75,
+    },
+  ];
+
+  for (const scenario of scenarios) {
+    await t.test(scenario.name, async (t) => {
+      const { log, environment } = await fixture(t);
+      environment.FAKE_FLOCK_STATUS = scenario.lockStatus;
+
+      const result = await runScript("deploy", environment, scenario.args);
+      const commands = await commandLog(log);
+
+      assert.equal(result.status, scenario.expectedStatus, result.stderr);
+      assert.match(commands, /"event":"deployment\.started"/u);
+      assert.match(
+        commands,
+        new RegExp(
+          `"event":"deployment\\.${scenario.terminalEvent}",` +
+            `"result":"${scenario.terminalResult}",` +
+            `"exitCode":${scenario.terminalExitCode},[^\\n]+` +
+            '"step":"acquire-operations-lock"',
+          "u",
+        ),
+      );
+      assert.doesNotMatch(
+        commands,
+        /docker info|docker login|deployment\.(completed|noop)/u,
+      );
+    });
+  }
 });
 
 test("backup validates the published snapshot and restores readiness across each failure boundary", async (t) => {

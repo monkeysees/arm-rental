@@ -13,7 +13,10 @@ bootstrap-installed bundle at
 `/usr/local/lib/rental-apartments-bootstrap/ops`; afterward it delegates to the
 verified current release. Both paths share
 `/var/lib/rental-apartments-ops/operations.lock` with backup, maintenance,
-restore drill, and token rotation. An overlapping operation fails closed.
+restore drill, and token rotation. An overlapping unattended poll records a
+successful `deployment.skipped` deferral and retries on its next timer run.
+Explicit operator deployment requests retain temporary-failure status `75` so
+they cannot falsely report that a requested mutation completed.
 
 ## Publication prerequisites and gates
 

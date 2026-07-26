@@ -52,11 +52,13 @@ journalctl -u rental-backup.service --since -2d
 All short-lived operations have a bounded runtime, emit one start and one
 terminal record, and contend on
 `/var/lib/rental-apartments-ops/operations.lock`. A nonzero result and a missing
-terminal success are both monitor failures. Monitoring and the storage check
-record a successful skip instead when another operation owns the lock; their
-next timer invocation retries the read-only work. Do not invoke the underlying
-Node maintenance/recovery commands directly: doing so bypasses the shared lock
-and the application restart trap.
+terminal success are both monitor failures. Monitoring, the storage check, and
+the unattended deployment poll record a successful skip instead when another
+operation owns the lock; their next timer invocation retries the work. An
+explicit operator deployment request retains contention status `75` rather
+than claiming success. Do not invoke the underlying Node maintenance/recovery
+commands directly: doing so bypasses the shared lock and the application
+restart trap.
 
 After investigating and correcting a failed scheduled job, trigger its service
 once and verify its terminal record. Do not start a second instance while

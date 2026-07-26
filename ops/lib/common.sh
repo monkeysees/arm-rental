@@ -43,7 +43,7 @@ ops_acquire_lock() {
   ops_require_absolute_path "RENTAL_OPS_LOCK_FILE" "$RENTAL_OPS_LOCK_FILE"
   install -d -m 0700 "$RENTAL_OPS_STATE_DIR"
   exec 9>"$RENTAL_OPS_LOCK_FILE"
-  # A dedicated contention status lets read-only operations defer without
+  # A dedicated contention status lets callers defer expected overlap without
   # hiding configuration, permission, or flock execution failures.
   flock \
     --exclusive \

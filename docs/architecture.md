@@ -75,12 +75,15 @@ deduplicated outbound alert route, while the failed systemd unit and retained
 journal records remain the delivery fallback. Derived application alerts are
 bounded by the running container's start time; retained alert events from an
 older container lifecycle remain queryable as logs but cannot become current
-alert state. Monitoring and the read-only storage check defer with successful,
-structured skip records while a serialized production operation owns the
-shared lock, preventing an expected deployment observation window from
-becoming a scheduled-job failure. Lock contention has a dedicated exit status
-so only an owned lock is deferrable; lock-file, permission, and command
-failures remain failed operations. Alert
+alert state. Monitoring, the read-only storage check, and the unattended
+deployment poll defer with successful, structured skip records while a
+serialized production operation owns the shared lock. This prevents expected
+timer overlap and the deployment observation window from becoming
+scheduled-job failures. Explicit operator deployment requests retain the
+lock-contention status so they cannot report a requested mutation as completed
+when it did not run. Lock contention has a dedicated exit status so only an
+owned lock is deferrable; lock-file, permission, and command failures remain
+failed operations. Alert
 transitions carry bounded, non-secret reasons and are recorded in the host
 journal before outbound delivery. Scheduled-operation lifecycle records name
 the semantic step that completed or failed; the monitor combines that step with

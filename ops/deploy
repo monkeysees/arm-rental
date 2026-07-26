@@ -69,7 +69,14 @@ deployment_validate_actor "$actor" || {
 
 ops_begin deployment rental-deploy
 ops_set_step acquire-operations-lock
-ops_acquire_lock
+lock_status=0
+ops_acquire_lock || lock_status=$?
+if ((lock_status == OPS_LOCK_BUSY_STATUS)) && [[ $actor == systemd:rental-deploy ]]; then
+  ops_mark_skipped
+  exit 0
+elif ((lock_status != 0)); then
+  exit "$lock_status"
+fi
 ops_set_step validate-operator-input
 ops_require_absolute_path "RENTAL_ENV_FILE" "$RENTAL_ENV_FILE"
 [[ -f $RENTAL_ENV_FILE && ! -L $RENTAL_ENV_FILE ]]

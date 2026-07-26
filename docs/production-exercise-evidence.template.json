@@ -1,5 +1,5 @@
 {
-  "schemaVersion": 1,
+  "schemaVersion": 2,
   "exerciseId": "production-exercise-pending-template",
   "environment": "production",
   "evidenceKind": "repository-template",
@@ -15,6 +15,26 @@
     "collectionPolicy": "allowlisted-status-fields-only"
   },
   "exercises": {
+    "runtimeAcceptance": {
+      "status": "pending",
+      "observedAt": null,
+      "readinessProbe": null,
+      "readinessReady": null,
+      "runtimeStartedAt": null,
+      "expectedAccessMode": null,
+      "observedAccessMode": null,
+      "persistedUserCount": null,
+      "authorizedUserCount": null,
+      "suspendedUserCount": null,
+      "activeUserCount": null,
+      "crawlId": null,
+      "sourceIntegrityChecked": null,
+      "checkedPageCount": null,
+      "pagesParsed": null,
+      "observedPrivateDeliveryCount": null,
+      "expectedPrivateDeliveryCount": null,
+      "unexpectedRedeliveryObserved": null
+    },
     "restoreDrill": {
       "status": "pending",
       "observedAt": null,

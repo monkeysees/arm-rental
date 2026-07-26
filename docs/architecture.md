@@ -174,6 +174,11 @@ kernel, OS, and systemd unit versions.
 Production acceptance is a phased, root-only host workflow.
 `ops/production-exercise` observes existing systemd operations and immutable
 deployment receipts, then writes only schema-allowlisted mode-`0600` evidence.
+Its runtime-acceptance phase resolves the configured health endpoint inside the
+container, correlates one complete set of per-page source-integrity checks with
+its successful crawl, and records only expected/observed access mode, aggregate
+user counts, delivery counts, and readiness booleans. Semantic validation
+prevents mismatched or incomplete observations from becoming passing evidence.
 The host reboot check is split into before/after phases. A failed-candidate
 exercise must prove snapshot rollback, previous-digest readiness, quarantine,
 and a successful quarantine-skip rerun before timer freshness is evaluated.
@@ -551,6 +556,10 @@ rejection, singleton contention, and intact snapshot restore.
 CI also checks the production Docker, Compose, release, configuration, and
 documentation contracts without credentials or network access. Hosted gates
 build and scan the exact image and exercise its pinned Node and Chrome binaries.
+The documentation consistency gate derives maintained Markdown and valid local
+path targets from the Git index while also requiring each target to exist in
+the worktree. A directory qualifies only when it contains a tracked descendant,
+so untracked files cannot enter validation or satisfy repository references.
 After a stop-first production deployment, sanitized probes and structured
 events must show ready preflight, one successful crawl, the expected delivery
 mode, and continued readiness. Restore and rollback exercises use isolated or

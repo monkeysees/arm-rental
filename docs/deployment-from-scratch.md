@@ -407,6 +407,24 @@ sudo /opt/rental-apartments/current/ops/production-exercise restore-drill \
   --evidence /var/lib/rental-apartments-ops/exercises/production.json
 ```
 
+After a normal crawl, record ready source/access state and compare its aggregate
+private-delivery count with the reviewed expectation (normally zero after a
+stable restart):
+
+```sh
+sudo /opt/rental-apartments/current/ops/production-exercise \
+  runtime-acceptance \
+  --evidence /var/lib/rental-apartments-ops/exercises/production.json \
+  --expected-access-mode public \
+  --expected-private-deliveries 0
+```
+
+Replace `public` with the reviewed deployed mode. Require ready health, an exact
+expected/observed access-mode match, aggregate persisted, authorized,
+suspended, and active user counts, a successful crawl with one matching runtime
+source-integrity check per parsed page, and no unexpected redelivery. The
+receipt contains no user or apartment identifiers.
+
 Publish a reviewed candidate that fails startup verification safely without
 state migration, Telegram side effects, credential changes, storage failure, or
 upstream interference. Record the active and failing immutable digests:

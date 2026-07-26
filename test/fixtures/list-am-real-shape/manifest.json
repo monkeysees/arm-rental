@@ -1,0 +1,26 @@
+{
+  "schemaVersion": 1,
+  "sanitizationPolicy": "allowlisted-dom-shape-and-synthetic-content",
+  "fixtures": [
+    {
+      "file": "regular-page.html",
+      "sha256": "24c6fa64c071e41e83083c84f8c1595025ee3f0a389e482c472486f08a02be30",
+      "expectedDiagnostics": {
+        "candidateCount": 2,
+        "uniqueCandidateCount": 2,
+        "parsedCount": 2,
+        "duplicateCount": 0,
+        "rejectedCount": 0,
+        "completeness": {
+          "title": 2,
+          "date": 2,
+          "price": 2,
+          "location": 2,
+          "rooms": 2,
+          "areaSqM": 2,
+          "floor": 2
+        }
+      }
+    }
+  ]
+}

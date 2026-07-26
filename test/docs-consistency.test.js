@@ -1,11 +1,14 @@
-import { readdir, readFile, stat } from "node:fs/promises";
+import { execFile } from "node:child_process";
+import { readFile, stat } from "node:fs/promises";
 import path from "node:path";
 import test from "node:test";
+import { promisify } from "node:util";
 import { fileURLToPath } from "node:url";
 
 import { CONFIGURATION_CATALOG } from "../src/config-catalog.js";
 
 const projectRoot = fileURLToPath(new URL("../", import.meta.url));
+const execFileAsync = promisify(execFile);
 const accessSettings = [
   "TELEGRAM_ACCESS_MODE",
   "TELEGRAM_ALLOWED_USER_IDS",
@@ -47,16 +50,48 @@ function expectedReadmeDefault(configuration) {
   return String(configuration.defaultValue);
 }
 
-async function markdownFiles(directory = path.join(projectRoot, "docs")) {
-  const files = [];
-  for (const entry of await readdir(directory, { withFileTypes: true })) {
-    const absolute = path.join(directory, entry.name);
-    if (entry.isDirectory()) files.push(...(await markdownFiles(absolute)));
-    if (entry.isFile() && entry.name.endsWith(".md")) {
-      files.push(path.relative(projectRoot, absolute));
+async function trackedRepositoryFiles() {
+  const { stdout } = await execFileAsync(
+    "git",
+    ["ls-files", "--cached", "-z", "--"],
+    {
+      cwd: projectRoot,
+      encoding: "utf8",
+      maxBuffer: 10 * 1024 * 1024,
+    },
+  );
+  return new Set(stdout.split("\0").filter(Boolean));
+}
+
+function maintainedMarkdownFiles(trackedFiles) {
+  return [...trackedFiles]
+    .filter(
+      (filename) =>
+        filename === "README.md" ||
+        (filename.startsWith("docs/") && filename.endsWith(".md")),
+    )
+    .sort();
+}
+
+function trackedPathIndex(trackedFiles) {
+  const paths = new Set();
+  for (const filename of trackedFiles) {
+    // Git has no directory entries, so index parents to allow links to
+    // directories that are materially present through tracked descendants.
+    let candidate = filename;
+    while (candidate !== ".") {
+      paths.add(candidate);
+      candidate = path.posix.dirname(candidate);
     }
   }
-  return files;
+  return paths;
+}
+
+function repositoryPath(filename) {
+  return path
+    .relative(projectRoot, filename)
+    .split(path.sep)
+    .join(path.posix.sep);
 }
 
 async function exists(filename) {
@@ -67,6 +102,12 @@ async function exists(filename) {
     if (error.code === "ENOENT") return false;
     throw error;
   }
+}
+
+async function isCheckedInPath(filename, trackedPaths, pathExists = exists) {
+  return (
+    trackedPaths.has(repositoryPath(filename)) && (await pathExists(filename))
+  );
 }
 
 function inlineRepositoryPath(value) {
@@ -153,7 +194,9 @@ test("configuration example and README match the code-owned catalog", async () =
 });
 
 test("maintained Markdown links and repository paths resolve locally", async () => {
-  for (const filename of ["README.md", ...(await markdownFiles())]) {
+  const trackedFiles = await trackedRepositoryFiles();
+  const trackedPaths = trackedPathIndex(trackedFiles);
+  for (const filename of maintainedMarkdownFiles(trackedFiles)) {
     const contents = await readProjectFile(filename);
     for (const match of contents.matchAll(/!?\[[^\]]*\]\(([^)]+)\)/gu)) {
       const rawTarget = match[1].trim().replace(/^<|>$/gu, "");
@@ -172,7 +215,7 @@ test("maintained Markdown links and repository paths resolve locally", async () 
         "must remain inside the repository",
       );
       requireDocumentation(
-        await exists(resolved),
+        await isCheckedInPath(resolved, trackedPaths),
         filename,
         rawTarget,
         "must resolve to a checked-in path",
@@ -183,12 +226,80 @@ test("maintained Markdown links and repository paths resolve locally", async () 
       const repositoryPath = inlineRepositoryPath(match[1]);
       if (!repositoryPath) continue;
       requireDocumentation(
-        await exists(path.join(projectRoot, repositoryPath)),
+        await isCheckedInPath(
+          path.join(projectRoot, repositoryPath),
+          trackedPaths,
+        ),
         filename,
         repositoryPath,
         "must resolve to a checked-in path",
       );
     }
+  }
+});
+
+test("tracked documentation paths exclude untracked files from validation and references", async () => {
+  const trackedFiles = new Set(["README.md", "docs/tracked.md"]);
+  const trackedPaths = trackedPathIndex(trackedFiles);
+  const presentPaths = new Set([
+    path.join(projectRoot, "README.md"),
+    path.join(projectRoot, "docs/tracked.md"),
+    path.join(projectRoot, "docs/untracked.md"),
+  ]);
+
+  requireDocumentation(
+    !maintainedMarkdownFiles(trackedFiles).includes("docs/untracked.md"),
+    "docs/untracked.md",
+    "maintained documentation",
+    "must be selected from the Git index",
+  );
+  requireDocumentation(
+    !(await isCheckedInPath(
+      path.join(projectRoot, "docs/untracked.md"),
+      trackedPaths,
+      async (filename) => presentPaths.has(filename),
+    )),
+    "docs/untracked.md",
+    "repository path",
+    "must not be accepted only because it exists in the worktree",
+  );
+});
+
+test("tracked files and directories with tracked descendants qualify as checked-in paths", async () => {
+  const trackedPaths = trackedPathIndex(
+    new Set(["docs/tracked.md", "docs/guides/introduction.md"]),
+  );
+
+  for (const filename of ["docs/tracked.md", "docs/guides"]) {
+    requireDocumentation(
+      await isCheckedInPath(
+        path.join(projectRoot, filename),
+        trackedPaths,
+        async () => true,
+      ),
+      filename,
+      "repository path",
+      "must accept tracked files and directories containing tracked files",
+    );
+  }
+});
+
+test("tracked paths missing from the worktree are rejected", async () => {
+  const trackedPaths = trackedPathIndex(
+    new Set(["docs/tracked.md", "docs/guides/introduction.md"]),
+  );
+
+  for (const filename of ["docs/tracked.md", "docs/guides"]) {
+    requireDocumentation(
+      !(await isCheckedInPath(
+        path.join(projectRoot, filename),
+        trackedPaths,
+        async () => false,
+      )),
+      filename,
+      "repository path",
+      "must exist in the worktree",
+    );
   }
 });
 

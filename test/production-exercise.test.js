@@ -19,13 +19,21 @@ const previousImage = `ghcr.io/example/rental-apartments@sha256:${"a".repeat(64)
 const candidateImage = `ghcr.io/example/rental-apartments@sha256:${"b".repeat(64)}`;
 const firstBootId = "11111111-1111-4111-8111-111111111111";
 const secondBootId = "22222222-2222-4222-8222-222222222222";
+const acceptedCrawlId = "33333333-3333-4333-8333-333333333333";
 
 async function executable(filename, source) {
   await writeFile(filename, source, { mode: 0o755 });
   await chmod(filename, 0o755);
 }
 
-async function fixture(t, { restoreFails = false, timersNever = false } = {}) {
+async function fixture(
+  t,
+  {
+    restoreFails = false,
+    timersNever = false,
+    inconsistentAccessCounts = false,
+  } = {},
+) {
   const root = await mkdtemp(path.join(os.tmpdir(), "production-exercise-"));
   t.after(() => rm(root, { recursive: true, force: true }));
   const fakeBin = path.join(root, "bin");
@@ -36,6 +44,7 @@ async function fixture(t, { restoreFails = false, timersNever = false } = {}) {
   const imageFile = path.join(state, "current-image.env");
   const bootIdFile = path.join(root, "boot-id");
   const commandLog = path.join(root, "commands.log");
+  const suspendedUserCount = inconsistentAccessCounts ? 51 : 50;
   await Promise.all([
     mkdir(fakeBin),
     mkdir(deployments, { recursive: true }),
@@ -114,6 +123,10 @@ exit 0
     path.join(fakeBin, "docker"),
     `${prelude}
 if [[ "\${1:-}" == "inspect" ]]; then printf '%s\\n' healthy; exit 0; fi
+if [[ "\${1:-}" == "exec" ]]; then
+  printf '%s\\n' '{"status":"ready","ready":true,"startedAt":"2026-07-25T11:58:00Z","privateAccess":{"accessMode":"allowlist","persistedUserCount":300,"authorizedUserCount":250,"suspendedUserCount":${suspendedUserCount},"activeUserCount":200}}'
+  exit 0
+fi
 exit 0
 `,
   );
@@ -126,6 +139,10 @@ else
   printf '%s\\n' '{"event":"restore-drill.failed","result":"failure","durationMs":500}'
   printf '%s\\n' 'credential=never-copy-raw-journal-output'
 fi
+printf '%s\\n' '{"timestamp":"2026-07-25T11:59:10Z","event":"source.integrity.checked","phase":"runtime","crawlId":"${acceptedCrawlId}","page":1}'
+printf '%s\\n' '{"timestamp":"2026-07-25T11:59:11Z","event":"source.integrity.checked","phase":"runtime","crawlId":"${acceptedCrawlId}","page":2}'
+printf '%s\\n' '{"timestamp":"2026-07-25T11:59:12Z","event":"crawl.succeeded","crawlId":"${acceptedCrawlId}","pagesParsed":2,"notifiedCount":0}'
+printf '%s\\n' '{"timestamp":"2026-07-25T11:59:13Z","event":"crawl.succeeded","crawlId":"44444444-4444-4444-8444-444444444444","pagesParsed":1,"notifiedCount":99}'
 `,
   );
   await executable(
@@ -236,6 +253,20 @@ test("exercise harness records observed recovery outcomes without raw logs or se
   await initialize(value);
 
   let result = await run(
+    [
+      "runtime-acceptance",
+      "--evidence",
+      value.evidence,
+      "--expected-access-mode",
+      "allowlist",
+      "--expected-private-deliveries",
+      "0",
+    ],
+    value.environment,
+  );
+  assert.equal(result.status, 0, result.stderr);
+
+  result = await run(
     ["restore-drill", "--evidence", value.evidence],
     value.environment,
   );
@@ -295,8 +326,28 @@ test("exercise harness records observed recovery outcomes without raw logs or se
   assert.equal(evidence.completedAt, "2026-07-25T12:00:00Z");
   assert.deepEqual(
     Object.values(evidence.exercises).map(({ status }) => status),
-    Array(5).fill("observed-pass"),
+    Array(6).fill("observed-pass"),
   );
+  assert.deepEqual(evidence.exercises.runtimeAcceptance, {
+    status: "observed-pass",
+    observedAt: "2026-07-25T12:00:00Z",
+    readinessProbe: "container-loopback:/ready",
+    readinessReady: true,
+    runtimeStartedAt: "2026-07-25T11:58:00Z",
+    expectedAccessMode: "allowlist",
+    observedAccessMode: "allowlist",
+    persistedUserCount: 300,
+    authorizedUserCount: 250,
+    suspendedUserCount: 50,
+    activeUserCount: 200,
+    crawlId: acceptedCrawlId,
+    sourceIntegrityChecked: true,
+    checkedPageCount: 2,
+    pagesParsed: 2,
+    observedPrivateDeliveryCount: 0,
+    expectedPrivateDeliveryCount: 0,
+    unexpectedRedeliveryObserved: false,
+  });
   assert.equal(evidence.exercises.timerFreshness.timers.length, 7);
   assert.equal(
     evidence.exercises.failedDeploymentRollback.rollbackResult,
@@ -312,9 +363,106 @@ test("exercise harness records observed recovery outcomes without raw logs or se
 
   const commands = await readFile(value.commandLog, "utf8");
   assert.match(commands, /systemctl start rental-restore-drill\.service/u);
+  assert.match(commands, /docker exec rental-apartments-bot/u);
+  assert.match(commands, /getHealthEndpointConfig/u);
+  assert.match(commands, /AbortSignal\.timeout\(3000\)/u);
+  assert.doesNotMatch(commands, /127\.0\.0\.1:8787/u);
   assert.match(commands, /systemctl start rental-deploy\.service/u);
   assert.match(commands, /systemctl restart docker\.service/u);
   assert.match(commands, /systemctl reboot --no-block/u);
+});
+
+test("runtime acceptance resolves the configured container endpoint without a hardcoded default", async () => {
+  const source = await readFile(script, "utf8");
+  assert.match(source, /getHealthEndpointConfig/u);
+  assert.match(source, /host\.includes\(":"\)/u);
+  assert.match(source, /AbortSignal\.timeout\(3000\)/u);
+  assert.doesNotMatch(source, /http:\/\/127\.0\.0\.1:8787/u);
+});
+
+test("runtime acceptance fails expected-mode mismatch and rejects semantic tampering", async (t) => {
+  const value = await fixture(t);
+  await initialize(value);
+
+  let result = await run(
+    [
+      "runtime-acceptance",
+      "--evidence",
+      value.evidence,
+      "--expected-access-mode",
+      "owner",
+      "--expected-private-deliveries",
+      "0",
+    ],
+    value.environment,
+  );
+  assert.notEqual(result.status, 0);
+  let evidence = JSON.parse(await readFile(value.evidence, "utf8"));
+  assert.equal(evidence.exercises.runtimeAcceptance.status, "observed-fail");
+  assert.equal(
+    evidence.exercises.runtimeAcceptance.expectedAccessMode,
+    "owner",
+  );
+  assert.equal(
+    evidence.exercises.runtimeAcceptance.observedAccessMode,
+    "allowlist",
+  );
+
+  await rm(value.evidence);
+  await initialize(value);
+  result = await run(
+    [
+      "runtime-acceptance",
+      "--evidence",
+      value.evidence,
+      "--expected-access-mode",
+      "allowlist",
+      "--expected-private-deliveries",
+      "0",
+    ],
+    value.environment,
+  );
+  assert.equal(result.status, 0, result.stderr);
+  const accepted = JSON.parse(await readFile(value.evidence, "utf8"));
+
+  const mutations = [
+    (runtime) => (runtime.readinessReady = false),
+    (runtime) => (runtime.sourceIntegrityChecked = false),
+    (runtime) => (runtime.observedAccessMode = "owner"),
+    (runtime) => (runtime.observedPrivateDeliveryCount = 1),
+    (runtime) => (runtime.unexpectedRedeliveryObserved = true),
+    (runtime) => (runtime.checkedPageCount = 1),
+  ];
+  for (const mutate of mutations) {
+    evidence = structuredClone(accepted);
+    mutate(evidence.exercises.runtimeAcceptance);
+    await writeFile(value.evidence, `${JSON.stringify(evidence)}\n`);
+    result = await run(
+      ["validate", "--evidence", value.evidence],
+      value.environment,
+    );
+    assert.equal(result.status, 64);
+    assert.match(result.stderr, /sanitized exercise contract/u);
+  }
+
+  const inconsistent = await fixture(t, { inconsistentAccessCounts: true });
+  await initialize(inconsistent);
+  result = await run(
+    [
+      "runtime-acceptance",
+      "--evidence",
+      inconsistent.evidence,
+      "--expected-access-mode",
+      "allowlist",
+      "--expected-private-deliveries",
+      "0",
+    ],
+    inconsistent.environment,
+  );
+  assert.notEqual(result.status, 0);
+  evidence = JSON.parse(await readFile(inconsistent.evidence, "utf8"));
+  assert.equal(evidence.exercises.runtimeAcceptance.status, "observed-fail");
+  assert.equal(evidence.exercises.runtimeAcceptance.suspendedUserCount, 51);
 });
 
 test("failed observations remain explicit and never become launch approval", async (t) => {
@@ -410,9 +558,12 @@ test("the committed evidence artifact is a pending template, not invented VPS ev
     schemaDocument.$schema,
     "https://json-schema.org/draft/2020-12/schema",
   );
+  assert.equal(schemaDocument.properties.schemaVersion.const, 2);
+  assert.equal(templateDocument.schemaVersion, 2);
   assert.equal(templateDocument.evidenceKind, "repository-template");
   assert.equal(templateDocument.overallStatus, "pending");
   assert.equal(templateDocument.completedAt, null);
+  assert.equal(templateDocument.exercises.runtimeAcceptance.status, "pending");
   assert.ok(
     Object.values(templateDocument.exercises).every(
       ({ status }) => status === "pending",

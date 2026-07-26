@@ -21,7 +21,7 @@
   ],
   "properties": {
     "schemaVersion": {
-      "const": 1
+      "const": 2
     },
     "exerciseId": {
       "type": "string",
@@ -75,6 +75,7 @@
       "type": "object",
       "additionalProperties": false,
       "required": [
+        "runtimeAcceptance",
         "restoreDrill",
         "failedDeploymentRollback",
         "dockerRestartRecovery",
@@ -82,6 +83,9 @@
         "timerFreshness"
       ],
       "properties": {
+        "runtimeAcceptance": {
+          "$ref": "#/$defs/runtimeAcceptance"
+        },
         "restoreDrill": {
           "$ref": "#/$defs/restoreDrill"
         },
@@ -123,6 +127,179 @@
     },
     "nullableBoolean": {
       "type": ["boolean", "null"]
+    },
+    "runtimeAcceptance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "status",
+        "observedAt",
+        "readinessProbe",
+        "readinessReady",
+        "runtimeStartedAt",
+        "expectedAccessMode",
+        "observedAccessMode",
+        "persistedUserCount",
+        "authorizedUserCount",
+        "suspendedUserCount",
+        "activeUserCount",
+        "crawlId",
+        "sourceIntegrityChecked",
+        "checkedPageCount",
+        "pagesParsed",
+        "observedPrivateDeliveryCount",
+        "expectedPrivateDeliveryCount",
+        "unexpectedRedeliveryObserved"
+      ],
+      "properties": {
+        "status": {
+          "$ref": "#/$defs/status"
+        },
+        "observedAt": {
+          "$ref": "#/$defs/nullableTimestamp"
+        },
+        "readinessProbe": {
+          "type": ["string", "null"],
+          "enum": [null, "container-loopback:/ready"]
+        },
+        "readinessReady": {
+          "$ref": "#/$defs/nullableBoolean"
+        },
+        "runtimeStartedAt": {
+          "$ref": "#/$defs/nullableTimestamp"
+        },
+        "expectedAccessMode": {
+          "type": ["string", "null"],
+          "enum": [null, "public", "owner", "allowlist"]
+        },
+        "observedAccessMode": {
+          "type": ["string", "null"],
+          "enum": [null, "public", "owner", "allowlist"]
+        },
+        "persistedUserCount": {
+          "type": ["integer", "null"],
+          "minimum": 0
+        },
+        "authorizedUserCount": {
+          "type": ["integer", "null"],
+          "minimum": 0
+        },
+        "suspendedUserCount": {
+          "type": ["integer", "null"],
+          "minimum": 0
+        },
+        "activeUserCount": {
+          "type": ["integer", "null"],
+          "minimum": 0
+        },
+        "crawlId": {
+          "type": ["string", "null"],
+          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+        },
+        "sourceIntegrityChecked": {
+          "$ref": "#/$defs/nullableBoolean"
+        },
+        "checkedPageCount": {
+          "type": ["integer", "null"],
+          "minimum": 1
+        },
+        "pagesParsed": {
+          "type": ["integer", "null"],
+          "minimum": 1
+        },
+        "observedPrivateDeliveryCount": {
+          "type": ["integer", "null"],
+          "minimum": 0
+        },
+        "expectedPrivateDeliveryCount": {
+          "type": ["integer", "null"],
+          "minimum": 0
+        },
+        "unexpectedRedeliveryObserved": {
+          "$ref": "#/$defs/nullableBoolean"
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": { "status": { "const": "observed-pass" } },
+            "required": ["status"]
+          },
+          "then": {
+            "properties": {
+              "observedAt": { "type": "string", "format": "date-time" },
+              "readinessProbe": { "const": "container-loopback:/ready" },
+              "readinessReady": { "const": true },
+              "runtimeStartedAt": {
+                "type": "string",
+                "format": "date-time"
+              },
+              "expectedAccessMode": {
+                "enum": ["public", "owner", "allowlist"]
+              },
+              "observedAccessMode": {
+                "enum": ["public", "owner", "allowlist"]
+              },
+              "persistedUserCount": { "type": "integer", "minimum": 0 },
+              "authorizedUserCount": { "type": "integer", "minimum": 0 },
+              "suspendedUserCount": { "type": "integer", "minimum": 0 },
+              "activeUserCount": { "type": "integer", "minimum": 0 },
+              "crawlId": {
+                "type": "string",
+                "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+              },
+              "sourceIntegrityChecked": { "const": true },
+              "checkedPageCount": { "type": "integer", "minimum": 1 },
+              "pagesParsed": { "type": "integer", "minimum": 1 },
+              "observedPrivateDeliveryCount": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "expectedPrivateDeliveryCount": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "unexpectedRedeliveryObserved": { "const": false }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "status": { "const": "observed-pass" },
+              "expectedAccessMode": { "const": "public" }
+            },
+            "required": ["status", "expectedAccessMode"]
+          },
+          "then": {
+            "properties": { "observedAccessMode": { "const": "public" } }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "status": { "const": "observed-pass" },
+              "expectedAccessMode": { "const": "owner" }
+            },
+            "required": ["status", "expectedAccessMode"]
+          },
+          "then": {
+            "properties": { "observedAccessMode": { "const": "owner" } }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "status": { "const": "observed-pass" },
+              "expectedAccessMode": { "const": "allowlist" }
+            },
+            "required": ["status", "expectedAccessMode"]
+          },
+          "then": {
+            "properties": { "observedAccessMode": { "const": "allowlist" } }
+          }
+        }
+      ]
     },
     "restoreDrill": {
       "type": "object",

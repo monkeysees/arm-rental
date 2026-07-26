@@ -10,7 +10,8 @@ mode-`0600` observation file on the production host.
 `ops/production-exercise` never reads the production environment file and never
 copies raw command output or journal records into evidence. It records only
 immutable image references, unit results, health states, timer timestamps,
-exercise timestamps, boot IDs, and boolean assertions described by
+exercise timestamps, boot IDs, the selected access mode, aggregate private-user
+and delivery counts, a crawl ID, and boolean assertions described by
 [`production-exercise-evidence.schema.json`](production-exercise-evidence.schema.json).
 
 ## Prerequisites and change record
@@ -46,6 +47,40 @@ sudo /opt/rental-apartments/current/ops/production-exercise init \
 
 Expected result: a mode-`0600` JSON file with `evidenceKind` set to
 `production-observation`, every exercise `pending`, and no completion time.
+
+## Runtime source, access, and redelivery verification
+
+Wait for a normal crawl after evidence initialization. Review the aggregate
+private-delivery count for that crawl and determine the expected count from the
+authorized change record. After a stable restart this is normally zero; if new
+or updated listings were legitimately delivered, use that reviewed aggregate
+instead. Then run:
+
+```sh
+sudo /opt/rental-apartments/current/ops/production-exercise \
+  runtime-acceptance \
+  --evidence /var/lib/rental-apartments-ops/exercises/production.json \
+  --expected-access-mode public \
+  --expected-private-deliveries 0
+```
+
+The harness reads the loopback readiness document and structured application
+journal, but persists only allowlisted aggregates. It requires ready health, a
+configured access mode matching `--expected-access-mode`, all four aggregate
+persisted/authorized/suspended/active user counts, and a successful crawl whose
+crawl ID has one `source.integrity.checked` record for every parsed page in the
+current runtime lifecycle. The observed private-delivery count must exactly
+match the reviewed expectation, proving no unexpected historical redelivery
+without recording user IDs, listing IDs, apartment fields, or raw logs. A
+mismatch is `observed-fail`; investigate configuration or delivery history
+before continuing and never change an expected value merely to make evidence
+pass.
+
+The readiness proof calls `/ready` from inside the application container using
+the same validated `HEALTH_HOST` and `HEALTH_PORT` parser as the service. IPv6
+loopback addresses are bracketed and the probe has a three-second timeout; the
+evidence records only `container-loopback:/ready`, never the configured address
+or raw response.
 
 ## Isolated restore drill
 
@@ -140,7 +175,7 @@ successful last service result, and remain inside its schedule-specific age
 limit. A newly installed timer with no prior trigger remains `pending`; missing,
 disabled, overdue, or failed timers become `observed-fail`.
 
-`finalize` produces `observed-pass` only when all five exercise groups passed.
+`finalize` produces `observed-pass` only when all six exercise groups passed.
 Any observed failure produces `observed-fail`; incomplete work stays `pending`
 with no completion time. Review the JSON against its schema, retain it with the
 deployment receipts under the root-only operations directory, and attach only

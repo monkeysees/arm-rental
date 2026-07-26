@@ -24,6 +24,9 @@ usage() {
   cat <<'EOF'
 Usage:
   production-exercise init --evidence FILE --actor ID --host-alias ALIAS
+  production-exercise runtime-acceptance --evidence FILE \
+    --expected-access-mode public|owner|allowlist \
+    --expected-private-deliveries COUNT
   production-exercise restore-drill --evidence FILE
   production-exercise failed-deployment --evidence FILE \
     --candidate REPOSITORY@sha256:DIGEST --previous REPOSITORY@sha256:DIGEST
@@ -75,7 +78,7 @@ validate_evidence_path() {
 validate_evidence_document() {
   local evidence=$1
   jq -e '
-    .schemaVersion == 1 and
+    .schemaVersion == 2 and
     .environment == "production" and
     (.evidenceKind == "repository-template" or
      .evidenceKind == "production-observation") and
@@ -92,11 +95,88 @@ validate_evidence_document() {
       "failedDeploymentRollback",
       "hostRebootRecovery",
       "restoreDrill",
+      "runtimeAcceptance",
       "timerFreshness"
     ] | sort) and
     ([.exercises[] | .status] | all(
       . == "pending" or . == "observed-pass" or . == "observed-fail"
-    ))
+    )) and
+    (.exercises.runtimeAcceptance | keys | sort) == ([
+      "activeUserCount",
+      "authorizedUserCount",
+      "checkedPageCount",
+      "crawlId",
+      "expectedAccessMode",
+      "expectedPrivateDeliveryCount",
+      "observedAt",
+      "observedAccessMode",
+      "observedPrivateDeliveryCount",
+      "pagesParsed",
+      "persistedUserCount",
+      "readinessProbe",
+      "readinessReady",
+      "runtimeStartedAt",
+      "sourceIntegrityChecked",
+      "status",
+      "suspendedUserCount",
+      "unexpectedRedeliveryObserved"
+    ] | sort) and
+    (.exercises.runtimeAcceptance as $runtime |
+      def mode: . == null or . == "public" or . == "owner" or . == "allowlist";
+      def count: . == null or (type == "number" and floor == . and . >= 0);
+      def timestamp:
+        . == null or
+        (type == "string" and
+         test("^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\\.[0-9]{3})?Z$"));
+      ($runtime.expectedAccessMode | mode) and
+      ($runtime.observedAccessMode | mode) and
+      ($runtime.observedAt | timestamp) and
+      ($runtime.runtimeStartedAt | timestamp) and
+      ($runtime.crawlId == null or
+       (($runtime.crawlId | type) == "string" and
+        ($runtime.crawlId |
+          test("^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$")))) and
+      ($runtime.readinessProbe == null or
+       $runtime.readinessProbe == "container-loopback:/ready") and
+      ([$runtime.persistedUserCount,
+        $runtime.authorizedUserCount,
+        $runtime.suspendedUserCount,
+        $runtime.activeUserCount,
+        $runtime.checkedPageCount,
+        $runtime.pagesParsed,
+        $runtime.observedPrivateDeliveryCount,
+        $runtime.expectedPrivateDeliveryCount] | all(count)) and
+      ([$runtime.readinessReady,
+        $runtime.sourceIntegrityChecked,
+        $runtime.unexpectedRedeliveryObserved] |
+        all(. == null or type == "boolean")) and
+      (if $runtime.status == "observed-pass" then
+        $runtime.readinessProbe == "container-loopback:/ready" and
+        $runtime.readinessReady == true and
+        ($runtime.runtimeStartedAt | type) == "string" and
+        $runtime.expectedAccessMode == $runtime.observedAccessMode and
+        $runtime.expectedAccessMode != null and
+        ([$runtime.persistedUserCount,
+          $runtime.authorizedUserCount,
+          $runtime.suspendedUserCount,
+          $runtime.activeUserCount,
+          $runtime.checkedPageCount,
+          $runtime.pagesParsed,
+          $runtime.observedPrivateDeliveryCount,
+          $runtime.expectedPrivateDeliveryCount] |
+          all(type == "number" and floor == . and . >= 0)) and
+        $runtime.persistedUserCount ==
+          ($runtime.authorizedUserCount + $runtime.suspendedUserCount) and
+        $runtime.activeUserCount <= $runtime.authorizedUserCount and
+        (($runtime.crawlId // "") |
+          test("^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$")) and
+        $runtime.sourceIntegrityChecked == true and
+        $runtime.checkedPageCount >= 1 and
+        $runtime.checkedPageCount == $runtime.pagesParsed and
+        $runtime.observedPrivateDeliveryCount ==
+          $runtime.expectedPrivateDeliveryCount and
+        $runtime.unexpectedRedeliveryObserved == false
+      else true end))
   ' "$evidence" >/dev/null
 }
 
@@ -243,7 +323,7 @@ init_command() {
     --arg revision "$revision" \
     --arg startedAt "$started" \
     '{
-      schemaVersion: 1,
+      schemaVersion: 2,
       exerciseId: $exerciseId,
       environment: "production",
       evidenceKind: "production-observation",
@@ -259,6 +339,26 @@ init_command() {
         collectionPolicy: "allowlisted-status-fields-only"
       },
       exercises: {
+        runtimeAcceptance: {
+          status: "pending",
+          observedAt: null,
+          readinessProbe: null,
+          readinessReady: null,
+          runtimeStartedAt: null,
+          expectedAccessMode: null,
+          observedAccessMode: null,
+          persistedUserCount: null,
+          authorizedUserCount: null,
+          suspendedUserCount: null,
+          activeUserCount: null,
+          crawlId: null,
+          sourceIntegrityChecked: null,
+          checkedPageCount: null,
+          pagesParsed: null,
+          observedPrivateDeliveryCount: null,
+          expectedPrivateDeliveryCount: null,
+          unexpectedRedeliveryObserved: null
+        },
         restoreDrill: {
           status: "pending",
           observedAt: null,
@@ -316,6 +416,216 @@ init_command() {
     }' >"$evidence"
   chmod 0600 "$evidence"
   validate_evidence_document "$evidence"
+}
+
+runtime_readiness_document() {
+  docker exec "$RENTAL_CONTAINER_NAME" node --input-type=module --eval '
+    const { getHealthEndpointConfig } = await import("./src/environment-config.js");
+    const { host, port } = getHealthEndpointConfig();
+    const urlHost = host.includes(":") ? `[${host}]` : host;
+    const response = await fetch(`http://${urlHost}:${port}/ready`, {
+      signal: AbortSignal.timeout(3000),
+    });
+    process.stdout.write(await response.text());
+  ' 2>/dev/null
+}
+
+runtime_acceptance_command() {
+  local evidence="" expected_mode="" expected_deliveries=""
+  while (($#)); do
+    case $1 in
+      --evidence)
+        (($# >= 2)) || die "--evidence requires a file"
+        evidence=$2
+        shift 2
+        ;;
+      --expected-access-mode)
+        (($# >= 2)) || die "--expected-access-mode requires a mode"
+        expected_mode=$2
+        shift 2
+        ;;
+      --expected-private-deliveries)
+        (($# >= 2)) || die "--expected-private-deliveries requires a count"
+        expected_deliveries=$2
+        shift 2
+        ;;
+      *) die "Unexpected argument: $1" ;;
+    esac
+  done
+  [[ -n $evidence && -n $expected_mode && -n $expected_deliveries ]] ||
+    die "runtime-acceptance requires evidence, expected mode, and expected deliveries"
+  [[ $expected_mode =~ ^(public|owner|allowlist)$ ]] ||
+    die "Expected access mode must be public, owner, or allowlist"
+  [[ $expected_deliveries =~ ^(0|[1-9][0-9]{0,8})$ ]] ||
+    die "Expected private deliveries must be a non-negative integer"
+  require_evidence "$evidence"
+
+  local started readiness='{}' records observation='{}' status observed
+  local readiness_ready=null runtime_started_at="" observed_mode=""
+  local persisted_count=null authorized_count=null suspended_count=null
+  local active_count=null aggregate_counts_consistent=false crawl_id="" source_checked=false
+  local checked_page_count=null pages_parsed=null delivery_count=null unexpected=null
+  started=$(jq -r '.startedAt' "$evidence")
+  readiness=$(runtime_readiness_document) || readiness='{}'
+  jq -e 'type == "object"' <<<"$readiness" >/dev/null 2>&1 || readiness='{}'
+  runtime_started_at=$(jq -r '.startedAt // ""' <<<"$readiness")
+  if [[ -n $runtime_started_at && $runtime_started_at > $started ]]; then
+    started=$runtime_started_at
+  fi
+  records=$(
+    journalctl \
+      --no-pager --quiet --output=cat --since "$started" \
+      "CONTAINER_NAME=$RENTAL_CONTAINER_NAME" 2>/dev/null
+  ) || records=""
+  observation=$(
+    jq -Rsc '
+      split("\n")
+      | map(fromjson? | select(type == "object")) as $records
+      | ([$records[] | select(
+          .event == "crawl.succeeded" and
+          ((.crawlId // "") |
+            test("^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$")) and
+          (.pagesParsed | type) == "number" and
+          (.pagesParsed | floor) == .pagesParsed and .pagesParsed >= 1
+        )]) as $crawls
+      | ([$crawls[] as $crawl |
+          ([$records[] | select(
+            .event == "source.integrity.checked" and
+            .phase == "runtime" and
+            .crawlId == $crawl.crawlId and
+            (.page | type) == "number" and
+            (.page | floor) == .page and .page >= 1
+          )]) as $checks |
+          ($checks | map(.page) | sort) as $pages |
+          select(($checks | length) == $crawl.pagesParsed) |
+          select($pages == [range(1; $crawl.pagesParsed + 1)]) |
+          {
+            crawlId: $crawl.crawlId,
+            checkedPageCount: ($checks | length),
+            pagesParsed: $crawl.pagesParsed,
+            deliveryCount:
+              (($crawl.notifiedCount // $crawl.notified) as $count |
+               if ($count | type) == "number" and
+                  ($count | floor) == $count and $count >= 0
+               then $count else null end)
+          }
+        ] | last // {
+          crawlId: null,
+          checkedPageCount: null,
+          pagesParsed: null,
+          deliveryCount: null
+        }) as $accepted
+      | $accepted + {sourceChecked: ($accepted.crawlId != null)}
+    ' <<<"$records"
+  )
+
+  readiness_ready=$(jq -r '
+    if .ready == true and .status == "ready" then "true"
+    elif (.ready | type) == "boolean" then "false"
+    else "null" end
+  ' <<<"$readiness")
+  observed_mode=$(jq -r '
+    .privateAccess.accessMode as $mode |
+    if $mode == "public" or $mode == "owner" or $mode == "allowlist"
+    then $mode else "" end
+  ' <<<"$readiness")
+  persisted_count=$(jq -r '
+    .privateAccess.persistedUserCount as $count |
+    if ($count | type) == "number" and ($count | floor) == $count and $count >= 0
+    then ($count | tostring) else "null" end
+  ' <<<"$readiness")
+  authorized_count=$(jq -r '
+    .privateAccess.authorizedUserCount as $count |
+    if ($count | type) == "number" and ($count | floor) == $count and $count >= 0
+    then ($count | tostring) else "null" end
+  ' <<<"$readiness")
+  suspended_count=$(jq -r '
+    .privateAccess.suspendedUserCount as $count |
+    if ($count | type) == "number" and ($count | floor) == $count and $count >= 0
+    then ($count | tostring) else "null" end
+  ' <<<"$readiness")
+  active_count=$(jq -r '
+    .privateAccess.activeUserCount as $count |
+    if ($count | type) == "number" and ($count | floor) == $count and $count >= 0
+    then ($count | tostring) else "null" end
+  ' <<<"$readiness")
+  aggregate_counts_consistent=$(jq -r '
+    .privateAccess as $access |
+    [$access.persistedUserCount, $access.authorizedUserCount,
+     $access.suspendedUserCount, $access.activeUserCount] as $counts |
+    if ($counts | all(
+      type == "number" and floor == . and . >= 0
+    )) and
+      $access.persistedUserCount ==
+        ($access.authorizedUserCount + $access.suspendedUserCount) and
+      $access.activeUserCount <= $access.authorizedUserCount
+    then "true" else "false" end
+  ' <<<"$readiness")
+  crawl_id=$(jq -r '.crawlId // ""' <<<"$observation")
+  source_checked=$(jq -r '.sourceChecked' <<<"$observation")
+  checked_page_count=$(jq -r '.checkedPageCount // "null"' <<<"$observation")
+  pages_parsed=$(jq -r '.pagesParsed // "null"' <<<"$observation")
+  delivery_count=$(jq -r '.deliveryCount // "null"' <<<"$observation")
+  if [[ $delivery_count =~ ^[0-9]+$ ]]; then
+    if [[ $delivery_count == "$expected_deliveries" ]]; then unexpected=false
+    else unexpected=true
+    fi
+  fi
+
+  status=$STATUS_FAIL
+  if [[ $readiness_ready == true && $observed_mode == "$expected_mode" ]] &&
+    [[ $persisted_count =~ ^[0-9]+$ && $authorized_count =~ ^[0-9]+$ ]] &&
+    [[ $suspended_count =~ ^[0-9]+$ && $active_count =~ ^[0-9]+$ ]] &&
+    [[ $aggregate_counts_consistent == true ]] &&
+    [[ -n $crawl_id && $source_checked == true ]] &&
+    [[ $checked_page_count =~ ^[1-9][0-9]*$ ]] &&
+    [[ $checked_page_count == "$pages_parsed" ]] &&
+    [[ $unexpected == false ]]; then
+    status=$STATUS_PASS
+  fi
+  observed=$(utc_now)
+  replace_evidence "$evidence" \
+    --arg status "$status" \
+    --arg observedAt "$observed" \
+    --arg readinessProbe "container-loopback:/ready" \
+    --argjson readinessReady "$readiness_ready" \
+    --arg runtimeStartedAt "$runtime_started_at" \
+    --arg expectedAccessMode "$expected_mode" \
+    --arg observedAccessMode "$observed_mode" \
+    --argjson persistedUserCount "$persisted_count" \
+    --argjson authorizedUserCount "$authorized_count" \
+    --argjson suspendedUserCount "$suspended_count" \
+    --argjson activeUserCount "$active_count" \
+    --arg crawlId "$crawl_id" \
+    --argjson sourceIntegrityChecked "$source_checked" \
+    --argjson checkedPageCount "$checked_page_count" \
+    --argjson pagesParsed "$pages_parsed" \
+    --argjson observedPrivateDeliveryCount "$delivery_count" \
+    --argjson expectedPrivateDeliveryCount "$expected_deliveries" \
+    --argjson unexpectedRedeliveryObserved "$unexpected" \
+    '.exercises.runtimeAcceptance = {
+      status: $status,
+      observedAt: $observedAt,
+      readinessProbe: $readinessProbe,
+      readinessReady: $readinessReady,
+      runtimeStartedAt:
+        (if $runtimeStartedAt == "" then null else $runtimeStartedAt end),
+      expectedAccessMode: $expectedAccessMode,
+      observedAccessMode:
+        (if $observedAccessMode == "" then null else $observedAccessMode end),
+      persistedUserCount: $persistedUserCount,
+      authorizedUserCount: $authorizedUserCount,
+      suspendedUserCount: $suspendedUserCount,
+      activeUserCount: $activeUserCount,
+      crawlId: (if $crawlId == "" then null else $crawlId end),
+      sourceIntegrityChecked: $sourceIntegrityChecked,
+      checkedPageCount: $checkedPageCount,
+      pagesParsed: $pagesParsed,
+      observedPrivateDeliveryCount: $observedPrivateDeliveryCount,
+      expectedPrivateDeliveryCount: $expectedPrivateDeliveryCount,
+      unexpectedRedeliveryObserved: $unexpectedRedeliveryObserved
+    }'
+  [[ $status == "$STATUS_PASS" ]]
 }
 
 restore_drill_command() {
@@ -745,6 +1055,7 @@ main() {
   shift
   case $command in
     init) init_command "$@" ;;
+    runtime-acceptance) runtime_acceptance_command "$@" ;;
     restore-drill) restore_drill_command "$@" ;;
     failed-deployment) failed_deployment_command "$@" ;;
     docker-restart) docker_restart_command "$@" ;;

@@ -103,6 +103,8 @@ validation.
 After provisioning and one verified normal deployment, use the phased
 [`production-exercise` runbook](production-exercises.md) to observe:
 
+- ready runtime health, the selected private-access mode, aggregate persisted
+  users, and a successful source-checked crawl with no unexpected redelivery;
 - an isolated restore drill with no polling or Telegram delivery;
 - a deliberately failing published candidate, successful automatic snapshot
   rollback, quarantine, and a subsequent successful quarantine skip;

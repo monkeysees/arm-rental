@@ -75,6 +75,11 @@ serialized production operation owns the shared lock, the monitor instead
 records `monitor.skipped` and exits successfully; the next timer invocation
 resumes evaluation after the operation completes.
 
+The monitor writes sanitized metrics and alert snapshots as mode `0640`, owned
+by root and the `rental-deploy` group. The containing operations directory is
+mode `0750` with the same ownership, allowing the unprivileged operator command
+to read those snapshots without exposing root-only deployment state.
+
 The stable snapshot covers image/revision, container health, readiness, uptime
 and restarts; last preflight/crawl; 1-hour and 24-hour crawl totals, ratios,
 p50/p95 duration and result counters; bounded retry and state-file groupings;

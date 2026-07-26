@@ -328,6 +328,14 @@ test("cloud-init and host helper retain the production security and receipt cont
   assert.match(helper, /sha256sum --zero/u);
   assert.match(helper, /\/etc\/rental-apartments\/env/u);
   assert.match(helper, /chmod 0600/u);
+  assert.match(
+    helper,
+    /ensure_directory \/var\/lib\/rental-apartments-ops 0750 root:rental-deploy/u,
+  );
+  assert.match(
+    helper,
+    /install -d -m 0750 -o root -g rental-deploy \/var\/lib\/rental-apartments-ops/u,
+  );
   assert.match(helper, /UUID=\$uuid/u);
   assert.match(helper, /--opt o=bind/u);
   assert.match(helper, /bootstrap-receipt\.json/u);

@@ -162,6 +162,12 @@ Archive creation disables macOS metadata, and fully managed host directories
 discard AppleDouble sidecars. Host operations reconciliation compares a
 filename-and-SHA-256 manifest and prunes unexpected managed files, so empty
 local directories and platform metadata do not produce false drift.
+The operations state directory is traversable only by root and the
+`rental-deploy` operator group. The monitor retains root privileges for its
+host probes but uses `rental-deploy` as its primary group, so atomically
+replaced, mode-`0640` metrics and alert snapshots remain available to the
+unprivileged `rentalctl` interface. Root-only mode-`0600` deployment receipts,
+image records, and other sensitive operations state do not cross that boundary.
 The reviewed initial production target is a Hetzner `cx23` server in the
 Nuremberg `nbg1` location. These remain explicit bootstrap inputs so a later
 capacity or location change requires operator review rather than an implicit

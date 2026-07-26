@@ -5,6 +5,7 @@ After=docker.service rental-apartments.service
 
 [Service]
 Type=oneshot
+Group=rental-deploy
 ExecStart=/opt/rental-apartments/current/ops/monitor
 TimeoutStartSec=4min
 NoNewPrivileges=yes

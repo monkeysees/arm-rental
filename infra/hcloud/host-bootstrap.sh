@@ -132,7 +132,7 @@ fi
 
 ensure_directory /etc/rental-apartments 0700 root:root
 ensure_directory /opt/rental-apartments 0750 rental-deploy:rental-deploy
-ensure_directory /var/lib/rental-apartments-ops 0700 root:root
+ensure_directory /var/lib/rental-apartments-ops 0750 root:rental-deploy
 ensure_directory /var/lib/rental-apartments/releases 0750 rental-deploy:rental-deploy
 ensure_directory /var/log/journal 2755 root:systemd-journal
 ensure_directory /etc/systemd/journald.conf.d 0755 root:root
@@ -339,7 +339,7 @@ if [[ $MODE == apply ]]; then
   while IFS= read -r timer; do
     systemctl enable --now "${timer##*/}"
   done < <(find /etc/systemd/system -maxdepth 1 -name 'rental-*.timer' -type f -print | sort)
-  install -d -m 0700 -o root -g root /var/lib/rental-apartments-ops
+  install -d -m 0750 -o root -g rental-deploy /var/lib/rental-apartments-ops
   unit_versions=$(find /etc/systemd/system -maxdepth 1 \
     \( -name 'rental-*.service' -o -name 'rental-*.timer' \) -type f -print0 |
     sort -z | xargs -0 sha256sum |

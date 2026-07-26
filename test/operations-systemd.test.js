@@ -412,6 +412,12 @@ test("systemd operations use bounded runtimes, persistent UTC timers, and the de
     assert.doesNotMatch(source, /^RuntimeMaxSec=/mu, service);
   }
 
+  const monitor = await readFile(
+    path.join(unitDirectory, "rental-monitor.service"),
+    "utf8",
+  );
+  assert.match(monitor, /^Group=rental-deploy$/mu);
+
   assert.match(
     await readFile(path.join(unitDirectory, "rental-backup.timer"), "utf8"),
     /OnCalendar=\*-\*-\* 03:15:00 UTC/u,

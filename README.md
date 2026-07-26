@@ -74,7 +74,9 @@ without changing monitoring state, so filters can be chosen first. Use **Зап�
 мониторинг** to choose whether to receive up to 100 existing matches and then
 begin notifications; use **Остановить мониторинг** to pause them. Each user's
 monitoring state and filters survive process restarts, and apartment
-notifications are delivered independently. `/filters` opens the same controls.
+notifications are delivered independently. `/stop` also pauses monitoring for
+the requesting user and returns to the main menu; it does not terminate the bot
+process. `/filters` opens the same controls.
 Every persisted user, including one suspended by a narrower access policy, can
 use `/delete_my_data` to remove their filters and private notification history.
 Deletion requires confirmation, stops monitoring, and makes a later `/start` or
@@ -89,11 +91,13 @@ Every filter is optional:
 - locations can combine several individual places and whole regions. Ереван is
   first, followed by its districts, then the other regions.
 
-Send `нет` while entering a range to remove that restriction. **Сбросить фильтры**
-removes all filters. A whole-region selection matches the region name and all
-of its listed places; choosing an individual place replaces a whole-region
-selection for that region. Every change is persisted and applied immediately;
-there is no separate save step.
+Send `нет` or `/clear` while entering a price or room range to remove only
+that restriction. **Сбросить фильтры** removes all filters. A
+whole-region selection matches the region name and all of its listed places;
+choosing an individual place replaces a whole-region selection for that region.
+Every change is persisted and applied immediately; there is no separate save
+step. While the bot is waiting for a price or room range, `/cancel` abandons
+that input, leaves the current filter unchanged, and shows the main menu again.
 
 Price bounds are Armenian drams. USD, EUR, and RUB listings are converted to AMD
 before filtering, while Telegram notifications continue to show their original

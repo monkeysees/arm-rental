@@ -717,8 +717,14 @@ operator procedures are indexed in
    monitoring remains inactive until that choice is persisted. The final start
    and stop callbacks durably toggle only that user's delivery state before
    refreshing the panel, wake the dormant crawl loop on activation, and update
-   readiness state on either transition. Range values are collected from that
-   user's next text message; `/cancel` abandons only that user's pending input.
+   readiness state on either transition. `/stop` performs the same per-user
+   deactivation as the stop callback and sends the refreshed main menu; it does
+   not terminate the bot process. Range values are collected from that user's
+   next text message. The entry prompt explains that `/cancel` abandons only
+   that user's pending input, preserves the current filter value, and sends the
+   current main menu again. During that same pending entry, `нет` and `/clear`
+   both remove only the selected price or room restriction, preserve all other
+   filters and monitoring state, persist the change, and send the main menu.
 3. A crawl loop runs when private monitoring is active or a channel is
    configured. With neither condition, it waits for activation. After apartment
    state is saved, private admission/delivery and `src/channel.js` publication

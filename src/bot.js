@@ -23,6 +23,7 @@ import { readState, writeState } from "./state.js";
 import {
   formatApartmentMessage,
   isMainMenuCommand,
+  isStopCommand,
   TelegramApi,
 } from "./telegram.js";
 import { ExponentialBackoff, isExpectedExternalFailure } from "./retry.js";
@@ -384,7 +385,8 @@ async function processFilterCallback(query, state, actions) {
       [
         instruction,
         `Примеры: ${examples}.`,
-        "Чтобы снять ограничение, отправьте «нет».",
+        "Чтобы снять это ограничение, отправьте «нет» или /clear.",
+        "Чтобы отменить ввод и сохранить текущее значение фильтра, отправьте /cancel.",
       ].join("\n"),
     );
     return current;
@@ -729,6 +731,22 @@ export async function processUpdates(
 
     let user = userState(current, senderId);
 
+    if (isStopCommand(message.text)) {
+      const wasActive = user.active;
+      user = { ...user, active: false, pendingFilterInput: null };
+      current = withUserState(current, senderId, user);
+      const view = filtersMenu(user.filters, user.active);
+      await saveState(current);
+      await sendMessage(senderId, view.text, view.replyMarkup);
+      if (wasActive) {
+        await onSubscriptionChanged(current, {
+          active: false,
+          sendInitialApartments: user.sendInitialApartments,
+        });
+      }
+      continue;
+    }
+
     if (/^\/filters(?:@[a-z0-9_]+)?(?:\s|$)/iu.test(message.text || "")) {
       user = { ...user, pendingFilterInput: null };
       current = withUserState(current, senderId, user);
@@ -741,8 +759,29 @@ export async function processUpdates(
     if (/^\/cancel(?:@[a-z0-9_]+)?(?:\s|$)/iu.test(message.text || "")) {
       user = { ...user, pendingFilterInput: null };
       current = withUserState(current, senderId, user);
+      const view = filtersMenu(user.filters, user.active);
       await saveState(current);
-      await sendMessage(senderId, "Ввод фильтра отменён.");
+      await sendMessage(senderId, view.text, view.replyMarkup);
+      continue;
+    }
+
+    if (
+      user.pendingFilterInput &&
+      /^\/clear(?:@[a-z0-9_]+)?(?:\s|$)/iu.test(message.text || "")
+    ) {
+      const filterName = user.pendingFilterInput;
+      user = {
+        ...user,
+        filters: {
+          ...user.filters,
+          [filterName]: parseRangeInput("нет", filterName),
+        },
+        pendingFilterInput: null,
+      };
+      current = withUserState(current, senderId, user);
+      const view = filtersMenu(user.filters, user.active);
+      await saveState(current);
+      await sendMessage(senderId, view.text, view.replyMarkup);
       continue;
     }
 
@@ -764,7 +803,7 @@ export async function processUpdates(
       } catch (error) {
         await sendMessage(
           senderId,
-          `${error.message}\nПопробуйте ещё раз или отправьте команду /cancel.`,
+          `${error.message}\nПопробуйте ещё раз, отправьте /clear, чтобы снять это ограничение, или /cancel, чтобы отменить ввод и сохранить текущее значение фильтра.`,
         );
       }
     }

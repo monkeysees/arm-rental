@@ -190,6 +190,10 @@ export function isMainMenuCommand(text) {
   return /^\/(?:start|menu)(?:@[a-z0-9_]+)?(?:\s|$)/iu.test(text || "");
 }
 
+export function isStopCommand(text) {
+  return /^\/stop(?:@[a-z0-9_]+)?(?:\s|$)/iu.test(text || "");
+}
+
 export function formatApartmentMessage(apartment) {
   const sourcePrice = originalPrice(apartment.price);
   const amount = sourcePrice.amount?.toLocaleString("ru-RU");

@@ -13,6 +13,7 @@ import {
   formatApartmentMessage,
   isMainMenuCommand,
   isStartCommand,
+  isStopCommand,
   TelegramApi,
 } from "../src/telegram.js";
 import { createPrivateRateLimits } from "../src/rate-limit.js";
@@ -705,6 +706,30 @@ test("start and menu commands render the same main menu", async () => {
   assert.match(sent[1][1], /^Главное меню$/mu);
 });
 
+test("stop command disables monitoring and returns to the main menu", async () => {
+  const sent = [];
+  const subscriptionChanges = [];
+  const state = await processUpdates(
+    [update(1, 42, "/stop@rental_bot")],
+    config,
+    { ...initialState, chatId: 42, active: true },
+    {
+      sendMessage: async (...args) => sent.push(args),
+      saveState: async () => {},
+      onSubscriptionChanged: async (_state, event) =>
+        subscriptionChanges.push(event),
+    },
+  );
+
+  assert.equal(state.users[42].active, false);
+  assert.match(sent[0][1], /^Главное меню$/mu);
+  assert.match(sent[0][1], /Мониторинг: остановлен/u);
+  assert.equal(sent[0][2].inline_keyboard.at(-1)[0].callback_data, "m:start");
+  assert.deepEqual(subscriptionChanges, [
+    { active: false, sendInitialApartments: true },
+  ]);
+});
+
 test("a user configures ranges and multiple locations through Telegram", async () => {
   const sent = [];
   const edited = [];
@@ -804,12 +829,83 @@ test("private users maintain independent filter input and settings", async () =>
   });
 });
 
+test("filter input explains that cancel preserves the value and returns to the menu", async () => {
+  const sent = [];
+  const state = await processUpdates(
+    [callback(40, "f:price"), update(41, 42, "/cancel")],
+    config,
+    initialState,
+    {
+      sendMessage: async (...args) => sent.push(args),
+      editMessage: async () => {},
+      answerCallback: async () => {},
+      saveState: async () => {},
+    },
+  );
+
+  assert.equal(state.users[42].pendingFilterInput, null);
+  assert.match(
+    sent[0][1],
+    /Чтобы отменить ввод и сохранить текущее значение фильтра, отправьте \/cancel\./u,
+  );
+  assert.match(sent[0][1], /отправьте «нет» или \/clear\./u);
+  assert.match(sent[1][1], /^Главное меню$/mu);
+  assert.match(sent[1][1], /Цена \(֏\): без ограничений/u);
+  assert.equal(sent[1][2].inline_keyboard.at(-1)[0].callback_data, "m:start");
+});
+
+test("clear command removes only the range filter being edited", async () => {
+  const sent = [];
+  const state = await processUpdates(
+    [callback(50, "f:price"), update(51, 42, "/clear@rental_bot")],
+    config,
+    {
+      version: 3,
+      type: "telegram-bot",
+      updateOffset: 0,
+      users: {
+        42: {
+          chatId: 42,
+          active: true,
+          sendInitialApartments: false,
+          filters: {
+            price: { min: 150_000, max: 300_000 },
+            rooms: { min: 2, max: 3 },
+            locations: ["r:0"],
+          },
+          pendingFilterInput: null,
+        },
+      },
+    },
+    {
+      sendMessage: async (...args) => sent.push(args),
+      editMessage: async () => {},
+      answerCallback: async () => {},
+      saveState: async () => {},
+    },
+  );
+
+  assert.deepEqual(state.users[42].filters, {
+    price: { min: null, max: null },
+    rooms: { min: 2, max: 3 },
+    locations: ["r:0"],
+  });
+  assert.equal(state.users[42].active, true);
+  assert.equal(state.users[42].pendingFilterInput, null);
+  assert.match(sent.at(-1)[1], /^Главное меню$/mu);
+  assert.match(sent.at(-1)[1], /Цена \(֏\): без ограничений/u);
+  assert.match(sent.at(-1)[1], /Комнаты: 2–3/u);
+  assert.match(sent.at(-1)[1], /Мониторинг: запущен/u);
+});
+
 test("Telegram helpers format normalized apartment data", () => {
   assert.equal(isStartCommand("/start@rental_bot payload"), true);
   assert.equal(isStartCommand("/starter"), false);
   assert.equal(isMainMenuCommand("/start@rental_bot payload"), true);
   assert.equal(isMainMenuCommand("/menu@rental_bot payload"), true);
   assert.equal(isMainMenuCommand("/menus"), false);
+  assert.equal(isStopCommand("/stop@rental_bot payload"), true);
+  assert.equal(isStopCommand("/stopping"), false);
   assert.equal(
     formatApartmentMessage({
       itemId: "200",

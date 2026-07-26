@@ -26,6 +26,10 @@ import {
   isStopCommand,
   TelegramApi,
 } from "./telegram.js";
+import {
+  synchronizeTelegramMetadata,
+  TELEGRAM_METADATA_RETRY_INTERVAL_MS,
+} from "./telegram-metadata.js";
 import { ExponentialBackoff, isExpectedExternalFailure } from "./retry.js";
 import {
   createPrivateRateLimits,
@@ -834,12 +838,15 @@ export async function runTelegramBot(
     onPrivateUserDeletionCompleted = () => {},
     onPrivateMonitoringChanged = () => {},
     onPrivateUserDeactivated = () => {},
+    onTelegramMetadataSynchronizationFailed = () => {},
+    onTelegramMetadataSynchronized = () => {},
     onTelegramSuccess = () => {},
     onChannelOperation = () => {},
     onChannelFilterFingerprintChange = () => {},
     onSourceIntegrityChecked = () => {},
     onRetry = () => {},
     exchangeRateService,
+    metadataRetryIntervalMs = TELEGRAM_METADATA_RETRY_INTERVAL_MS,
     monotonicNow,
     signal,
   } = {},
@@ -1305,5 +1312,33 @@ export async function runTelegramBot(
     }
   };
 
-  await Promise.all([updateLoop(), monitorLoop(), exchangeRateLoop()]);
+  const metadataLoop = async () => {
+    while (!signal?.aborted) {
+      try {
+        await synchronizeTelegramMetadata(api, signal);
+      } catch (error) {
+        if (signal?.aborted) return;
+        await onTelegramMetadataSynchronizationFailed(error, {
+          retryDelayMs: metadataRetryIntervalMs,
+        });
+        try {
+          await sleep(metadataRetryIntervalMs, undefined, { signal });
+        } catch (sleepError) {
+          if (sleepError.name !== "AbortError") throw sleepError;
+          return;
+        }
+        continue;
+      }
+
+      await onTelegramMetadataSynchronized();
+      return;
+    }
+  };
+
+  await Promise.all([
+    metadataLoop(),
+    updateLoop(),
+    monitorLoop(),
+    exchangeRateLoop(),
+  ]);
 }

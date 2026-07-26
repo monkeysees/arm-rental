@@ -242,6 +242,15 @@ export async function runApplication({
           event: "telegram.private.deactivated",
           reason,
         }),
+      onTelegramMetadataSynchronized: () =>
+        logger.info("Telegram bot metadata synchronized", {
+          event: "telegram.metadata.synchronized",
+        }),
+      onTelegramMetadataSynchronizationFailed: (error, { retryDelayMs }) =>
+        logger.error("Telegram bot metadata synchronization failed", error, {
+          event: "telegram.metadata.synchronization_failed",
+          retryDelayMs,
+        }),
       onPrivateMonitoringChanged: ({
         active,
         activeUserCount,

@@ -7,7 +7,7 @@ import {
   migrateBotState,
   privateAccessSummary,
   processUpdates,
-  runTelegramBot,
+  runTelegramBot as runTelegramBotRuntime,
 } from "../src/bot.js";
 import {
   formatApartmentMessage,
@@ -16,6 +16,10 @@ import {
   isStopCommand,
   TelegramApi,
 } from "../src/telegram.js";
+import {
+  synchronizeTelegramMetadata,
+  TELEGRAM_BOT_METADATA,
+} from "../src/telegram-metadata.js";
 import { createPrivateRateLimits } from "../src/rate-limit.js";
 import {
   ListAmIntegrityReason,
@@ -31,6 +35,21 @@ const initialState = {
   chatId: null,
   updateOffset: 0,
 };
+
+function runTelegramBot(config, options = {}) {
+  const metadataCapableApi = options.api
+    ? {
+        setMyCommands: async () => true,
+        setMyDescription: async () => true,
+        setMyShortDescription: async () => true,
+        ...options.api,
+      }
+    : undefined;
+  return runTelegramBotRuntime(config, {
+    ...options,
+    ...(metadataCapableApi ? { api: metadataCapableApi } : {}),
+  });
+}
 
 test("multi-user bot state is independent of the server-alert owner", () => {
   assert.equal(
@@ -928,6 +947,147 @@ test("Telegram helpers format normalized apartment data", () => {
       "https://www.list.am/ru/item/200",
     ].join("\n"),
   );
+});
+
+test("source-controlled Telegram metadata describes owner listings and every supported command", () => {
+  assert.match(TELEGRAM_BOT_METADATA.shortDescription, /собственников/u);
+  assert.match(TELEGRAM_BOT_METADATA.description, /собственников/u);
+  assert.ok(TELEGRAM_BOT_METADATA.shortDescription.length <= 120);
+  assert.ok(TELEGRAM_BOT_METADATA.description.length <= 512);
+  assert.deepEqual(
+    TELEGRAM_BOT_METADATA.commands.map(({ command }) => command),
+    ["start", "menu", "filters", "stop", "cancel", "clear", "delete_my_data"],
+  );
+  assert.deepEqual(TELEGRAM_BOT_METADATA.commandScope, {
+    type: "all_private_chats",
+  });
+});
+
+test("Telegram metadata synchronization sends the source-controlled Bot API payloads", async () => {
+  const requests = [];
+  const api = new TelegramApi("secret", {
+    fetchImpl: async (url, options) => {
+      requests.push({
+        method: url.split("/").at(-1),
+        body: JSON.parse(options.body),
+      });
+      return Response.json({ ok: true, result: true });
+    },
+  });
+
+  await synchronizeTelegramMetadata(api);
+
+  assert.deepEqual(requests, [
+    {
+      method: "setMyShortDescription",
+      body: {
+        short_description: TELEGRAM_BOT_METADATA.shortDescription,
+      },
+    },
+    {
+      method: "setMyDescription",
+      body: { description: TELEGRAM_BOT_METADATA.description },
+    },
+    {
+      method: "setMyCommands",
+      body: {
+        commands: TELEGRAM_BOT_METADATA.commands,
+        scope: TELEGRAM_BOT_METADATA.commandScope,
+      },
+    },
+  ]);
+});
+
+test("bot startup begins metadata synchronization without blocking polling", async () => {
+  const controller = new AbortController();
+  const events = [];
+  const api = {
+    setMyShortDescription: async () => events.push("short-description"),
+    setMyDescription: async () => events.push("description"),
+    setMyCommands: async () => events.push("commands"),
+    getUpdates: async () => {
+      events.push("poll");
+      controller.abort();
+      return [];
+    },
+  };
+
+  await runTelegramBot(
+    {
+      telegramBotToken: "token",
+      telegramOwnerId: 42,
+      telegramStateFile: "/state/bot.json",
+      telegramPollTimeoutSeconds: 25,
+      timeoutMs: 1_000,
+      pollIntervalMs: 60_000,
+    },
+    {
+      api,
+      signal: controller.signal,
+      loadState: async () => initialState,
+      saveState: async () => {},
+      onTelegramMetadataSynchronized: async () => events.push("synchronized"),
+    },
+  );
+
+  assert.equal(events[0], "short-description");
+  assert.ok(events.indexOf("poll") < events.indexOf("synchronized"));
+  assert.deepEqual(
+    events.filter((event) => event !== "poll"),
+    ["short-description", "description", "commands", "synchronized"],
+  );
+});
+
+test("metadata synchronization retries hourly after failure and stops after success", async () => {
+  const controller = new AbortController();
+  const failures = [];
+  const sleepDelays = [];
+  let attempts = 0;
+  let successes = 0;
+  const api = {
+    setMyShortDescription: async () => {
+      attempts += 1;
+      if (attempts === 1) throw new TypeError("Telegram unavailable");
+    },
+    setMyDescription: async () => {},
+    setMyCommands: async () => {},
+    getUpdates: async (_offset, _timeout, signal) =>
+      new Promise((resolve) => {
+        signal.addEventListener("abort", () => resolve([]), { once: true });
+      }),
+  };
+
+  await runTelegramBot(
+    {
+      telegramBotToken: "token",
+      telegramOwnerId: 42,
+      telegramStateFile: "/state/bot.json",
+      telegramPollTimeoutSeconds: 25,
+      timeoutMs: 1_000,
+      pollIntervalMs: 60_000,
+    },
+    {
+      api,
+      signal: controller.signal,
+      loadState: async () => initialState,
+      saveState: async () => {},
+      metadataRetryIntervalMs: 60 * 60 * 1_000,
+      sleep: async (milliseconds) => sleepDelays.push(milliseconds),
+      onTelegramMetadataSynchronizationFailed: async (error, context) =>
+        failures.push({ error, context }),
+      onTelegramMetadataSynchronized: async () => {
+        successes += 1;
+        controller.abort();
+      },
+    },
+  );
+
+  assert.equal(attempts, 2);
+  assert.equal(successes, 1);
+  assert.equal(failures.length, 1);
+  assert.match(failures[0].error.message, /Telegram unavailable/u);
+  assert.deepEqual(failures[0].context, { retryDelayMs: 3_600_000 });
+  assert.deepEqual(sleepDelays, [3_600_000]);
 });
 
 test("Telegram helpers use Russian fallbacks for missing apartment data", () => {

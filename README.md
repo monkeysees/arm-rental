@@ -59,6 +59,14 @@ Start the bot:
 npm start
 ```
 
+On each process start, the bot attempts to synchronize its source-controlled
+Telegram profile descriptions and private-chat command menu. The command menu
+publishes the handlers already supported by the application: `/start`, `/menu`,
+`/filters`, `/stop`, `/cancel`, `/clear`, and `/delete_my_data`. Metadata
+synchronization does not block polling or apartment monitoring. If it fails, the
+failure is logged and retried hourly until the first successful synchronization;
+the metadata loop then exits for the lifetime of that process.
+
 Private access defaults to `public`, so any Telegram user can send `/start` or
 `/menu` to the bot in a private chat. Set `TELEGRAM_ACCESS_MODE=owner` to permit only
 `TELEGRAM_OWNER_ID`, or use `allowlist` to permit the owner plus at least one

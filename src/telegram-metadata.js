@@ -1,0 +1,40 @@
+export const TELEGRAM_BOT_METADATA = Object.freeze({
+  shortDescription:
+    "Квартиры от собственников: бот отслеживает долгосрочную аренду на List.am и присылает новые объявления.",
+  description: [
+    "Бот находит на List.am объявления о долгосрочной аренде квартир от собственников и присылает новые подходящие варианты.",
+    "",
+    "Настройте цену в драмах, количество комнат и местоположение, затем запустите мониторинг. При запуске можно получить уже найденные квартиры или только новые объявления.",
+  ].join("\n"),
+  commands: Object.freeze([
+    Object.freeze({ command: "start", description: "Открыть главное меню" }),
+    Object.freeze({ command: "menu", description: "Открыть главное меню" }),
+    Object.freeze({ command: "filters", description: "Настроить фильтры" }),
+    Object.freeze({ command: "stop", description: "Остановить мониторинг" }),
+    Object.freeze({ command: "cancel", description: "Отменить ввод фильтра" }),
+    Object.freeze({
+      command: "clear",
+      description: "Снять редактируемое ограничение",
+    }),
+    Object.freeze({
+      command: "delete_my_data",
+      description: "Удалить мои данные",
+    }),
+  ]),
+  commandScope: Object.freeze({ type: "all_private_chats" }),
+});
+
+export const TELEGRAM_METADATA_RETRY_INTERVAL_MS = 60 * 60 * 1_000;
+
+export async function synchronizeTelegramMetadata(api, signal) {
+  await api.setMyShortDescription(
+    TELEGRAM_BOT_METADATA.shortDescription,
+    signal,
+  );
+  await api.setMyDescription(TELEGRAM_BOT_METADATA.description, signal);
+  await api.setMyCommands(
+    TELEGRAM_BOT_METADATA.commands,
+    TELEGRAM_BOT_METADATA.commandScope,
+    signal,
+  );
+}

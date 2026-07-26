@@ -141,6 +141,22 @@ export class TelegramApi {
     );
   }
 
+  setMyCommands(commands, scope, signal) {
+    return this.call("setMyCommands", { commands, scope }, { signal });
+  }
+
+  setMyDescription(description, signal) {
+    return this.call("setMyDescription", { description }, { signal });
+  }
+
+  setMyShortDescription(shortDescription, signal) {
+    return this.call(
+      "setMyShortDescription",
+      { short_description: shortDescription },
+      { signal },
+    );
+  }
+
   sendMessage(chatId, text, signal, replyMarkup) {
     return this.call(
       "sendMessage",

@@ -274,6 +274,9 @@ async function recoverAndStop(config, overrides = {}) {
     signal: controller.signal,
     api: {
       getUpdates: async () => [],
+      setMyCommands: async () => true,
+      setMyDescription: async () => true,
+      setMyShortDescription: async () => true,
       sendMessage: async (...arguments_) => {
         completions.push(arguments_);
         controller.abort();

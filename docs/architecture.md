@@ -683,7 +683,15 @@ operator procedures are indexed in
 1. `src/index.js` validates private and channel configuration, acquires the
    persistent-directory singleton lease, and runs the startup preflight. Only a
    ready result permits the reusable Chrome-backed page fetcher and Telegram bot
-   to enter their long-running loops.
+   to enter their long-running loops. At bot startup, the source-controlled
+   profile short description, empty-chat description, and complete supported
+   command list in the Telegram metadata module are synchronized through the
+   Telegram Bot API. Commands are scoped to private chats because group commands
+   are ignored. Synchronization is attempted immediately without blocking
+   polling or monitoring. A failure is logged and retried hourly until the first
+   complete success, after which the metadata loop exits; this auxiliary
+   operation never fails bot startup. Each Bot API request also uses the normal
+   short transient-failure retry policy before the hourly retry is scheduled.
 2. One loop in `src/bot.js` long-polls Telegram. A private `/start` or `/menu`
    from an authorized Telegram user creates or reopens that user's main menu
    without changing an existing monitoring choice; unauthorized senders cannot create
@@ -1040,7 +1048,9 @@ filter-classification behavior. Telegram integration tests use a fake monotonic
 clock to cover inbound bursts, fractional refill, inactivity eviction, restart
 reset, bounded rejection responses, durable denial offsets, and the invariant
 that private actions cannot accelerate the singleton crawl or its failure
-backoff.
+backoff. They also verify the source-controlled profile limits and command list,
+the exact Telegram Bot API payloads, non-blocking startup synchronization, and
+hourly failure retry that stops after the first success.
 Filter tests cover optional/open ranges, regions, places, composed criteria, and
 AMD comparison of foreign source prices. Exchange-rate tests cover SOAP parsing,
 atomic validation, daily refresh, hourly failure backoff, restart reuse, and

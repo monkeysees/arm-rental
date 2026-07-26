@@ -25,13 +25,13 @@ export function filtersMenu(filters, active = false) {
     ].join("\n"),
     replyMarkup: {
       inline_keyboard: [
-        [button("💰 Цена, ֏", "f:price"), button("🚪 Комнаты", "f:rooms")],
-        [button("📍 Местоположение", "f:locations")],
+        [button("Цена, ֏", "f:price"), button("Комнаты", "f:rooms")],
+        [button("Местоположение", "f:locations")],
         [button("Сбросить всё", "f:reset")],
         [
           active
-            ? button("⏹ Остановить мониторинг", "m:stop")
-            : button("▶️ Запустить мониторинг", "m:start"),
+            ? button("Остановить мониторинг", "m:stop")
+            : button("Запустить мониторинг", "m:start"),
         ],
       ],
     },

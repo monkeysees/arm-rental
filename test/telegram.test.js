@@ -647,9 +647,23 @@ test("private users explicitly start and stop monitoring from the setup panel", 
   assert.equal(state.updateOffset, 16);
   assert.equal(sent.length, 2);
   assert.match(sent[0][1], /Мониторинг: остановлен/u);
+  assert.deepEqual(
+    sent[0][2].inline_keyboard.flat().map(({ text }) => text),
+    [
+      "Цена, ֏",
+      "Комнаты",
+      "Местоположение",
+      "Сбросить всё",
+      "Запустить мониторинг",
+    ],
+  );
   assert.equal(sent[0][2].inline_keyboard.at(-1)[0].callback_data, "m:start");
   assert.match(edited[0][2], /Отправить уже найденные квартиры/u);
   assert.match(edited[1][2], /Мониторинг: запущен/u);
+  assert.equal(
+    edited[1][3].inline_keyboard.at(-1)[0].text,
+    "Остановить мониторинг",
+  );
   assert.equal(edited[1][3].inline_keyboard.at(-1)[0].callback_data, "m:stop");
   assert.match(edited.at(-1)[2], /Мониторинг: остановлен/u);
   assert.deepEqual(subscriptionChanges, [

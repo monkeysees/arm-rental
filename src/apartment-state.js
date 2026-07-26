@@ -58,3 +58,13 @@ export function migrateApartmentState(state, template) {
     sourceIntegrity: { recentFirstPageCounts: [] },
   };
 }
+
+export function sourceIntegrityStateSummary(state) {
+  const sourceIntegrity =
+    state?.version === APARTMENT_STATE_VERSION ? state.sourceIntegrity : null;
+  return {
+    sourceIntegritySampleCount:
+      sourceIntegrity?.recentFirstPageCounts?.length ?? 0,
+    sourceIntegrityLastSuccessfulAt: sourceIntegrity?.lastSuccessfulAt ?? null,
+  };
+}

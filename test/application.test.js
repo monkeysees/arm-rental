@@ -4,6 +4,10 @@ import test from "node:test";
 
 import { runApplication } from "../src/application.js";
 import { HealthMonitor } from "../src/health.js";
+import {
+  ListAmIntegrityReason,
+  ListAmSourceIntegrityError,
+} from "../src/source-integrity.js";
 
 test("configuration validation fails before locks, resources, or loops start", async () => {
   const calls = [];
@@ -95,6 +99,27 @@ test("application lifecycle drives crawl and exchange-rate readiness", async () 
     },
     preflight: async (_config, callbacks) => {
       callbacks.onRetry({ component: "telegram", attempt: 1 });
+      callbacks.onSourceIntegrityChecked({
+        pages: [
+          {
+            page: 1,
+            candidateCount: 2,
+            uniqueCandidateCount: 2,
+            parsedCount: 2,
+            duplicateCount: 0,
+            rejectedCount: 0,
+            completeness: {
+              title: 2,
+              date: 2,
+              price: 2,
+              location: 2,
+              rooms: 2,
+              areaSqM: 2,
+              floor: 2,
+            },
+          },
+        ],
+      });
       return {
         status: "ready",
         ready: true,
@@ -131,6 +156,54 @@ test("application lifecycle drives crawl and exchange-rate readiness", async () 
         active: true,
         activeUserCount: 1,
         sendInitialApartments: false,
+      });
+      callbacks.onError(
+        new ListAmSourceIntegrityError(
+          ListAmIntegrityReason.IDENTITY_REJECTION,
+          {
+            page: 1,
+            diagnostics: {
+              apartments: [{ title: "must-not-leak" }],
+              candidateCount: 1,
+              uniqueCandidateCount: 0,
+              parsedCount: 0,
+              duplicateCount: 0,
+              rejectedCount: 1,
+              completeness: {
+                title: 0,
+                date: 0,
+                price: 0,
+                location: 0,
+                rooms: 0,
+                areaSqM: 0,
+                floor: 0,
+              },
+            },
+          },
+        ),
+        { component: "list_am", crawlFailure: true, crawlId: "safe-crawl" },
+      );
+      callbacks.onSourceIntegrityChecked({
+        crawlId: "safe-crawl",
+        pages: [
+          {
+            page: 1,
+            candidateCount: 1,
+            uniqueCandidateCount: 1,
+            parsedCount: 1,
+            duplicateCount: 0,
+            rejectedCount: 0,
+            completeness: {
+              title: 1,
+              date: 1,
+              price: 1,
+              location: 1,
+              rooms: 1,
+              areaSqM: 1,
+              floor: 1,
+            },
+          },
+        ],
       });
       callbacks.onResult({
         crawlId: "69a3b980-24ce-494b-a1e5-cdb4ff9dc659",
@@ -262,6 +335,48 @@ test("application lifecycle drives crawl and exchange-rate readiness", async () 
     errorRecords.some(
       ({ message }) => message === "Telegram channel publication failed",
     ),
+  );
+  assert.ok(
+    errorRecords.some(
+      ({ context }) =>
+        context?.event === "source.integrity.failed" &&
+        context.reason === "IDENTITY_REJECTION" &&
+        JSON.stringify(context).includes("must-not-leak") === false,
+    ),
+  );
+  assert.ok(
+    infoRecords.some(
+      ({ context }) =>
+        context?.event === "source.integrity.checked" &&
+        context.phase === "runtime" &&
+        context.crawlId === "safe-crawl" &&
+        context.parsedCount === 1,
+    ),
+  );
+  assert.ok(
+    infoRecords.some(
+      ({ context }) =>
+        context?.event === "source.integrity.checked" &&
+        context.phase === "preflight" &&
+        context.page === 1 &&
+        context.parsedCount === 2,
+    ),
+  );
+  const channelOperationRecords = [...infoRecords, ...errorRecords].filter(
+    ({ message }) => message.startsWith("Telegram channel operation"),
+  );
+  assert.equal(channelOperationRecords.length, 2);
+  assert.equal(
+    JSON.stringify(channelOperationRecords).includes("listing-"),
+    false,
+  );
+  assert.equal(
+    JSON.stringify(channelOperationRecords).includes("@rentals"),
+    false,
+  );
+  assert.equal(
+    JSON.stringify(channelOperationRecords).includes("messageId"),
+    false,
   );
   assert.deepEqual(
     infoRecords.find(({ context }) => context?.event === "crawl.succeeded")

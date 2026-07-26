@@ -113,9 +113,11 @@ test("immediate cancellation retires a confirmation despite response throttling"
   assert.deepEqual(answered, ["delete-11", "delete-12", "delete-13"]);
 });
 
-test("unknown users get one no-data response without state creation", async () => {
+test("unknown deletion requests follow access policy without state creation", async () => {
   const limits = createPrivateRateLimits(5, { monotonicNow: () => 0 });
   const sent = [];
+  const answered = [];
+  const denied = [];
   const state = await processUpdates(
     [
       message(1, 77, "/delete_my_data"),
@@ -126,31 +128,42 @@ test("unknown users get one no-data response without state creation", async () =
     botState({}),
     {
       sendMessage: async (...arguments_) => sent.push(arguments_),
-      answerCallback: async () => {},
+      answerCallback: async (callbackId) => answered.push(callbackId),
       saveState: async () => {},
+      onAccessDenied: async (event) => denied.push(event),
       rateLimits: limits,
     },
   );
 
   assert.deepEqual(state.users, {});
   assert.equal(state.updateOffset, 4);
-  assert.equal(sent.length, 1);
-  assert.match(sent[0][1], /нет сохранённых данных/u);
+  assert.deepEqual(sent, []);
+  assert.deepEqual(answered, ["delete-3"]);
+  assert.deepEqual(denied, [
+    { accessMode: "owner", reason: "not_authorized" },
+    { accessMode: "owner", reason: "not_authorized" },
+    { accessMode: "owner", reason: "not_authorized" },
+  ]);
   assert.equal(limits.inboundUpdates.size, 0);
+  assert.equal(limits.deletionResponses.size, 0);
+  assert.equal(limits.accessDeniedResponses.size, 0);
 
   const publicLimits = createPrivateRateLimits(5, { monotonicNow: () => 0 });
+  const publicSent = [];
   const publicState = await processUpdates(
     [message(4, 88, "/delete_my_data")],
     { telegramOwnerId: 42, telegramAccessMode: "public" },
     botState({}),
     {
-      sendMessage: async () => {},
+      sendMessage: async (...arguments_) => publicSent.push(arguments_),
       saveState: async () => {},
       rateLimits: publicLimits,
     },
   );
   assert.deepEqual(publicState.users, {});
   assert.equal(publicLimits.inboundUpdates.size, 1);
+  assert.equal(publicSent.length, 1);
+  assert.match(publicSent[0][1], /нет сохранённых данных/u);
 });
 
 test("confirmation persists an inactive marker before best-effort acknowledgement", async () => {

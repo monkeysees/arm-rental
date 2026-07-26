@@ -27,6 +27,38 @@ function aggregateCounts(diagnostics) {
   };
 }
 
+/** Returns the only source-page fields permitted in logs, health, and metrics. */
+export function sourceIntegrityPageSummary(diagnostics, page) {
+  return {
+    page,
+    ...aggregateCounts(diagnostics),
+  };
+}
+
+/** Whitelists a typed failure for operational telemetry. */
+export function sourceIntegrityFailureSummary(error) {
+  const details = error?.details || {};
+  const summary = {
+    reason: error?.reason ?? details.reason,
+    page: error?.page ?? details.page,
+  };
+  for (const key of [
+    "candidateCount",
+    "uniqueCandidateCount",
+    "parsedCount",
+    "duplicateCount",
+    "rejectedCount",
+    "completeness",
+    "priorCount",
+    "priorMedianTwice",
+    "thresholds",
+  ]) {
+    if (details[key] !== undefined)
+      summary[key] = structuredClone(details[key]);
+  }
+  return summary;
+}
+
 function zeroDiagnostics() {
   return {
     apartments: [],

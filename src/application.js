@@ -3,6 +3,10 @@ import { validateStartupConfig } from "./config.js";
 import { runStartupPreflight, startupFailureResult } from "./preflight.js";
 import { classifyRuntimeFailure } from "./health.js";
 import { observeStateWrites } from "./state.js";
+import {
+  LIST_AM_SOURCE_INTEGRITY_ERROR,
+  sourceIntegrityFailureSummary,
+} from "./source-integrity.js";
 
 export async function runApplication({
   config,
@@ -29,6 +33,16 @@ export async function runApplication({
     ({ name: event, ...metric }) =>
       logger.info("State write metric", { event, ...metric }),
   );
+  const recordSourceIntegrityChecked = ({ pages = [], ...context }) => {
+    healthMonitor?.recordSourceIntegritySuccess();
+    for (const page of pages) {
+      logger.info("List.am source integrity checked", {
+        event: "source.integrity.checked",
+        ...context,
+        ...page,
+      });
+    }
+  };
 
   try {
     await validateConfig(config);
@@ -99,6 +113,8 @@ export async function runApplication({
           event: "retry.scheduled",
           ...event,
         }),
+      onSourceIntegrityChecked: (observation) =>
+        recordSourceIntegrityChecked({ ...observation, phase: "preflight" }),
     });
     logger.info("Startup preflight completed", {
       preflight: preflightResult,
@@ -147,6 +163,8 @@ export async function runApplication({
           channelSkippedCount: result.channel.skippedCount,
         });
       },
+      onSourceIntegrityChecked: (observation) =>
+        recordSourceIntegrityChecked({ ...observation, phase: "runtime" }),
       onError: (error, context) => {
         const component = classifyRuntimeFailure(error, context);
         const failureCode =
@@ -164,6 +182,13 @@ export async function runApplication({
               ? "ERR_BROWSER_VERIFICATION_REQUIRED"
               : failureCode,
           );
+        }
+        if (failureCode === LIST_AM_SOURCE_INTEGRITY_ERROR) {
+          logger.error("List.am source integrity failed", error, {
+            event: "source.integrity.failed",
+            ...sourceIntegrityFailureSummary(error),
+            ...(context?.crawlId ? { crawlId: context.crawlId } : {}),
+          });
         }
         logger.error(
           context?.component === "telegram-channel"
@@ -233,9 +258,6 @@ export async function runApplication({
       onChannelOperation: (event) => {
         const context = {
           operation: event.operation,
-          itemId: event.itemId,
-          channelId: event.channelId,
-          ...(event.messageId ? { messageId: event.messageId } : {}),
           outcome: event.outcome,
           ...(event.crawlId
             ? {
@@ -284,6 +306,13 @@ export async function runApplication({
         });
       }
       healthMonitor?.setPreflight(preflightResult);
+      if (preflightResult.failure?.code === LIST_AM_SOURCE_INTEGRITY_ERROR) {
+        logger.error?.("List.am source integrity failed", error, {
+          event: "source.integrity.failed",
+          phase: "preflight",
+          ...sourceIntegrityFailureSummary(error),
+        });
+      }
     }
     throw error;
   } finally {

@@ -1,4 +1,5 @@
 import packageMetadata from "../package.json" with { type: "json" };
+import { getEnvironmentName } from "./environment-config.js";
 
 const REDACTED = "[REDACTED]";
 const DEFAULT_FAILURE_WINDOW_MS = 5 * 60 * 1_000;
@@ -84,9 +85,8 @@ function failureSignature(record) {
 export function createLogger(
   output = console,
   {
-    environment = process.env.NODE_ENV || "development",
-    applicationVersion = process.env.APPLICATION_VERSION ||
-      packageMetadata.version,
+    environment = getEnvironmentName(),
+    applicationVersion = packageMetadata.version,
     now = () => new Date(),
     failureWindowMs = DEFAULT_FAILURE_WINDOW_MS,
   } = {},

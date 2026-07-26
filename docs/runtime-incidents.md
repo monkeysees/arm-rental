@@ -19,7 +19,7 @@ docker inspect --format \
 docker exec rental-apartments-bot node -e \
   'fetch("http://127.0.0.1:8787/ready").then(async r => { console.log(await r.text()); process.exitCode=r.ok?0:1 })'
 docker compose --file compose.production.yaml logs --since 20m bot |
-  jq -Rr 'fromjson? | select(.event == "crawl.succeeded" or .event == "crawl.failed" or .event == "retry.scheduled" or .event == "browser.challenge") | [.timestamp,.event,.component,.code,.crawlId] | @tsv'
+  jq -Rr 'fromjson? | select(.event == "source.integrity.checked" or .event == "source.integrity.failed" or .event == "crawl.succeeded" or .event == "crawl.failed" or .event == "retry.scheduled" or .event == "browser.challenge") | [.timestamp,.event,.reason,.component,.code,.crawlId] | @tsv'
 ```
 
 Expected healthy output is a running container, ready HTTP response, and a
@@ -36,6 +36,12 @@ reading Telegram state.
 - `list_am`: verify host DNS/outbound HTTPS and the configured production
   target. Do not increase crawl rate, bypass a challenge, or repeatedly hammer
   List.am.
+- `LIST_AM_SOURCE_INTEGRITY`: preserve the prior state and bounded baseline,
+  inspect only aggregate `source.integrity.failed` counts, compare a sanitized
+  fixture in the current release, and deploy a reviewed selector/parser fix.
+  Do not reset state, clear the Chrome profile, print HTML, or bypass backoff.
+  Expected recovery is `source.integrity.checked`, the matching alert
+  resolution, and then a correlated `crawl.succeeded` when delivery completes.
 - `exchange_rates`: retain a usable snapshot while checking CBA access. Never
   hand-edit rates. Absence of any usable snapshot blocks currency conversion.
 - `storage`: run `npm run storage:check` and follow the

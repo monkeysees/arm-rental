@@ -372,6 +372,12 @@ private-user admission limit. Production has no implicit storage or browser
 choices: `NODE_ENV=production`, `DATA_DIRECTORY`, `BROWSER_HEADLESS=true`, and
 an absolute `CHROME_EXECUTABLE_PATH` must all be explicit.
 
+`src/environment-config.js` is the shared strict parser for runtime mode and
+the loopback health endpoint. The main configuration, JSON logger, and sibling
+health-check process therefore use the same catalog defaults and reject the
+same invalid values. Log `applicationVersion` comes only from immutable package
+metadata; an undeclared environment override cannot forge release provenance.
+
 Apartment, private-delivery, channel-delivery, exchange-rate, Telegram bot, and
 Chrome-profile paths are normalized and must be distinct children of
 `DATA_DIRECTORY`. Startup rejects filesystem-root storage, paths outside the
@@ -929,6 +935,16 @@ evaluator and record verification only after validation. Source-integrity
 errors are recoverable external failures and therefore use bounded crawl
 backoff; readiness, alert, metric, and dedicated integrity-event projection is
 integrated with the operational surfaces separately.
+
+After every fetched page validates, the crawler publishes only sanitized page
+counts to the runtime boundary before persistence and delivery. This emits
+`source.integrity.checked`, restores the List.am health component, and resolves
+`list_am_source_integrity` even if a later Telegram operation fails. A typed
+failure emits `source.integrity.failed`, makes readiness immediately report
+`LIST_AM_SOURCE_INTEGRITY`, and fires the same edge-triggered alert path.
+The local metrics snapshot groups failures only by stable reason and retains
+application firing/resolution cursors so both edges survive between monitor
+runs.
 
 Apartment state schema version 3 adds only a bounded `sourceIntegrity`
 aggregate: up to five non-negative first-page parsed counts and an optional

@@ -120,6 +120,20 @@ the digest, and leaves the service failed.
 
 ## Automatic rollback and quarantine
 
+Before the apartment schema first advances to version 3, retain the validated
+pre-deploy snapshot as the rollback point. An older image must start only after
+that matching snapshot is restored; it must never read or rewrite version-3
+apartment state. Candidate acceptance must show a `source.integrity.checked`
+record and `crawl.succeeded` record with the same crawl ID.
+
+The restored deployment configuration remains the access-policy authority;
+never infer an access mode from snapshot users or resume users that the
+restored mode does not authorize. Restore private-delivery acknowledgements
+with bot state so rollback cannot resend accepted apartments. A snapshot that
+contains `deletionPendingAt` must resume that deletion; rolling back across the
+deletion boundary is allowed only with the matching, internally consistent
+pre-deletion snapshot of both bot and private-delivery state.
+
 Any candidate failure after mutation stops the candidate, restores the verified
 pre-deploy snapshot, starts the previous immutable image through systemd, and
 requires readiness. A successful recovery emits

@@ -166,9 +166,15 @@ test("weekly maintenance reports state growth and cleans only reconstructible Ch
   });
 
   assert.equal(first.stateFiles.length, 6);
+  const apartmentReport = first.stateFiles.find(
+    ({ name }) => name === "apartments",
+  );
+  assert.equal(apartmentReport.entryCount, 2);
+  assert.equal(apartmentReport.apartments, 2);
+  assert.equal(apartmentReport.sourceIntegritySampleCount, 3);
   assert.equal(
-    first.stateFiles.find(({ name }) => name === "apartments").entryCount,
-    2,
+    apartmentReport.sourceIntegrityLastSuccessfulAt,
+    "2026-07-25T08:00:00.000Z",
   );
   assert.equal(
     first.stateFiles.find(({ name }) => name === "privateDelivery").entryCount,

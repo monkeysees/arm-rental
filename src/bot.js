@@ -512,6 +512,9 @@ export async function processUpdates(
     const context = privateUpdateContext(update);
 
     if (!context) {
+      // Persist ignored and malformed updates before a callback acknowledgement
+      // can fail, so replay cannot cross an authorization boundary twice.
+      await saveState(current);
       if (query) await answerCallback(query.id);
       continue;
     }
@@ -519,30 +522,6 @@ export async function processUpdates(
     const { message, senderId } = context;
     const deletionKind = deletionUpdateKind(update);
     const hasPersistedUser = persistedUser(current, senderId);
-    if (deletionKind && !hasPersistedUser) {
-      if (
-        isPrivateUserAuthorized(config, senderId) &&
-        !effectiveRateLimits.tryConsumeUpdate(senderId, update.update_id)
-      ) {
-        await saveState(current);
-        if (effectiveRateLimits.rateLimitedEvents.tryAcquire("aggregate")) {
-          await onUserRateLimited({
-            updatesPerMinute: config.telegramUserUpdatesPerMinute ?? 30,
-          });
-        }
-        if (query) await answerCallback(query.id);
-        if (effectiveRateLimits.rateLimitedResponses.tryAcquire(senderId)) {
-          await sendMessage(senderId, RATE_LIMITED_TEXT);
-        }
-        continue;
-      }
-      await saveState(current);
-      if (query) await answerCallback(query.id);
-      if (effectiveRateLimits.deletionResponses.tryAcquire(senderId)) {
-        await sendMessage(senderId, DELETE_NO_DATA_TEXT);
-      }
-      continue;
-    }
     const accessBypass =
       hasPersistedUser &&
       (Boolean(deletionKind) ||
@@ -562,6 +541,28 @@ export async function processUpdates(
         effectiveRateLimits.accessDeniedResponses.tryAcquire(senderId)
       ) {
         await sendMessage(senderId, ACCESS_DENIED_TEXT(senderId));
+      }
+      continue;
+    }
+
+    if (deletionKind && !hasPersistedUser) {
+      if (!effectiveRateLimits.tryConsumeUpdate(senderId, update.update_id)) {
+        await saveState(current);
+        if (effectiveRateLimits.rateLimitedEvents.tryAcquire("aggregate")) {
+          await onUserRateLimited({
+            updatesPerMinute: config.telegramUserUpdatesPerMinute ?? 30,
+          });
+        }
+        if (query) await answerCallback(query.id);
+        if (effectiveRateLimits.rateLimitedResponses.tryAcquire(senderId)) {
+          await sendMessage(senderId, RATE_LIMITED_TEXT);
+        }
+        continue;
+      }
+      await saveState(current);
+      if (query) await answerCallback(query.id);
+      if (effectiveRateLimits.deletionResponses.tryAcquire(senderId)) {
+        await sendMessage(senderId, DELETE_NO_DATA_TEXT);
       }
       continue;
     }
@@ -797,6 +798,7 @@ export async function runTelegramBot(
     onTelegramSuccess = () => {},
     onChannelOperation = () => {},
     onChannelFilterFingerprintChange = () => {},
+    onSourceIntegrityChecked = () => {},
     onRetry = () => {},
     exchangeRateService,
     monotonicNow,
@@ -1092,6 +1094,8 @@ export async function runTelegramBot(
         const result = await crawl(config, {
           fetchPage: pageFetch,
           exchangeRates,
+          onSourceIntegrityChecked: (observation) =>
+            onSourceIntegrityChecked({ ...observation, crawlId }),
           ...(privateUsers.length > 0
             ? {
                 privateDeliveries: privateUsers.map((user) => {

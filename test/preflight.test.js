@@ -193,6 +193,7 @@ test("preflight validates every state target and all external boundaries before 
 test("preflight records parsed unique apartments rather than raw candidates", async (t) => {
   const config = await temporaryConfig(t);
   const verificationCounts = [];
+  const integrityChecks = [];
   const diagnosticHtml = `
     <div id="contentr">
       <a class="fav-item-info-container" href="/ru/item/200">
@@ -211,12 +212,16 @@ test("preflight records parsed unique apartments rather than raw candidates", as
     },
     exchangeRateService: { getSnapshot: async () => ratesSnapshot() },
     api: telegramApi(),
+    onSourceIntegrityChecked: async (observation) =>
+      integrityChecks.push(observation),
     recordVerification: async (_config, count) =>
       verificationCounts.push(count),
   });
 
   assert.equal(result.status, "ready");
   assert.deepEqual(verificationCounts, [1]);
+  assert.equal(integrityChecks[0].pages[0].parsedCount, 1);
+  assert.equal(JSON.stringify(integrityChecks).includes("apartments"), false);
 });
 
 test("preflight and runtime report the same integrity reason without writes", async (t) => {

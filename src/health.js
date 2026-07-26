@@ -2,6 +2,7 @@ import { createServer } from "node:http";
 
 const TEN_MINUTES_MS = 10 * 60 * 1_000;
 const FORTY_EIGHT_HOURS_MS = 48 * 60 * 60 * 1_000;
+const SOURCE_INTEGRITY_ERROR = "ERR_LIST_AM_SOURCE_INTEGRITY";
 const COMPONENT_NAMES = [
   "configuration",
   "storage",
@@ -186,6 +187,15 @@ export class HealthMonitor {
       if (result.status === "browser_verification_required") {
         this.#setAlert("browser_challenge", true);
       }
+      if (result.failure.code === SOURCE_INTEGRITY_ERROR) {
+        this.#setAlert("list_am_source_integrity", true, {
+          reason: "LIST_AM_SOURCE_INTEGRITY",
+        });
+      }
+    } else if (result?.ready) {
+      this.#setAlert("list_am_source_integrity", false, {
+        reason: "LIST_AM_SOURCE_INTEGRITY",
+      });
     }
   }
 
@@ -231,6 +241,9 @@ export class HealthMonitor {
       this.#setComponent("browser", "ok", undefined, completedAt);
     }
     this.#setAlert("five_consecutive_crawl_failures", false);
+    this.#setAlert("list_am_source_integrity", false, {
+      reason: "LIST_AM_SOURCE_INTEGRITY",
+    });
   }
 
   recordCrawlFailure(kind, code = "ERR_CRAWL") {
@@ -252,6 +265,19 @@ export class HealthMonitor {
       safeCode(code, "ERR_CRAWL"),
       failedAt,
     );
+    if (code === SOURCE_INTEGRITY_ERROR) {
+      this.#setAlert("list_am_source_integrity", true, {
+        reason: "LIST_AM_SOURCE_INTEGRITY",
+      });
+    }
+  }
+
+  recordSourceIntegritySuccess(at = this.now()) {
+    const completedAt = at.toISOString();
+    this.#setComponent("list_am", "ok", undefined, completedAt);
+    this.#setAlert("list_am_source_integrity", false, {
+      reason: "LIST_AM_SOURCE_INTEGRITY",
+    });
   }
 
   recordBrowserChallenge(at = timestamp(this.now)) {
@@ -341,6 +367,10 @@ export class HealthMonitor {
 
     if (components.browser.status === "challenge") {
       reasons.push("BROWSER_VERIFICATION_REQUIRED");
+    }
+
+    if (components.list_am.code === SOURCE_INTEGRITY_ERROR) {
+      reasons.push("LIST_AM_SOURCE_INTEGRITY");
     }
 
     const monitoringRequired = this.#monitoringRequired();

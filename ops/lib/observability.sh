@@ -408,6 +408,15 @@ write_metrics_snapshot() {
               | select(
                   $containerStarted == null
                   or ($lastObserved != null and $lastObserved >= $containerStarted)
+              )
+            ]),
+          applicationAlertTransitions:
+            ([
+              $application.applicationAlertTransitions[]?
+              | (.observedAt | rfc3339_epoch) as $observed
+              | select(
+                  $containerStarted == null
+                  or ($observed != null and $observed >= $containerStarted)
                 )
             ]),
           filesystems: [$data, $backupFs],

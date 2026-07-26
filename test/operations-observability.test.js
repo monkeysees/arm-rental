@@ -25,18 +25,35 @@ async function executable(filename, contents) {
   await chmod(filename, 0o755);
 }
 
-function alertRecord(observedAt, event = "alert.firing") {
+function alertRecord(
+  observedAt,
+  event = "alert.firing",
+  alertName = "browser_challenge",
+  reason,
+) {
   return `${JSON.stringify({
+    __CURSOR: `${Date.parse(observedAt)}-${event}-${alertName}`,
     __REALTIME_TIMESTAMP: String(Date.parse(observedAt) * 1000),
     CONTAINER_NAME: "rental-apartments-bot",
     PRIORITY: event === "alert.firing" ? "4" : "6",
     MESSAGE: JSON.stringify({
       severity: event === "alert.firing" ? "warn" : "info",
       event,
-      alertName: "browser_challenge",
+      alertName,
       alertSeverity: "warn",
+      ...(reason ? { reason } : {}),
       message: "Browser verification state changed",
     }),
+  })}\n`;
+}
+
+function applicationRecord(observedAt, record) {
+  return `${JSON.stringify({
+    __CURSOR: `${Date.parse(observedAt)}-${record.event}`,
+    __REALTIME_TIMESTAMP: String(Date.parse(observedAt) * 1000),
+    CONTAINER_NAME: "rental-apartments-bot",
+    PRIORITY: record.severity === "error" ? "3" : "6",
+    MESSAGE: JSON.stringify(record),
   })}\n`;
 }
 
@@ -150,6 +167,22 @@ exit ${operationsLockAvailable ? 0 : 1}
 
 test("rentalctl preserves malformed logs and aggregates bounded journal metrics", async (t) => {
   const host = await fakeHost(t);
+  await appendFile(
+    host.journal,
+    applicationRecord("2026-07-25T11:59:00.000Z", {
+      severity: "info",
+      event: "source.integrity.checked",
+      page: 1,
+      parsedCount: 20,
+    }) +
+      applicationRecord("2026-07-25T11:59:30.000Z", {
+        severity: "error",
+        event: "source.integrity.failed",
+        reason: "IDENTITY_REJECTION",
+        page: 1,
+        rejectedCount: 1,
+      }),
+  );
   const logs = await execute(
     rentalctl,
     ["logs", "--since", "30m", "--severity", "error"],
@@ -192,6 +225,13 @@ test("rentalctl preserves malformed logs and aggregates bounded journal metrics"
       durationMs: { p50: 100, p95: 501 },
     },
   ]);
+  assert.deepEqual(result.metrics.sourceIntegrity, {
+    checkedPages: 1,
+    failures: 1,
+    failuresByReason: [{ reason: "IDENTITY_REJECTION", count: 1 }],
+    lastCheckedAt: "2026-07-25T11:59:00Z",
+    lastFailureAt: "2026-07-25T11:59:30Z",
+  });
 
   const timers = await execute(rentalctl, ["timers"], { env: host.env });
   assert.deepEqual(
@@ -236,6 +276,44 @@ test("monitor sends only firing and resolved transitions and keeps redacted fall
   const serviceLog = await readFile(host.env.RENTAL_TEST_SYSTEMD_LOG, "utf8");
   assert.doesNotMatch(serviceLog, /abcdefghijklmnopqrstuvwxyz|123456789/u);
   assert.match(serviceLog, /monitor\.succeeded/u);
+});
+
+test("monitor delivers transient application alert edges exactly once", async (t) => {
+  const host = await fakeHost(t);
+  await execute(monitor, [], { env: host.env });
+  const initialCalls = (await readFile(host.env.RENTAL_TEST_CURL_CALLS, "utf8"))
+    .trim()
+    .split("\n").length;
+
+  await appendFile(
+    host.journal,
+    alertRecord(
+      "2026-07-25T11:59:10.000Z",
+      "alert.firing",
+      "list_am_source_integrity",
+      "LIST_AM_SOURCE_INTEGRITY",
+    ) +
+      alertRecord(
+        "2026-07-25T11:59:20.000Z",
+        "alert.resolved",
+        "list_am_source_integrity",
+        "LIST_AM_SOURCE_INTEGRITY",
+      ),
+  );
+  await execute(monitor, [], { env: host.env });
+  await execute(monitor, [], { env: host.env });
+
+  const calls = (await readFile(host.env.RENTAL_TEST_CURL_CALLS, "utf8"))
+    .trim()
+    .split("\n");
+  assert.equal(calls.length, initialCalls + 2);
+  const payloads = await readFile(host.env.RENTAL_TEST_CURL_PAYLOADS, "utf8");
+  assert.match(payloads, /alert firing: list_am_source_integrity/u);
+  assert.match(payloads, /alert resolved: list_am_source_integrity/u);
+  assert.doesNotMatch(
+    await readFile(host.env.RENTAL_TEST_SYSTEMD_LOG, "utf8"),
+    /123456789|abcdefghijklmnopqrstuvwxyz/u,
+  );
 });
 
 test("scheduled-job alerts explain the latest structured failure reason", async (t) => {

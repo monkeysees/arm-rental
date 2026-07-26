@@ -124,3 +124,16 @@ test("identical failures are rate-limited and report the suppressed count", () =
   assert.equal(records.length, 2);
   assert.equal(JSON.parse(records[1]).suppressedCount, 2);
 });
+
+test("application version comes only from immutable package metadata", (t) => {
+  const original = process.env.APPLICATION_VERSION;
+  process.env.APPLICATION_VERSION = "forged-version";
+  t.after(() => {
+    if (original === undefined) delete process.env.APPLICATION_VERSION;
+    else process.env.APPLICATION_VERSION = original;
+  });
+
+  const { logger, records } = recordingLogger();
+  logger.info("Version provenance");
+  assert.equal(JSON.parse(records[0]).applicationVersion, "1.0.0");
+});

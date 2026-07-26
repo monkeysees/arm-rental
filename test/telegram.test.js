@@ -208,6 +208,46 @@ test("restricted access advances offsets without creating or mutating users", as
   assert.equal(state.users[42].active, false);
 });
 
+test("mismatched callback persists its offset before acknowledgement", async () => {
+  const saved = [];
+  const limits = createPrivateRateLimits(5, { monotonicNow: () => 0 });
+  const mismatched = callback(8, "m:stop", 100, 42);
+  mismatched.callback_query.message.chat.id = 99;
+
+  await assert.rejects(
+    processUpdates(
+      [mismatched],
+      { telegramOwnerId: 42, telegramAccessMode: "owner" },
+      {
+        version: 3,
+        type: "telegram-bot",
+        updateOffset: 0,
+        users: {},
+      },
+      {
+        sendMessage: async () => {},
+        answerCallback: async () => {
+          throw new Error("callback acknowledgement unavailable");
+        },
+        saveState: async (value) => saved.push(structuredClone(value)),
+        rateLimits: limits,
+      },
+    ),
+    /callback acknowledgement unavailable/u,
+  );
+
+  assert.deepEqual(saved, [
+    {
+      version: 3,
+      type: "telegram-bot",
+      updateOffset: 9,
+      users: {},
+    },
+  ]);
+  assert.equal(limits.inboundUpdates.size, 0);
+  assert.equal(limits.accessDeniedResponses.size, 0);
+});
+
 test("denied users receive one bounded response without limiter or state entries", async () => {
   let now = 0;
   const senderId = 73_429_851;

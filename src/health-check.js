@@ -1,16 +1,12 @@
 import { request } from "node:http";
 import { readFile, readdir } from "node:fs/promises";
+import { getHealthEndpointConfig } from "./environment-config.js";
 
-function positiveInteger(value, fallback) {
-  const parsed = Number(value);
-  return Number.isSafeInteger(parsed) && parsed > 0 ? parsed : fallback;
-}
-
-export function probeLiveness({
-  host = process.env.HEALTH_HOST || "127.0.0.1",
-  port = positiveInteger(process.env.HEALTH_PORT, 8_787),
-  timeoutMs = 3_000,
-} = {}) {
+export async function probeLiveness(options = {}) {
+  const endpoint = getHealthEndpointConfig(options.env);
+  const host = options.host ?? endpoint.host;
+  const port = options.port ?? endpoint.port;
+  const timeoutMs = options.timeoutMs ?? 3_000;
   return new Promise((resolve, reject) => {
     const probe = request(
       {

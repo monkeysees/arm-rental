@@ -21,6 +21,10 @@ Snapshots contain mode-restricted copies, a versioned manifest, SHA-256 hashes,
 schema/count summaries, the Telegram update offset, and the last successful
 browser verification record. The backup and restore commands emit stable
 `backup.*`, `restore.*`, and `storage.low_disk` events for later alert routing.
+For apartment schema version 3, the summary includes only the number of bounded
+first-page source-integrity samples and the optional last-success timestamp;
+restore validation preserves the exact aggregate without exposing apartment
+or user data.
 
 ## Automated daily backup
 
@@ -103,6 +107,10 @@ notified/skipped/filtered counts, channel and published counts, exchange-rate
 currency count, Telegram `updateOffset`, browser verification timestamp, and
 hash success. Select the newest valid recovery point from before the incident.
 Do not edit a snapshot or restore from a `.snapshot-*.tmp` directory.
+
+Older releases that cannot read apartment schema version 3 must be paired with
+the validated pre-upgrade snapshot. Restore that snapshot before starting the
+older image; never point an older binary at live version-3 state.
 
 ## Restore procedure
 

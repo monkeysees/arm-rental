@@ -19,8 +19,11 @@ import {
 } from "./config-catalog.js";
 import { MAX_RETRY_DELAY_MS } from "./retry.js";
 import { LIST_AM_URL_TEMPLATE } from "./target.js";
+import {
+  getEnvironmentName,
+  getHealthEndpointConfig,
+} from "./environment-config.js";
 
-const SUPPORTED_RUNTIME_MODES = new Set(["development", "test", "production"]);
 const RESERVED_DATA_PATHS = new Set([
   ".maintenance-history.json",
   ".singleton.json",
@@ -143,16 +146,6 @@ function optionalChannelId(value) {
   return channelId;
 }
 
-function runtimeMode(value) {
-  const mode = value?.trim() || "development";
-  if (!SUPPORTED_RUNTIME_MODES.has(mode)) {
-    throw new Error(
-      `NODE_ENV must be one of: ${[...SUPPORTED_RUNTIME_MODES].join(", ")}`,
-    );
-  }
-  return mode;
-}
-
 function isInside(parent, candidate) {
   const relative = path.relative(parent, candidate);
   return (
@@ -235,7 +228,8 @@ export function getConfig(env = process.env, cwd = process.cwd()) {
   const read = (name, context = {}) =>
     readConfigurationEnvironment(env, name, context);
   const dataDirectory = path.resolve(cwd, read("DATA_DIRECTORY"));
-  const environmentName = runtimeMode(read("NODE_ENV"));
+  const environmentName = getEnvironmentName(env);
+  const healthEndpoint = getHealthEndpointConfig(env);
   const telegramChannelId = optionalChannelId(read("TELEGRAM_CHANNEL_ID"));
   const dataContext = { dataDirectory };
 
@@ -375,15 +369,10 @@ export function getConfig(env = process.env, cwd = process.cwd()) {
         undefined,
         "DISK_FREE_WARNING_PERCENT",
       ) / 100,
-    healthHost: read("HEALTH_HOST").trim(),
-    healthPort: port(read("HEALTH_PORT"), undefined, "HEALTH_PORT"),
+    healthHost: healthEndpoint.host,
+    healthPort: healthEndpoint.port,
   };
 
-  if (!["127.0.0.1", "::1"].includes(config.healthHost)) {
-    throw new Error(
-      "HEALTH_HOST must be a loopback address (127.0.0.1 or ::1)",
-    );
-  }
   if (config.externalRetryMaxMs > MAX_RETRY_DELAY_MS) {
     throw new Error("EXTERNAL_RETRY_MAX_MS must not exceed 300000");
   }

@@ -142,6 +142,17 @@ test("liveness probe accepts only a responsive success status", async (t) => {
   );
 });
 
+test("liveness probe rejects malformed canonical health configuration", async () => {
+  await assert.rejects(
+    probeLiveness({ env: { HEALTH_PORT: "invalid" } }),
+    /HEALTH_PORT/u,
+  );
+  await assert.rejects(
+    probeLiveness({ env: { HEALTH_HOST: "0.0.0.0" } }),
+    /HEALTH_HOST/u,
+  );
+});
+
 test("readiness enforces crawl failure and elapsed-time thresholds", () => {
   let currentTime = new Date("2026-07-25T10:00:00.000Z");
   const monitor = new HealthMonitor({
@@ -218,6 +229,64 @@ test("health transitions emit each production alert once until resolved", () => 
         name === "stale_exchange_rates" && status === "firing",
     ),
   );
+});
+
+test("source integrity fails readiness immediately and resolves on a valid observation", () => {
+  const alerts = [];
+  const now = () => new Date("2026-07-25T10:00:00.000Z");
+  const monitor = new HealthMonitor({
+    version: "1.0.0",
+    now,
+    onAlert: (alert) => alerts.push(alert),
+  });
+  monitor.setPreflight(readyPreflight);
+  monitor.recordExchangeRateSnapshot(snapshot(now().toISOString()));
+  monitor.setMonitoringState({ active: true, channelConfigured: false });
+  monitor.recordCrawlSuccess();
+
+  monitor.recordCrawlFailure("list_am", "ERR_LIST_AM_SOURCE_INTEGRITY");
+  assert.ok(monitor.readiness().reasons.includes("LIST_AM_SOURCE_INTEGRITY"));
+  assert.equal(
+    alerts.filter(
+      ({ name, status }) =>
+        name === "list_am_source_integrity" && status === "firing",
+    ).length,
+    1,
+  );
+
+  monitor.recordSourceIntegritySuccess();
+  monitor.recordCrawlFailure("telegram", "ERR_TELEGRAM_API");
+  assert.equal(
+    monitor.readiness().reasons.includes("LIST_AM_SOURCE_INTEGRITY"),
+    false,
+  );
+  assert.equal(monitor.readiness().components.list_am.status, "ok");
+  assert.ok(
+    alerts.some(
+      ({ name, status }) =>
+        name === "list_am_source_integrity" && status === "resolved",
+    ),
+  );
+});
+
+test("preflight source-integrity failure exposes the dedicated safe reason", () => {
+  const monitor = new HealthMonitor({
+    version: "1.0.0",
+    now: () => new Date("2026-07-25T10:00:00.000Z"),
+  });
+  monitor.setPreflight({
+    status: "failed",
+    ready: false,
+    checks: { list_am: "failed" },
+    failure: {
+      component: "list_am",
+      code: "ERR_LIST_AM_SOURCE_INTEGRITY",
+      reason: "IDENTITY_REJECTION",
+    },
+  });
+  const readiness = monitor.readiness();
+  assert.ok(readiness.reasons.includes("LIST_AM_SOURCE_INTEGRITY"));
+  assert.equal(JSON.stringify(readiness).includes("IDENTITY_REJECTION"), false);
 });
 
 test("readiness reports challenges and exchange-rate availability without leaking data", () => {

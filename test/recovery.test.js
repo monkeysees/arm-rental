@@ -62,18 +62,37 @@ async function fixture(t) {
       },
     }),
     writeState(config.deliveryStateFile, {
-      version: 1,
+      version: 2,
       type: "telegram-deliveries",
       urlTemplate: config.listUrlTemplate,
-      notified: { 100: "2026-07-25T08:00:00.000Z" },
-      skipped: { 101: "2026-07-25T08:00:00.000Z" },
-      filtered: {},
+      recipients: {
+        42: {
+          notified: { 100: "2026-07-25T08:00:00.000Z" },
+          skipped: {},
+          filtered: {},
+          initialSelectionApplied: true,
+        },
+        77: {
+          notified: {},
+          skipped: { 101: "2026-07-25T08:00:00.000Z" },
+          filtered: {},
+          initialSelectionApplied: true,
+        },
+      },
     }),
     writeState(config.telegramStateFile, {
-      version: 1,
+      version: 3,
       type: "telegram-bot",
-      ownerId: 42,
       updateOffset: 815,
+      users: {
+        42: { chatId: 42, active: true },
+        77: {
+          chatId: 77,
+          active: false,
+          pendingFilterInput: null,
+          deletionPendingAt: "2026-07-25T08:03:00.000Z",
+        },
+      },
     }),
     writeState(config.exchangeRatesStateFile, rates()),
     writeState(config.channelDeliveryStateFile, {
@@ -115,8 +134,11 @@ test("an intact snapshot restores every state and the verified browser profile",
   assert.deepEqual(backup.summary.apartments, {
     present: true,
     apartments: 2,
+    sourceIntegritySampleCount: 3,
+    sourceIntegrityLastSuccessfulAt: "2026-07-25T08:00:00.000Z",
   });
   assert.equal(backup.summary.delivery.notified, 1);
+  assert.equal(backup.summary.delivery.recipients, 2);
   assert.equal(backup.summary.bot.updateOffset, 815);
   assert.equal(backup.summary.browser.regularAdsCount, 12);
   assert.deepEqual(events, ["backup.started", "backup.completed"]);
@@ -148,7 +170,54 @@ test("an intact snapshot restores every state and the verified browser profile",
   });
   assert.equal(restored.browserVerificationRequired, true);
   assert.equal(restored.summary.apartments.apartments, 2);
+  assert.deepEqual(
+    JSON.parse(await readFile(config.apartmentsStateFile, "utf8"))
+      .sourceIntegrity,
+    {
+      recentFirstPageCounts: [20, 19, 20],
+      lastSuccessfulAt: "2026-07-25T08:00:00.000Z",
+    },
+  );
   assert.equal(restored.summary.bot.updateOffset, 815);
+  assert.deepEqual(
+    JSON.parse(await readFile(config.telegramStateFile, "utf8")),
+    {
+      version: 3,
+      type: "telegram-bot",
+      updateOffset: 815,
+      users: {
+        42: { chatId: 42, active: true },
+        77: {
+          chatId: 77,
+          active: false,
+          pendingFilterInput: null,
+          deletionPendingAt: "2026-07-25T08:03:00.000Z",
+        },
+      },
+    },
+  );
+  assert.deepEqual(
+    JSON.parse(await readFile(config.deliveryStateFile, "utf8")),
+    {
+      version: 2,
+      type: "telegram-deliveries",
+      urlTemplate: config.listUrlTemplate,
+      recipients: {
+        42: {
+          notified: { 100: "2026-07-25T08:00:00.000Z" },
+          skipped: {},
+          filtered: {},
+          initialSelectionApplied: true,
+        },
+        77: {
+          notified: {},
+          skipped: { 101: "2026-07-25T08:00:00.000Z" },
+          filtered: {},
+          initialSelectionApplied: true,
+        },
+      },
+    },
+  );
   assert.equal(
     await readFile(path.join(config.browserProfileDir, "Cookies"), "utf8"),
     "verified-cookie-state",

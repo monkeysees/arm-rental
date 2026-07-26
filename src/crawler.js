@@ -16,7 +16,10 @@ import {
 import { readState, writeState } from "./state.js";
 import { pageUrl } from "./target.js";
 import { postingDateSortValue } from "./posting-date.js";
-import { parseAndEvaluateRegularApartments } from "./source-integrity.js";
+import {
+  parseAndEvaluateRegularApartments,
+  sourceIntegrityPageSummary,
+} from "./source-integrity.js";
 
 export function compatibleDeliveryState(state, template) {
   return Boolean(
@@ -198,6 +201,7 @@ export async function crawlApartments(
     now = () => new Date(),
     afterStateSaved,
     deliveryStateMutation,
+    onSourceIntegrityChecked = () => {},
   } = {},
 ) {
   const deliveryTargets =
@@ -250,6 +254,7 @@ export async function crawlApartments(
   let stoppedAtKnownDate = null;
   let exhausted = false;
   let firstPageParsedCount;
+  const sourceIntegrityChecks = [];
 
   pageLoop: for (let page = 1; ; page += 1) {
     if (
@@ -268,6 +273,7 @@ export async function crawlApartments(
       priorFirstPageCounts,
     });
     const { apartments } = diagnostics;
+    sourceIntegrityChecks.push(sourceIntegrityPageSummary(diagnostics, page));
     if (page === 1) firstPageParsedCount = diagnostics.parsedCount;
     pagesParsed += 1;
 
@@ -319,6 +325,11 @@ export async function crawlApartments(
       });
     }
   }
+
+  // All fetched pages have passed before source health recovers. This occurs
+  // before persistence and delivery so later infrastructure failures cannot
+  // leave the source-integrity alert firing.
+  await onSourceIntegrityChecked({ pages: sourceIntegrityChecks });
 
   const checkedAt = now().toISOString();
   const apartments = { ...previousApartments };
@@ -585,5 +596,6 @@ export async function crawlApartments(
     lastKnownDate: lastKnownPostingDate.date,
     stoppedAtKnownDate,
     exhausted,
+    sourceIntegrity: { pages: sourceIntegrityChecks },
   };
 }

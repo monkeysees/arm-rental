@@ -19,6 +19,7 @@ import { recordBrowserVerification } from "./browser-verification-state.js";
 import {
   LIST_AM_SOURCE_INTEGRITY_ERROR,
   parseAndEvaluateRegularApartments,
+  sourceIntegrityPageSummary,
 } from "./source-integrity.js";
 
 const CHECK_NAMES = [
@@ -333,6 +334,7 @@ export async function runStartupPreflight(
     api,
     loadState = readState,
     recordVerification = recordBrowserVerification,
+    onSourceIntegrityChecked = () => {},
     onRetry = () => {},
     signal,
   } = {},
@@ -404,6 +406,9 @@ export async function runStartupPreflight(
             apartmentState?.sourceIntegrity.recentFirstPageCounts,
         },
       );
+      await onSourceIntegrityChecked({
+        pages: [sourceIntegrityPageSummary(diagnostics, 1)],
+      });
       await recordVerification(config, diagnostics.parsedCount);
     } catch (error) {
       if (

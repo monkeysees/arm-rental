@@ -164,7 +164,8 @@ main() {
           | alert(.name; (.severity // "warning");
               ("rentalctl logs --since 1h --event alert.firing");
               ("application alert remains firing; first observed "
-                + .firstObservedAt))),
+                + .firstObservedAt))
+          + {source: "application"}),
         (select($metrics.windows["10m"].applicationStarts > 3)
           | alert("process_restart_loop"; "error";
               "rentalctl logs --since 30m --event application.started";
@@ -224,8 +225,35 @@ main() {
     --arg now "$now" \
     --argjson desired "$desired" \
     --argjson previous "$previous" \
+    --argjson metrics "$metrics" \
     --arg revision "$("$JQ_BIN" -r '.deployment.sourceRevision // "unknown"' <<<"$metrics")" '
       ($previous.alerts // []) as $old
+      | ($metrics.applicationAlertTransitions // []) as $applicationTransitions
+      | ($applicationTransitions | map(.name) | unique) as $applicationNames
+      | (
+          if ($previous.applicationTransitionKeys | type) == "array"
+          then $previous.applicationTransitionKeys
+          elif ($previous.updatedAt // "") != ""
+          then [$applicationTransitions[]
+            | select(.observedAt <= $previous.updatedAt) | .key]
+          else []
+          end
+        ) as $seenApplicationTransitions
+      | [$applicationTransitions[]
+          | . as $edge
+          | select(($seenApplicationTransitions | index($edge.key)) == null)
+          | {
+              name,
+              status,
+              severity,
+              reason,
+              firstObservedAt: .observedAt,
+              lastObservedAt: .observedAt,
+              sourceRevision: $revision,
+              runbook: "rentalctl logs --since 1h --event alert.firing",
+              source: "application"
+            }
+        ] as $applicationEdges
       | ($desired | map(
           . as $wanted
           | ($old | map(select(.name == $wanted.name)) | first) as $prior
@@ -240,6 +268,7 @@ main() {
           transitions:
             ([
               $next[]
+              | select((.source // "") != "application")
               | . as $candidate
               | ($old | map(select(.name == $candidate.name)) | first) as $prior
               | select(
@@ -253,12 +282,16 @@ main() {
               $old[]
               | . as $prior
               | select(($next | map(.name) | index($prior.name)) == null)
+              | select(
+                  ($prior.source // "") != "application"
+                  and ($applicationNames | index($prior.name)) == null
+                )
               | . + {
                   status: "resolved",
                   lastObservedAt: $now,
                   sourceRevision: $revision
                 }
-            ]),
+            ] + $applicationEdges),
           alerts: $next
         }
     ')"
@@ -275,11 +308,14 @@ main() {
   next_state="$("$JQ_BIN" -cn \
     --arg now "$now" \
     --argjson count "$readiness_failures" \
-    --argjson plan "$transition_plan" '{
+    --argjson plan "$transition_plan" \
+    --argjson metrics "$metrics" '{
       schemaVersion: 1,
       updatedAt: $now,
       readinessFailureCount: $count,
-      alerts: $plan.alerts
+      alerts: $plan.alerts,
+      applicationTransitionKeys:
+        [($metrics.applicationAlertTransitions // [])[].key]
     }')"
   local temporary
   temporary="$(mktemp "$RENTAL_OPS_STATE_DIR/.alerts.XXXXXX")"

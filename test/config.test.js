@@ -3,6 +3,7 @@ import {
   chmod,
   lstat,
   mkdtemp,
+  readFile,
   readdir,
   rm,
   symlink,
@@ -18,6 +19,10 @@ import {
   readConfigurationEnvironment,
 } from "../src/config-catalog.js";
 import { getConfig, validateStartupConfig } from "../src/config.js";
+import {
+  getEnvironmentName,
+  getHealthEndpointConfig,
+} from "../src/environment-config.js";
 import { LIST_AM_URL_TEMPLATE, pageUrl } from "../src/target.js";
 
 const requiredEnvironment = {
@@ -78,6 +83,40 @@ test("configuration uses the requested target and initial crawl defaults", () =>
   assert.equal(config.externalRetryBaseMs, 1_000);
   assert.equal(config.externalRetryMaxMs, 60_000);
   assert.equal(config.browserCacheMaxBytes, 64 * 1024 * 1024);
+});
+
+test("runtime and health helpers share catalog defaults and strict parsing", () => {
+  assert.equal(getEnvironmentName({}), "development");
+  assert.deepEqual(getHealthEndpointConfig({}), {
+    host: "127.0.0.1",
+    port: 8_787,
+  });
+  assert.deepEqual(
+    getHealthEndpointConfig({ HEALTH_HOST: "::1", HEALTH_PORT: "9090" }),
+    { host: "::1", port: 9_090 },
+  );
+  for (const environment of [
+    { HEALTH_HOST: "0.0.0.0" },
+    { HEALTH_PORT: "0" },
+    { HEALTH_PORT: "not-a-port" },
+    { HEALTH_PORT: "65536" },
+  ]) {
+    assert.throws(() => getHealthEndpointConfig(environment), /HEALTH_/u);
+  }
+});
+
+test("logger and health probe do not bypass canonical named environment parsing", async () => {
+  for (const filename of ["src/logger.js", "src/health-check.js"]) {
+    const source = await readFile(
+      new URL(`../${filename}`, import.meta.url),
+      "utf8",
+    );
+    assert.doesNotMatch(
+      source,
+      /process\.env\.(?:NODE_ENV|APPLICATION_VERSION|HEALTH_HOST|HEALTH_PORT)/u,
+      filename,
+    );
+  }
 });
 
 test("configuration catalog is complete, unique, and safe to inspect offline", () => {

@@ -13,7 +13,10 @@ import {
 } from "node:fs/promises";
 import path from "node:path";
 
-import { compatibleApartmentState } from "./apartment-state.js";
+import {
+  compatibleApartmentState,
+  sourceIntegrityStateSummary,
+} from "./apartment-state.js";
 import { compatibleBotState } from "./bot.js";
 import {
   browserVerificationStateFile,
@@ -82,9 +85,14 @@ function stateSpecifications(config, root) {
       filename: relocated(config, root, config.apartmentsStateFile),
       compatible: (state) =>
         compatibleApartmentState(state, config.listUrlTemplate),
-      emptyCounts: { apartments: 0 },
+      emptyCounts: {
+        apartments: 0,
+        sourceIntegritySampleCount: 0,
+        sourceIntegrityLastSuccessfulAt: null,
+      },
       counts: (state) => ({
         apartments: Object.keys(state.apartments).length,
+        ...sourceIntegrityStateSummary(state),
       }),
     },
     {

@@ -85,6 +85,9 @@ use journal timestamps, not application-supplied timestamps. Crawl IDs,
 apartment IDs, URLs, Telegram identifiers, and errors are not grouping keys.
 Application alert state is scoped to the current container lifecycle, so an
 unresolved event retained from a replaced container cannot reopen an alert.
+Source-integrity metrics add checked-page and failure totals, failures grouped
+only by stable reason, and the latest checked/failure timestamps. They never
+group by a listing, URL, crawl payload, or Telegram identifier.
 
 ```sh
 rentalctl status
@@ -100,7 +103,8 @@ rentalctl timers
 history, not a time-series database; empty windows have zero counts and null
 ratios and percentiles.
 
-Primary events are `crawl.succeeded`, `crawl.failed`, `retry.scheduled`,
+Primary events are `source.integrity.checked`, `source.integrity.failed`,
+`crawl.succeeded`, `crawl.failed`, `retry.scheduled`,
 `state.write.completed`, `state.write.failed`, `maintenance.report`,
 `alert.firing`, `alert.resolved`, `monitor.alert.firing`, and
 `monitor.alert.resolved`.
@@ -112,6 +116,12 @@ Primary events are `crawl.succeeded`, `crawl.failed`, `retry.scheduled`,
 message when an alert fires and one when it resolves; unchanged evaluations
 are not resent. An alert already firing from the prior reason-less state format
 receives one enriched firing message after upgrade.
+
+Application firing and resolution edges are tracked by journal cursor in the
+bounded 24-hour snapshot. If both edges occur between monitor runs, the monitor
+delivers both in order exactly once after a successful state update; a failed
+Telegram attempt remains retryable. This prevents a short source-integrity
+failure and recovery from disappearing between five-minute evaluations.
 
 The evaluator covers application alerts, restart loops, two consecutive
 readiness failures, exhausted/missing containers, state-write p95 over 500 ms,
@@ -131,6 +141,7 @@ so token and owner destination never enter argv or journal records.
 | -------------------------------------- | ------------------------------------------ |
 | `readiness_failure`                    | readiness remains failed                   |
 | `browser_challenge`                    | List.am verification challenge             |
+| `list_am_source_integrity`             | hard List.am source-integrity failure      |
 | `invalid_telegram_credentials`         | terminal Telegram authentication rejection |
 | `invalid_telegram_channel_permissions` | terminal channel permission rejection      |
 | `five_consecutive_crawl_failures`      | fifth consecutive failed crawl             |

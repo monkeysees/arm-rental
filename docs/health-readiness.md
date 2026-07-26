@@ -32,6 +32,13 @@ Other stable component statuses distinguish List.am transport/parsing, CBA,
 Telegram, storage, browser startup, and configuration failures without copying
 their potentially sensitive errors into HTTP.
 
+Any hard source-integrity failure makes readiness false immediately with
+`LIST_AM_SOURCE_INTEGRITY`, without waiting for the five-failure or stale-crawl
+threshold. A valid observation of every fetched page clears that reason even
+if a later state, private-delivery, or channel operation fails. Health output
+contains only the stable reason and aggregate component status; inspect the
+sanitized `source.integrity.failed` event for the rule and counts.
+
 The CBA component reports `WARN_EXCHANGE_RATES_STALE` after a usable snapshot is
 more than 48 hours old. This warning does not by itself disable crawling. If
 monitoring requires the currency-conversion service and no usable snapshot

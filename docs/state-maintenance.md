@@ -24,6 +24,10 @@ The command validates every present state schema and emits one
   inside the profile);
 - filesystem free/total bytes and the configured free-space threshold.
 
+The apartment report keeps `entryCount` equal to apartment records. It reports
+the bounded source-integrity sample count and last-success timestamp as
+separate aggregate fields; the samples never inflate logical entry totals.
+
 The prior aggregate sample is stored as
 `DATA_DIRECTORY/.maintenance-history.json`; it contains no apartment,
 Telegram, or browser content and is explicitly excluded from state-size

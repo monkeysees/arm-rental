@@ -6,6 +6,7 @@ def application_record:
   | (($journal.MESSAGE // "") | try fromjson catch null) as $message
   | {
       journalTimestamp: ($journal | journal_timestamp),
+      journalCursor: ($journal.__CURSOR // null),
       record:
         (if ($message | type) == "object"
          then $message
@@ -89,6 +90,27 @@ def grouped_state_writes($records):
         }
     );
 
+def source_integrity($records):
+  [$records[] | select(.record.event == "source.integrity.checked")] as $checked
+  | [$records[] | select(.record.event == "source.integrity.failed")] as $failed
+  | {
+      checkedPages: ($checked | length),
+      failures: ($failed | length),
+      failuresByReason:
+        ([$failed[]
+          | (.record.reason // "UNKNOWN")
+          | if type == "string" and test("^[A-Z][A-Z0-9_]{1,80}$")
+            then . else "UNKNOWN" end]
+         | sort | group_by(.)
+         | map({reason: .[0], count: length})),
+      lastCheckedAt:
+        ([$checked[].journalTimestamp] | max // null
+         | if . == null then null else todateiso8601 end),
+      lastFailureAt:
+        ([$failed[].journalTimestamp] | max // null
+         | if . == null then null else todateiso8601 end)
+    };
+
 def aggregate($records; $seconds; $now):
   [
     $records[]
@@ -118,6 +140,7 @@ def aggregate($records; $seconds; $now):
       },
       retries: grouped_retries($window),
       stateWrites: grouped_state_writes($window),
+      sourceIntegrity: source_integrity($window),
       applicationStarts:
         ([$window[] | select(.record.event == "application.started")] | length)
     };
@@ -134,6 +157,9 @@ def observed_alerts($records):
         status:
           (if .record.event == "alert.firing" then "firing" else "resolved" end),
         severity: (.record.alertSeverity // .record.severity // "warning"),
+        reason:
+          (if ((.record.reason // "") | test("^[A-Z][A-Z0-9_]{1,80}$"))
+           then .record.reason else null end),
         observedAt: .journalTimestamp
       }
   ]
@@ -143,9 +169,33 @@ def observed_alerts($records):
       name: .[0].name,
       status: .[-1].status,
       severity: .[-1].severity,
+      reason: .[-1].reason,
       firstObservedAt: (.[0].observedAt | todateiso8601),
       lastObservedAt: (.[-1].observedAt | todateiso8601)
     });
+
+def observed_alert_transitions($records):
+  [
+    $records[]
+    | select(
+        (.record.event == "alert.firing" or .record.event == "alert.resolved")
+        and ((.record.alertName // "") | test("^[a-z][a-z0-9_]{1,63}$"))
+      )
+    | {
+        key:
+          (.journalCursor
+           // ((.journalTimestamp | tostring) + "|" + .record.alertName + "|"
+             + .record.event)),
+        name: .record.alertName,
+        status:
+          (if .record.event == "alert.firing" then "firing" else "resolved" end),
+        severity: (.record.alertSeverity // .record.severity // "warning"),
+        reason:
+          (if ((.record.reason // "") | test("^[A-Z][A-Z0-9_]{1,80}$"))
+           then .record.reason else null end),
+        observedAt: (.journalTimestamp | todateiso8601)
+      }
+  ];
 
 map(application_record) as $records
 | ($now // now) as $sampledNow
@@ -165,6 +215,12 @@ map(application_record) as $records
           | select(.record.event == "crawl.succeeded")
           | .journalTimestamp
         ] | max // null | if . == null then null else todateiso8601 end),
+      lastSourceIntegrityCheck:
+        ([
+          $records[]
+          | select(.record.event == "source.integrity.checked")
+          | .journalTimestamp
+        ] | max // null | if . == null then null else todateiso8601 end),
       oldestApplicationRecord:
         ([$records[].journalTimestamp] | min // null
           | if . == null then null else todateiso8601 end)
@@ -179,5 +235,6 @@ map(application_record) as $records
          else null
          end)
     },
-    applicationAlerts: observed_alerts($records)
+    applicationAlerts: observed_alerts($records),
+    applicationAlertTransitions: observed_alert_transitions($records)
   }

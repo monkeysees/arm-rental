@@ -182,6 +182,7 @@ test("a late integrity failure leaves apartment, delivery, and channel state unt
   const writes = [];
   const privateSends = [];
   const channelCallbacks = [];
+  const integrityChecks = [];
   let fetchCount = 0;
   const invalidRepeatedPage = page("800").replace(
     /\s*<\/div>\s*$/u,
@@ -204,6 +205,8 @@ test("a late integrity failure leaves apartment, delivery, and channel state unt
           privateSends.push(arguments_),
         afterStateSaved: async (...arguments_) =>
           channelCallbacks.push(arguments_),
+        onSourceIntegrityChecked: async (observation) =>
+          integrityChecks.push(observation),
       },
     ),
     (error) =>
@@ -215,6 +218,7 @@ test("a late integrity failure leaves apartment, delivery, and channel state unt
   assert.deepEqual(writes, []);
   assert.deepEqual(privateSends, []);
   assert.deepEqual(channelCallbacks, []);
+  assert.deepEqual(integrityChecks, []);
   assert.equal(state.files.has(config.apartmentsStateFile), false);
   assert.deepEqual(state.files.get(config.deliveryStateFile), deliverySeed);
 });
@@ -479,6 +483,7 @@ test("a known ad encountered at the date watermark records a durable last-seen t
 test("a failed Telegram delivery remains pending without losing discovery", async () => {
   const state = memoryState();
   const firstAttempts = [];
+  const integrityChecks = [];
 
   await assert.rejects(
     crawlApartments(
@@ -490,6 +495,8 @@ test("a failed Telegram delivery remains pending without losing discovery", asyn
           firstAttempts.push(itemId);
           if (itemId === "2") throw new Error("Telegram unavailable");
         },
+        onSourceIntegrityChecked: async (observation) =>
+          integrityChecks.push(observation),
         now: () => new Date("2026-07-24T12:00:00Z"),
       },
     ),
@@ -497,6 +504,9 @@ test("a failed Telegram delivery remains pending without losing discovery", asyn
   );
 
   assert.deepEqual(firstAttempts, ["1", "2"]);
+  assert.equal(integrityChecks.length, 1);
+  assert.equal(integrityChecks[0].pages[0].parsedCount, 3);
+  assert.equal(JSON.stringify(integrityChecks).includes("apartments"), false);
   assert.deepEqual(
     Object.keys(state.files.get(config.apartmentsStateFile).apartments).sort(),
     ["1", "2", "3"],

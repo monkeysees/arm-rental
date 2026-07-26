@@ -2,7 +2,10 @@ import { randomUUID } from "node:crypto";
 import { lstat, readdir, rename, rm } from "node:fs/promises";
 import path from "node:path";
 
-import { compatibleApartmentState } from "./apartment-state.js";
+import {
+  compatibleApartmentState,
+  sourceIntegrityStateSummary,
+} from "./apartment-state.js";
 import { compatibleBotState } from "./bot.js";
 import {
   browserVerificationStateFile,
@@ -54,6 +57,7 @@ function stateSpecifications(config) {
       counts: (state) => ({
         entryCount: Object.keys(state.apartments).length,
         apartments: Object.keys(state.apartments).length,
+        ...sourceIntegrityStateSummary(state),
       }),
     },
     {

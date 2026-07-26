@@ -75,9 +75,12 @@ deduplicated outbound alert route, while the failed systemd unit and retained
 journal records remain the delivery fallback. Derived application alerts are
 bounded by the running container's start time; retained alert events from an
 older container lifecycle remain queryable as logs but cannot become current
-alert state. Monitoring defers with a successful, structured skip while a
-serialized production operation owns the shared lock, preventing an expected
-deployment observation window from becoming a scheduled-job failure. Alert
+alert state. Monitoring and the read-only storage check defer with successful,
+structured skip records while a serialized production operation owns the
+shared lock, preventing an expected deployment observation window from
+becoming a scheduled-job failure. Lock contention has a dedicated exit status
+so only an owned lock is deferrable; lock-file, permission, and command
+failures remain failed operations. Alert
 transitions carry bounded, non-secret reasons and are recorded in the host
 journal before outbound delivery. Scheduled-operation lifecycle records name
 the semantic step that completed or failed; the monitor combines that step with
@@ -96,8 +99,11 @@ Systemd owns the singleton application and recurring backup, storage,
 maintenance, monitoring, restore-drill, and reboot-check jobs. Every short-lived
 operation serializes through
 `/var/lib/rental-apartments-ops/operations.lock`, emits structured lifecycle
-records, and has an effective `TimeoutStartSec` bound. `RuntimeMaxSec` is not
-used for these `Type=oneshot` units because systemd ignores that combination.
+records, and has an effective `TimeoutStartSec` bound. The storage check exits
+successfully with `storage-check.skipped` when that lock is occupied and relies
+on its next hourly invocation; deployment independently checks capacity before
+mutating production. `RuntimeMaxSec` is not used for these `Type=oneshot` units
+because systemd ignores that combination.
 Stop-the-world wrappers install their restart and readiness cleanup before
 stopping the application. Recovery points remain on the separately mounted
 backup filesystem, while monthly restore drills use exactly named and labeled

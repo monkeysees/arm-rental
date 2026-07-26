@@ -70,7 +70,7 @@ exit 0
   await executable(
     path.join(fakeBin, "flock"),
     `${commandPrelude}
-exit 0
+exit "\${FAKE_FLOCK_STATUS:-0}"
 `,
   );
   await executable(
@@ -186,6 +186,43 @@ function assertLifecycle(log, operation, result) {
     ),
   );
 }
+
+test("storage check defers successfully when another operation owns the lock", async (t) => {
+  const { log, environment } = await fixture(t);
+  environment.FAKE_FLOCK_STATUS = "75";
+
+  const result = await runScript("storage-check", environment);
+  const commands = await commandLog(log);
+
+  assert.equal(result.status, 0, result.stderr);
+  assert.match(commands, /"event":"storage-check\.started"/u);
+  assert.match(
+    commands,
+    /"event":"storage-check\.skipped","result":"skipped","exitCode":0,[^\n]+"step":"acquire-operations-lock"/u,
+  );
+  assert.doesNotMatch(
+    commands,
+    /storage-check\.(completed|failed)|src\/recovery-cli\.js disk-check/u,
+  );
+});
+
+test("storage check preserves non-contention lock failures", async (t) => {
+  const { log, environment } = await fixture(t);
+  environment.FAKE_FLOCK_STATUS = "66";
+
+  const result = await runScript("storage-check", environment);
+  const commands = await commandLog(log);
+
+  assert.equal(result.status, 66, result.stderr);
+  assert.match(
+    commands,
+    /"event":"storage-check\.failed","result":"failure","exitCode":66,[^\n]+"step":"acquire-operations-lock"/u,
+  );
+  assert.doesNotMatch(
+    commands,
+    /storage-check\.(completed|skipped)|src\/recovery-cli\.js disk-check/u,
+  );
+});
 
 test("backup validates the published snapshot and restores readiness across each failure boundary", async (t) => {
   const scenarios = [

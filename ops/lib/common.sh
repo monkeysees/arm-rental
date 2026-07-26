@@ -3,6 +3,8 @@
 # Shared lifecycle primitives for short-lived production operations. Callers
 # define ops_cleanup before ops_begin when they have resources to unwind.
 
+OPS_LOCK_BUSY_STATUS=75
+
 ops_require_absolute_path() {
   local name=$1
   local value=$2
@@ -41,7 +43,13 @@ ops_acquire_lock() {
   ops_require_absolute_path "RENTAL_OPS_LOCK_FILE" "$RENTAL_OPS_LOCK_FILE"
   install -d -m 0700 "$RENTAL_OPS_STATE_DIR"
   exec 9>"$RENTAL_OPS_LOCK_FILE"
-  flock --exclusive --timeout "$RENTAL_OPS_LOCK_WAIT_SECONDS" 9
+  # A dedicated contention status lets read-only operations defer without
+  # hiding configuration, permission, or flock execution failures.
+  flock \
+    --exclusive \
+    --conflict-exit-code "$OPS_LOCK_BUSY_STATUS" \
+    --timeout "$RENTAL_OPS_LOCK_WAIT_SECONDS" \
+    9
 }
 
 ops_exit_handler() {
@@ -61,7 +69,10 @@ ops_exit_handler() {
   fi
   finished_at=$(date +%s)
   duration_ms=$(((finished_at - OPS_STARTED_AT) * 1000))
-  if ((status == 0)); then
+  if ((status == 0 && OPS_TERMINAL_OUTCOME == 1)); then
+    result=skipped
+    event="${OPS_OPERATION}.skipped"
+  elif ((status == 0)); then
     result=success
     event="${OPS_OPERATION}.completed"
   else
@@ -83,7 +94,8 @@ ops_begin() {
   OPS_IDENTIFIER=${2:-"rental-$1"}
   OPS_STARTED_AT=$(date +%s)
   OPS_STEP=initializing
-  export OPS_OPERATION OPS_IDENTIFIER OPS_STARTED_AT OPS_STEP
+  OPS_TERMINAL_OUTCOME=0
+  export OPS_OPERATION OPS_IDENTIFIER OPS_STARTED_AT OPS_STEP OPS_TERMINAL_OUTCOME
 
   trap ops_exit_handler EXIT
   trap 'ops_signal_handler 129' HUP
@@ -96,4 +108,9 @@ ops_begin() {
 ops_set_step() {
   OPS_STEP=$1
   export OPS_STEP
+}
+
+ops_mark_skipped() {
+  OPS_TERMINAL_OUTCOME=1
+  export OPS_TERMINAL_OUTCOME
 }

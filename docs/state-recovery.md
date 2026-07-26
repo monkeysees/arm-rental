@@ -72,7 +72,11 @@ returns the bot to readiness before reporting failure.
 ## Disk-free check and response
 
 `rental-storage-check.timer` runs hourly and catches up missed checks after
-boot. Inspect it without starting an overlapping operation:
+boot. If another serialized production operation owns the shared lock, the
+check emits `storage-check.skipped`, exits successfully, and retries on its
+next hourly invocation. Deployments perform the same capacity check before
+mutation, so deferral does not bypass a deploying release's storage guard.
+Inspect the timer without starting an overlapping operation:
 
 ```sh
 systemctl status rental-storage-check.timer

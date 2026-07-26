@@ -7,7 +7,14 @@ source "$SCRIPT_DIR/lib/operations.sh"
 
 ops_begin storage-check rental-storage-check
 ops_set_step acquire-operations-lock
-ops_acquire_lock
+lock_status=0
+ops_acquire_lock || lock_status=$?
+if ((lock_status == OPS_LOCK_BUSY_STATUS)); then
+  ops_mark_skipped
+  exit 0
+elif ((lock_status != 0)); then
+  exit "$lock_status"
+fi
 ops_set_step validate-runtime-contract
 ops_validate_runtime_contract
 ops_set_step verify-backup-mount

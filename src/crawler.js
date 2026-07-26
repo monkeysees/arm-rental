@@ -1,4 +1,9 @@
 import {
+  APARTMENT_STATE_VERSION,
+  migrateApartmentState,
+  SOURCE_INTEGRITY_HISTORY_LIMIT,
+} from "./apartment-state.js";
+import {
   apartmentMatchesFilters,
   emptyFilters,
   normalizeFilters,
@@ -12,18 +17,6 @@ import { readState, writeState } from "./state.js";
 import { pageUrl } from "./target.js";
 import { postingDateSortValue } from "./posting-date.js";
 import { parseAndEvaluateRegularApartments } from "./source-integrity.js";
-
-export function compatibleApartmentState(state, template) {
-  return Boolean(
-    state &&
-    [1, 2].includes(state.version) &&
-    state.type === "list-am-apartments" &&
-    state.urlTemplate === template &&
-    state.apartments &&
-    typeof state.apartments === "object" &&
-    !Array.isArray(state.apartments),
-  );
-}
 
 export function compatibleDeliveryState(state, template) {
   return Boolean(
@@ -226,10 +219,15 @@ export async function crawlApartments(
   }
 
   const stored = await loadState(config.apartmentsStateFile);
-  const compatible = compatibleApartmentState(stored, config.listUrlTemplate);
-  const previousApartments = compatible
+  const apartmentState = migrateApartmentState(stored, config.listUrlTemplate);
+  if (stored !== undefined && !apartmentState) {
+    const error = new Error("Apartment state has an incompatible schema");
+    error.code = "ERR_STATE_INCOMPATIBLE";
+    throw error;
+  }
+  const previousApartments = apartmentState
     ? Object.fromEntries(
-        Object.entries(stored.apartments).map(([itemId, apartment]) => [
+        Object.entries(apartmentState.apartments).map(([itemId, apartment]) => [
           itemId,
           {
             ...apartment,
@@ -238,7 +236,9 @@ export async function crawlApartments(
         ]),
       )
     : {};
-  const previousOrder = compatible ? stored.apartmentOrder || [] : [];
+  const previousOrder = apartmentState?.apartmentOrder || [];
+  const priorFirstPageCounts =
+    apartmentState?.sourceIntegrity.recentFirstPageCounts || [];
   const initialRun = Object.keys(previousApartments).length === 0;
   const lastKnownPostingDate = latestKnownPostingDate(previousApartments);
   const discovered = [];
@@ -249,6 +249,7 @@ export async function crawlApartments(
   let pagesParsed = 0;
   let stoppedAtKnownDate = null;
   let exhausted = false;
+  let firstPageParsedCount;
 
   pageLoop: for (let page = 1; ; page += 1) {
     if (
@@ -262,7 +263,12 @@ export async function crawlApartments(
       pageUrl(page, config.listUrlTemplate),
       fetchPage,
     );
-    const { apartments } = parseAndEvaluateRegularApartments(html, { page });
+    const diagnostics = parseAndEvaluateRegularApartments(html, {
+      page,
+      priorFirstPageCounts,
+    });
+    const { apartments } = diagnostics;
+    if (page === 1) firstPageParsedCount = diagnostics.parsedCount;
     pagesParsed += 1;
 
     if (apartments.length === 0) {
@@ -365,7 +371,7 @@ export async function crawlApartments(
   ];
 
   const state = {
-    version: 2,
+    version: APARTMENT_STATE_VERSION,
     type: "list-am-apartments",
     urlTemplate: config.listUrlTemplate,
     checkedAt,
@@ -380,6 +386,13 @@ export async function crawlApartments(
     },
     apartments,
     apartmentOrder,
+    sourceIntegrity: {
+      recentFirstPageCounts: [
+        ...priorFirstPageCounts,
+        firstPageParsedCount,
+      ].slice(-SOURCE_INTEGRITY_HISTORY_LIMIT),
+      lastSuccessfulAt: checkedAt,
+    },
   };
 
   await saveState(config.apartmentsStateFile, state);

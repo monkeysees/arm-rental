@@ -259,6 +259,131 @@ test("integrity validation precedes posting-date watermark termination", async (
   assert.deepEqual(state.files.get(config.apartmentsStateFile), apartmentSeed);
 });
 
+test("successful crawls atomically retain the five newest first-page counts", async () => {
+  const apartmentSeed = {
+    version: 3,
+    type: "list-am-apartments",
+    urlTemplate: config.listUrlTemplate,
+    apartments: {},
+    apartmentOrder: [],
+    sourceIntegrity: {
+      recentFirstPageCounts: [5, 4, 3, 2, 1],
+      lastSuccessfulAt: "2026-07-24T11:00:00.000Z",
+    },
+  };
+  const state = memoryState({ [config.apartmentsStateFile]: apartmentSeed });
+
+  await crawlApartments(
+    { ...config, initialPageCount: 1 },
+    {
+      ...state,
+      fetchPage: async () => new Response(page("1001", "1002", "1003")),
+      now: () => new Date("2026-07-24T12:00:00.000Z"),
+    },
+  );
+
+  const stored = state.files.get(config.apartmentsStateFile);
+  assert.equal(stored.version, 3);
+  assert.deepEqual(stored.sourceIntegrity, {
+    recentFirstPageCounts: [4, 3, 2, 1, 3],
+    lastSuccessfulAt: "2026-07-24T12:00:00.000Z",
+  });
+});
+
+test("restart reuses the baseline and a failure cannot advance it", async () => {
+  const apartmentSeed = {
+    version: 3,
+    type: "list-am-apartments",
+    urlTemplate: config.listUrlTemplate,
+    apartments: {},
+    apartmentOrder: [],
+    sourceIntegrity: {
+      recentFirstPageCounts: [20, 20, 20],
+      lastSuccessfulAt: "2026-07-24T11:00:00.000Z",
+    },
+  };
+  const state = memoryState({ [config.apartmentsStateFile]: apartmentSeed });
+  const ids = Array.from({ length: 9 }, (_value, index) =>
+    String(1100 + index),
+  );
+
+  await assert.rejects(
+    crawlApartments(
+      { ...config, initialPageCount: 1 },
+      {
+        ...state,
+        fetchPage: async () => new Response(page(...ids)),
+      },
+    ),
+    (error) => error.reason === ListAmIntegrityReason.FIRST_PAGE_COUNT_DROP,
+  );
+
+  assert.deepEqual(state.files.get(config.apartmentsStateFile), apartmentSeed);
+});
+
+test("a failed apartment-state commit cannot advance count history", async () => {
+  const apartmentSeed = {
+    version: 3,
+    type: "list-am-apartments",
+    urlTemplate: config.listUrlTemplate,
+    apartments: {},
+    apartmentOrder: [],
+    sourceIntegrity: {
+      recentFirstPageCounts: [3, 3, 3],
+      lastSuccessfulAt: "2026-07-24T11:00:00.000Z",
+    },
+  };
+  const state = memoryState({ [config.apartmentsStateFile]: apartmentSeed });
+
+  await assert.rejects(
+    crawlApartments(
+      { ...config, initialPageCount: 1 },
+      {
+        ...state,
+        saveState: async () => {
+          throw new Error("durable apartment write failed");
+        },
+        fetchPage: async () => new Response(page("1201", "1202", "1203")),
+        now: () => new Date("2026-07-24T12:00:00.000Z"),
+      },
+    ),
+    /durable apartment write failed/u,
+  );
+
+  assert.deepEqual(state.files.get(config.apartmentsStateFile), apartmentSeed);
+});
+
+test("crawler fails closed on a malformed version-three baseline", async () => {
+  const apartmentSeed = {
+    version: 3,
+    type: "list-am-apartments",
+    urlTemplate: config.listUrlTemplate,
+    apartments: {},
+    apartmentOrder: [],
+    sourceIntegrity: { recentFirstPageCounts: [1, 2, 3, 4, 5, 6] },
+  };
+  const state = memoryState({ [config.apartmentsStateFile]: apartmentSeed });
+  let fetched = false;
+  let writes = 0;
+
+  await assert.rejects(
+    crawlApartments(config, {
+      ...state,
+      saveState: async () => {
+        writes += 1;
+      },
+      fetchPage: async () => {
+        fetched = true;
+        return new Response(page("1"));
+      },
+    }),
+    (error) => error.code === "ERR_STATE_INCOMPATIBLE",
+  );
+  assert.equal(fetched, false);
+  assert.equal(writes, 0);
+  assert.deepEqual(state.files.get(config.apartmentsStateFile), apartmentSeed);
+});
+
 test("later crawl continues past known IDs until the latest known date", async () => {
   const known = {
     version: 1,
@@ -762,7 +887,7 @@ test("crawler stores converted AMD prices and delivers the original price data",
 
   const stored = state.files.get(config.apartmentsStateFile).apartments["20"];
   assert.equal(result.notifiedCount, 1);
-  assert.equal(state.files.get(config.apartmentsStateFile).version, 2);
+  assert.equal(state.files.get(config.apartmentsStateFile).version, 3);
   assert.deepEqual(stored.price, {
     amountAmd: 585_392,
     originalAmount: 1_600,
@@ -826,7 +951,7 @@ test("crawler migrates legacy foreign prices with the current persisted rate", a
   });
 
   const migrated = state.files.get(config.apartmentsStateFile);
-  assert.equal(migrated.version, 2);
+  assert.equal(migrated.version, 3);
   assert.deepEqual(migrated.apartments["30"].price, {
     amountAmd: 416_430,
     originalAmount: 1_000,

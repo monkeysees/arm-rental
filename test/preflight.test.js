@@ -27,6 +27,17 @@ const REGULAR_ADS_HTML = `
     </a>
   </div>`;
 
+function regularAdsHtml(count) {
+  return `<div id="contentr">${Array.from(
+    { length: count },
+    (_value, index) => `
+      <a class="fav-item-info-container" href="/item/${200 + index}">
+        <div class="l">Apartment ${index}</div>
+        <div class="d">Friday, July 24, 2026, 14:31</div>
+      </a>`,
+  ).join("")}</div>`;
+}
+
 function ratesSnapshot() {
   return {
     version: 1,
@@ -264,6 +275,42 @@ test("preflight and runtime report the same integrity reason without writes", as
   assert.deepEqual(runtimeWrites, []);
 });
 
+test("preflight applies the persisted count baseline before verification", async (t) => {
+  const config = await temporaryConfig(t);
+  await writeJson(config.apartmentsStateFile, {
+    version: 3,
+    type: "list-am-apartments",
+    urlTemplate: config.listUrlTemplate,
+    apartments: {},
+    apartmentOrder: [],
+    sourceIntegrity: {
+      recentFirstPageCounts: [20, 20, 20],
+      lastSuccessfulAt: "2026-07-26T11:00:00.000Z",
+    },
+  });
+  const verificationCounts = [];
+
+  await assert.rejects(
+    runStartupPreflight(config, {
+      storageValidated: true,
+      singletonLock: singletonLock(config),
+      browserFetcher: {
+        start: async () => {},
+        fetch: async () => new Response(regularAdsHtml(9)),
+      },
+      exchangeRateService: { getSnapshot: async () => ratesSnapshot() },
+      api: telegramApi(),
+      recordVerification: async (_config, count) =>
+        verificationCounts.push(count),
+    }),
+    (error) =>
+      error.code === "ERR_LIST_AM_SOURCE_INTEGRITY" &&
+      error.details.reason === ListAmIntegrityReason.FIRST_PAGE_COUNT_DROP,
+  );
+
+  assert.deepEqual(verificationCounts, []);
+});
+
 test("unsupported and malformed state fails closed without changing files", async (t) => {
   const config = await temporaryConfig(t);
   const cases = [
@@ -277,6 +324,18 @@ test("unsupported and malformed state fails closed without changing files", asyn
       },
       reason: /unsupported type or version/u,
       schema: { type: "list-am-apartments", version: 99 },
+    },
+    {
+      filename: config.apartmentsStateFile,
+      state: {
+        version: 3,
+        type: "list-am-apartments",
+        urlTemplate: config.listUrlTemplate,
+        apartments: {},
+        sourceIntegrity: { recentFirstPageCounts: [1, 2, 3, 4, 5, 6] },
+      },
+      reason: /schema contents are malformed/u,
+      schema: { type: "list-am-apartments", version: 3 },
     },
     {
       filename: config.telegramStateFile,

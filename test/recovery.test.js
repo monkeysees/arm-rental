@@ -48,7 +48,7 @@ async function fixture(t) {
   );
   await Promise.all([
     writeState(config.apartmentsStateFile, {
-      version: 2,
+      version: 3,
       type: "list-am-apartments",
       urlTemplate: config.listUrlTemplate,
       apartments: {
@@ -56,6 +56,10 @@ async function fixture(t) {
         101: { itemId: "101" },
       },
       apartmentOrder: ["100", "101"],
+      sourceIntegrity: {
+        recentFirstPageCounts: [20, 19, 20],
+        lastSuccessfulAt: "2026-07-25T08:00:00.000Z",
+      },
     }),
     writeState(config.deliveryStateFile, {
       version: 1,

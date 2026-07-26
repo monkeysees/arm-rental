@@ -1,15 +1,16 @@
 import path from "node:path";
 
 import {
+  compatibleApartmentState,
+  migrateApartmentState,
+} from "./apartment-state.js";
+import {
   BROWSER_VERIFICATION_COMMAND,
   BrowserVerificationRequiredError,
 } from "./browser-fetch.js";
 import { compatibleBotState } from "./bot.js";
 import { compatibleChannelState } from "./channel.js";
-import {
-  compatibleApartmentState,
-  compatibleDeliveryState,
-} from "./crawler.js";
+import { compatibleDeliveryState } from "./crawler.js";
 import { compatibleExchangeRateSnapshot } from "./exchange-rates.js";
 import { readState } from "./state.js";
 import { pageUrl } from "./target.js";
@@ -92,7 +93,7 @@ function stateSpecifications(config) {
     {
       filename: config.apartmentsStateFile,
       types: new Set(["list-am-apartments"]),
-      versions: new Set([1, 2]),
+      versions: new Set([1, 2, 3]),
       targetMatches: (state) => state.urlTemplate === config.listUrlTemplate,
       targetName: "List.am URL template",
       compatible: (state) =>
@@ -137,6 +138,7 @@ function stateSpecifications(config) {
 }
 
 async function validateExistingState(config, loadState) {
+  let apartmentState;
   for (const specification of stateSpecifications(config)) {
     let state;
     try {
@@ -176,7 +178,11 @@ async function validateExistingState(config, loadState) {
         "schema contents are malformed",
       );
     }
+    if (specification.filename === config.apartmentsStateFile) {
+      apartmentState = migrateApartmentState(state, config.listUrlTemplate);
+    }
   }
+  return apartmentState;
 }
 
 function telegramClientError(error) {
@@ -349,7 +355,7 @@ export async function runStartupPreflight(
     }
     result.checks.storage = "passed";
 
-    await validateExistingState(config, loadState);
+    const apartmentState = await validateExistingState(config, loadState);
     result.checks.state = "passed";
 
     if (
@@ -392,7 +398,11 @@ export async function runStartupPreflight(
       }
       const diagnostics = parseAndEvaluateRegularApartments(
         await response.text(),
-        { page: 1 },
+        {
+          page: 1,
+          priorFirstPageCounts:
+            apartmentState?.sourceIntegrity.recentFirstPageCounts,
+        },
       );
       await recordVerification(config, diagnostics.parsedCount);
     } catch (error) {

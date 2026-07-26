@@ -160,6 +160,23 @@ test("integrity errors expose only safe aggregate diagnostics", () => {
   assert.match(serialized, /IDENTITY_REJECTION/u);
   assert.equal(serialized.includes("private-card"), false);
   assert.equal(Object.hasOwn(error.details, "apartments"), false);
+
+  const constructed = new ListAmSourceIntegrityError(
+    ListAmIntegrityReason.FIRST_PAGE_COUNT_DROP,
+    {
+      page: 1,
+      diagnostics: observed,
+      integrityContext: {
+        priorCount: 3,
+        priorMedianTwice: "40",
+        rawHtml: "private-card",
+      },
+    },
+  );
+  assert.equal(
+    JSON.stringify(constructed.details).includes("private-card"),
+    false,
+  );
 });
 
 test("missing-section errors serialize canonical zero aggregate diagnostics", () => {
@@ -186,4 +203,70 @@ test("missing-section errors serialize canonical zero aggregate diagnostics", ()
     },
   });
   assert.equal(Object.hasOwn(error.details, "apartments"), false);
+});
+
+test("material count drops use bounded odd and even median history", () => {
+  const passes = [
+    { prior: [], current: 1 },
+    { prior: [20, 20], current: 1 },
+    { prior: [20, 20, 20], current: 10 },
+    { prior: [10, 20, 20, 30], current: 10 },
+    { prior: [20, 21, 22, 23], current: 11 },
+    { prior: [6, 6, 6], current: 2 },
+    { prior: [20, 20, 20], current: 1, page: 2 },
+  ];
+  for (const { prior, current, page = 1 } of passes) {
+    const observed = diagnostics({
+      candidateCount: current,
+      uniqueCandidateCount: current,
+      parsedCount: current,
+    });
+    assert.equal(
+      evaluateListAmSourceIntegrity(observed, {
+        page,
+        priorFirstPageCounts: prior,
+      }),
+      observed,
+    );
+  }
+
+  for (const { prior, current } of [
+    { prior: [20, 20, 20], current: 9 },
+    { prior: [10, 20, 20, 30], current: 9 },
+    { prior: [20, 21, 22, 23], current: 10 },
+    { prior: [18, 20, 22, 24, 26], current: 10 },
+    { prior: [8, 8, 8], current: 3 },
+  ]) {
+    const error = integrityError(() =>
+      evaluateListAmSourceIntegrity(
+        diagnostics({
+          candidateCount: current,
+          uniqueCandidateCount: current,
+          parsedCount: current,
+        }),
+        { page: 1, priorFirstPageCounts: prior },
+      ),
+    );
+    assert.equal(error.reason, ListAmIntegrityReason.FIRST_PAGE_COUNT_DROP);
+    assert.equal(error.details.priorCount, prior.length);
+    assert.match(error.details.priorMedianTwice, /^\d+$/u);
+  }
+});
+
+test("count drop is the final page-one integrity reason", () => {
+  const error = integrityError(() =>
+    evaluateListAmSourceIntegrity(
+      diagnostics({
+        candidateCount: 9,
+        uniqueCandidateCount: 9,
+        parsedCount: 9,
+        completeness: { title: 8, date: 9 },
+      }),
+      { page: 1, priorFirstPageCounts: [20, 20, 20] },
+    ),
+  );
+  assert.equal(
+    error.reason,
+    ListAmIntegrityReason.TITLE_COMPLETENESS_BELOW_THRESHOLD,
+  );
 });

@@ -930,6 +930,20 @@ errors are recoverable external failures and therefore use bounded crawl
 backoff; readiness, alert, metric, and dedicated integrity-event projection is
 integrated with the operational surfaces separately.
 
+Apartment state schema version 3 adds only a bounded `sourceIntegrity`
+aggregate: up to five non-negative first-page parsed counts and an optional
+canonical ISO timestamp for the latest successful commit. Versions 1 and 2 are
+migrated in memory with an empty history, preserving apartment records and
+ordering; malformed version-3 aggregates fail closed across crawling,
+preflight, recovery, and maintenance. After all fetched pages validate, the
+crawler appends the current first-page count, truncates oldest values beyond
+five, and persists that history and `lastSuccessfulAt` in the same atomic write
+as apartment discovery. Failed observations cannot advance it. With at least
+three prior successes, a first-page count is rejected only when it is strictly
+below half the prior median and at least five below it. Odd and even medians are
+compared with exact doubled-integer arithmetic, and count drop is the final
+hard-rule reason.
+
 ## Failure handling
 
 - HTTP, browser challenge, malformed apartment/private state, and private

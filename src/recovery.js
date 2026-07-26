@@ -13,17 +13,14 @@ import {
 } from "node:fs/promises";
 import path from "node:path";
 
+import { compatibleApartmentState } from "./apartment-state.js";
 import { compatibleBotState } from "./bot.js";
 import {
   browserVerificationStateFile,
   compatibleBrowserVerification,
 } from "./browser-verification-state.js";
 import { compatibleChannelState } from "./channel.js";
-import {
-  compatibleApartmentState,
-  compatibleDeliveryState,
-  deliveryStateCounts,
-} from "./crawler.js";
+import { compatibleDeliveryState, deliveryStateCounts } from "./crawler.js";
 import { compatibleExchangeRateSnapshot } from "./exchange-rates.js";
 import { acquireSingletonLock } from "./singleton-lock.js";
 import { readState, writeState } from "./state.js";

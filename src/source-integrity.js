@@ -13,6 +13,7 @@ export const ListAmIntegrityReason = Object.freeze({
   IDENTITY_REJECTION: "IDENTITY_REJECTION",
   TITLE_COMPLETENESS_BELOW_THRESHOLD: "TITLE_COMPLETENESS_BELOW_THRESHOLD",
   DATE_COMPLETENESS_BELOW_THRESHOLD: "DATE_COMPLETENESS_BELOW_THRESHOLD",
+  FIRST_PAGE_COUNT_DROP: "FIRST_PAGE_COUNT_DROP",
 });
 
 function aggregateCounts(diagnostics) {
@@ -56,11 +57,32 @@ function thresholdsFor(reason) {
   if (reason === ListAmIntegrityReason.DATE_COMPLETENESS_BELOW_THRESHOLD) {
     return { minimumDateCompletenessPercent: LIST_AM_COMPLETENESS_PERCENT };
   }
+  if (reason === ListAmIntegrityReason.FIRST_PAGE_COUNT_DROP) {
+    return {
+      minimumPriorCount: 3,
+      countDropPercent: 50,
+      minimumAbsoluteDrop: 5,
+    };
+  }
   return undefined;
 }
 
+function safeIntegrityContext(value) {
+  if (
+    !Number.isSafeInteger(value?.priorCount) ||
+    value.priorCount < 0 ||
+    !/^\d+$/u.test(value?.priorMedianTwice || "")
+  ) {
+    return {};
+  }
+  return {
+    priorCount: value.priorCount,
+    priorMedianTwice: value.priorMedianTwice,
+  };
+}
+
 export class ListAmSourceIntegrityError extends Error {
-  constructor(reason, { page, diagnostics } = {}) {
+  constructor(reason, { page, diagnostics, integrityContext } = {}) {
     super(`List.am source integrity check failed: ${reason}`);
     this.name = "ListAmSourceIntegrityError";
     this.code = LIST_AM_SOURCE_INTEGRITY_ERROR;
@@ -70,17 +92,25 @@ export class ListAmSourceIntegrityError extends Error {
       reason,
       page,
       ...(diagnostics ? aggregateCounts(diagnostics) : {}),
+      ...safeIntegrityContext(integrityContext),
       ...(thresholdsFor(reason) ? { thresholds: thresholdsFor(reason) } : {}),
     };
   }
 }
 
-function fail(reason, page, diagnostics) {
-  throw new ListAmSourceIntegrityError(reason, { page, diagnostics });
+function fail(reason, page, diagnostics, integrityContext) {
+  throw new ListAmSourceIntegrityError(reason, {
+    page,
+    diagnostics,
+    integrityContext,
+  });
 }
 
 /** Applies the version-controlled hard integrity rules in precedence order. */
-export function evaluateListAmSourceIntegrity(diagnostics, { page }) {
+export function evaluateListAmSourceIntegrity(
+  diagnostics,
+  { page, priorFirstPageCounts = [] },
+) {
   if (page === 1 && diagnostics.candidateCount === 0) {
     fail(ListAmIntegrityReason.FIRST_PAGE_EMPTY, page, diagnostics);
   }
@@ -120,11 +150,31 @@ export function evaluateListAmSourceIntegrity(diagnostics, { page }) {
       diagnostics,
     );
   }
+  if (page === 1 && priorFirstPageCounts.length >= 3) {
+    const sorted = [...priorFirstPageCounts].sort(
+      (left, right) => left - right,
+    );
+    const middle = Math.floor(sorted.length / 2);
+    const medianTwice =
+      sorted.length % 2 === 1
+        ? 2n * BigInt(sorted[middle])
+        : BigInt(sorted[middle - 1]) + BigInt(sorted[middle]);
+    const current = BigInt(diagnostics.parsedCount);
+    if (4n * current < medianTwice && medianTwice - 2n * current >= 10n) {
+      fail(ListAmIntegrityReason.FIRST_PAGE_COUNT_DROP, page, diagnostics, {
+        priorCount: priorFirstPageCounts.length,
+        priorMedianTwice: medianTwice.toString(),
+      });
+    }
+  }
   return diagnostics;
 }
 
 /** Parses a page and maps a missing Regular Ads section to the same hard rule. */
-export function parseAndEvaluateRegularApartments(html, { page }) {
+export function parseAndEvaluateRegularApartments(
+  html,
+  { page, priorFirstPageCounts = [] },
+) {
   let diagnostics;
   try {
     diagnostics = parseRegularApartments(html);
@@ -138,5 +188,8 @@ export function parseAndEvaluateRegularApartments(html, { page }) {
     }
     throw error;
   }
-  return evaluateListAmSourceIntegrity(diagnostics, { page });
+  return evaluateListAmSourceIntegrity(diagnostics, {
+    page,
+    priorFirstPageCounts,
+  });
 }

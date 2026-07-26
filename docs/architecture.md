@@ -822,9 +822,12 @@ multiple selections inexpensive to persist. Selecting a whole region matches
 the region and all children. Selecting a child removes the whole-region choice
 for that region, while selections in other regions remain intact.
 `src/filter-ui.js` owns presentation and keeps matching rules independent of
-Telegram. Its main filter panel uses text-only labels for the price, room,
-location, and monitoring controls; selection-state markers remain confined to
-the hierarchical location menus where they convey state.
+Telegram. Its main menu presents both filter settings and monitoring state and
+controls, with navigation returning to that broader menu instead of describing
+it as filters alone. The price, room, location, and monitoring buttons use
+text-only labels; selection-state markers remain confined to the hierarchical
+location menus where they convey state. The reset action is explicitly labeled
+as applying to filters, since it does not change monitoring state.
 
 Channel filters are parsed once from the environment and never read or mutate
 private bot state. Price and rooms use the same inclusive exact/open/closed

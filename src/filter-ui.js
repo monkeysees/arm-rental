@@ -16,7 +16,7 @@ export function filtersMenu(filters, active = false) {
   const normalized = normalizeFilters(filters);
   return {
     text: [
-      "Фильтры объявлений",
+      "Главное меню",
       "",
       `Мониторинг: ${active ? "запущен" : "остановлен"}`,
       `Цена (֏): ${formatRange(normalized.price)}`,
@@ -27,7 +27,7 @@ export function filtersMenu(filters, active = false) {
       inline_keyboard: [
         [button("Цена, ֏", "f:price"), button("Комнаты", "f:rooms")],
         [button("Местоположение", "f:locations")],
-        [button("Сбросить всё", "f:reset")],
+        [button("Сбросить фильтры", "f:reset")],
         [
           active
             ? button("Остановить мониторинг", "m:stop")
@@ -49,7 +49,7 @@ export function initialDeliveryMenu(limit = 100) {
       inline_keyboard: [
         [button("Да, отправить", "m:start:initial")],
         [button("Нет, только новые", "m:start:new")],
-        [button("← К фильтрам", "f:menu")],
+        [button("← В главное меню", "f:menu")],
       ],
     },
   };
@@ -86,7 +86,7 @@ export function locationsMenu(filters) {
         : "▫️";
     return [button(`${marker} ${region.name}`, `f:region:${regionIndex}`)];
   });
-  inlineKeyboard.push([button("← К фильтрам", "f:menu")]);
+  inlineKeyboard.push([button("← В главное меню", "f:menu")]);
 
   return {
     text: [

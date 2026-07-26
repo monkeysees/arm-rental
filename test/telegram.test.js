@@ -646,6 +646,7 @@ test("private users explicitly start and stop monitoring from the setup panel", 
   assert.equal(state.users["42"].sendInitialApartments, false);
   assert.equal(state.updateOffset, 16);
   assert.equal(sent.length, 2);
+  assert.match(sent[0][1], /^Главное меню$/mu);
   assert.match(sent[0][1], /Мониторинг: остановлен/u);
   assert.deepEqual(
     sent[0][2].inline_keyboard.flat().map(({ text }) => text),
@@ -653,7 +654,7 @@ test("private users explicitly start and stop monitoring from the setup panel", 
       "Цена, ֏",
       "Комнаты",
       "Местоположение",
-      "Сбросить всё",
+      "Сбросить фильтры",
       "Запустить мониторинг",
     ],
   );
@@ -724,6 +725,10 @@ test("a user configures ranges and multiple locations through Telegram", async (
     entry[2].startsWith("Выбор местоположения"),
   );
   assert.match(locationsView[3].inline_keyboard[0][0].text, /Ереван/);
+  assert.equal(
+    locationsView[3].inline_keyboard.at(-1)[0].text,
+    "← В главное меню",
+  );
   assert.match(sent.at(-1)[1], /Цена \(֏\): 150\u00a0000–300\u00a0000/);
   assert.doesNotMatch(sent.at(-1)[1], /валюте объявления/);
   assert.equal(

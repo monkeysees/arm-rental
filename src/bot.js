@@ -22,7 +22,7 @@ import {
 import { readState, writeState } from "./state.js";
 import {
   formatApartmentMessage,
-  isStartCommand,
+  isMainMenuCommand,
   TelegramApi,
 } from "./telegram.js";
 import { ExponentialBackoff, isExpectedExternalFailure } from "./retry.js";
@@ -537,7 +537,7 @@ export async function processUpdates(
       if (query) await answerCallback(query.id);
       if (
         !query &&
-        isStartCommand(message.text) &&
+        isMainMenuCommand(message.text) &&
         effectiveRateLimits.accessDeniedResponses.tryAcquire(senderId)
       ) {
         await sendMessage(senderId, ACCESS_DENIED_TEXT(senderId));
@@ -714,7 +714,7 @@ export async function processUpdates(
       continue;
     }
 
-    if (isStartCommand(message.text)) {
+    if (isMainMenuCommand(message.text)) {
       const user = userState(current, senderId);
       current = withUserState(current, senderId, {
         ...user,

@@ -59,8 +59,8 @@ Start the bot:
 npm start
 ```
 
-Private access defaults to `public`, so any Telegram user can send `/start` to
-the bot in a private chat. Set `TELEGRAM_ACCESS_MODE=owner` to permit only
+Private access defaults to `public`, so any Telegram user can send `/start` or
+`/menu` to the bot in a private chat. Set `TELEGRAM_ACCESS_MODE=owner` to permit only
 `TELEGRAM_OWNER_ID`, or use `allowlist` to permit the owner plus at least one
 unique non-owner ID in `TELEGRAM_ALLOWED_USER_IDS`. Do not repeat the owner in
 that list. The owner remains the server-alert recipient in
@@ -69,16 +69,17 @@ admission cap; configured rate limits apply independently to each authorized
 sender and private recipient. Public-channel publishing is independent of the
 private access mode.
 
-Group-chat commands are ignored. `/start` opens the user's controls without
-starting monitoring, so filters can be chosen first. Use **Запустить
+Group-chat commands are ignored. `/start` and `/menu` open the user's main menu
+without changing monitoring state, so filters can be chosen first. Use **Запустить
 мониторинг** to choose whether to receive up to 100 existing matches and then
 begin notifications; use **Остановить мониторинг** to pause them. Each user's
 monitoring state and filters survive process restarts, and apartment
 notifications are delivered independently. `/filters` opens the same controls.
 Every persisted user, including one suspended by a narrower access policy, can
 use `/delete_my_data` to remove their filters and private notification history.
-Deletion requires confirmation, stops monitoring, and makes a later `/start`
-a new inactive subscription that must choose initial-delivery behavior again.
+Deletion requires confirmation, stops monitoring, and makes a later `/start` or
+`/menu` a new inactive subscription that must choose initial-delivery behavior
+again.
 
 Every filter is optional:
 
@@ -88,7 +89,7 @@ Every filter is optional:
 - locations can combine several individual places and whole regions. Ереван is
   first, followed by its districts, then the other regions.
 
-Send `нет` while entering a range to remove that restriction. **Сбросить всё**
+Send `нет` while entering a range to remove that restriction. **Сбросить фильтры**
 removes all filters. A whole-region selection matches the region name and all
 of its listed places; choosing an individual place replaces a whole-region
 selection for that region. Every change is persisted and applied immediately;

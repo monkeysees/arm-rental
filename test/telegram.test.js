@@ -11,6 +11,7 @@ import {
 } from "../src/bot.js";
 import {
   formatApartmentMessage,
+  isMainMenuCommand,
   isStartCommand,
   TelegramApi,
 } from "../src/telegram.js";
@@ -685,6 +686,25 @@ test("private users explicitly start and stop monitoring from the setup panel", 
   assert.equal(saved.at(-1).updateOffset, 16);
 });
 
+test("start and menu commands render the same main menu", async () => {
+  const sent = [];
+  const state = await processUpdates(
+    [update(1, 42, "/start"), update(2, 42, "/menu")],
+    config,
+    initialState,
+    {
+      sendMessage: async (...args) => sent.push(args),
+      saveState: async () => {},
+    },
+  );
+
+  assert.equal(state.updateOffset, 3);
+  assert.equal(state.users[42].active, false);
+  assert.equal(sent.length, 2);
+  assert.deepEqual(sent[1], sent[0]);
+  assert.match(sent[1][1], /^Главное меню$/mu);
+});
+
 test("a user configures ranges and multiple locations through Telegram", async () => {
   const sent = [];
   const edited = [];
@@ -787,6 +807,9 @@ test("private users maintain independent filter input and settings", async () =>
 test("Telegram helpers format normalized apartment data", () => {
   assert.equal(isStartCommand("/start@rental_bot payload"), true);
   assert.equal(isStartCommand("/starter"), false);
+  assert.equal(isMainMenuCommand("/start@rental_bot payload"), true);
+  assert.equal(isMainMenuCommand("/menu@rental_bot payload"), true);
+  assert.equal(isMainMenuCommand("/menus"), false);
   assert.equal(
     formatApartmentMessage({
       itemId: "200",

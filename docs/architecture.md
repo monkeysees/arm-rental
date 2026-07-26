@@ -684,9 +684,9 @@ operator procedures are indexed in
    persistent-directory singleton lease, and runs the startup preflight. Only a
    ready result permits the reusable Chrome-backed page fetcher and Telegram bot
    to enter their long-running loops.
-2. One loop in `src/bot.js` long-polls Telegram. A private `/start` from an
-   authorized Telegram user creates or reopens that user's control panel without
-   changing an existing monitoring choice; unauthorized senders cannot create
+2. One loop in `src/bot.js` long-polls Telegram. A private `/start` or `/menu`
+   from an authorized Telegram user creates or reopens that user's main menu
+   without changing an existing monitoring choice; unauthorized senders cannot create
    private state, new users are inactive by default, and group chats are
    ignored. Authorization uses the Telegram sender ID only after a private chat
    has proved that its chat ID is the same value. Persisted users excluded by a
@@ -703,9 +703,10 @@ operator procedures are indexed in
    bounded no-data reply, and completed users may register as new inactive
    subscriptions. `/filters` opens the same per-user price, room, and hierarchical
    location controls. Authorized private messages and callbacks share a
-   per-sender, continuously refilled in-memory token bucket. Denied `/start`
-   replies and excessive-request replies each have a separate five-minute
-   response gate; callbacks are acknowledged without editing their messages.
+   per-sender, continuously refilled in-memory token bucket. Denied `/start` and
+   `/menu` replies and excessive-request replies each have a separate
+   five-minute response gate; callbacks are acknowledged without editing their
+   messages.
    The inbound decision for a sender and Telegram update ID is reused across a
    transient replay, preventing a failed durable write or later reply from
    charging the same update twice.

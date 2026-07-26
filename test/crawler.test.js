@@ -118,6 +118,35 @@ test("initial crawl parses pages 1 through 10 and stores every apartment", async
   assert.deepEqual(delivered, ["3", "2", "1", "11"]);
 });
 
+test("crawler consumes normalized apartments from page diagnostics", async () => {
+  const state = memoryState();
+  const result = await crawlApartments(
+    { ...config, initialPageCount: 1 },
+    {
+      ...state,
+      fetchPage: async () =>
+        new Response(`
+          <div id="contentr">
+            <a class="fav-item-info-container" href="/ru/item/500">
+              <div class="dltitle"><div class="pt">Apartment 500</div></div>
+              <div class="d">Friday, July 24, 2026, 14:31</div>
+            </a>
+            <a class="fav-item-info-container" href="/ru/item/500">Duplicate</a>
+            <a class="fav-item-info-container" href="/ru/item/501bad">
+              Rejected identity
+            </a>
+          </div>`),
+      now: () => new Date("2026-07-24T12:00:00Z"),
+    },
+  );
+
+  assert.equal(result.discoveredCount, 1);
+  assert.deepEqual(
+    Object.keys(state.files.get(config.apartmentsStateFile).apartments),
+    ["500"],
+  );
+});
+
 test("later crawl continues past known IDs until the latest known date", async () => {
   const known = {
     version: 1,

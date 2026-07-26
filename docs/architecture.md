@@ -893,13 +893,28 @@ operator-approved reset.
 ## Parsing model
 
 The parser scopes card selection to `#contentr`, List.am's Regular Ads
-container. It never queries `#tp`, which contains Top Ads. The parser initially
-returns source price `{ amount, currency }`; `src/prices.js` turns it into the
-canonical and original-price fields before persistence. Words such as
-"monthly" are discarded. Rooms, area, and floor are extracted by position from
-List.am's comma-separated card metadata, making parsing independent of
-localized labels such as `ком.`, `кв.м.`, and `этаж`. The original posting date
-is retained as displayed by List.am.
+container. Candidate selectors intentionally do not require an item-shaped
+`href`, so malformed identities remain visible to diagnostics; descendants of
+`#tp`, which contains Top Ads, are excluded. The current card class is the
+primary selector; the legacy `.dl` anchor shape is used only when no primary
+cards exist. A candidate becomes an apartment only when its URL has the exact
+List.am item-path boundary. Duplicate canonical IDs and rejected identities are
+counted without retaining card HTML or rejected attributes.
+
+`parseRegularApartments` returns the normalized apartments together with
+candidate, unique-candidate, parsed, duplicate, and rejected counts. Its
+completeness object counts usable normalized title, date, price, location,
+rooms, area, and floor values. Crawling, startup preflight, and browser
+verification consume this diagnostic result; the legacy array helper is only a
+compatibility wrapper. Posting-date validation and crawl ordering share
+`src/posting-date.js`, preventing completeness and watermark decisions from
+interpreting dates differently. The parser initially returns source price
+`{ amount, currency }`; `src/prices.js` turns it into the canonical and
+original-price fields before persistence. Words such as "monthly" are
+discarded. Rooms, area, and floor are extracted by position from List.am's
+comma-separated card metadata, making parsing independent of localized labels
+such as `ком.`, `кв.м.`, and `этаж`. The original posting date is retained as
+displayed by List.am.
 
 ## Failure handling
 

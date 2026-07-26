@@ -176,6 +176,33 @@ test("preflight validates every state target and all external boundaries before 
   ]);
 });
 
+test("preflight records parsed unique apartments rather than raw candidates", async (t) => {
+  const config = await temporaryConfig(t);
+  const verificationCounts = [];
+  const diagnosticHtml = `
+    <div id="contentr">
+      <a class="fav-item-info-container" href="/ru/item/200">Apartment</a>
+      <a class="fav-item-info-container" href="/item/200">Duplicate</a>
+      <a class="fav-item-info-container" href="/item/not-numeric">Rejected</a>
+    </div>`;
+
+  const result = await runStartupPreflight(config, {
+    storageValidated: true,
+    singletonLock: singletonLock(config),
+    browserFetcher: {
+      start: async () => {},
+      fetch: async () => new Response(diagnosticHtml),
+    },
+    exchangeRateService: { getSnapshot: async () => ratesSnapshot() },
+    api: telegramApi(),
+    recordVerification: async (_config, count) =>
+      verificationCounts.push(count),
+  });
+
+  assert.equal(result.status, "ready");
+  assert.deepEqual(verificationCounts, [1]);
+});
+
 test("unsupported and malformed state fails closed without changing files", async (t) => {
   const config = await temporaryConfig(t);
   const cases = [

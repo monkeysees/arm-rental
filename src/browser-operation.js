@@ -1,7 +1,7 @@
 import { acquireSingletonLock } from "./singleton-lock.js";
 import { BrowserPageFetcher } from "./browser-fetch.js";
 import { validateStartupConfig } from "./config.js";
-import { extractRegularApartments } from "./list-am.js";
+import { parseRegularApartments } from "./list-am.js";
 import { pageUrl } from "./target.js";
 import { recordBrowserVerification } from "./browser-verification-state.js";
 
@@ -61,7 +61,9 @@ export async function runBrowserOperation(
           `List.am returned HTTP ${response?.status || "unknown"}`,
         );
       }
-      regularAdsCount = extractRegularApartments(await response.text()).length;
+      regularAdsCount = parseRegularApartments(
+        await response.text(),
+      ).parsedCount;
     }
     await recordVerification(config, regularAdsCount);
     return {

@@ -1,6 +1,8 @@
 import * as cheerio from "cheerio";
+import { postingDateSortValue } from "./posting-date.js";
 
-const ITEM_PATH = /\/(?:[a-z]{2}\/)?item\/(\d+)/u;
+const LIST_AM_ORIGIN = "https://www.list.am";
+const ITEM_PATH = /^\/(?:[a-z]{2}\/)?item\/(\d+)\/?$/u;
 const PRICE_NUMBER = /\d[\d\s.,]*/u;
 const CURRENCIES = ["֏", "$", "€", "₽", "£", "AMD", "USD", "EUR", "RUB", "GBP"];
 
@@ -54,29 +56,79 @@ function regularCards($) {
     throw new Error("Could not find the List.am Regular Ads section");
   }
 
-  let $cards = $section.find('a.fav-item-info-container[href*="/item/"]');
-  $cards = $cards.filter(
-    (_index, element) => $(element).closest("#tp").length === 0,
-  );
-  if ($cards.length === 0) {
-    $cards = $section.find('.dl a[href*="/item/"]');
-    $cards = $cards.filter(
-      (_index, element) => $(element).closest("#tp").length === 0,
-    );
-  }
-
-  return $cards;
+  const outsideTopAds = (_index, element) =>
+    $(element).closest("#tp").length === 0;
+  const $primary = $section
+    .find("a.fav-item-info-container")
+    .filter(outsideTopAds);
+  if ($primary.length > 0) return $primary;
+  return $section.find(".dl a").filter(outsideTopAds);
 }
 
-export function extractRegularApartments(html) {
+function canonicalItemId(href) {
+  if (typeof href !== "string" || href.trim() === "") return null;
+  try {
+    const url = new URL(href.trim(), LIST_AM_ORIGIN);
+    if (url.origin !== LIST_AM_ORIGIN) return null;
+    return url.pathname.match(ITEM_PATH)?.[1] || null;
+  } catch {
+    return null;
+  }
+}
+
+function usableNumber(value) {
+  return Number.isFinite(value);
+}
+
+function completenessFor(apartments) {
+  const completeness = {
+    title: 0,
+    date: 0,
+    price: 0,
+    location: 0,
+    rooms: 0,
+    areaSqM: 0,
+    floor: 0,
+  };
+
+  for (const apartment of apartments) {
+    if (apartment.title) completeness.title += 1;
+    if (postingDateSortValue(apartment.date) !== null) completeness.date += 1;
+    if (
+      usableNumber(apartment.price.amount) &&
+      apartment.price.currency !== null
+    ) {
+      completeness.price += 1;
+    }
+    if (apartment.location) completeness.location += 1;
+    if (usableNumber(apartment.rooms)) completeness.rooms += 1;
+    if (usableNumber(apartment.areaSqM)) completeness.areaSqM += 1;
+    if (apartment.floor) completeness.floor += 1;
+  }
+
+  return completeness;
+}
+
+export function parseRegularApartments(html) {
   const $ = cheerio.load(html);
   const apartments = [];
   const ids = new Set();
+  let candidateCount = 0;
+  let duplicateCount = 0;
+  let rejectedCount = 0;
 
   regularCards($).each((_index, element) => {
+    candidateCount += 1;
     const $card = $(element);
-    const id = ($card.attr("href") || "").match(ITEM_PATH)?.[1];
-    if (!id || ids.has(id)) return;
+    const id = canonicalItemId($card.attr("href"));
+    if (!id) {
+      rejectedCount += 1;
+      return;
+    }
+    if (ids.has(id)) {
+      duplicateCount += 1;
+      return;
+    }
 
     const details = parseDetails($card.find(".at").first().text());
     ids.add(id);
@@ -92,5 +144,18 @@ export function extractRegularApartments(html) {
     });
   });
 
-  return apartments;
+  return {
+    apartments,
+    candidateCount,
+    uniqueCandidateCount: ids.size,
+    parsedCount: apartments.length,
+    duplicateCount,
+    rejectedCount,
+    completeness: completenessFor(apartments),
+  };
+}
+
+/** Compatibility wrapper for callers that need only normalized apartments. */
+export function extractRegularApartments(html) {
+  return parseRegularApartments(html).apartments;
 }

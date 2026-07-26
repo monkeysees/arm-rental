@@ -11,7 +11,7 @@ import {
   compatibleDeliveryState,
 } from "./crawler.js";
 import { compatibleExchangeRateSnapshot } from "./exchange-rates.js";
-import { extractRegularApartments } from "./list-am.js";
+import { parseRegularApartments } from "./list-am.js";
 import { readState } from "./state.js";
 import { pageUrl } from "./target.js";
 import { TelegramApi, TelegramApiError } from "./telegram.js";
@@ -387,8 +387,8 @@ export async function runStartupPreflight(
           `List.am returned HTTP ${response?.status || "unknown"}`,
         );
       }
-      const apartments = extractRegularApartments(await response.text());
-      await recordVerification(config, apartments.length);
+      const diagnostics = parseRegularApartments(await response.text());
+      await recordVerification(config, diagnostics.parsedCount);
     } catch (error) {
       if (
         error instanceof BrowserVerificationRequiredError ||

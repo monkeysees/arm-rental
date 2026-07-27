@@ -434,6 +434,13 @@ successful operation resets its backoff object. Telegram's server-supplied
 or permission errors, invalid configuration, and incompatible state escape to
 the supervisor instead of entering runtime retry loops.
 
+Runtime page fetches add one immediate retry in a fresh Chrome process before
+the crawl-level policy runs. The bounded retry accepts browser verification
+responses, Puppeteer protocol/target/connection failures, and the shared
+expected-external-failure set. A second failure escapes to the crawl loop,
+which records one failed crawl and applies its existing backoff; preflight does
+not use this runtime-only retry.
+
 Crawl completion and failure events carry a random crawl ID and elapsed
 milliseconds. Successful crawl records also expose the page, discovery,
 update, notification, filtering, channel send/edit, and total counters as

@@ -3,10 +3,42 @@ import { validateStartupConfig } from "./config.js";
 import { runStartupPreflight, startupFailureResult } from "./preflight.js";
 import { classifyRuntimeFailure } from "./health.js";
 import { observeStateWrites } from "./state.js";
+import { isExpectedExternalFailure, retryOperation } from "./retry.js";
 import {
   LIST_AM_SOURCE_INTEGRITY_ERROR,
   sourceIntegrityFailureSummary,
 } from "./source-integrity.js";
+
+const RETRYABLE_BROWSER_ERROR_NAMES = new Set([
+  "BrowserVerificationRequiredError",
+  "ConnectionClosedError",
+  "ProtocolError",
+  "TargetCloseError",
+]);
+
+function isRetryableRuntimeBrowserFailure(error) {
+  if (error?.terminal) return false;
+  return (
+    error?.code === "ERR_BROWSER_VERIFICATION_REQUIRED" ||
+    RETRYABLE_BROWSER_ERROR_NAMES.has(error?.name) ||
+    isExpectedExternalFailure(error)
+  );
+}
+
+function runtimeBrowserRetryReason(error) {
+  if (
+    error?.code === "ERR_BROWSER_VERIFICATION_REQUIRED" ||
+    error?.name === "BrowserVerificationRequiredError"
+  ) {
+    return "BROWSER_VERIFICATION_REQUIRED";
+  }
+  if (error?.name === "ProtocolError") return "BROWSER_PROTOCOL_FAILURE";
+  if (error?.name === "TargetCloseError") return "BROWSER_TARGET_CLOSED";
+  if (error?.name === "ConnectionClosedError") {
+    return "BROWSER_CONNECTION_CLOSED";
+  }
+  return "BROWSER_EXTERNAL_FAILURE";
+}
 
 export async function runApplication({
   config,
@@ -128,10 +160,26 @@ export async function runApplication({
     logger.info(
       "Telegram bot is running; send /start in a private chat to configure monitoring",
     );
+    const fetchRuntimePage = (url) =>
+      retryOperation(() => browserFetcher.fetch(url), {
+        maxAttempts: 2,
+        shouldRetry: isRetryableRuntimeBrowserFailure,
+        retryDelay: () => 0,
+        signal: controller.signal,
+        onRetry: ({ attempt, delayMs, error }) =>
+          logger.warn("Browser page retry scheduled", {
+            event: "retry.scheduled",
+            component: "browser",
+            operation: "fetch_page",
+            attempt,
+            delayMs,
+            reason: runtimeBrowserRetryReason(error),
+          }),
+      });
     await runBot(config, {
       signal: controller.signal,
       exchangeRateService,
-      pageFetch: (url) => browserFetcher.fetch(url),
+      pageFetch: fetchRuntimePage,
       onResult: (result) => {
         healthMonitor?.recordCrawlSuccess();
         logger.info("Apartment crawl completed", {

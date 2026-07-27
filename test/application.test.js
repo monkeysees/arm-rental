@@ -3,6 +3,7 @@ import { EventEmitter } from "node:events";
 import test from "node:test";
 
 import { runApplication } from "../src/application.js";
+import { BrowserVerificationRequiredError } from "../src/browser-fetch.js";
 import { HealthMonitor } from "../src/health.js";
 import {
   ListAmIntegrityReason,
@@ -38,6 +39,123 @@ test("configuration validation fails before locks, resources, or loops start", a
   );
 
   assert.deepEqual(calls, ["validate"]);
+});
+
+test("runtime page fetch immediately retries a browser challenge once", async () => {
+  const alerts = [];
+  const monitor = new HealthMonitor({
+    version: "1.0.0",
+    now: () => new Date("2026-07-25T10:00:00.000Z"),
+    onAlert: (alert) => alerts.push(alert),
+  });
+  const warnings = [];
+  const logger = {
+    info: () => {},
+    warn: (message, context) => warnings.push({ message, context }),
+    error: () => {},
+  };
+  const exchangeSnapshot = {
+    fetchedAt: "2026-07-25T09:00:00.000Z",
+  };
+  let fetchAttempts = 0;
+
+  await runApplication({
+    config: { dataDirectory: "/data" },
+    logger,
+    healthMonitor: monitor,
+    validateConfig: async () => {},
+    acquireLock: async () => ({
+      dataDirectory: "/data",
+      owner: { id: "lease", pid: 42 },
+      release: async () => {},
+    }),
+    browserFetcherFactory: (_config, callbacks) => ({
+      fetch: async () => {
+        fetchAttempts += 1;
+        if (fetchAttempts === 1) {
+          callbacks.onEvent({
+            name: "browser.challenge",
+            component: "browser",
+            code: "ERR_BROWSER_VERIFICATION_REQUIRED",
+            remediationCommand: "npm run browser:verify",
+          });
+          throw new BrowserVerificationRequiredError();
+        }
+        return new Response('<div id="contentr"></div>', { status: 200 });
+      },
+      close: async () => {},
+    }),
+    exchangeRateServiceFactory: () => ({
+      currentSnapshot: () => exchangeSnapshot,
+    }),
+    preflight: async () => ({
+      status: "ready",
+      ready: true,
+      checks: {
+        storage: "passed",
+        telegram: "passed",
+        browser: "passed",
+        list_am: "passed",
+        exchange_rates: "passed",
+      },
+    }),
+    runBot: async (_config, callbacks) => {
+      callbacks.onMonitoringState({
+        active: true,
+        channelConfigured: false,
+      });
+      const response = await callbacks.pageFetch("https://www.list.am/");
+      assert.equal(response.ok, true);
+      callbacks.onResult({
+        crawlId: "safe-crawl",
+        durationMs: 1,
+        status: "unchanged",
+        pagesParsed: 1,
+        discoveredCount: 0,
+        updatedCount: 0,
+        notifiedCount: 0,
+        skippedCount: 0,
+        filteredCount: 0,
+        totalCount: 0,
+        channel: {
+          sentCount: 0,
+          editedCount: 0,
+          filteredCount: 0,
+          skippedCount: 0,
+        },
+      });
+    },
+  });
+
+  assert.equal(fetchAttempts, 2);
+  assert.deepEqual(
+    warnings.find(({ message }) => message === "Browser page retry scheduled")
+      ?.context,
+    {
+      event: "retry.scheduled",
+      component: "browser",
+      operation: "fetch_page",
+      attempt: 1,
+      delayMs: 0,
+      reason: "BROWSER_VERIFICATION_REQUIRED",
+    },
+  );
+  assert.deepEqual(
+    alerts.filter(({ name }) => name === "browser_challenge"),
+    [
+      {
+        name: "browser_challenge",
+        status: "firing",
+        reason: "BROWSER_VERIFICATION_REQUIRED",
+      },
+      {
+        name: "browser_challenge",
+        status: "resolved",
+        reason: "BROWSER_VERIFICATION_REQUIRED",
+      },
+    ],
+  );
+  assert.equal(monitor.readiness().ready, true);
 });
 
 test("application lifecycle drives crawl and exchange-rate readiness", async () => {

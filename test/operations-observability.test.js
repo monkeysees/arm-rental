@@ -29,8 +29,10 @@ function alertRecord(
   observedAt,
   event = "alert.firing",
   alertName = "browser_challenge",
-  reason,
+  details = {},
 ) {
+  const alertDetails =
+    typeof details === "string" ? { reason: details } : details;
   return `${JSON.stringify({
     __CURSOR: `${Date.parse(observedAt)}-${event}-${alertName}`,
     __REALTIME_TIMESTAMP: String(Date.parse(observedAt) * 1000),
@@ -41,7 +43,7 @@ function alertRecord(
       event,
       alertName,
       alertSeverity: "warn",
-      ...(reason ? { reason } : {}),
+      ...alertDetails,
       message: "Browser verification state changed",
     }),
   })}\n`;
@@ -181,6 +183,17 @@ test("rentalctl preserves malformed logs and aggregates bounded journal metrics"
         reason: "IDENTITY_REJECTION",
         page: 1,
         rejectedCount: 1,
+      }) +
+      applicationRecord("2026-07-25T11:59:40.000Z", {
+        severity: "warn",
+        event: "alert.firing",
+        alertName: "readiness_failure",
+        status: "firing",
+        reasons: ["BROWSER_VERIFICATION_REQUIRED", "unsafe reason"],
+        component: "browser",
+        code: "ERR_BROWSER_VERIFICATION_REQUIRED",
+        ownerId: "must-not-appear",
+        message: "Production alert firing",
       }),
   );
   const logs = await execute(
@@ -193,6 +206,17 @@ test("rentalctl preserves malformed logs and aggregates bounded journal metrics"
     logs.stdout,
     /unstructured\.message\tnot-json but still visible/u,
   );
+
+  const alertLogs = await execute(
+    rentalctl,
+    ["logs", "--since", "30m", "--event", "alert.firing"],
+    { env: host.env },
+  );
+  assert.match(
+    alertLogs.stdout,
+    /Production alert firing\t\{"alertName":"readiness_failure","status":"firing","reasons":\["BROWSER_VERIFICATION_REQUIRED"\],"component":"browser","code":"ERR_BROWSER_VERIFICATION_REQUIRED"\}/u,
+  );
+  assert.doesNotMatch(alertLogs.stdout, /unsafe reason|must-not-appear/u);
 
   const { stdout } = await execute(
     rentalctl,
@@ -313,6 +337,38 @@ test("monitor delivers transient application alert edges exactly once", async (t
   assert.doesNotMatch(
     await readFile(host.env.RENTAL_TEST_SYSTEMD_LOG, "utf8"),
     /123456789|abcdefghijklmnopqrstuvwxyz/u,
+  );
+});
+
+test("monitor includes validated readiness reasons in alert notifications", async (t) => {
+  const host = await fakeHost(t);
+  await appendFile(
+    host.journal,
+    alertRecord(
+      "2026-07-25T11:59:10.000Z",
+      "alert.firing",
+      "readiness_failure",
+      {
+        reasons: [
+          "CRAWL_STALE",
+          "BROWSER_VERIFICATION_REQUIRED",
+          "unsafe reason",
+        ],
+      },
+    ),
+  );
+
+  await execute(monitor, [], { env: host.env });
+
+  const payloads = await readFile(host.env.RENTAL_TEST_CURL_PAYLOADS, "utf8");
+  assert.match(payloads, /reason: BROWSER_VERIFICATION_REQUIRED, CRAWL_STALE/u);
+  assert.doesNotMatch(payloads, /unsafe reason/u);
+  const alertState = JSON.parse(
+    await readFile(join(host.state, "alerts.json"), "utf8"),
+  );
+  assert.equal(
+    alertState.alerts.find(({ name }) => name === "readiness_failure")?.reason,
+    "BROWSER_VERIFICATION_REQUIRED, CRAWL_STALE",
   );
 });
 

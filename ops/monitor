@@ -163,8 +163,9 @@ main() {
           | select(.status == "firing")
           | alert(.name; (.severity // "warning");
               ("rentalctl logs --since 1h --event alert.firing");
-              ("application alert remains firing; first observed "
-                + .firstObservedAt))
+              (.reason
+                // ("application alert remains firing; first observed "
+                  + .firstObservedAt)))
           + {source: "application"}),
         (select($metrics.windows["10m"].applicationStarts > 3)
           | alert("process_restart_loop"; "error";

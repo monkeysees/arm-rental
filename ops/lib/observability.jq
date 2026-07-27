@@ -28,6 +28,27 @@ def safe_group_key:
   else "other"
   end;
 
+def safe_alert_reason:
+  if type == "string" and test("^[A-Z][A-Z0-9_]{1,80}$")
+  then .
+  else null
+  end;
+
+def alert_reason:
+  (.record.reason | safe_alert_reason) as $reason
+  | if $reason != null
+    then $reason
+    else
+      ([(if (.record.reasons | type) == "array"
+         then .record.reasons else [] end)[]
+        | safe_alert_reason | select(. != null)]
+       | unique | .[:8]) as $reasons
+      | if ($reasons | length) == 0
+        then null
+        else ($reasons | join(", "))
+        end
+    end;
+
 def percentile($values; $fraction):
   ($values | map(select(type == "number")) | sort) as $sorted
   | if ($sorted | length) == 0
@@ -157,9 +178,7 @@ def observed_alerts($records):
         status:
           (if .record.event == "alert.firing" then "firing" else "resolved" end),
         severity: (.record.alertSeverity // .record.severity // "warning"),
-        reason:
-          (if ((.record.reason // "") | test("^[A-Z][A-Z0-9_]{1,80}$"))
-           then .record.reason else null end),
+        reason: alert_reason,
         observedAt: .journalTimestamp
       }
   ]
@@ -190,9 +209,7 @@ def observed_alert_transitions($records):
         status:
           (if .record.event == "alert.firing" then "firing" else "resolved" end),
         severity: (.record.alertSeverity // .record.severity // "warning"),
-        reason:
-          (if ((.record.reason // "") | test("^[A-Z][A-Z0-9_]{1,80}$"))
-           then .record.reason else null end),
+        reason: alert_reason,
         observedAt: (.journalTimestamp | todateiso8601)
       }
   ];

@@ -50,6 +50,13 @@ are redacted.
 extracts JSON `MESSAGE`, and preserves malformed records under
 `unstructured.message`.
 
+The normal view emits five tab-separated fields: journal timestamp, severity,
+event, message, and optional diagnostic context as compact JSON. Diagnostic
+context is deliberately allowlisted and bounded to alert name/status, stable
+reason codes, component/error code, operation/step, retry attempt, and duplicate
+suppression count. Unknown fields, identifiers, URLs, and invalid reason values
+are not projected into this operator view.
+
 ```sh
 rentalctl logs --since 30m --follow
 rentalctl logs --since 24h --severity error
@@ -132,7 +139,10 @@ The evaluator covers application alerts, restart loops, two consecutive
 readiness failures, exhausted/missing containers, state-write p95 over 500 ms,
 filesystem/journal capacity, and failed systemd jobs. Messages include a safe,
 bounded reason alongside the name, severity, first/last observation, host
-alias, source revision, and local runbook command. For scheduled jobs, the
+alias, source revision, and local runbook command. Application alerts may emit
+one `reason` or a `reasons` array; the monitor accepts only stable uppercase
+codes, removes duplicates, retains at most eight, and joins multiple codes for
+the notification and persisted alert state. For scheduled jobs, the
 monitor reads at most 100 unit-journal records since the most recent trigger
 and accepts only structured event names, error codes, operation steps, and
 allowlisted capacity fields. It falls back to the systemd result and exit code
@@ -175,8 +185,9 @@ boundaries of local-only monitoring.
 ## Verification
 
 Fixture integration tests feed interleaved structured and malformed journal
-records through formatting and aggregation. They verify percentile boundaries
-and firing/deduplicated/resolved transitions without changing production.
+records through formatting and aggregation. They verify the diagnostic-context
+allowlist, scalar and array alert reasons, percentile boundaries, and
+firing/deduplicated/resolved transitions without changing production.
 
 After provisioning, verify persistent storage, run `ops/monitor`, inspect
 `rentalctl status --json`, and send a sanitized synthetic alert. Confirm the

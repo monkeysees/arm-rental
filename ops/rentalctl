@@ -92,6 +92,43 @@ logs_command() {
         def journal_time:
           (((.__REALTIME_TIMESTAMP // "0") | tonumber? // 0) / 1000000)
           | strftime("%Y-%m-%dT%H:%M:%SZ");
+        def safe_name:
+          if type == "string" and test("^[a-zA-Z][a-zA-Z0-9_.-]{0,127}$")
+          then . else null end;
+        def safe_code:
+          if type == "string" and test("^[A-Z][A-Z0-9_]{1,80}$")
+          then . else null end;
+        def safe_count:
+          if type == "number" and . >= 0 and . <= 1000000
+          then . else null end;
+        def diagnostic_context:
+          . as $record
+          | ([
+              (if ($record.reasons | type) == "array"
+               then $record.reasons else [] end)[]
+              | safe_code
+              | select(. != null)
+            ] | unique | .[:8]) as $reasons
+          | {
+              alertName: ($record.alertName | safe_name),
+              status:
+                (if ["firing", "resolved"] | index($record.status)
+                 then $record.status else null end),
+              reason: ($record.reason | safe_code),
+              reasons: (if ($reasons | length) > 0 then $reasons else null end),
+              component: ($record.component | safe_name),
+              code:
+                (($record.code
+                  // ($record.error
+                    | if type == "object" then .code else null end))
+                 | safe_code),
+              operation: ($record.operation | safe_name),
+              step: ($record.step | safe_name),
+              attempt: ($record.attempt | safe_count),
+              suppressedCount: ($record.suppressedCount | safe_count)
+            }
+          | with_entries(select(.value != null))
+          | if length == 0 then "" else tojson end;
         . as $journal
         | (($journal.MESSAGE // "") | try fromjson catch null) as $json
         | (if ($json | type) == "object"
@@ -113,7 +150,8 @@ logs_command() {
             ($journal | journal_time),
             ($record.severity // "info"),
             ($record.event // "unstructured.message"),
-            ($record.message // "")
+            ($record.message // ""),
+            ($record | diagnostic_context)
           ]
         | @tsv
       '

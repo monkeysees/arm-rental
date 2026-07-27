@@ -99,22 +99,3 @@ jobs:
           ignore-unfixed: true
           exit-code: 1
           version: v0.69.3
-
-      - name: Package immutable deployment artifact
-        env:
-          SOURCE_REVISION: ${{ github.sha }}
-        run: |
-          mkdir release
-          docker save rental-apartments-bot:ci | gzip --best > release/rental-apartments-bot.tar.gz
-          node scripts/create-release-metadata.js \
-            --source-revision "$SOURCE_REVISION" \
-            --image-archive release/rental-apartments-bot.tar.gz \
-            --output release/release-metadata.json
-
-      - name: Upload production artifact
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: rental-apartments-bot-${{ github.sha }}
-          path: release/
-          if-no-files-found: error
-          retention-days: 14

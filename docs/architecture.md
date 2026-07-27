@@ -263,13 +263,15 @@ checks, a separate 90%-line/80%-branch coverage gate, and a high-severity
 production dependency audit on the pinned Node runtime. The second builds the
 production image, exercises its pinned Chrome in both headless and headful
 modes on a native Linux AMD64 runner, and scans its OS packages and application
-libraries before it can be packaged. The browser gate uses the same non-root,
+libraries. The browser gate uses the same non-root,
 read-only, sandbox-enabled capability and tmpfs contract as production, with a
 private Xvfb display for the headful pass. This synthetic, secret-free smoke
 forwards Chrome diagnostics to its CI log so early browser exits retain their
-native cause. Keeping browser validation, scanning, and packaging in one
-required job prevents an untested or unscanned image from becoming the
-deployable output.
+native cause. The validated image is deliberately ephemeral: the required job
+does not save or upload its several-hundred-megabyte Docker archive because no
+deployment consumer reads an Actions artifact. Production publication repeats
+the build, validation, and scan before it mutates GHCR, so an untested or
+unscanned image cannot become the deployable output.
 
 The aggregate production contract uses baseline POSIX/GNU text tooling supplied
 by the runner rather than optional hosted-image utilities. Its integration test
@@ -291,10 +293,12 @@ production secrets or directories.
 
 Build arguments bind the image to the full Git revision and SHA-256 digest of
 `package-lock.json`; the Dockerfile validates both and records them alongside
-the pinned Node and Chrome versions as OCI labels. CI saves the exact scanned
-image and creates a release manifest that repeats those inputs and records the
-archive digest. This manifest is the production deployment handoff: the host
-must load the uploaded archive rather than rebuild from source.
+the pinned Node and Chrome versions as OCI labels. After required CI succeeds
+for a `main` push, the publication workflow rebuilds those same pinned inputs,
+repeats label validation and scanning, pushes an immutable GHCR image, and
+creates digest-bound release metadata. The immutable registry digest and its
+metadata object are the production deployment handoff; the host never rebuilds
+from source or downloads a transient Actions artifact.
 
 Workflow actions are immutable commit pins. Dependabot proposes npm, base
 image, and workflow-action updates as reviewable pull requests and has no
@@ -371,7 +375,7 @@ interactive macOS path also restricts debugging to loopback.
 
 The image build verifies both signed Debian package versions and the sandbox
 helper's ownership and mode without executing a foreign-architecture binary.
-The native AMD64 hosted artifact gate executes the installed browser and
+The native AMD64 hosted image gate executes the installed browser and
 requires the exact versioned Debian Chromium identity. That runtime check trims
 only trailing whitespace before comparison, without weakening the version pin.
 

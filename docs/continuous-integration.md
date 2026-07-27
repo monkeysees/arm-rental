@@ -46,20 +46,12 @@ application libraries and fails on every high or critical finding for which a
 fix is available. Findings that Debian marks `affected`, `fix_deferred`, or
 `will_not_fix` without publishing a fixed package remain visible to security
 review but do not permanently block unrelated releases that cannot remediate
-them. The job saves the successfully scanned image as a compressed Docker
-archive and uploads it with `release-metadata.json`; a scan failure therefore
-cannot produce a deployable artifact.
-
-The release manifest binds the archive to:
-
-- the full source Git revision;
-- the exact Node and Chrome versions;
-- the SHA-256 digest of `package-lock.json`; and
-- the SHA-256 digest and filename of the image archive.
-
-The source revision, runtime versions, and lock digest are duplicated as OCI
-labels so operators can verify metadata after loading the archive. The uploaded
-artifact is retained for 14 days as CI debugging and recovery evidence.
+them. The source revision, runtime versions, and lock digest remain available
+as OCI labels for verification. Once these gates complete, the runner discards
+the candidate image. The job intentionally does not use `docker save` or
+`actions/upload-artifact`: no downstream workflow or host consumes that
+archive, and retaining one several-hundred-megabyte copy per pull-request run
+would exhaust Actions artifact storage without adding release evidence.
 
 ## Production publication
 
@@ -98,8 +90,7 @@ is fixed. Dependabot opens monthly pull requests for npm, Docker, and GitHub
 Actions updates. Updates remain subject to both required checks and human
 review; no update workflow merges or mutates production automatically.
 
-The vulnerability database download, production image build, Trivy scan,
-artifact upload, GHCR push, and registry digest resolution require
-GitHub-hosted network and package services. They cannot be fully reproduced by
-`npm run check`; use the required hosted jobs and the publication receipt as
-the release authority.
+The vulnerability database download, production image build, Trivy scan, GHCR
+push, and registry digest resolution require GitHub-hosted network and package
+services. They cannot be fully reproduced by `npm run check`; use the required
+hosted jobs and the publication receipt as the release authority.

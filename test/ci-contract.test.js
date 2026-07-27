@@ -10,7 +10,7 @@ import { createReleaseMetadata } from "../scripts/create-release-metadata.js";
 const readProjectFile = (file) =>
   readFile(new URL(`../${file}`, import.meta.url), "utf8");
 
-test("required CI gates quality, production security, and an immutable artifact", async () => {
+test("required CI gates quality and an ephemeral production candidate", async () => {
   const [workflow, packageText, dockerfile, browserSmoke] = await Promise.all([
     readProjectFile(".github/workflows/quality.yml"),
     readProjectFile("package.json"),
@@ -41,8 +41,10 @@ test("required CI gates quality, production security, and an immutable artifact"
     workflow,
     /scripts\/smoke-production-browser-image rental-apartments-bot:ci/u,
   );
-  assert.match(workflow, /docker save rental-apartments-bot:ci/u);
-  assert.match(workflow, /actions\/upload-artifact@[a-f0-9]{40}/u);
+  // Publication performs its own gated GHCR push. Retaining a Docker archive
+  // here wastes Actions storage and is not part of the deployment handoff.
+  assert.doesNotMatch(workflow, /docker save rental-apartments-bot:ci/u);
+  assert.doesNotMatch(workflow, /actions\/upload-artifact@/u);
 
   assert.match(browserSmoke, /platform != linux\/amd64/u);
   assert.match(browserSmoke, /--user node/u);

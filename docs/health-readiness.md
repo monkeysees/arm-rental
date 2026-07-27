@@ -26,11 +26,14 @@ the last successful crawl is ten minutes old, whichever occurs first. A later
 successful crawl resets the failure counter and freshness clock.
 
 A List.am security challenge is a distinct `challenge` browser status with
-reason `BROWSER_VERIFICATION_REQUIRED`. Follow
-[`browser-operations.md`](browser-operations.md) before restarting the service.
-Other stable component statuses distinguish List.am transport/parsing, CBA,
-Telegram, storage, browser startup, and configuration failures without copying
-their potentially sensitive errors into HTTP.
+reason `BROWSER_VERIFICATION_REQUIRED`. A later complete runtime crawl clears
+the component and emits the matching alert resolution because it proves that
+the browser can fetch and validate the source again. A startup/preflight
+challenge cannot recover this way because runtime crawling has not begun;
+follow [`browser-operations.md`](browser-operations.md) before restarting the
+service. Other stable component statuses distinguish List.am
+transport/parsing, CBA, Telegram, storage, browser startup, and configuration
+failures without copying their potentially sensitive errors into HTTP.
 
 Any hard source-integrity failure makes readiness false immediately with
 `LIST_AM_SOURCE_INTEGRITY`, without waiting for the five-failure or stale-crawl

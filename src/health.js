@@ -185,7 +185,9 @@ export class HealthMonitor {
         this.#setAlert("invalid_telegram_channel_permissions", true);
       }
       if (result.status === "browser_verification_required") {
-        this.#setAlert("browser_challenge", true);
+        this.#setAlert("browser_challenge", true, {
+          reason: "BROWSER_VERIFICATION_REQUIRED",
+        });
       }
       if (result.failure.code === SOURCE_INTEGRITY_ERROR) {
         this.#setAlert("list_am_source_integrity", true, {
@@ -237,9 +239,13 @@ export class HealthMonitor {
     this.monitoring.lastSuccessAt = completedAt;
     this.monitoring.consecutiveFailures = 0;
     this.#setComponent("list_am", "ok", undefined, completedAt);
-    if (this.components.browser.status !== "challenge") {
-      this.#setComponent("browser", "ok", undefined, completedAt);
-    }
+    // A complete crawl proves that the runtime browser can fetch and validate
+    // the source again, so an earlier transient challenge is no longer a
+    // current readiness failure.
+    this.#setComponent("browser", "ok", undefined, completedAt);
+    this.#setAlert("browser_challenge", false, {
+      reason: "BROWSER_VERIFICATION_REQUIRED",
+    });
     this.#setAlert("five_consecutive_crawl_failures", false);
     this.#setAlert("list_am_source_integrity", false, {
       reason: "LIST_AM_SOURCE_INTEGRITY",
@@ -287,7 +293,9 @@ export class HealthMonitor {
       "ERR_BROWSER_VERIFICATION_REQUIRED",
       at,
     );
-    this.#setAlert("browser_challenge", true);
+    this.#setAlert("browser_challenge", true, {
+      reason: "BROWSER_VERIFICATION_REQUIRED",
+    });
   }
 
   recordComponentSuccess(name) {

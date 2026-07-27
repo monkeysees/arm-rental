@@ -442,19 +442,22 @@ the same crawl where applicable. There is no public metrics surface.
 
 `HealthMonitor` emits edge-triggered firing/resolved events for readiness,
 browser challenge, invalid Telegram access, five crawl failures, and stale
-rates. Recovery commands emit backup, restore-test, and low-disk firing events.
-Docker sends application records to bounded persistent journald storage. The
-short-lived `ops/monitor` systemd job derives restart-loop and other host-level
-alerts from bounded journal, Docker, filesystem, and timer observations,
-persists an atomic local snapshot, and sends deduplicated transitions to the
-Telegram owner. The alert projection accepts either a scalar stable reason or
-a bounded array of stable reason codes, preserving compound readiness failures
-without admitting arbitrary journal text. Operators inspect logs, readiness,
-metrics, and timers only through `rentalctl` over SSH; its normal log view adds
-a compact, allowlisted diagnostic-context field while excluding identifiers,
-URLs, and unknown fields. There is no external collector or inbound
-observability service. Retention, alert routes, and scheduled operational
-checks are specified in [`docs/observability.md`](observability.md).
+rates. A complete, integrity-valid runtime crawl clears an earlier browser
+challenge and emits its resolution; a preflight challenge remains terminal to
+startup and requires the browser-verification workflow. Recovery commands emit
+backup, restore-test, and low-disk firing events. Docker sends application
+records to bounded persistent journald storage. The short-lived `ops/monitor`
+systemd job derives restart-loop and other host-level alerts from bounded
+journal, Docker, filesystem, and timer observations, persists an atomic local
+snapshot, and sends deduplicated transitions to the Telegram owner. The alert
+projection accepts either a scalar stable reason or a bounded array of stable
+reason codes, preserving compound readiness failures without admitting
+arbitrary journal text. Operators inspect logs, readiness, metrics, and timers
+only through `rentalctl` over SSH; its normal log view adds a compact,
+allowlisted diagnostic-context field while excluding identifiers, URLs, and
+unknown fields. There is no external collector or inbound observability
+service. Retention, alert routes, and scheduled operational checks are
+specified in [`docs/observability.md`](observability.md).
 
 ### Startup preflight boundary
 

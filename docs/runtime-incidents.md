@@ -30,9 +30,12 @@ reading Telegram state.
 
 ### Recovery and expected output
 
-- `browser.challenge`: stop and use the
-  [browser verification runbook](browser-operations.md). Expected recovery is
-  passed headless smoke, ready preflight, then `crawl.succeeded`.
+- `browser.challenge`: do not force an extra crawl. A later complete crawl on
+  the normal bounded schedule automatically resolves the runtime challenge and
+  restores readiness. If the challenge repeats or no complete crawl follows,
+  stop and use the [browser verification runbook](browser-operations.md).
+  Expected manual recovery is passed headless smoke, ready preflight, then
+  `crawl.succeeded`.
 - `list_am`: verify host DNS/outbound HTTPS and the configured production
   target. Do not increase crawl rate, bypass a challenge, or repeatedly hammer
   List.am.

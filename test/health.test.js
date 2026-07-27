@@ -290,10 +290,12 @@ test("preflight source-integrity failure exposes the dedicated safe reason", () 
 });
 
 test("readiness reports challenges and exchange-rate availability without leaking data", () => {
+  const alerts = [];
   let currentTime = new Date("2026-07-25T10:00:00.000Z");
   const monitor = new HealthMonitor({
     version: "1.0.0",
     now: () => currentTime,
+    onAlert: (alert) => alerts.push(alert),
   });
   monitor.setPreflight(readyPreflight);
   monitor.setMonitoringState({ active: false, channelConfigured: true });
@@ -310,8 +312,26 @@ test("readiness reports challenges and exchange-rate availability without leakin
   );
   assert.equal(monitor.readiness().components.browser.status, "challenge");
 
-  monitor.setPreflight(readyPreflight);
   monitor.recordCrawlSuccess();
+  const recovered = monitor.readiness();
+  assert.equal(recovered.ready, true);
+  assert.equal(recovered.components.browser.status, "ok");
+  assert.deepEqual(
+    alerts.filter(({ name }) => name === "browser_challenge"),
+    [
+      {
+        name: "browser_challenge",
+        status: "firing",
+        reason: "BROWSER_VERIFICATION_REQUIRED",
+      },
+      {
+        name: "browser_challenge",
+        status: "resolved",
+        reason: "BROWSER_VERIFICATION_REQUIRED",
+      },
+    ],
+  );
+
   currentTime = new Date("2026-07-27T10:00:00.001Z");
   const stale = monitor.readiness();
   assert.equal(stale.ready, false);

@@ -89,7 +89,8 @@ journal before outbound delivery. Scheduled-operation lifecycle records name
 the semantic step that completed or failed; the monitor combines that step with
 allowlisted structured unit-journal evidence and falls back to systemd result
 and exit status. The snapshot and `rentalctl timers` expose this failure reason
-for the same complete seven-timer inventory, including the reboot check, so its
+for the same complete eight-timer inventory, including image cleanup and the
+reboot check, so its
 failed result participates in scheduled-job alert evaluation. Host
 reconciliation installs `rentalctl` as a stable launcher
 that selects the verified current release and falls back to the bootstrap
@@ -99,7 +100,8 @@ advance atomically with the active operations implementation.
 ### Systemd operations
 
 Systemd owns the singleton application and recurring backup, storage,
-maintenance, monitoring, restore-drill, and reboot-check jobs. Every short-lived
+image-cleanup, maintenance, monitoring, restore-drill, and reboot-check jobs.
+Every short-lived
 operation serializes through
 `/var/lib/rental-apartments-ops/operations.lock`, emits structured lifecycle
 records, and has an effective `TimeoutStartSec` bound. The storage check exits
@@ -143,6 +145,21 @@ complete observation window, atomically advances runtime pointers, and
 restores the prior snapshot and digest on failure. Failed candidate digests are
 quarantined to prevent retry loops.
 
+Accepted deployments update a retention index containing the current release
+and at most two rollback releases before invoking retention-aware image
+cleanup. Cleanup validates that index against the immutable current-image
+record and running container, preserves every image used by any container, and
+protects matching release-metadata images. It inventories only application
+images carrying the reviewed OCI title and exact repository metadata tags,
+then removes explicit unprotected image IDs; it never invokes Docker's broad
+system, image, container, or volume prune operations. Cleanup failure cannot
+roll back an already accepted healthy candidate, but emits a structured
+deferred record and remains retryable by the independent weekly
+`rental-image-cleanup.timer`. The timer uses the shared operations lock, fails
+closed on ambiguous state, verifies the protected inventory and application
+readiness after deletion, and reports actual free-space recovery separately
+from the virtual sizes of candidate images.
+
 ### Host reconciliation
 
 Host provisioning is split between exact-name/production-label provider
@@ -168,6 +185,8 @@ host probes but uses `rental-deploy` as its primary group, so atomically
 replaced, mode-`0640` metrics and alert snapshots remain available to the
 unprivileged `rentalctl` interface. Root-only mode-`0600` deployment receipts,
 image records, and other sensitive operations state do not cross that boundary.
+Shared operation setup preserves the directory's group-traversable mode, so a
+root timer cannot temporarily revoke operator access between monitor runs.
 The reviewed initial production target is a Hetzner `cx23` server in the
 Nuremberg `nbg1` location. These remain explicit bootstrap inputs so a later
 capacity or location change requires operator review rather than an implicit

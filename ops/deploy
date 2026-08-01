@@ -7,6 +7,8 @@ SCRIPT_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
 source "$SCRIPT_DIR/lib/operations.sh"
 # shellcheck source=ops/lib/deployment.sh
 source "$SCRIPT_DIR/lib/deployment.sh"
+# shellcheck source=ops/lib/image-retention.sh
+source "$SCRIPT_DIR/lib/image-retention.sh"
 
 DEPLOYMENT_RESTART_REQUIRED=0
 DEPLOYMENT_TEMPORARY_DIR=""
@@ -234,6 +236,11 @@ if ((candidate_status == 0)); then
     DEPLOYMENT_RESTART_REQUIRED=0
     deployment_emit deployment.candidate.accepted success \
       "$DEPLOYMENT_CANDIDATE" "$DEPLOYMENT_PREVIOUS"
+    ops_set_step cleanup-unretained-images
+    if ! image_retention_cleanup apply rental-deploy >/dev/null; then
+      deployment_emit deployment.image-cleanup.deferred failure \
+        "$DEPLOYMENT_CANDIDATE" "$DEPLOYMENT_PREVIOUS"
+    fi
     exit 0
   fi
   candidate_status=$finalize_status

@@ -158,6 +158,17 @@ restored and tested readiness before it returns that status.
 For low disk, preserve the independent backup mount, rotate only externally
 collected logs through their approved retention, remove only the reconstructible
 browser caches enumerated by maintenance, and expand/migrate the data volume.
+Run the retention-aware image cleanup dry run and service before considering
+volume expansion; it removes only verified deployment images outside the
+current-plus-two rollback set:
+
+```sh
+sudo /opt/rental-apartments/current/ops/image-cleanup --dry-run
+sudo systemctl start rental-image-cleanup.service
+sudo rentalctl status
+```
+
+Do not use a generic Docker prune command.
 Do not delete JSON state, delivery acknowledgements, cookies, browser identity,
 snapshots within retention, or unknown files. For 25 MiB state growth, record
 weekly trend and plan capacity. At 50 MiB or write p95 above 500 ms, open the

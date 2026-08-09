@@ -348,7 +348,7 @@ test("exercise harness records observed recovery outcomes without raw logs or se
     expectedPrivateDeliveryCount: 0,
     unexpectedRedeliveryObserved: false,
   });
-  assert.equal(evidence.exercises.timerFreshness.timers.length, 7);
+  assert.equal(evidence.exercises.timerFreshness.timers.length, 8);
   assert.equal(
     evidence.exercises.failedDeploymentRollback.rollbackResult,
     "completed",

@@ -75,8 +75,10 @@ async function fakeHost(
   await execute(join(root, "mkdir-bin"), [state]);
   const journal = join(root, "journal.jsonl");
   const unitJournal = join(root, "unit-journal.jsonl");
+  const diskAvailable = join(root, "disk-available-kb");
   await copyFile(fixture, journal);
   await writeFile(unitJournal, "");
+  await writeFile(diskAvailable, "900\n");
 
   await executable(
     join(bin, "journalctl"),
@@ -111,7 +113,15 @@ esac
   );
   await executable(
     join(bin, "df"),
-    "#!/bin/sh\nprintf 'Filesystem 1024-blocks Used Available Capacity Mounted\\n/dev/test 1000 100 900 10%% /test\\n'\n",
+    `#!/usr/bin/env bash
+available=900
+case "\${!#}" in
+  *rental-apartments-data*) available=$(cat "$RENTAL_TEST_DISK_AVAILABLE") ;;
+esac
+used=$((1000 - available))
+printf 'Filesystem 1024-blocks Used Available Capacity Mounted\\n'
+printf '/dev/test 1000 %s %s 10%% /test\\n' "$used" "$available"
+`,
   );
   await executable(
     join(bin, "du"),
@@ -144,6 +154,7 @@ exit ${operationsLockAvailable ? 0 : 1}
     state,
     journal,
     unitJournal,
+    diskAvailable,
     env: {
       ...process.env,
       PATH: `${bin}:${process.env.PATH}`,
@@ -156,6 +167,7 @@ exit ${operationsLockAvailable ? 0 : 1}
       CURL_BIN: join(bin, "curl"),
       RENTAL_TEST_JOURNAL: journal,
       RENTAL_TEST_UNIT_JOURNAL: unitJournal,
+      RENTAL_TEST_DISK_AVAILABLE: diskAvailable,
       RENTAL_TEST_SYSTEMD_LOG: join(root, "systemd.log"),
       RENTAL_TEST_CURL_CALLS: join(root, "curl.calls"),
       RENTAL_TEST_CURL_PAYLOADS: join(root, "curl.payloads"),
@@ -269,6 +281,7 @@ test("rentalctl preserves malformed logs and aggregates bounded journal metrics"
       "rental-monitor",
       "rental-storage-check",
       "rental-backup",
+      "rental-image-cleanup",
       "rental-maintenance",
       "rental-restore-drill",
       "rental-reboot-check",
@@ -300,6 +313,53 @@ test("monitor sends only firing and resolved transitions and keeps redacted fall
   const serviceLog = await readFile(host.env.RENTAL_TEST_SYSTEMD_LOG, "utf8");
   assert.doesNotMatch(serviceLog, /abcdefghijklmnopqrstuvwxyz|123456789/u);
   assert.match(serviceLog, /monitor\.succeeded/u);
+});
+
+test("filesystem alerts share the free-space calculation and resolve with hysteresis", async (t) => {
+  const host = await fakeHost(t);
+  await writeFile(host.diskAvailable, "199\n");
+  await execute(monitor, [], { env: host.env });
+
+  let state = JSON.parse(
+    await readFile(join(host.state, "alerts.json"), "utf8"),
+  );
+  let capacity = state.alerts.find(
+    ({ name }) => name === "filesystem_capacity_data",
+  );
+  assert.equal(capacity?.status, "firing");
+  assert.equal(capacity?.reason, "filesystem data has 19.9% free");
+  const metrics = JSON.parse(
+    await readFile(join(host.state, "metrics-latest.json"), "utf8"),
+  );
+  assert.equal(metrics.filesystems[0].freeFraction, 0.199);
+  assert.equal(metrics.filesystems[0].usedPercent, 80.1);
+
+  await writeFile(host.diskAvailable, "210\n");
+  await execute(monitor, [], { env: host.env });
+  state = JSON.parse(await readFile(join(host.state, "alerts.json"), "utf8"));
+  capacity = state.alerts.find(
+    ({ name }) => name === "filesystem_capacity_data",
+  );
+  assert.equal(capacity?.status, "firing");
+  assert.equal(capacity?.reason, "filesystem data has 21% free");
+
+  await writeFile(host.diskAvailable, "260\n");
+  await execute(monitor, [], { env: host.env });
+  state = JSON.parse(await readFile(join(host.state, "alerts.json"), "utf8"));
+  assert.equal(
+    state.alerts.some(({ name }) => name === "filesystem_capacity_data"),
+    false,
+  );
+  const logs = await readFile(host.env.RENTAL_TEST_SYSTEMD_LOG, "utf8");
+  const capacityTransitions = logs
+    .trim()
+    .split("\n")
+    .map((line) => JSON.parse(line))
+    .filter(({ alertName }) => alertName === "filesystem_capacity_data");
+  assert.deepEqual(
+    capacityTransitions.map(({ alertStatus }) => alertStatus),
+    ["firing", "resolved"],
+  );
 });
 
 test("monitor delivers transient application alert edges exactly once", async (t) => {

@@ -992,6 +992,7 @@ rental-deploy.timer 900
 rental-monitor.timer 900
 rental-storage-check.timer 7200
 rental-backup.timer 108000
+rental-image-cleanup.timer 691200
 rental-maintenance.timer 691200
 rental-restore-drill.timer 3456000
 rental-reboot-check.timer 691200

@@ -445,6 +445,8 @@ test("unattended deploy contract covers no-op, first install, rollback, and fail
     /install_file "\$SOURCE_ROOT\/ops\/rentalctl-launcher" \/usr\/local\/bin\/rentalctl 0755/u,
   );
   assert.match(service, /ExecStart=\/usr\/local\/sbin\/rental-deploy/u);
+  assert.match(deploy, /image_retention_cleanup apply rental-deploy/u);
+  assert.match(deploy, /deployment\.image-cleanup\.deferred/u);
   assert.match(service, /TimeoutStartSec=30min/u);
   assert.doesNotMatch(service, /RuntimeMaxSec/u);
   assert.match(timer, /OnBootSec=5min/u);

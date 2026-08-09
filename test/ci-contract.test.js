@@ -107,7 +107,7 @@ test("release manifest binds the deployable image to its complete inputs", async
     schemaVersion: 1,
     sourceRevision: "a".repeat(40),
     nodeVersion: nodeVersion.trim(),
-    browserVersion: "150.0.7871.181",
+    browserVersion: "151.0.7922.71",
     packageLockSha256: createHash("sha256").update(packageLock).digest("hex"),
     imageArchive: {
       file: "production-image.tar.gz",

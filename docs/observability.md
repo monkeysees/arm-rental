@@ -90,8 +90,8 @@ to read those snapshots without exposing root-only deployment state.
 The stable snapshot covers image/revision, container health, readiness, uptime
 and restarts; last preflight/crawl; 1-hour and 24-hour crawl totals, ratios,
 p50/p95 duration and result counters; bounded retry and state-file groupings;
-journal and filesystem capacity; last/next/result state for all seven production
-timers, including the reboot check; application alerts; and the newest
+journal and filesystem capacity; last/next/result state for all eight production
+timers, including image cleanup and the reboot check; application alerts; and the newest
 backup/maintenance receipts when present. Percentiles use nearest rank. Windows
 use journal timestamps, not application-supplied timestamps. Crawl IDs,
 apartment IDs, URLs, Telegram identifiers, and errors are not grouping keys.
@@ -142,7 +142,10 @@ failure and recovery from disappearing between five-minute evaluations.
 
 The evaluator covers application alerts, restart loops, two consecutive
 readiness failures, exhausted/missing containers, state-write p95 over 500 ms,
-filesystem/journal capacity, and failed systemd jobs. Messages include a safe,
+filesystem/journal capacity, and failed systemd jobs. Filesystem capacity uses
+the same available-bytes/total-bytes fraction as the hourly application storage
+check. It fires below 20% free and resolves only after reaching 25% free, which
+prevents integer `df` rounding from flapping the alert at one boundary. Messages include a safe,
 bounded reason alongside the name, severity, first/last observation, host
 alias, source revision, and local runbook command. Application alerts may emit
 one `reason` or a `reasons` array; the monitor accepts only stable uppercase

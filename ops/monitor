@@ -155,9 +155,12 @@ main() {
 
   desired="$("$JQ_BIN" -cn \
     --argjson metrics "$metrics" \
+    --argjson previous "$previous" \
     --argjson readinessFailures "$readiness_failures" '
       def alert($name; $severity; $runbook; $reason):
         {name: $name, severity: $severity, runbook: $runbook, reason: $reason};
+      def was_firing($name):
+        any($previous.alerts[]?; .name == $name and .status == "firing");
       [
         ($metrics.applicationAlerts[]?
           | select(.status == "firing")
@@ -194,13 +197,24 @@ main() {
               ("state " + .state + " write p95 is "
                 + (.durationMs.p95 | tostring) + " ms"))),
         ($metrics.filesystems[]?
-          | select((.available | not) or (.usedPercent // 0) >= 80)
-          | alert(("filesystem_capacity_" + .name); "error";
+          | . as $filesystem
+          | ("filesystem_capacity_" + .name) as $alertName
+          | select(
+              (.available | not)
+              or (
+                if was_firing($alertName)
+                then (.freeFraction // 0) < 0.25
+                else (.freeFraction // 0) < 0.20
+                end
+              )
+            )
+          | alert($alertName; "error";
               "rentalctl status";
               (if (.available | not)
                then ("filesystem " + .name + " is unavailable")
-               else ("filesystem " + .name + " is "
-                 + (.usedPercent | tostring) + "% used")
+               else ("filesystem " + .name + " has "
+                 + (((.freeFraction * 1000) | round) / 10 | tostring)
+                 + "% free")
                end))),
         (select(($metrics.journal.diskBytes // 0) >= 966367642)
           | alert("journal_capacity"; "warning";

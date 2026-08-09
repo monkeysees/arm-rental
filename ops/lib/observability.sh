@@ -129,6 +129,7 @@ filesystem_status_json() {
       totalBytes: null,
       usedBytes: null,
       availableBytes: null,
+      freeFraction: null,
       usedPercent: null
     }'
     return
@@ -144,7 +145,6 @@ filesystem_status_json() {
     --argjson total "$(( $2 * 1024 ))" \
     --argjson used "$(( $3 * 1024 ))" \
     --argjson available "$(( $4 * 1024 ))" \
-    --arg percent "${5%%%}" \
     '{
       name: $name,
       path: $path,
@@ -152,7 +152,12 @@ filesystem_status_json() {
       totalBytes: $total,
       usedBytes: $used,
       availableBytes: $available,
-      usedPercent: ($percent | tonumber)
+      freeFraction: (if $total == 0 then 0 else $available / $total end),
+      usedPercent:
+        (if $total == 0
+         then 100
+         else (((1 - ($available / $total)) * 1000) | round) / 10
+         end)
     }'
 }
 
@@ -280,6 +285,7 @@ timer_status_json() {
     rental-monitor
     rental-storage-check
     rental-backup
+    rental-image-cleanup
     rental-maintenance
     rental-restore-drill
     rental-reboot-check

@@ -41,7 +41,10 @@ ops_emit_record() {
 ops_acquire_lock() {
   ops_require_absolute_path "RENTAL_OPS_STATE_DIR" "$RENTAL_OPS_STATE_DIR"
   ops_require_absolute_path "RENTAL_OPS_LOCK_FILE" "$RENTAL_OPS_LOCK_FILE"
-  install -d -m 0700 "$RENTAL_OPS_STATE_DIR"
+  # The host reconciler owns the root:rental-deploy group assignment. Keep the
+  # directory traversable by that operator group when recurring root jobs
+  # ensure it exists; mode 0700 here would intermittently break rentalctl.
+  install -d -m 0750 "$RENTAL_OPS_STATE_DIR"
   exec 9>"$RENTAL_OPS_LOCK_FILE"
   # A dedicated contention status lets callers defer expected overlap without
   # hiding configuration, permission, or flock execution failures.

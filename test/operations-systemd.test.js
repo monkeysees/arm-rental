@@ -393,6 +393,7 @@ test("systemd operations use bounded runtimes, persistent UTC timers, and the de
   const operationNames = [
     "backup",
     "storage-check",
+    "image-cleanup",
     "maintenance",
     "monitor",
     "restore-drill",
@@ -417,10 +418,29 @@ test("systemd operations use bounded runtimes, persistent UTC timers, and the de
     "utf8",
   );
   assert.match(monitor, /^Group=rental-deploy$/mu);
+  const commonOperations = await readFile(
+    path.join(repositoryRoot, "ops", "lib", "common.sh"),
+    "utf8",
+  );
+  assert.match(
+    commonOperations,
+    /install -d -m 0750 "\$RENTAL_OPS_STATE_DIR"/u,
+  );
+  assert.doesNotMatch(
+    commonOperations,
+    /install -d -m 0700 "\$RENTAL_OPS_STATE_DIR"/u,
+  );
 
   assert.match(
     await readFile(path.join(unitDirectory, "rental-backup.timer"), "utf8"),
     /OnCalendar=\*-\*-\* 03:15:00 UTC/u,
+  );
+  assert.match(
+    await readFile(
+      path.join(unitDirectory, "rental-image-cleanup.timer"),
+      "utf8",
+    ),
+    /OnCalendar=Sat \*-\*-\* 04:00:00 UTC/u,
   );
   assert.match(
     await readFile(

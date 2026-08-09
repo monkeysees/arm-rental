@@ -109,11 +109,30 @@ For a new digest, `ops/deploy`:
    minutes;
 7. atomically replaces `/opt/rental-apartments/current` and
    `current-image.env`, starts the systemd-owned application service, and writes
-   an exclusive sanitized receipt.
+   an exclusive sanitized receipt;
+8. updates the current-plus-two rollback index and attempts explicit-ID image
+   cleanup without turning cleanup failure into rollback of an already healthy
+   accepted release.
 
 The retention index keeps the current and two prior evidence records. Release
 directories, digest-pinned Docker images, receipts, and associated deployment
 snapshots must not be manually removed while referenced by that index.
+
+After a candidate is accepted, deployment performs retention-aware image
+cleanup. A weekly timer retries the same idempotent operation as a safety net:
+
+```sh
+sudo /opt/rental-apartments/current/ops/image-cleanup --dry-run
+sudo systemctl start rental-image-cleanup.service
+sudo journalctl -u rental-image-cleanup.service --since -30m
+```
+
+The dry run lists only managed application and release-metadata image IDs that
+are absent from the retention index and unused by every container. Never
+substitute `docker system prune` or `docker image prune -a`; those commands do
+not understand rollback retention and may remove the two protected prior
+images. An invalid index, current-image mismatch, missing protected image, or
+running-container mismatch fails before deletion.
 
 The first install is intentionally separate. It requires no current symlink or
 image record and proves the named data volume is empty. It starts and verifies

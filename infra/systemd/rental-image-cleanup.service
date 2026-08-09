@@ -1,0 +1,16 @@
+[Unit]
+Description=Remove unretained rental apartments deployment images
+Requires=docker.service
+After=docker.service rental-apartments.service
+ConditionPathExists=/var/lib/rental-apartments-ops/current-image.env
+ConditionPathExists=/var/lib/rental-apartments-ops/deployment-retention.json
+
+[Service]
+Type=oneshot
+ExecStart=/opt/rental-apartments/current/ops/image-cleanup
+TimeoutStartSec=20min
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectHome=yes
+ProtectSystem=strict
+ReadWritePaths=/var/lib/rental-apartments-ops

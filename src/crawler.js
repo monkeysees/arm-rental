@@ -177,13 +177,13 @@ function sourceDataChanged(previous, observed) {
   );
 }
 
-function hasUpdateAfterDelivery(apartment, deliveredAt) {
+function hasApartmentUpdateAfter(apartment, timestamp) {
   const updatedAt = Date.parse(apartment?.updatedAt);
-  const deliveredAtValue = Date.parse(deliveredAt);
+  const timestampValue = Date.parse(timestamp);
   return (
     Number.isFinite(updatedAt) &&
-    Number.isFinite(deliveredAtValue) &&
-    updatedAt > deliveredAtValue
+    Number.isFinite(timestampValue) &&
+    updatedAt > timestampValue
   );
 }
 
@@ -415,6 +415,7 @@ export async function crawlApartments(
   let notifiedCount = 0;
   let skippedCount = 0;
   let filteredCount = 0;
+  let readmittedCount = 0;
   const privateDelivery = async () => {
     if (deliveryTargets.length === 0) return;
     const storedDeliveries = await loadState(config.deliveryStateFile);
@@ -496,6 +497,25 @@ export async function crawlApartments(
         await saveRecipient(recipientId, recipient);
       }
 
+      const readmittedIds = apartmentOrder.filter((itemId) => {
+        const filteredAt = recipient.filtered[itemId];
+        return (
+          filteredAt &&
+          hasApartmentUpdateAfter(apartments[itemId], filteredAt) &&
+          apartmentMatchesFilters(apartments[itemId], recipientFilters)
+        );
+      });
+      if (readmittedIds.length > 0) {
+        const filtered = { ...recipient.filtered };
+        for (const itemId of readmittedIds) delete filtered[itemId];
+        recipient = { ...recipient, filtered };
+        // Make re-admission durable before Telegram delivery. If sending is
+        // interrupted, the now-unclassified apartment remains pending on the
+        // next crawl instead of falling back into its obsolete rejection.
+        await saveRecipient(recipientId, recipient);
+        readmittedCount += readmittedIds.length;
+      }
+
       const unclassifiedIds = apartmentOrder.filter(
         (itemId) =>
           !recipient.notified[itemId] &&
@@ -528,7 +548,7 @@ export async function crawlApartments(
           const deliveredAt = recipient.notified[itemId];
           if (deliveredAt) {
             return (
-              hasUpdateAfterDelivery(apartments[itemId], deliveredAt) &&
+              hasApartmentUpdateAfter(apartments[itemId], deliveredAt) &&
               apartmentMatchesFilters(apartments[itemId], recipientFilters)
             );
           }
@@ -592,6 +612,7 @@ export async function crawlApartments(
     notifiedCount,
     skippedCount,
     filteredCount,
+    readmittedCount,
     totalCount: Object.keys(apartments).length,
     lastKnownDate: lastKnownPostingDate.date,
     stoppedAtKnownDate,

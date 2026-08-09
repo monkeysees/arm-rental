@@ -192,8 +192,10 @@ export async function runApplication({
           updated: result.updatedCount,
           notified: result.notifiedCount,
           filtered: result.filteredCount,
+          readmitted: result.readmittedCount ?? 0,
           channelSent: result.channel.sentCount,
           channelEdited: result.channel.editedCount,
+          channelReadmitted: result.channel.readmittedCount ?? 0,
           total: result.totalCount,
           status: result.status,
           pagesParsed: result.pagesParsed,
@@ -202,6 +204,7 @@ export async function runApplication({
           notifiedCount: result.notifiedCount,
           skippedCount: result.skippedCount,
           filteredCount: result.filteredCount,
+          readmittedCount: result.readmittedCount ?? 0,
           totalCount: result.totalCount,
           lastKnownDate: result.lastKnownDate,
           stoppedAtKnownDate: result.stoppedAtKnownDate,
@@ -209,6 +212,7 @@ export async function runApplication({
           channelEditedCount: result.channel.editedCount,
           channelFilteredCount: result.channel.filteredCount,
           channelSkippedCount: result.channel.skippedCount,
+          channelReadmittedCount: result.channel.readmittedCount ?? 0,
         });
       },
       onSourceIntegrityChecked: (observation) =>

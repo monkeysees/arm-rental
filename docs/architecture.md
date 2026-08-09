@@ -447,9 +447,10 @@ not use this runtime-only retry.
 
 Crawl completion and failure events carry a random crawl ID and elapsed
 milliseconds. Successful crawl records also expose the page, discovery,
-update, notification, filtering, channel send/edit, and total counters as
-log-derived metrics. Retry and channel-operation records are correlated with
-the same crawl where applicable. There is no public metrics surface.
+update, notification, filtering, private/channel re-admission, channel
+send/edit, and total counters as log-derived metrics. Retry and
+channel-operation records are correlated with the same crawl where applicable.
+There is no public metrics surface.
 
 `HealthMonitor` emits edge-triggered firing/resolved events for readiness,
 browser challenge, invalid Telegram access, five crawl failures, and stale
@@ -808,14 +809,16 @@ operator procedures are indexed in
    channel publication, while every user's worker remains sequential and
    oldest-first. Because those workers share one private-delivery file, their
    classifications and acknowledgements are merged through a serialized,
-   failure-latching state-write chain. First-time
-   admission is terminal: non-matches become filtered, and on an empty user
-   delivery history either the latest matching `INITIAL_DELIVERY_LIMIT` are
-   selected or, when that user declined the initial selection, all existing
-   matches are atomically marked `skipped_initial`. The default limit is 100. A
-   previously delivered apartment becomes pending again when its
-   source `updatedAt` is later than that user's last successful notification and
-   it matches that user's current filters. Source order is reversed so selected
+   failure-latching state-write chain. On first admission, non-matches become
+   filtered, and on an empty user delivery history either the latest matching
+   `INITIAL_DELIVERY_LIMIT` are selected or, when that user declined the initial
+   selection, all existing matches are atomically marked `skipped_initial`. The
+   default limit is 100. A filtered apartment whose source `updatedAt` advances
+   beyond its rejection timestamp is durably re-admitted when its updated data
+   matches the user's current filters; filter changes alone do not release old
+   history. A previously delivered apartment similarly becomes pending again
+   when its source `updatedAt` is later than that user's last successful
+   notification and it still matches. Source order is reversed so selected
    messages are delivered oldest first, then acknowledged one at a time. Each
    private recipient has a process-local token bucket with a fixed burst of five
    apartment messages and continuous refill at the configured per-minute rate.
@@ -831,12 +834,14 @@ operator procedures are indexed in
     compatible channel state, it atomically classifies the full apartment order:
     the latest matching `INITIAL_DELIVERY_LIMIT` become `pending`, older matches
     become `skipped_initial`, and non-matches become `filtered`. Pending posts
-    are sent oldest first. Later unseen IDs are terminally admitted as `pending`
-    or `filtered`. An initially skipped match whose `lastSeenAt` advances beyond
-    its channel classification time is durably re-admitted as `pending`; this
-    lets a renewed historical ad publish without releasing the untouched
-    backlog. A changed filter fingerprint is logged without reclassifying
-    filtered history.
+    are sent oldest first. Later unseen IDs are admitted as `pending` or
+    `filtered`. A filtered apartment whose source `updatedAt` advances beyond
+    its classification time is durably re-admitted as `pending` when its new
+    data matches. An initially skipped match whose `lastSeenAt` advances beyond
+    its channel classification time is also durably re-admitted; this lets a
+    renewed historical ad publish without releasing the untouched backlog. A
+    changed filter fingerprint is logged without reclassifying history by
+    itself.
 11. Published channel entries retain Telegram message IDs and SHA-256 hashes of
     the complete rendered message. A changed hash within three days of channel
     publication triggers `editMessageText`; once the post is strictly older
@@ -910,9 +915,10 @@ The `.data` directory must be mounted on persistent storage in production.
 - `telegram-deliveries.json` stores a delivery state machine per private user,
   tracking item IDs' latest successful delivery timestamps and intentionally
   skipped initial history. Each user's `filtered` index records listings
-  rejected by their filters on first admission. New and updated selected
-  messages remain retryable until that user's successful delivery timestamp
-  reaches the source update timestamp.
+  rejected by their filters and the rejection timestamps used to detect later
+  qualifying source updates. Re-admitted and other updated selected messages
+  remain retryable until that user's successful delivery timestamp reaches the
+  source update timestamp.
 - `telegram-bot.json` schema version 3 stores the Telegram update offset and a map of private
   users with activation, chat ID, initial-send choice, optional filters, and
   pending range-input mode. A missing initial-send choice from older state
@@ -943,11 +949,12 @@ The `.data` directory must be mounted on persistent storage in production.
   and uses a shared delivery-state mutation chain so peer writes cannot restore
   removed history. Its five-minute response gate survives bucket cleanup.
 - `telegram-channel-deliveries.json` is a separate channel state machine keyed
-  by item ID. It stores terminal `filtered` and `skipped_initial` admissions,
+  by item ID. It stores timestamped `filtered` and `skipped_initial` admissions,
   retryable `pending` entries, and `published` entries with Telegram message ID,
   content hash, classification/publication timestamps, and an edit timestamp
-  when applicable. Compatibility binds state to both the List.am URL template
-  and channel username; changing the channel starts a fresh classification.
+  when applicable. Qualifying source updates can move filtered entries back to
+  pending. Compatibility binds state to both the List.am URL template and
+  channel username; changing the channel starts a fresh classification.
 - `chrome-profile/` stores cookies from List.am security verification.
 - `.maintenance-history.json` stores only the previous successful maintenance
   timestamp and aggregate managed byte count. It is excluded from application

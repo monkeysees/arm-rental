@@ -121,6 +121,11 @@ Primary events are `source.integrity.checked`, `source.integrity.failed`,
 `alert.firing`, `alert.resolved`, `monitor.alert.firing`, and
 `monitor.alert.resolved`.
 
+Successful crawl records include private and channel re-admission counts. A
+re-admission means that a persisted filtered decision was reopened after a
+newer source update made the apartment match; filter configuration changes by
+themselves do not increment these counters or release historical listings.
+
 ## Alert evaluation and delivery
 
 `ops/monitor` uses the shared operations lock and atomically stores state in

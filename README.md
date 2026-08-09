@@ -29,8 +29,9 @@ When no delivery history exists, all discovered apartments are stored but only
 the latest `INITIAL_DELIVERY_LIMIT` matching apartments are sent. The default
 is 100. Before monitoring starts, each user chooses whether to receive that
 initial selection or begin with new listings only. Older matching apartments
-are marked as skipped and non-matching ones as filtered; neither group will be
-sent after a restart or filter change.
+are marked as skipped and non-matching ones as filtered. Filter changes alone
+do not release either historical group, but a later source update that makes a
+filtered apartment match is delivered.
 
 ## Requirements
 
@@ -145,9 +146,10 @@ conflicting selectors stop startup with an error.
 Channel posts reuse the private apartment message, including the original source
 price, then append Russian hashtags for region, locality, the canonical AMD
 50,000-dram price band, and rooms. Channel filter changes apply only to
-apartments not yet classified; they never release historical filtered listings.
-An initially skipped listing is admitted if a later crawl encounters it again
-while it still matches the channel filter.
+apartments not yet classified; they do not release historical listings by
+themselves. A filtered listing is admitted when a later source update makes it
+match, and an initially skipped listing is admitted if a later crawl encounters
+it again while it still matches the channel filter.
 
 On the first compatible run, every stored apartment is classified atomically.
 Only the latest `INITIAL_DELIVERY_LIMIT` matches are posted, oldest first.

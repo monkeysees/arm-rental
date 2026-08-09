@@ -581,6 +581,51 @@ test("delivery filters skip non-matching apartments without losing discovery", a
   );
 });
 
+test("an updated filtered apartment is readmitted privately when it now matches", async () => {
+  const state = memoryState();
+  const filters = {
+    ...emptyFilters(),
+    price: { min: null, max: 250_000 },
+  };
+  const listingPage = (price) => `
+    <div id="contentr">
+      <a class="fav-item-info-container" href="/ru/item/51">
+        <div class="pt">Apartment 51</div><div class="p">${price} ֏</div>
+        <div class="at">Кентрон, 2 ком., 50 кв.м., 3/5 этаж</div>
+        <div class="d">Пятница, Июль 24, 2026, 14:31</div>
+      </a>
+    </div>`;
+
+  await crawlApartments(
+    { ...config, initialPageCount: 1 },
+    {
+      ...state,
+      filters,
+      fetchPage: async () => new Response(listingPage("300000")),
+      deliverApartment: async () => {
+        throw new Error("A filtered apartment must not be delivered");
+      },
+      now: () => new Date("2026-07-24T12:00:00.000Z"),
+    },
+  );
+  assert.ok(defaultDeliveries(state).filtered["51"]);
+
+  const delivered = [];
+  const updatedResult = await crawlApartments(config, {
+    ...state,
+    filters,
+    fetchPage: async () => new Response(listingPage("220000")),
+    deliverApartment: async ({ itemId }) => delivered.push(itemId),
+    now: () => new Date("2026-07-24T12:01:00.000Z"),
+  });
+
+  assert.deepEqual(delivered, ["51"]);
+  assert.equal(updatedResult.notifiedCount, 1);
+  assert.equal(updatedResult.readmittedCount, 1);
+  assert.equal(defaultDeliveries(state).filtered["51"], undefined);
+  assert.ok(defaultDeliveries(state).notified["51"]);
+});
+
 test("one crawl maintains independent delivery histories for multiple users", async () => {
   const state = memoryState();
   const delivered = { 42: [], 99: [] };

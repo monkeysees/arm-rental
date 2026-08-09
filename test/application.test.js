@@ -509,8 +509,10 @@ test("application lifecycle drives crawl and exchange-rate readiness", async () 
       updated: 0,
       notified: 0,
       filtered: 0,
+      readmitted: 0,
       channelSent: 0,
       channelEdited: 0,
+      channelReadmitted: 0,
       total: 0,
       status: "unchanged",
       pagesParsed: 1,
@@ -519,6 +521,7 @@ test("application lifecycle drives crawl and exchange-rate readiness", async () 
       notifiedCount: 0,
       skippedCount: 0,
       filteredCount: 0,
+      readmittedCount: 0,
       totalCount: 0,
       lastKnownDate: undefined,
       stoppedAtKnownDate: undefined,
@@ -526,6 +529,7 @@ test("application lifecycle drives crawl and exchange-rate readiness", async () 
       channelEditedCount: 0,
       channelFilteredCount: 0,
       channelSkippedCount: 0,
+      channelReadmittedCount: 0,
     },
   );
 });

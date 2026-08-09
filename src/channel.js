@@ -310,6 +310,7 @@ function operationEvent(onOperation, details) {
     operation: details.operation,
     outcome: details.outcome,
     ...(details.messageId ? { messageId: details.messageId } : {}),
+    ...(details.reason ? { reason: details.reason } : {}),
     ...(details.error ? { error: details.error } : {}),
   });
 }
@@ -318,6 +319,13 @@ function encounteredAfterClassification(apartment, entry) {
   return (
     validIsoDate(apartment?.lastSeenAt) &&
     Date.parse(apartment.lastSeenAt) > Date.parse(entry.classifiedAt)
+  );
+}
+
+function updatedAfterClassification(apartment, entry) {
+  return (
+    validIsoDate(apartment?.updatedAt) &&
+    Date.parse(apartment.updatedAt) > Date.parse(entry.classifiedAt)
   );
 }
 
@@ -342,7 +350,13 @@ export async function publishChannelApartments(
   } = {},
 ) {
   if (!config.telegramChannelId) {
-    return { sentCount: 0, editedCount: 0, filteredCount: 0, skippedCount: 0 };
+    return {
+      sentCount: 0,
+      editedCount: 0,
+      filteredCount: 0,
+      skippedCount: 0,
+      readmittedCount: 0,
+    };
   }
   if (!api) {
     throw new Error("A Telegram API client is required for channel publishing");
@@ -369,6 +383,7 @@ export async function publishChannelApartments(
   ];
   let filteredCount = 0;
   let skippedCount = 0;
+  let readmittedCount = 0;
 
   if (!compatible) {
     const classifiedAt = now().toISOString();
@@ -403,17 +418,27 @@ export async function publishChannelApartments(
       await saveState(config.channelDeliveryStateFile, state);
     }
 
-    const reencountered = apartmentOrder.filter((itemId) => {
+    const readmitted = apartmentOrder.flatMap((itemId) => {
       const entry = state.apartments[itemId];
       const apartment = apartments[itemId];
-      return (
+      if (!apartmentMatchesFilters(apartment, config.channelFilters)) return [];
+      if (
         entry?.status === "skipped_initial" &&
-        encounteredAfterClassification(apartment, entry) &&
-        apartmentMatchesFilters(apartment, config.channelFilters)
-      );
+        encounteredAfterClassification(apartment, entry)
+      ) {
+        return [{ itemId, reason: "reencountered" }];
+      }
+      if (
+        entry?.status === "filtered" &&
+        updatedAfterClassification(apartment, entry)
+      ) {
+        return [{ itemId, reason: "updated_match" }];
+      }
+      return [];
     });
-    if (reencountered.length > 0) {
-      for (const itemId of reencountered) {
+    if (readmitted.length > 0) {
+      readmittedCount = readmitted.length;
+      for (const { itemId } of readmitted) {
         state.apartments[itemId] = {
           ...state.apartments[itemId],
           status: "pending",
@@ -424,12 +449,13 @@ export async function publishChannelApartments(
       // request remains pending and is retried without depending on another
       // List.am encounter.
       await saveState(config.channelDeliveryStateFile, state);
-      for (const itemId of reencountered) {
+      for (const { itemId, reason } of readmitted) {
         operationEvent(onOperation, {
           channelId: config.telegramChannelId,
           itemId,
           operation: "readmit",
           outcome: "success",
+          reason,
         });
       }
     }
@@ -610,5 +636,6 @@ export async function publishChannelApartments(
     editedCount,
     filteredCount,
     skippedCount,
+    readmittedCount,
   };
 }

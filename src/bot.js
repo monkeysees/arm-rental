@@ -1136,6 +1136,7 @@ export async function runTelegramBot(
           editedCount: 0,
           filteredCount: 0,
           skippedCount: 0,
+          readmittedCount: 0,
         };
         const result = await crawl(config, {
           fetchPage: pageFetch,

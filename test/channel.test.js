@@ -410,6 +410,84 @@ test("channel filter changes affect only newly classified apartments", async () 
   assert.equal(filterChanges.length, 1);
 });
 
+test("an updated filtered apartment is durably readmitted to the channel when it now matches", async () => {
+  const config = channelConfig({
+    channelFilters: {
+      ...emptyFilters(),
+      price: { min: 300_000, max: null },
+      locations: [],
+    },
+  });
+  const storage = memoryState();
+
+  await publishChannelApartments(
+    config,
+    apartmentState(apartment("1", { amountAmd: 100_000 })),
+    {
+      ...storage,
+      api: {
+        sendMessage: async () => {
+          throw new Error("Filtered history must not send");
+        },
+      },
+      now: () => new Date("2026-07-24T12:00:00.000Z"),
+    },
+  );
+  assert.equal(storage.value.apartments["1"].status, "filtered");
+
+  const updated = {
+    ...apartment("1", {
+      amountAmd: 350_000,
+      title: "Apartment 1 now matches",
+    }),
+    lastSeenAt: "2026-07-24T12:01:00.000Z",
+    updatedAt: "2026-07-24T12:01:00.000Z",
+  };
+  const operations = [];
+  const failedResult = await publishChannelApartments(
+    config,
+    apartmentState(updated),
+    {
+      ...storage,
+      api: {
+        sendMessage: async () => {
+          throw new Error("Telegram unavailable after re-admission");
+        },
+      },
+      onOperation: (event) => operations.push(event),
+      now: () => new Date("2026-07-24T12:02:00.000Z"),
+    },
+  );
+  assert.equal(failedResult.readmittedCount, 1);
+  assert.equal(storage.value.apartments["1"].status, "pending");
+  assert.equal(
+    operations.some(
+      ({ itemId, operation, outcome, reason }) =>
+        itemId === "1" &&
+        operation === "readmit" &&
+        outcome === "success" &&
+        reason === "updated_match",
+    ),
+    true,
+  );
+
+  const sent = [];
+  await publishChannelApartments(config, apartmentState(updated), {
+    ...storage,
+    api: {
+      sendMessage: async (_channelId, message) => {
+        sent.push(message.split("\n")[0]);
+        return { message_id: 23 };
+      },
+    },
+    now: () => new Date("2026-07-24T12:03:00.000Z"),
+  });
+
+  assert.deepEqual(sent, ["Apartment 1 now matches"]);
+  assert.equal(storage.value.apartments["1"].status, "published");
+  assert.equal(storage.value.apartments["1"].messageId, 23);
+});
+
 test("published channel posts edit on rendered changes and republish when missing", async () => {
   const storage = memoryState();
   const original = apartment("1");

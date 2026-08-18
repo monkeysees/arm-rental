@@ -25,28 +25,30 @@ canonical AMD amount drives all price filtering and channel price-band hashtags.
 
 ## Production deployment model
 
-The supported initial production topology is a singleton, long-running process
-on a Linux host or in one OCI container. Telegram long polling, local JSON state,
-and the persistent Chrome profile require one active writer and exclude
-serverless or automatically scaled deployment. A supervisor restarts the
-process, forwards SIGTERM for graceful shutdown, and mounts `.data` on durable
-local storage.
+The supported production topology is a singleton, long-running process on a
+Linux host or in one OCI container. Telegram long polling, the single-writer
+SQLite database, and the persistent Chrome profile exclude serverless or
+automatically scaled deployment. A supervisor restarts the process, forwards
+SIGTERM for graceful shutdown, and mounts `.data` on durable local storage.
 
-JSON remains the initial production persistence format while the service has
-one writer and modest state volume. The deployment must enforce the singleton
-constraint, back up and monitor state, and fail closed on incompatible schemas.
-SQLite is the intended migration path if state size or write latency crosses the
-documented operational thresholds, cross-state transactions are required, or
-multiple replicas become necessary.
+`state-backend.json` is the authoritative backend selector; database-file
+presence never selects storage. The migration-aware release accepts the legacy
+JSON state only while the selector is absent or explicitly `json`, refuses the
+`migrating` state during normal startup, and opens SQLite only when the selector
+is `sqlite` and its immutable database ID matches `application_metadata`.
+Malformed, missing, corrupt, newer-schema, wrong-application-ID, and
+target-mismatched databases fail closed without JSON fallback or dual writes.
 
-The current JSON bridge release owns `state-backend.json` as the authoritative
-backend selector. An absent selector or exact `{backend: "json", version: 1}`
-selects JSON; `migrating`, `sqlite`, malformed, and unknown selectors fail
-closed. Database presence never selects a backend. Restore is the deliberate
-exception to bridge startup rejection: a validated JSON restore moves aside the
-exact selector, `state.sqlite3`, WAL/SHM sidecars, and `.state-migration` work
-directory so a failed SQLite candidate cannot influence the restarted bridge.
-The bridge neither opens SQLite state nor dual-writes it.
+Schema version 1 is a deliberate compatibility decision: one `STRICT` database
+stores an apartment payload per row, compact ordered crawl metadata, normalized
+private and channel delivery decisions, Telegram users and update offset, and
+the validated exchange-rate snapshot. Domain repositories expose bounded
+classification, re-admission, acknowledgement, user, and snapshot operations;
+the runtime routing adapter never stores a serialized former state document.
+Apartment discovery and crawl metadata commit together. User removal crosses
+Telegram and private-delivery tables in one transaction. Synchronous
+`DatabaseSync` transactions contain only local row operations and never span a
+browser request, Telegram request, rate-limit wait, or retry delay.
 
 Production runs on a pinned, supported Node.js LTS release with a reproducible
 Chrome or Chromium installation. Chrome normally runs headlessly with its
@@ -339,10 +341,11 @@ from source or downloads a transient Actions artifact.
 
 Release metadata and OCI labels also declare `stateBackend`,
 `minimumStateSchema`, and `maximumStateSchema`. JSON bridge releases use backend
-`json` and schema `0`. A compatible rollback reads the live authoritative
-backend/schema before stopping the service and rejects a target whose declared
-range does not include it. Cross-backend rollback therefore requires a matching
-snapshot restore rather than a best-effort format conversion.
+`json` and schema `0`; SQLite candidates use backend `sqlite` and schema `1`.
+A compatible rollback reads the live authoritative backend/schema before
+stopping the service and rejects a target whose declared range does not include
+it. Cross-backend rollback therefore requires a matching snapshot restore
+rather than a best-effort format conversion.
 
 Workflow actions are immutable commit pins. Dependabot proposes npm, base
 image, and workflow-action updates as reviewable pull requests and has no
@@ -647,21 +650,24 @@ evidence. These boundaries are documented in
 
 ### Durable state and recovery boundary
 
-`src/state.js` is the only JSON replacement primitive. It serializes and parses
-the complete next value before touching the existing path, creates an exclusive
-mode-`0600` temporary file, flushes its contents, and retains a hard-linked
-rollback entry for an existing state file. The temporary file is atomically
-renamed only after validation. The containing directory is then synced on
-filesystems that support directory sync. A flush, link, rename, or directory
-sync failure restores the prior link (or removes a newly created target) before
-the error returns. This makes a successful call a durable replacement while a
-failed call leaves the last committed JSON state readable.
+`src/sqlite-database.js` securely creates `state.sqlite3` at mode `0600`, checks
+SQLite 3.51.3 or newer, validates application ID `0x41524d52` and schema version
+before persistent pragmas, and requires WAL, `synchronous=FULL`, foreign keys,
+and a 5-second busy timeout. Ordered schema migrations and their source revision
+commit transactionally. The transaction helper rejects asynchronous callbacks,
+always rolls back failures, and maps SQLite errors to stable sanitized codes.
 
-The same primitive emits `state.write.completed` or `state.write.failed` with
-the state basename, serialized byte count, outcome, and end-to-end duration.
-The application lifecycle installs the structured-log observer and removes it
-on shutdown. Observer errors are isolated from persistence, so unavailable
-telemetry cannot change the result of a durable write.
+Repository transactions emit `state.transaction.completed` or
+`state.transaction.failed` with a stable operation, bounded row count, duration,
+database/WAL bytes, and schema version. Checkpoints emit matching events. The
+collector reports p50/p95, failures, busy exhaustion, rows changed, and current
+database/WAL size by operation. Values, SQL, item IDs, chat IDs, and absolute
+database paths are never logged, and telemetry failures cannot alter durability.
+
+`src/state.js` remains the atomic JSON primitive only for the backend selector,
+defensive migration sentinels, browser verification record, and maintenance
+history. It is also retained by the controlled legacy importer; normal SQLite
+domain mutations do not call it.
 
 Every successful interactive verification, production browser smoke, and
 startup List.am preflight writes a versioned verification record inside the
@@ -672,16 +678,15 @@ smoke remains the required live verification before polling is enabled.
 
 `src/recovery.js` is the maintenance boundary for the complete persistence set.
 Backup and restore acquire the application singleton lease, so the service must
-be stopped and no browser can mutate the profile. A backup first validates the
-apartment, private-delivery, bot, exchange-rate, optional configured channel,
-and browser schemas against their runtime compatibility functions. It copies
-all managed state and profile files except transient Chrome singleton links
-into an unpublished staging directory, restricts copied permissions,
-revalidates counts and Telegram update offset, hashes every file, and only then
-renames the staged directory into the daily recovery set. Sunday UTC snapshots
-are also retained as weekly points. Configuration enforces at least seven daily
-and four weekly points and rejects any backup destination that contains or is
-contained by the application data directory.
+be stopped and no browser can mutate the profile. A manifest-v2 SQLite backup
+validates the selector, identity, schema, target bindings, full integrity,
+foreign keys, logical counts, update offset, and browser record. It uses Node's
+SQLite online backup API to produce a consistent standalone database, validates
+that destination through a new connection, hashes every staged file, and
+publishes atomically. WAL/SHM files are never copied. Sunday UTC snapshots are
+also retained as weekly points. Configuration enforces at least seven daily and
+four weekly points and rejects a backup destination that overlaps application
+data. Manifest-v1 JSON snapshots remain readable only for protected rollback.
 
 Restore accepts only a snapshot beneath the independently configured backup
 destination. It verifies the manifest, hashes, schemas, target identities,
@@ -701,12 +706,12 @@ operator escalation are documented in
 
 `src/maintenance.js` is the weekly state-growth boundary. After startup storage
 validation, `src/maintenance-cli.js` acquires the same singleton lease before
-reading state or touching the browser profile. It validates and reports the six
-state documents (the five configured files plus browser verification), applies
-25 MiB early-warning and 50 MiB SQLite-migration thresholds to those files, and
-measures the Chrome profile and total managed bytes. A small versioned history
-file stores only the prior aggregate byte sample for week-over-week growth; it
-is neither an application state input nor included in its own growth total.
+reading state or touching the browser profile. It runs full integrity and
+foreign-key checks, checkpoints WAL, reports database/WAL bytes and per-domain
+logical counts, and measures the Chrome profile and total managed bytes. A small
+versioned JSON history file stores only the prior aggregate byte sample for
+week-over-week growth; it is neither an application state input nor included in
+its own growth total.
 
 Chrome receives a disk-cache byte cap at every launch. Under the stopped-service
 lease, weekly maintenance removes only enumerated reconstructible HTTP,
@@ -737,7 +742,7 @@ observation window.
 
 A failed candidate is stopped before the verified snapshot is restored and the
 previous artifact is restarted, so browser/rate changes made during an
-ultimately failed preflight are reverted with JSON state. Rollback either uses
+ultimately failed preflight are reverted with the matching state. Rollback either uses
 a reviewed backward-compatible schema or restores the snapshot before the old
 artifact starts. Production recovery exercises verify this snapshot-backed
 stop-first rollback without introducing a second deployment environment. The
@@ -807,8 +812,8 @@ operator procedures are indexed in
    filters and monitoring state, persist the change, and send the main menu.
 3. A crawl loop runs when private monitoring is active or a channel is
    configured. With neither condition, it waits for activation. After apartment
-   state is saved, private admission/delivery and `src/channel.js` publication
-   run concurrently against separate state files. Channel state, formatting,
+   state is committed, private admission/delivery and `src/channel.js` publication
+   run concurrently through independent repository operations. Channel state, formatting,
    and Telegram failures are isolated from private delivery and the update
    loop.
    All users and the public channel share this one crawl. Activation may wake a
@@ -944,70 +949,49 @@ source prices without hashtags.
 
 ## Persistence
 
-All state is JSON written with a temporary file followed by an atomic rename.
-The `.data` directory must be mounted on persistent storage in production.
+Application state is one versioned `state.sqlite3` database on persistent local
+storage. `application_metadata` binds its immutable database ID to the List.am
+URL template and configured channel. `schema_migrations` plus `PRAGMA
+user_version` provide forward-only schema compatibility.
 
-- `apartments.json` is the source of truth for normalized apartment details and
-  crawl metadata. Stored fields are URL, item ID, title, whole-AMD canonical
-  price, original amount and ISO currency, location, rooms, area in square
-  metres, combined current/total floor, posting date, first-seen timestamp, and
-  source-update timestamp when applicable. Foreign prices additionally retain
-  the per-unit AMD rate, snapshot fetch time, and CBA effective date.
-- `exchange-rates.json` stores one validated, atomic CBA snapshot containing
-  USD, EUR, and RUB quote amounts and rates, its fetch timestamp, and its CBA
-  effective date. It is reusable across process restarts.
-- `telegram-deliveries.json` stores a delivery state machine per private user,
-  tracking item IDs' latest successful delivery timestamps and intentionally
-  skipped initial history. Each user's `filtered` index records listings
-  rejected by their filters and the rejection timestamps used to detect later
-  qualifying source updates. Re-admitted and other updated selected messages
-  remain retryable until that user's successful delivery timestamp reaches the
-  source update timestamp.
-- `telegram-bot.json` schema version 3 stores the Telegram update offset and a map of private
-  users with activation, chat ID, initial-send choice, optional filters, and
-  pending range-input mode. A missing initial-send choice from older state
-  defaults to sending the initial selection for backward compatibility.
-  Version-1 owner-only and version-2 multi-user state are strictly validated
-  and migrated in memory to the version-3 user map,
-  retaining the former private recipient ID for delivery-history migration, and
-  persisted on the next update. Bot state is deliberately not bound to
-  `TELEGRAM_OWNER_ID`, so rotating the server-alert recipient does not invalidate
-  private subscriptions. A version-3 `deletionPendingAt` marker makes a user
-  effectively inactive and cannot appear in an older schema, preventing older
-  readers from silently ignoring an in-progress deletion. Access mode and
-  allowlist are deployment configuration,
-  not persisted user attributes; policy narrowing therefore suspends records
-  without rewriting activation, filters, initial-send choice, or delivery
-  history. Update processing and concurrent unavailable-recipient deactivation
-  share one serialized mutation boundary; outer in-memory state advances only
-  after its matching durable write succeeds.
-- Inbound token buckets and denial-response timestamps are deliberately absent
-  from JSON state. They use a monotonic process clock, evict entries after 15
-  minutes of inactivity, and start empty after restart. The maps grow with
-  recently active senders, not with the unlimited persisted-user population.
-- Private apartment-delivery buckets are also process-local and use the same
-  monotonic, 15-minute idle-eviction and restart-reset model. Their map has no
-  admission capacity and contains only recipients with recent delivery work;
-  waiting or in-flight work cannot be evicted. User deletion aborts the target
-  bucket, drains the complete recipient worker through a per-recipient barrier,
-  and uses a shared delivery-state mutation chain so peer writes cannot restore
-  removed history. Its five-minute response gate survives bucket cleanup.
-- `telegram-channel-deliveries.json` is a separate channel state machine keyed
-  by item ID. It stores timestamped `filtered` and `skipped_initial` admissions,
-  retryable `pending` entries, and `published` entries with Telegram message ID,
-  content hash, classification/publication timestamps, and an edit timestamp
-  when applicable. Qualifying source updates can move filtered entries back to
-  pending. Compatibility binds state to both the List.am URL template and
-  channel username; changing the channel starts a fresh classification.
+- `apartments` stores one complete normalized apartment JSON payload per item;
+  `crawl_state` atomically stores checked time, crawl metadata, exact item order,
+  and bounded source-integrity history. A crawl upserts changed payloads,
+  removes absent rows, and advances all metadata in one transaction before any
+  Telegram work starts.
+- `private_recipients` and `private_delivery_decisions` store one row per
+  recipient/item terminal decision (`notified`, `skipped`, or `filtered`).
+  Absence remains pending. Initial selection and batch classification commit
+  before delivery, filtered re-admission deletes its obsolete row before the
+  network call, and a successful send is followed immediately by one-row
+  acknowledgement.
+- `channel_state` and `channel_deliveries` store target/fingerprint admission
+  state plus pending, filtered, skipped-initial, and published rows. Published
+  rows alone may contain message ID, content hash, publication time, and optional
+  update time. Sends, replacements, edits, and reposts update acknowledgement
+  fields only after Telegram accepts the operation.
+- `telegram_state` stores the nonnegative update offset and optional legacy
+  recipient binding. `telegram_users` stores activation, initial-send choice,
+  normalized filters, pending range input, and deletion marker. Each processed
+  update commits its offset with its user mutation before callback
+  acknowledgement or a replay-sensitive response. User deletion first commits
+  the inactive marker, drains the recipient barrier, then deletes the user and
+  private-delivery rows atomically.
+- `exchange_rate_state` stores one validated USD/EUR/RUB snapshot as compact
+  JSON. A refresh replaces the in-memory snapshot only after the database commit
+  succeeds.
+- Inbound token buckets, denial-response timestamps, and private delivery rate
+  buckets remain process-local. They use a monotonic process clock, evict idle
+  entries after 15 minutes, and restart empty.
 - `chrome-profile/` stores cookies from List.am security verification.
 - `.maintenance-history.json` stores only the previous successful maintenance
   timestamp and aggregate managed byte count. It is excluded from application
   state thresholds, entry counts, and managed-growth totals.
 
-State files include a schema version and type discriminator. Apartment state
-also binds to the target URL. Incompatible or target-mismatched state fails
-closed during startup and remains unchanged until an explicit migration or
-operator-approved reset.
+The five legacy JSON paths contain only incompatible `sqlite-migrated`
+sentinels after cutover. They carry backend, migration, and database identities
+without application data so an older image fails closed. The protected
+manifest-v1 snapshot is the only supported JSON rollback source.
 
 ## Parsing model
 
@@ -1059,14 +1043,15 @@ The local metrics snapshot groups failures only by stable reason and retains
 application firing/resolution cursors so both edges survive between monitor
 runs.
 
-Apartment state schema version 3 adds only a bounded `sourceIntegrity`
+The compatible apartment payload schema version 3 adds only a bounded
+`sourceIntegrity`
 aggregate: up to five non-negative first-page parsed counts and an optional
 canonical ISO timestamp for the latest successful commit. Versions 1 and 2 are
 migrated in memory with an empty history, preserving apartment records and
 ordering; malformed version-3 aggregates fail closed across crawling,
 preflight, recovery, and maintenance. After all fetched pages validate, the
 crawler appends the current first-page count, truncates oldest values beyond
-five, and persists that history and `lastSuccessfulAt` in the same atomic write
+five, and persists that history and `lastSuccessfulAt` in the same transaction
 as apartment discovery. Failed observations cannot advance it. With at least
 three prior successes, a first-page count is rejected only when it is strictly
 below half the prior median and at least five below it. Odd and even medians are

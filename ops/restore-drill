@@ -125,6 +125,13 @@ docker create \
   --label "com.rental-apartments.run-id=$OPS_RUN_ID" \
   --network none \
   --env-file "$RENTAL_ENV_FILE" \
+  --env NODE_ENV=production \
+  --env DATA_DIRECTORY=/app/.data \
+  --env BACKUP_DIRECTORY=/app-backups \
+  --env BROWSER_HEADLESS=true \
+  --env CHROME_EXECUTABLE_PATH=/usr/bin/chromium \
+  --env HEALTH_HOST=127.0.0.1 \
+  --env HEALTH_PORT=8787 \
   --env TELEGRAM_BOT_TOKEN=restore-drill-disabled \
   --env TELEGRAM_DELIVERY_DISABLED=true \
   --env TELEGRAM_POLLING_DISABLED=true \

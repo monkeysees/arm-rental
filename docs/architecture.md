@@ -122,6 +122,9 @@ Stop-the-world wrappers install their restart and readiness cleanup before
 stopping the application. Recovery points remain on the separately mounted
 backup filesystem, while monthly restore drills use exactly named and labeled
 temporary resources with networking, Telegram polling, and delivery disabled.
+Those containers also receive the same non-secret, container-local production
+paths and browser/health settings that Compose normally injects, so recovery
+validation cannot accidentally depend on host environment-file omissions.
 
 ### Unattended publication and deployment
 

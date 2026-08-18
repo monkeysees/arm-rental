@@ -17,14 +17,14 @@ and independently of `DATA_DIRECTORY`. In production it must be a separately
 managed volume or remote-mounted filesystem whose loss is independent of the
 application volume and host.
 
-Snapshots contain mode-restricted copies, a versioned manifest, SHA-256 hashes,
-schema/count summaries, the Telegram update offset, and the last successful
-browser verification record. The backup and restore commands emit stable
+Post-cutover snapshots contain a standalone mode-`0600` database produced by
+Node's SQLite backup API, the selector and defensive sentinels, a manifest-v2,
+SHA-256 hashes, identity/schema/target/count summaries, the Telegram update
+offset, and the last successful browser verification record. The backup and restore commands emit stable
 `backup.*`, `restore.*`, and `storage.low_disk` events for later alert routing.
-For apartment schema version 3, the summary includes only the number of bounded
-first-page source-integrity samples and the optional last-success timestamp;
-restore validation preserves the exact aggregate without exposing apartment
-or user data.
+The summary includes only bounded logical counts and source-integrity aggregate
+metadata; restore validation preserves the exact aggregate without exposing
+apartment or user data.
 
 ### Protected pre-SQLite recovery point
 
@@ -58,10 +58,12 @@ Prerequisites:
 - the service supervisor can stop and start the singleton cleanly;
 - the local monitor evaluates nonzero results and missing terminal success.
 
-The snapshot includes several independently written JSON files and the browser
-profile, so the bot **must be stopped**. The command also acquires the same
-singleton lease as the application and fails with `ERR_SINGLETON_LOCKED` if a
-live process remains. Never bypass this lease.
+The snapshot includes SQLite state and the browser profile, so the bot **must
+be stopped**. The command also acquires the same singleton lease as the
+application and fails with `ERR_SINGLETON_LOCKED` if a live process remains.
+It opens and validates the source, uses the online backup API, then validates
+the destination through a fresh connection; it never copies a live main file
+or WAL/SHM sidecars. Never bypass this lease.
 
 `rental-backup.timer` owns the supported production schedule. It runs every day
 at 03:15 UTC with a bounded randomized delay and `Persistent=true`, so a missed
@@ -127,15 +129,15 @@ systemctl start rental-restore-drill.service
 journalctl -u rental-restore-drill.service --since -2h
 ```
 
-Expected validation reports the apartment count, private-delivery
-notified/skipped/filtered counts, channel and published counts, exchange-rate
-currency count, Telegram `updateOffset`, browser verification timestamp, and
-hash success. Select the newest valid recovery point from before the incident.
+Expected validation reports the application ID, schema and database IDs,
+target bindings, per-domain logical counts, Telegram `updateOffset`, browser
+verification timestamp, and hash success. Select the newest valid recovery point from before the incident.
 Do not edit a snapshot or restore from a `.snapshot-*.tmp` directory.
 
-Older releases that cannot read apartment schema version 3 must be paired with
-the validated pre-upgrade snapshot. Restore that snapshot before starting the
-older image; never point an older binary at live version-3 state.
+An image whose backend or declared schema range does not include the snapshot
+must not start against it. Restore the protected manifest-v1 JSON point before
+starting the bridge image; never point a JSON-only or older SQLite binary at the
+live version-1 database.
 
 ## Restore procedure
 

@@ -29,7 +29,9 @@ try {
 
   if (command === "backup" || command === "backup-protected") {
     if (argument) throw new Error(usage());
-    await validateStartupConfig(config);
+    await validateStartupConfig(config, {
+      allowNonJsonBackend: command === "backup",
+    });
     const disk = await checkDiskSpace(config.dataDirectory, {
       warningThreshold: config.diskFreeWarningFraction,
       onEvent: (event) =>

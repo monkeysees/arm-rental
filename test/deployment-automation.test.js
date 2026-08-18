@@ -214,6 +214,32 @@ test("deployment observation uses the application poll default and rejects ambig
   );
 });
 
+test("deployment observation rejects an unready candidate before the observation window", async (t) => {
+  const temporaryDirectory = await mkdtemp(
+    join(tmpdir(), "deploy-unready-candidate-"),
+  );
+  t.after(() => rm(temporaryDirectory, { recursive: true, force: true }));
+  const sleepMarker = join(temporaryDirectory, "sleep-called");
+  const script = `
+    set -Eeuo pipefail
+    RENTAL_OPS_STATE_DIR=$1/state
+    source ops/lib/deployment.sh
+    ops_wait_ready() { return 70; }
+    sleep() { : >"$SLEEP_MARKER"; }
+    journalctl() { return 99; }
+    ! deployment_wait_candidate 0 360 skipped
+    test ! -e "$SLEEP_MARKER"
+  `;
+  await executeFile(
+    "bash",
+    ["-c", script, "deployment-unready-test", temporaryDirectory],
+    {
+      cwd: new URL("..", import.meta.url),
+      env: { ...process.env, SLEEP_MARKER: sleepMarker },
+    },
+  );
+});
+
 test("first deployment creates a Compose-owned volume and permits only its browser profile", async (t) => {
   const temporaryDirectory = await mkdtemp(
     join(tmpdir(), "deploy-data-volume-"),

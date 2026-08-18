@@ -412,9 +412,9 @@ deployment_wait_candidate() {
   local observation_seconds=$2
   local expected_channel=$3
   local records
-  ops_wait_ready
+  ops_wait_ready || return $?
   sleep "$observation_seconds"
-  ops_wait_ready
+  ops_wait_ready || return $?
   records=$(journalctl \
     --no-pager \
     --quiet \

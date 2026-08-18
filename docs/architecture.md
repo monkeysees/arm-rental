@@ -231,6 +231,9 @@ and a successful quarantine-skip rerun before timer freshness is evaluated.
 The evidence collector normalizes systemd's concrete `exit-code` result to the
 failed-deployment outcome so an expected nonzero deploy is not mistaken for an
 unknown unit state.
+Candidate observation returns as soon as the initial readiness gate is
+exhausted; it never waits through the normal runtime observation window for a
+container that did not become ready.
 The checked-in evidence is intentionally pending: deterministic fake-command
 tests verify the collection contract but do not claim real VPS observations.
 

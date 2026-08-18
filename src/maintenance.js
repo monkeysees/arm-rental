@@ -153,6 +153,25 @@ export function stateSizeAlerts(stateFile) {
   return alerts;
 }
 
+function sqliteStateAlerts(stateFile) {
+  const alerts = [];
+  if (stateFile.bytes >= STATE_SIZE_WARNING_BYTES) {
+    alerts.push({
+      alertName: "state_database_growth",
+      bytes: stateFile.bytes,
+      thresholdBytes: STATE_SIZE_WARNING_BYTES,
+    });
+  }
+  if (stateFile.walBytes >= STATE_SIZE_WARNING_BYTES) {
+    alerts.push({
+      alertName: "state_wal_growth",
+      bytes: stateFile.walBytes,
+      thresholdBytes: STATE_SIZE_WARNING_BYTES,
+    });
+  }
+  return alerts;
+}
+
 async function stateFileReport(specification) {
   let details;
   try {
@@ -438,7 +457,10 @@ export async function runMaintenance(
           : ((managedBytes - previous.managedBytes) / previous.managedBytes) *
             100,
     };
-    const alerts = stateFiles.flatMap(stateSizeAlerts);
+    const alerts =
+      selector.backend === "sqlite"
+        ? sqliteStateAlerts(stateFiles.find(({ name }) => name === "sqlite"))
+        : stateFiles.flatMap(stateSizeAlerts);
     const report = {
       type: "rental-apartments-maintenance-report",
       version: 1,

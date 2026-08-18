@@ -1,6 +1,6 @@
 # State maintenance and retention
 
-The initial production release does not automatically delete or archive any
+The production service does not automatically delete or archive any
 apartment or delivery record. State growth is observable before retention is
 introduced, and the browser cache is bounded independently of browser identity
 data.
@@ -15,8 +15,8 @@ profile. Take a successful backup first.
 The command validates every present state schema and emits one
 `maintenance.report` JSON log record containing:
 
-- byte size, logical entry count, and useful count breakdowns for all five
-  configured state files and the browser verification state file;
+- combined SQLite database/WAL bytes, schema version, update offset, and
+  per-domain logical counts, plus the browser verification record;
 - Chrome profile bytes before and after cache cleanup, removed cache bytes, and
   the exact cache paths cleaned;
 - total managed bytes and byte/percentage growth from the prior successful
@@ -24,9 +24,9 @@ The command validates every present state schema and emits one
   inside the profile);
 - filesystem free/total bytes and the configured free-space threshold.
 
-The apartment report keeps `entryCount` equal to apartment records. It reports
-the bounded source-integrity sample count and last-success timestamp as
-separate aggregate fields; the samples never inflate logical entry totals.
+The SQLite report keeps physical size separate from logical counts. Apartment,
+private recipient/decision, channel delivery, Telegram user, and exchange-rate
+counts never expose IDs or payloads.
 
 The prior aggregate sample is stored as
 `DATA_DIRECTORY/.maintenance-history.json`; it contains no apartment,
@@ -34,16 +34,18 @@ Telegram, or browser content and is explicitly excluded from state-size
 threshold inputs and managed-growth totals. The first run reports growth as
 `null`.
 
-Files at or above 25 MiB emit `alertName=state_file_growth`. Files at or above
-50 MiB emit both that alert and `alertName=state_sqlite_migration`; the latter
-starts the SQLite migration evaluation. The command exits `2` when either
-threshold is active, `1` on command/validation failure, and `0` otherwise.
-Alert-free runs emit resolution records for both alert names.
+Combined database/WAL size at or above 25 MiB emits
+`alertName=state_database_growth`; WAL alone at that threshold emits
+`alertName=state_wal_growth`. The command exits `2` when either threshold is
+active, `1` on command/validation failure, and `0` otherwise. Alert-free runs
+emit resolution records. Legacy JSON bridge reports retain their old growth and
+migration alert names so protected rollback evidence stays interpretable.
 
-Runtime `state.write.completed` and `state.write.failed` records contain the
-state basename, serialized bytes, outcome, and total `durationMs`. The log
-collector must calculate a rolling p95 by state file and alert when p95 exceeds
-500 ms. Telemetry failures cannot fail or roll back a durable state write.
+Runtime `state.transaction.*` and `state.checkpoint.*` records contain only a
+stable operation, rows changed, database/WAL bytes, outcome, schema version, and
+duration. The log collector calculates p50/p95 per operation and counts failed
+and busy transactions. Telemetry failures cannot fail or roll back a durable
+transaction.
 
 `rental-maintenance.timer` runs every Sunday at 04:00 UTC with
 `Persistent=true`. Its `ops/maintain` wrapper acquires the shared operations
@@ -123,9 +125,9 @@ Before any archive or prune code ships, integration tests must:
 6. restore a pre-prune backup and prove schema compatibility and delivery
    behavior.
 
-Until those tests and a versioned state migration exist, operators must respond
-to growth alerts by preserving state and beginning the SQLite migration—not by
-manually deleting JSON entries.
+Until those tests and a versioned schema migration exist, operators must
+respond to growth alerts by preserving state and planning capacity—not by
+manually deleting rows or sentinels.
 
 ## Low disk and state growth response
 
@@ -148,8 +150,8 @@ du -x -h --max-depth=2 \
 For an explicit maintenance retry, use
 `systemctl start rental-maintenance.service`; do not run the image command
 directly. Expected healthy output is
-`storage.disk_ok`, a `maintenance.report`, more than 20% free space, state files
-below 25 MiB, and no `state_file_growth`/`state_sqlite_migration` firing event.
+`storage.disk_ok`, a `maintenance.report`, more than 20% free space, bounded
+database/WAL growth, and no `state_database_growth`/`state_wal_growth` event.
 Threshold exit `2` is an alert, not corruption; the wrapper has already
 restored and tested readiness before it returns that status.
 
@@ -169,10 +171,11 @@ sudo rentalctl status
 ```
 
 Do not use a generic Docker prune command.
-Do not delete JSON state, delivery acknowledgements, cookies, browser identity,
-snapshots within retention, or unknown files. For 25 MiB state growth, record
-weekly trend and plan capacity. At 50 MiB or write p95 above 500 ms, open the
-SQLite migration work and avoid ad hoc pruning.
+Do not delete the database, delivery acknowledgements, sentinels, cookies,
+browser identity, snapshots within retention, or unknown files. For 25 MiB
+state growth, record weekly trend and plan capacity. At 50 MiB, sustained
+transaction p95 above 500 ms, recurring busy failures, or repeated incomplete
+checkpoints, open a capacity/performance investigation and avoid ad hoc pruning.
 
 Expected recovery is free space safely above 20%, resolved alert events, ready
 restart, browser identity retained, and one successful crawl. Restore the

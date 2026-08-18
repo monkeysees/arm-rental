@@ -252,6 +252,17 @@ test("SQLite maintenance validates one database and reports logical counts", asy
     channelId: config.telegramChannelId,
     databaseId,
   });
+  database.transaction("maintenance_fixture", () => {
+    database
+      .prepare("INSERT INTO apartments(item_id, payload_json) VALUES (?, ?)")
+      .run(
+        "100",
+        JSON.stringify({
+          itemId: "100",
+          padding: "x".repeat(STATE_SIZE_WARNING_BYTES),
+        }),
+      );
+  });
   database.close();
   await writeState(stateBackendPaths(config.dataDirectory).selector, {
     backend: "sqlite",
@@ -278,6 +289,10 @@ test("SQLite maintenance validates one database and reports logical counts", asy
   assert.equal(report.stateFiles[0].schemaVersion, 1);
   assert.equal(report.stateFiles[0].telegramUsers, 0);
   assert.equal(report.stateFiles[0].bytes > 0, true);
+  assert.deepEqual(
+    report.alerts.map(({ alertName }) => alertName),
+    ["state_database_growth"],
+  );
 });
 
 test("maintenance refuses a live service lease before reading or cleaning the profile", async (t) => {

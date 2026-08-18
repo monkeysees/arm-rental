@@ -830,6 +830,7 @@ export async function runTelegramBot(
     api,
     loadState = readState,
     saveState = writeState,
+    deleteUserData,
     crawl = crawlApartments,
     publishChannel = publishChannelApartments,
     pageFetch = globalThis.fetch,
@@ -913,20 +914,33 @@ export async function runTelegramBot(
       privateDeliveryBarrier.block(senderId);
       await privateDeliveryRateLimiter.cancelRecipient(senderId);
       await privateDeliveryBarrier.drain(senderId);
-      await withDeliveryStateMutation(() =>
-        removeDeliveryRecipient(config, senderId, {
-          legacyRecipientId: state.legacyRecipientId,
-          loadState,
-          saveState,
-        }),
-      );
+      let removed;
+      if (deleteUserData) {
+        removed = await withBotStateMutation(() =>
+          withDeliveryStateMutation(async () => {
+            const user = state.users[String(senderId)];
+            if (!user?.deletionPendingAt) return false;
+            await deleteUserData(senderId);
+            state = withoutUser(state, senderId);
+            return true;
+          }),
+        );
+      } else {
+        await withDeliveryStateMutation(() =>
+          removeDeliveryRecipient(config, senderId, {
+            legacyRecipientId: state.legacyRecipientId,
+            loadState,
+            saveState,
+          }),
+        );
 
-      const removed = await withBotStateMutation(async () => {
-        const user = state.users[String(senderId)];
-        if (!user?.deletionPendingAt) return false;
-        await persistBotState(withoutUser(state, senderId));
-        return true;
-      });
+        removed = await withBotStateMutation(async () => {
+          const user = state.users[String(senderId)];
+          if (!user?.deletionPendingAt) return false;
+          await persistBotState(withoutUser(state, senderId));
+          return true;
+        });
+      }
       privateRateLimits.clearSenderBuckets(senderId);
       privateDeliveryRateLimiter.clearRecipient(senderId);
       privateDeliveryBarrier.clear(senderId);
@@ -1147,6 +1161,8 @@ export async function runTelegramBot(
         };
         const result = await crawl(config, {
           fetchPage: pageFetch,
+          loadState,
+          saveState,
           exchangeRates,
           onSourceIntegrityChecked: (observation) =>
             onSourceIntegrityChecked({ ...observation, crawlId }),
@@ -1224,6 +1240,8 @@ export async function runTelegramBot(
                       {
                         api,
                         signal,
+                        loadState,
+                        saveState,
                         onOperation: (event) =>
                           onChannelOperation({
                             ...event,

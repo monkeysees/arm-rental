@@ -4,6 +4,8 @@ import path from "node:path";
 import { promisify } from "node:util";
 import { pathToFileURL } from "node:url";
 
+import { assertRollbackStateCompatibility } from "../src/release-compatibility.js";
+
 const executeFile = promisify(execFile);
 const DIGEST_REFERENCE =
   /^(?:sha256:[a-f0-9]{64}|[a-z0-9][a-z0-9._/-]*(?::[a-z0-9._-]+)?@sha256:[a-f0-9]{64})$/u;
@@ -291,6 +293,64 @@ async function inspectRuntime(contract) {
   return { dataVolume: dataMount.Name };
 }
 
+async function inspectImageStateCompatibility(image) {
+  const { stdout } = await run("docker", [
+    "image",
+    "inspect",
+    "--format",
+    "{{json .Config.Labels}}",
+    image,
+  ]);
+  const labels = JSON.parse(stdout);
+  return {
+    stateBackend: labels?.["com.rental-apartments.state.backend"],
+    minimumStateSchema: Number(
+      labels?.["com.rental-apartments.state.schema.minimum"],
+    ),
+    maximumStateSchema: Number(
+      labels?.["com.rental-apartments.state.schema.maximum"],
+    ),
+  };
+}
+
+async function inspectLiveState() {
+  const expression = String.raw`
+    const { readFile } = await import("node:fs/promises");
+    const path = await import("node:path");
+    const root = process.env.DATA_DIRECTORY || "/app/.data";
+    let selector;
+    try {
+      selector = JSON.parse(await readFile(path.join(root, "state-backend.json"), "utf8"));
+    } catch (error) {
+      if (error.code !== "ENOENT") throw error;
+    }
+    const backend = selector?.backend || "json";
+    if (backend === "json") {
+      console.log(JSON.stringify({ stateBackend: "json", stateSchema: 0 }));
+    } else if (backend === "sqlite") {
+      const { DatabaseSync } = await import("node:sqlite");
+      const database = new DatabaseSync(path.join(root, "state.sqlite3"), { readOnly: true });
+      try {
+        const stateSchema = database.prepare("PRAGMA user_version").get().user_version;
+        console.log(JSON.stringify({ stateBackend: "sqlite", stateSchema }));
+      } finally {
+        database.close();
+      }
+    } else {
+      throw new Error("Live state backend is not stable");
+    }
+  `;
+  const { stdout } = await run("docker", [
+    "exec",
+    "rental-apartments-bot",
+    "node",
+    "--input-type=module",
+    "--eval",
+    expression,
+  ]);
+  return JSON.parse(stdout);
+}
+
 async function validateSnapshot(contract) {
   await run(
     "docker",
@@ -507,14 +567,24 @@ async function executeRelease(contract) {
   } catch (error) {
     if (error.code !== "ENOENT") throw error;
   }
-  await Promise.all([
-    run("docker", ["image", "inspect", contract.image]),
+  const [targetMetadata] = await Promise.all([
+    inspectImageStateCompatibility(contract.image),
     run("docker", ["image", "inspect", contract.previousImage]),
     readFile(contract.composeFile, "utf8"),
   ]);
   await inspectComposeContract(contract);
   await validateSnapshot(contract);
   const runtime = await inspectRuntime(contract);
+  if (
+    contract.operation === "rollback" &&
+    contract.stateStrategy === "compatible"
+  ) {
+    assertRollbackStateCompatibility({
+      stateStrategy: contract.stateStrategy,
+      targetMetadata,
+      liveState: await inspectLiveState(),
+    });
+  }
   await stopAndConfirm(contract);
 
   if (

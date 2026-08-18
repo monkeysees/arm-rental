@@ -26,7 +26,8 @@ image_retention_emit() {
 
 image_retention_plan() {
   local current repository expected_current_id running_image_id
-  local retained_json protected_json container_json container_list image_list
+  local retained_json protected_releases_json protected_json
+  local container_json container_list image_list
   local protected_id revision metadata_tag metadata_id
   local -a retained_refs=() retained_revisions=() protected_ids=()
   local -a image_ids=() container_ids=()
@@ -45,7 +46,7 @@ image_retention_plan() {
   jq -e \
     --arg current "$current" \
     --argjson maximum "$RENTAL_IMAGE_RETENTION_COUNT" '
-      .schemaVersion == 1 and
+      (.schemaVersion == 1 or .schemaVersion == 2) and
       .minimumRetainedReleases == $maximum and
       (.retainedReleases | type) == "array" and
       (.retainedReleases | length) >= 1 and
@@ -57,7 +58,13 @@ image_retention_plan() {
       (([.retainedReleases[].candidateImage] | unique | length) ==
         (.retainedReleases | length)) and
       (([.retainedReleases[].sourceRevision] | unique | length) ==
-        (.retainedReleases | length))
+        (.retainedReleases | length)) and
+      ((.protectedReleases // []) | type) == "array" and
+      ((.protectedReleases // []) | length) <= 1 and
+      all((.protectedReleases // [])[];
+        (.candidateImage | test("^[a-z0-9][a-z0-9._/-]*@sha256:[0-9a-f]{64}$")) and
+        (.sourceRevision | test("^[0-9a-f]{40}$")) and
+        (.protectedSnapshot | test("/protected/pre-sqlite-[^/]+$")))
     ' "$RENTAL_DEPLOYMENT_RETENTION_FILE" >/dev/null || {
     printf 'Deployment retention index is invalid or does not protect current\n' >&2
     return 65
@@ -66,13 +73,13 @@ image_retention_plan() {
   while IFS= read -r current; do
     [[ -n $current ]] && retained_refs+=("$current")
   done < <(
-    jq -r '.retainedReleases[].candidateImage' \
+    jq -r '(.retainedReleases + (.protectedReleases // []))[].candidateImage' \
       "$RENTAL_DEPLOYMENT_RETENTION_FILE"
   )
   while IFS= read -r revision; do
     [[ -n $revision ]] && retained_revisions+=("$revision")
   done < <(
-    jq -r '.retainedReleases[].sourceRevision' \
+    jq -r '(.retainedReleases + (.protectedReleases // []))[].sourceRevision' \
       "$RENTAL_DEPLOYMENT_RETENTION_FILE"
   )
   repository=${retained_refs[0]%%@sha256:*}
@@ -120,6 +127,9 @@ image_retention_plan() {
   retained_json=$(jq -c '[.retainedReleases[] | {
     candidateImage, sourceRevision, completedAt
   }]' "$RENTAL_DEPLOYMENT_RETENTION_FILE") || return
+  protected_releases_json=$(jq -c '[.protectedReleases // [] | .[] | {
+    candidateImage, sourceRevision, protectedSnapshot, protectedAt
+  }]' "$RENTAL_DEPLOYMENT_RETENTION_FILE") || return
   image_list=$(docker image ls --all --no-trunc --quiet) || return
   image_ids=()
   if [[ -n $image_list ]]; then
@@ -134,6 +144,7 @@ image_retention_plan() {
     --arg title "$RENTAL_IMAGE_TITLE" \
     --arg currentImage "$expected_current_id" \
     --argjson retained "$retained_json" \
+    --argjson protectedReleases "$protected_releases_json" \
     --argjson protected "$protected_json" '
       . as $inventory
       |
@@ -169,6 +180,7 @@ image_retention_plan() {
           repository: $repository,
           currentImageId: $currentImage,
           retainedReleases: $retained,
+          protectedReleases: $protectedReleases,
           protectedImageIds: $protected,
           managedImageCount: ($managed | length),
           removalCount: ($removals | length),

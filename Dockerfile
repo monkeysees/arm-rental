@@ -15,6 +15,9 @@ ARG DEBIAN_FRONTEND=noninteractive
 
 LABEL org.opencontainers.image.title="rental-apartments-bot" \
       org.opencontainers.image.revision="${SOURCE_REVISION}" \
+      com.rental-apartments.state.backend="json" \
+      com.rental-apartments.state.schema.minimum="0" \
+      com.rental-apartments.state.schema.maximum="0" \
       org.opencontainers.image.node.version="${NODE_VERSION}" \
       org.opencontainers.image.chrome.version="${CHROME_VERSION}" \
       org.opencontainers.image.package-lock.sha256="${PACKAGE_LOCK_SHA256}"

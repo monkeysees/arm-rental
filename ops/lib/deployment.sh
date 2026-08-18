@@ -279,6 +279,12 @@ deployment_fetch_release() {
     deployment_discard_staging_release "$temporary"
     return 65
   }
+  install -m 0644 \
+    "$metadata" \
+    "$temporary/release-metadata.json" || {
+    deployment_discard_staging_release "$temporary"
+    return 65
+  }
   if ! deployment_validate_operations_archive \
     "$bundle_directory/operations.tar"; then
     deployment_discard_staging_release "$temporary"
@@ -312,6 +318,9 @@ deployment_verify_release() {
      .imageReference == $image and
      .imageDigest == ($image | split("@")[1]) and
      .sourceRevision == $revision and
+     .stateBackend == "json" and
+     .minimumStateSchema == 0 and
+     .maximumStateSchema == 0 and
      (.packageLockSha256 | test("^[0-9a-f]{64}$")) and
      (.composeSha256 | test("^[0-9a-f]{64}$")) and
      (.operationsBundleSha256 | test("^[0-9a-f]{64}$"))' \
@@ -515,6 +524,8 @@ deployment_update_retention_index() {
   temporary=$(mktemp "$RENTAL_OPS_STATE_DIR/.retention.XXXXXX")
   if [[ -f $target ]]; then
     jq --slurpfile release "$evidence_file" '
+      .schemaVersion = 2 |
+      .protectedReleases = (.protectedReleases // []) |
       .retainedReleases = (
         reduce ([$release[0]] + (.retainedReleases // []))[] as $item
           ([];
@@ -527,8 +538,52 @@ deployment_update_retention_index() {
     ' "$target" >"$temporary"
   else
     jq --null-input --slurpfile release "$evidence_file" \
-      '{schemaVersion: 1, minimumRetainedReleases: 3, retainedReleases: [$release[0]]}' \
+      '{
+        schemaVersion: 2,
+        minimumRetainedReleases: 3,
+        retainedReleases: [$release[0]],
+        protectedReleases: []
+      }' \
       >"$temporary"
+  fi
+  chmod 0600 "$temporary"
+  mv -f "$temporary" "$target"
+}
+
+# Adds one named bridge release and its pre-SQLite snapshot to the retention
+# index. Re-running with the same pair is idempotent; replacing the protected
+# rollback point requires an explicit future unprotect workflow.
+deployment_protect_migration_release() {
+  local evidence_file=$1
+  local protected_snapshot=$2
+  local target="$RENTAL_OPS_STATE_DIR/deployment-retention.json"
+  local temporary
+  [[ -f $evidence_file && ! -L $evidence_file ]]
+  [[ -d $protected_snapshot && ! -L $protected_snapshot ]]
+  [[ $protected_snapshot == "$RENTAL_BACKUP_ROOT"/protected/pre-sqlite-* ]]
+  [[ -f $target && ! -L $target ]]
+  temporary=$(mktemp "$RENTAL_OPS_STATE_DIR/.retention.XXXXXX")
+  if ! jq --slurpfile release "$evidence_file" \
+    --arg protectedSnapshot "$protected_snapshot" '
+      (.protectedReleases // []) as $protected |
+      if ($protected | length) > 0 and
+         any($protected[];
+           .candidateImage != $release[0].candidateImage or
+           .protectedSnapshot != $protectedSnapshot)
+      then error("a different migration rollback point is already protected")
+      else
+        .schemaVersion = 2 |
+        .protectedReleases = [{
+          candidateImage: $release[0].candidateImage,
+          sourceRevision: $release[0].sourceRevision,
+          releaseDirectory: $release[0].releaseDirectory,
+          protectedSnapshot: $protectedSnapshot,
+          protectedAt: (now | todateiso8601)
+        }]
+      end
+    ' "$target" >"$temporary"; then
+    rm -- "$temporary"
+    return 65
   fi
   chmod 0600 "$temporary"
   mv -f "$temporary" "$target"

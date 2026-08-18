@@ -70,6 +70,9 @@ test("required CI gates quality and an ephemeral production candidate", async ()
     "org.opencontainers.image.node.version",
     "org.opencontainers.image.chrome.version",
     "org.opencontainers.image.package-lock.sha256",
+    "com.rental-apartments.state.backend",
+    "com.rental-apartments.state.schema.minimum",
+    "com.rental-apartments.state.schema.maximum",
   ]) {
     assert.ok(dockerfile.includes(label), `missing image label ${label}`);
   }
@@ -106,6 +109,9 @@ test("release manifest binds the deployable image to its complete inputs", async
   assert.deepEqual(metadata, {
     schemaVersion: 1,
     sourceRevision: "a".repeat(40),
+    stateBackend: "json",
+    minimumStateSchema: 0,
+    maximumStateSchema: 0,
     nodeVersion: nodeVersion.trim(),
     browserVersion: "151.0.7922.71",
     packageLockSha256: createHash("sha256").update(packageLock).digest("hex"),
@@ -144,6 +150,9 @@ test("published release metadata binds the scanned registry digest and host bund
   ]);
 
   assert.equal(metadata.schemaVersion, 2);
+  assert.equal(metadata.stateBackend, "json");
+  assert.equal(metadata.minimumStateSchema, 0);
+  assert.equal(metadata.maximumStateSchema, 0);
   assert.equal(metadata.imageReference, imageReference);
   assert.equal(metadata.imageDigest, `sha256:${"d".repeat(64)}`);
   assert.equal(
@@ -191,6 +200,9 @@ test("production publication advances discovery only after scan, push, and metad
   assert.match(workflow, /group: production-publication/u);
   assert.match(workflow, /cancel-in-progress: false/u);
   assert.match(workflow, /image-ref: rental-apartments-bot:publication/u);
+  assert.match(workflow, /com\.rental-apartments\.state\.backend/u);
+  assert.match(workflow, /com\.rental-apartments\.state\.schema\.minimum/u);
+  assert.match(workflow, /com\.rental-apartments\.state\.schema\.maximum/u);
   assert.match(workflow, /docker push "\$METADATA_TAG"/u);
   assert.match(
     workflow,

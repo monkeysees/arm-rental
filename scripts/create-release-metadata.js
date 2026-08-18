@@ -91,6 +91,9 @@ export async function createReleaseMetadata({
   const common = {
     schemaVersion: 1,
     sourceRevision,
+    stateBackend: "json",
+    minimumStateSchema: 0,
+    maximumStateSchema: 0,
     nodeVersion: nodeVersionText.trim(),
     browserVersion,
     packageLockSha256: sha256(packageLock),

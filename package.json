@@ -9,6 +9,7 @@
     "browser:verify": "node --env-file-if-exists=.env src/verify-browser.js",
     "browser:smoke": "node --env-file-if-exists=.env src/browser-smoke.js",
     "backup": "node --env-file-if-exists=.env src/recovery-cli.js backup",
+    "backup:protect-migration": "node --env-file-if-exists=.env src/recovery-cli.js backup-protected",
     "backup:validate": "node --env-file-if-exists=.env src/recovery-cli.js validate",
     "restore": "node --env-file-if-exists=.env src/recovery-cli.js restore",
     "storage:check": "node --env-file-if-exists=.env src/recovery-cli.js disk-check",

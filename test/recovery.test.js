@@ -1,5 +1,13 @@
 import assert from "node:assert/strict";
-import { lstat, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import {
+  lstat,
+  mkdir,
+  mkdtemp,
+  readFile,
+  readdir,
+  rm,
+  writeFile,
+} from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -15,6 +23,7 @@ import {
 } from "../src/recovery.js";
 import { acquireSingletonLock } from "../src/singleton-lock.js";
 import { writeState } from "../src/state.js";
+import { stateBackendPaths } from "../src/state-backend.js";
 
 function rates() {
   return {
@@ -287,4 +296,63 @@ test("backup refuses a live service lease and disk checks expose the warning eve
   assert.equal(disk.status, "warning");
   assert.equal(events[0].name, "storage.low_disk");
   assert.equal(events[0].component, "storage");
+});
+
+test("JSON restore removes every exact future SQLite target before bridge restart", async (t) => {
+  const { config } = await fixture(t);
+  const backup = await createSnapshot(config, {
+    now: () => new Date("2026-07-26T03:15:00.000Z"),
+  });
+  const paths = stateBackendPaths(config.dataDirectory);
+  await Promise.all([
+    writeState(paths.selector, {
+      backend: "sqlite",
+      version: 1,
+      migrationId: "migration-1",
+      databaseId: "database-1",
+    }),
+    writeFile(paths.database, "candidate"),
+    writeFile(paths.databaseWal, "candidate-wal"),
+    writeFile(paths.databaseShm, "candidate-shm"),
+    mkdir(paths.migrationWorkDirectory, { recursive: true }),
+  ]);
+  await writeFile(paths.migrationDatabase, "temporary-candidate");
+
+  await restoreSnapshot(config, backup.snapshot);
+
+  for (const target of [
+    paths.selector,
+    paths.database,
+    paths.databaseWal,
+    paths.databaseShm,
+    paths.migrationWorkDirectory,
+  ]) {
+    await assert.rejects(lstat(target), (error) => error.code === "ENOENT");
+  }
+});
+
+test("protected pre-SQLite snapshots are valid and survive routine retention", async (t) => {
+  const { config, backupDirectory } = await fixture(t);
+  const protectedSnapshot = await createSnapshot(config, {
+    snapshotClass: "pre-sqlite",
+    now: () => new Date("2026-07-01T03:15:00.000Z"),
+  });
+  assert.equal(protectedSnapshot.protected, true);
+  assert.match(protectedSnapshot.snapshot, /protected\/pre-sqlite-/u);
+  assert.equal(
+    (await validateSnapshot(config, protectedSnapshot.snapshot)).manifest
+      .snapshotClass,
+    "pre-sqlite",
+  );
+
+  for (let day = 1; day <= 8; day += 1) {
+    await createSnapshot(config, {
+      now: () => new Date(`2026-08-${String(day).padStart(2, "0")}T03:15:00Z`),
+    });
+  }
+
+  assert.equal((await readdir(path.join(backupDirectory, "daily"))).length, 7);
+  assert.deepEqual(await readdir(path.join(backupDirectory, "protected")), [
+    path.basename(protectedSnapshot.snapshot),
+  ]);
 });

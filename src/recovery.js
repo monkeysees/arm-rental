@@ -27,6 +27,10 @@ import { compatibleDeliveryState, deliveryStateCounts } from "./crawler.js";
 import { compatibleExchangeRateSnapshot } from "./exchange-rates.js";
 import { acquireSingletonLock } from "./singleton-lock.js";
 import { readState, writeState } from "./state.js";
+import {
+  requireBridgeJsonBackend,
+  stateBackendPaths,
+} from "./state-backend.js";
 
 const BACKUP_TYPE = "rental-apartments-backup";
 const BACKUP_VERSION = 1;
@@ -149,6 +153,7 @@ async function optionalState(filename) {
 }
 
 export async function validateRecoveryState(config, root) {
+  await requireBridgeJsonBackend(root);
   const summary = {};
   for (const specification of stateSpecifications(config, root)) {
     const state = await optionalState(specification.filename);
@@ -295,6 +300,7 @@ async function copyData(config, destinationRoot) {
     config.telegramStateFile,
     config.exchangeRatesStateFile,
     config.channelDeliveryStateFile,
+    stateBackendPaths(config.dataDirectory).selector,
   ];
   for (const source of targets) {
     const destination = relocated(config, destinationRoot, source);
@@ -382,11 +388,15 @@ export async function createSnapshot(
     backupDirectory = config.backupDirectory,
     dailyRetention = DEFAULT_DAILY_RETENTION,
     weeklyRetention = DEFAULT_WEEKLY_RETENTION,
+    snapshotClass = "routine",
     now = () => new Date(),
     acquireLock = acquireSingletonLock,
     onEvent = () => {},
   } = {},
 ) {
+  if (!new Set(["routine", "pre-sqlite"]).has(snapshotClass)) {
+    throw new Error("Snapshot class must be routine or pre-sqlite");
+  }
   if (dailyRetention < 7 || weeklyRetention < 4) {
     throw new Error(
       "Backup retention must be at least seven daily and four weekly",
@@ -400,7 +410,11 @@ export async function createSnapshot(
   const temporary = path.join(destination, `.snapshot-${randomUUID()}.tmp`);
   const dailyDirectory = path.join(destination, "daily");
   const weeklyDirectory = path.join(destination, "weekly");
-  const dailySnapshot = path.join(dailyDirectory, id);
+  const protectedDirectory = path.join(destination, "protected");
+  const publishedSnapshot =
+    snapshotClass === "pre-sqlite"
+      ? path.join(protectedDirectory, `pre-sqlite-${id}`)
+      : path.join(dailyDirectory, id);
 
   try {
     onEvent({ name: "backup.started", destination });
@@ -425,15 +439,18 @@ export async function createSnapshot(
       createdAt: createdAt.toISOString(),
       summary: copiedSummary,
       hashes,
+      ...(snapshotClass === "pre-sqlite" ? { snapshotClass } : {}),
     };
     await writeState(path.join(temporary, "manifest.json"), manifest);
     await syncHandle(temporary, { directory: true });
-    await mkdir(dailyDirectory, { recursive: true, mode: 0o700 });
-    await rename(temporary, dailySnapshot);
-    await syncHandle(dailyDirectory, { directory: true });
+    const publicationDirectory =
+      snapshotClass === "pre-sqlite" ? protectedDirectory : dailyDirectory;
+    await mkdir(publicationDirectory, { recursive: true, mode: 0o700 });
+    await rename(temporary, publishedSnapshot);
+    await syncHandle(publicationDirectory, { directory: true });
 
     let weeklySnapshot;
-    if (createdAt.getUTCDay() === 0) {
+    if (snapshotClass === "routine" && createdAt.getUTCDay() === 0) {
       await mkdir(weeklyDirectory, { recursive: true, mode: 0o700 });
       weeklySnapshot = path.join(weeklyDirectory, id);
       const temporaryWeekly = path.join(
@@ -441,7 +458,7 @@ export async function createSnapshot(
         `.weekly-${randomUUID()}.tmp`,
       );
       try {
-        await cloneSnapshot(dailySnapshot, temporaryWeekly);
+        await cloneSnapshot(publishedSnapshot, temporaryWeekly);
         await rename(temporaryWeekly, weeklySnapshot);
         await syncHandle(weeklyDirectory, { directory: true });
       } finally {
@@ -450,11 +467,14 @@ export async function createSnapshot(
         );
       }
     }
-    await enforceRetention(dailyDirectory, dailyRetention);
-    await enforceRetention(weeklyDirectory, weeklyRetention);
+    if (snapshotClass === "routine") {
+      await enforceRetention(dailyDirectory, dailyRetention);
+      await enforceRetention(weeklyDirectory, weeklyRetention);
+    }
     const result = {
-      snapshot: dailySnapshot,
+      snapshot: publishedSnapshot,
       ...(weeklySnapshot ? { weeklySnapshot } : {}),
+      protected: snapshotClass === "pre-sqlite",
       summary: copiedSummary,
     };
     onEvent({ name: "backup.completed", ...result });
@@ -481,7 +501,8 @@ export async function validateSnapshot(config, snapshotDirectory) {
     manifest.version !== BACKUP_VERSION ||
     Number.isNaN(Date.parse(manifest.createdAt)) ||
     !manifest.summary ||
-    !manifest.hashes
+    !manifest.hashes ||
+    ![undefined, "pre-sqlite"].includes(manifest.snapshotClass)
   ) {
     throw new RecoveryValidationError("Backup manifest is incompatible", {
       snapshotDirectory,
@@ -505,12 +526,18 @@ export async function validateSnapshot(config, snapshotDirectory) {
 }
 
 function managedTargets(config) {
+  const backend = stateBackendPaths(config.dataDirectory);
   return [
     config.apartmentsStateFile,
     config.deliveryStateFile,
     config.telegramStateFile,
     config.exchangeRatesStateFile,
     config.channelDeliveryStateFile,
+    backend.selector,
+    backend.database,
+    backend.databaseWal,
+    backend.databaseShm,
+    backend.migrationWorkDirectory,
     config.browserProfileDir,
   ];
 }

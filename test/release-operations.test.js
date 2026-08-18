@@ -90,6 +90,14 @@ test("release contract is production-only and validation does not invoke Docker"
   assert.match(result.plan.join("\n"), /stop old container/iu);
   assert.match(result.plan.join("\n"), /retain the previous image/iu);
 
+  const source = await readFile(script, "utf8");
+  assert.match(source, /assertRollbackStateCompatibility/u);
+  assert.ok(
+    source.indexOf("assertRollbackStateCompatibility") <
+      source.indexOf("await stopAndConfirm(contract)"),
+    "compatible rollback must fail before stopping the live service",
+  );
+
   await assert.rejects(
     executeFile(process.execPath, [script.pathname, "rehearse"]),
     /Usage:/u,

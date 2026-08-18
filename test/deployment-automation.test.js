@@ -339,8 +339,23 @@ test("deployment evidence is exclusive and retention tracks three complete relea
         not-applicable "/var/lib/rental-apartments/releases/${2}-$character")
       deployment_update_retention_index "$evidence"
     done
+    export RENTAL_BACKUP_ROOT=$1/backups
+    protected_snapshot="$RENTAL_BACKUP_ROOT/protected/pre-sqlite-bridge"
+    mkdir -p "$protected_snapshot"
+    deployment_protect_migration_release "$evidence" "$protected_snapshot"
+    candidate="ghcr.io/example/arm-rental@sha256:"
+    candidate+=$(printf '%064d' 0 | tr 0 e)
+    next=$(deployment_write_evidence \
+      success systemd:rental-deploy "$candidate" "" "${2}" \
+      "/mnt/backups/daily/2026-07-26T00:00:00Z" false \
+      not-applicable "/var/lib/rental-apartments/releases/${2}-e")
+    deployment_update_retention_index "$next"
     jq -e '
+      .schemaVersion == 2 and
       .minimumRetainedReleases == 3 and
+      (.protectedReleases | length) == 1 and
+      .protectedReleases[0].protectedSnapshot ==
+        ($ENV.RENTAL_BACKUP_ROOT + "/protected/pre-sqlite-bridge") and
       (.retainedReleases | length) == 3 and
       ([.retainedReleases[] |
         has("candidateImage") and has("sourceRevision") and
@@ -371,6 +386,7 @@ test("unattended deploy contract covers no-op, first install, rollback, and fail
     hostBootstrap,
     service,
     timer,
+    migrationProtection,
   ] = await Promise.all([
     readFile(new URL("../ops/deploy", import.meta.url), "utf8"),
     readFile(new URL("../ops/lib/deployment.sh", import.meta.url), "utf8"),
@@ -387,6 +403,10 @@ test("unattended deploy contract covers no-op, first install, rollback, and fail
     ),
     readFile(
       new URL("../infra/systemd/rental-deploy.timer", import.meta.url),
+      "utf8",
+    ),
+    readFile(
+      new URL("../ops/protect-migration-rollback", import.meta.url),
       "utf8",
     ),
   ]);
@@ -452,4 +472,7 @@ test("unattended deploy contract covers no-op, first install, rollback, and fail
   assert.match(timer, /OnBootSec=5min/u);
   assert.match(timer, /OnCalendar=\*-\*-\* \*:00\/5:00 UTC/u);
   assert.match(timer, /Persistent=true/u);
+  assert.match(migrationProtection, /backup-protected/u);
+  assert.match(migrationProtection, /deployment_protect_migration_release/u);
+  assert.match(migrationProtection, /ops_validate_snapshot/u);
 });

@@ -32,6 +32,7 @@ publishes a metadata image tagged `metadata-<full-git-revision>`. Its
 `/release-metadata.json` binds:
 
 - the full source revision and exact image reference/digest;
+- the supported state backend and inclusive schema range;
 - the `package-lock.json` digest;
 - the production Compose digest; and
 - a deterministic archive digest for `ops/` and `infra/systemd/`.
@@ -117,6 +118,9 @@ For a new digest, `ops/deploy`:
 The retention index keeps the current and two prior evidence records. Release
 directories, digest-pinned Docker images, receipts, and associated deployment
 snapshots must not be manually removed while referenced by that index.
+An optional `protectedReleases` entry independently pins the named pre-SQLite
+snapshot, bridge application image, and release-metadata image; ordinary
+current-plus-two rotation cannot evict it.
 
 After a candidate is accepted, deployment performs retention-aware image
 cleanup. A weekly timer retries the same idempotent operation as a safety net:
@@ -141,6 +145,13 @@ candidate, records `firstInstall: true` with no rollback attempt, quarantines
 the digest, and leaves the service failed.
 
 ## Automatic rollback and quarantine
+
+A `state-strategy=compatible` rollback is accepted only when the rollback
+image's metadata backend matches live state and its inclusive schema range
+contains the live schema. This check completes before the live container is
+stopped. A backend mismatch or out-of-range schema fails with
+`ERR_RELEASE_STATE_INCOMPATIBLE`; use the matching protected snapshot and the
+`restore` strategy for a reviewed break-glass rollback.
 
 Before the apartment schema first advances to version 3, retain the validated
 pre-deploy snapshot as the rollback point. An older image must start only after

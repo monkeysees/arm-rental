@@ -26,6 +26,27 @@ first-page source-integrity samples and the optional last-success timestamp;
 restore validation preserves the exact aggregate without exposing apartment
 or user data.
 
+### Protected pre-SQLite recovery point
+
+Before state migration, run the serialized bridge protection operation with a
+named accountable actor while the bridge image is current:
+
+```sh
+sudo /opt/rental-apartments/current/ops/protect-migration-rollback \
+  'Named Human'
+```
+
+It stops the application, creates and validates a manifest-v1 JSON snapshot at
+`protected/pre-sqlite-<timestamp>`, records that snapshot plus the bridge digest
+in the deployment retention index, and returns the bridge to readiness. The
+protected directory is outside daily/weekly pruning, and image cleanup includes
+its application and metadata images in the protected set even after they age
+out of the ordinary current-plus-two index. Re-running against the same pair is
+idempotent; a different protected pair fails closed. Expected evidence includes
+`migration-protection.started`, `backup.completed`, and
+`migration-protection.completed`. Preserve this point until migration, a
+post-cutover backup, and the isolated restore acceptance gate have all passed.
+
 ## Automated daily backup
 
 Prerequisites:

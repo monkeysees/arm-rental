@@ -251,3 +251,29 @@ test("image cleanup fails closed when retention does not protect the current ima
   );
   await assert.rejects(readFile(host.removed, "utf8"), { code: "ENOENT" });
 });
+
+test("migration-protected bridge releases remain outside ordinary image pruning", async (t) => {
+  const host = await fixture(t);
+  const retentionFile = host.environment.RENTAL_DEPLOYMENT_RETENTION_FILE;
+  const retention = JSON.parse(await readFile(retentionFile, "utf8"));
+  retention.schemaVersion = 2;
+  retention.retainedReleases = retention.retainedReleases.slice(0, 2);
+  retention.protectedReleases = [
+    {
+      candidateImage: digest("c"),
+      sourceRevision: "c".repeat(40),
+      protectedSnapshot:
+        "/mnt/rental-apartments-backups/protected/pre-sqlite-bridge",
+      protectedAt: "2026-08-18T12:00:00Z",
+    },
+  ];
+  await writeFile(retentionFile, JSON.stringify(retention), { mode: 0o600 });
+
+  const dryRun = await execute(cleanup, ["--dry-run"], {
+    env: host.environment,
+  });
+  const plan = JSON.parse(dryRun.stdout);
+  assert.equal(plan.removalCount, 2);
+  assert.equal(plan.protectedReleases.length, 1);
+  assert.equal(plan.protectedReleases[0].candidateImage, digest("c"));
+});

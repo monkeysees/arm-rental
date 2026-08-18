@@ -39,6 +39,15 @@ SQLite is the intended migration path if state size or write latency crosses the
 documented operational thresholds, cross-state transactions are required, or
 multiple replicas become necessary.
 
+The current JSON bridge release owns `state-backend.json` as the authoritative
+backend selector. An absent selector or exact `{backend: "json", version: 1}`
+selects JSON; `migrating`, `sqlite`, malformed, and unknown selectors fail
+closed. Database presence never selects a backend. Restore is the deliberate
+exception to bridge startup rejection: a validated JSON restore moves aside the
+exact selector, `state.sqlite3`, WAL/SHM sidecars, and `.state-migration` work
+directory so a failed SQLite candidate cannot influence the restarted bridge.
+The bridge neither opens SQLite state nor dual-writes it.
+
 Production runs on a pinned, supported Node.js LTS release with a reproducible
 Chrome or Chromium installation. Chrome normally runs headlessly with its
 profile on persistent storage; interactive List.am verification is performed
@@ -318,6 +327,13 @@ repeats label validation and scanning, pushes an immutable GHCR image, and
 creates digest-bound release metadata. The immutable registry digest and its
 metadata object are the production deployment handoff; the host never rebuilds
 from source or downloads a transient Actions artifact.
+
+Release metadata and OCI labels also declare `stateBackend`,
+`minimumStateSchema`, and `maximumStateSchema`. JSON bridge releases use backend
+`json` and schema `0`. A compatible rollback reads the live authoritative
+backend/schema before stopping the service and rejects a target whose declared
+range does not include it. Cross-backend rollback therefore requires a matching
+snapshot restore rather than a best-effort format conversion.
 
 Workflow actions are immutable commit pins. Dependabot proposes npm, base
 image, and workflow-action updates as reviewable pull requests and has no

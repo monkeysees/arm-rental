@@ -22,7 +22,9 @@ import {
   stateSizeStatus,
 } from "../src/maintenance.js";
 import { acquireSingletonLock } from "../src/singleton-lock.js";
+import { openStateDatabase } from "../src/sqlite-database.js";
 import { writeState } from "../src/state.js";
+import { stateBackendPaths } from "../src/state-backend.js";
 
 async function fixture(t) {
   const root = await mkdtemp(path.join(os.tmpdir(), "rental-maintenance-"));
@@ -239,6 +241,43 @@ test("weekly maintenance reports state growth and cleans only reconstructible Ch
     ).managedBytes,
     second.managedStorage.bytes,
   );
+});
+
+test("SQLite maintenance validates one database and reports logical counts", async (t) => {
+  const config = await fixture(t);
+  const databaseId = "maintenance-database";
+  const database = openStateDatabase({
+    dataDirectory: config.dataDirectory,
+    listUrlTemplate: config.listUrlTemplate,
+    channelId: config.telegramChannelId,
+    databaseId,
+  });
+  database.close();
+  await writeState(stateBackendPaths(config.dataDirectory).selector, {
+    backend: "sqlite",
+    version: 1,
+    migrationId: "maintenance-migration",
+    databaseId,
+  });
+
+  const report = await runMaintenance(config, {
+    acquireLock: async () => ({ release: async () => {} }),
+    diskCheck: async () => ({
+      status: "ok",
+      freeBytes: 900,
+      totalBytes: 1_000,
+      freeFraction: 0.9,
+      warningThreshold: 0.2,
+    }),
+  });
+
+  assert.deepEqual(
+    report.stateFiles.map(({ name }) => name),
+    ["sqlite", "browserVerification"],
+  );
+  assert.equal(report.stateFiles[0].schemaVersion, 1);
+  assert.equal(report.stateFiles[0].telegramUsers, 0);
+  assert.equal(report.stateFiles[0].bytes > 0, true);
 });
 
 test("maintenance refuses a live service lease before reading or cleaning the profile", async (t) => {

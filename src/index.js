@@ -30,6 +30,13 @@ try {
     event: "application.started",
     processId: process.pid,
   });
+  if (process.env.NODE_ENV === "production") {
+    const exerciseFailure = new Error(
+      "Intentional production deployment recovery exercise",
+    );
+    exerciseFailure.code = "ERR_INTENTIONAL_RECOVERY_EXERCISE";
+    throw exerciseFailure;
+  }
   const config = getConfig();
   healthMonitor.setConfigurationValid();
   healthServer = await startHealthServer(healthMonitor, {

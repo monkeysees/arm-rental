@@ -1,4 +1,5 @@
 import { acquireSingletonLock } from "./singleton-lock.js";
+import { openApplicationState } from "./application-state.js";
 import { validateStartupConfig } from "./config.js";
 import { runStartupPreflight, startupFailureResult } from "./preflight.js";
 import { classifyRuntimeFailure } from "./health.js";
@@ -51,6 +52,7 @@ export async function runApplication({
   preflight = runStartupPreflight,
   validateConfig = validateStartupConfig,
   healthMonitor,
+  stateBackendFactory = openApplicationState,
 }) {
   // Configuration and persistent-storage checks must finish before acquiring
   // runtime resources or entering any long-running loop.
@@ -61,6 +63,7 @@ export async function runApplication({
   let receivedSignal;
   const signalHandlers = new Map();
   let browserFetcher;
+  let applicationState;
   const stopObservingStateWrites = observeStateWrites(
     ({ name: event, ...metric }) =>
       logger.info("State write metric", { event, ...metric }),
@@ -77,7 +80,7 @@ export async function runApplication({
   };
 
   try {
-    await validateConfig(config);
+    await validateConfig(config, { allowNonJsonBackend: true });
     healthMonitor?.setConfigurationValid();
     startupComponent = "singleton";
     singletonLock = await acquireLock(config.dataDirectory);
@@ -97,6 +100,10 @@ export async function runApplication({
       dataDirectory: singletonLock.dataDirectory,
       processId: singletonLock.owner.pid,
     });
+    applicationState = await stateBackendFactory(config, {
+      onMetric: ({ name: event, ...metric }) =>
+        logger.info("State transaction metric", { event, ...metric }),
+    });
     browserFetcher = browserFetcherFactory(config, {
       signal: controller.signal,
       onStatus: (message) => logger.info(message),
@@ -113,6 +120,8 @@ export async function runApplication({
       },
     });
     const exchangeRateService = exchangeRateServiceFactory(config, {
+      loadState: applicationState.loadState,
+      saveState: applicationState.saveState,
       onRefresh: (snapshot) => {
         healthMonitor?.recordExchangeRateSnapshot(snapshot);
         logger.info("CBA exchange rates refreshed", {
@@ -147,6 +156,7 @@ export async function runApplication({
         }),
       onSourceIntegrityChecked: (observation) =>
         recordSourceIntegrityChecked({ ...observation, phase: "preflight" }),
+      loadState: applicationState.loadState,
     });
     logger.info("Startup preflight completed", {
       preflight: preflightResult,
@@ -178,6 +188,9 @@ export async function runApplication({
       });
     await runBot(config, {
       signal: controller.signal,
+      loadState: applicationState.loadState,
+      saveState: applicationState.saveState,
+      deleteUserData: applicationState.deleteUserData,
       exchangeRateService,
       pageFetch: fetchRuntimePage,
       onResult: (result) => {
@@ -385,7 +398,11 @@ export async function runApplication({
     try {
       await browserFetcher?.close();
     } finally {
-      await singletonLock?.release();
+      try {
+        applicationState?.close();
+      } finally {
+        await singletonLock?.release();
+      }
     }
 
     if (receivedSignal) {

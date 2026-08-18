@@ -80,11 +80,11 @@ jobs:
             sed 's/[[:space:]]*$//')"
           test "$(docker image inspect --format '{{ index .Config.Labels "org.opencontainers.image.revision" }}' rental-apartments-bot:ci)" = "$SOURCE_REVISION"
           test "$(docker image inspect --format '{{ index .Config.Labels "org.opencontainers.image.node.version" }}' rental-apartments-bot:ci)" = "24.18.0"
-          test "$(docker image inspect --format '{{ index .Config.Labels "org.opencontainers.image.chrome.version" }}' rental-apartments-bot:ci)" = "151.0.7922.71"
+          test "$(docker image inspect --format '{{ index .Config.Labels "org.opencontainers.image.chrome.version" }}' rental-apartments-bot:ci)" = "151.0.7922.137"
           test "$(docker image inspect --format '{{ index .Config.Labels "org.opencontainers.image.package-lock.sha256" }}' rental-apartments-bot:ci)" = "$PACKAGE_LOCK_SHA256"
           test "$(docker run --rm --entrypoint node rental-apartments-bot:ci --version)" = "v24.18.0"
           printf '%s\n' "$CHROME_RUNTIME_VERSION"
-          test "$CHROME_RUNTIME_VERSION" = "Chromium 151.0.7922.71 built on Debian GNU/Linux 12 (bookworm)"
+          test "$CHROME_RUNTIME_VERSION" = "Chromium 151.0.7922.137 built on Debian GNU/Linux 12 (bookworm)"
 
       - name: Smoke-test production browser modes
         run: scripts/smoke-production-browser-image rental-apartments-bot:ci

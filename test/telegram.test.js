@@ -273,19 +273,14 @@ test("callback state and offset commit before acknowledgement", async () => {
   const saved = [];
 
   await assert.rejects(
-    processUpdates(
-      [callback(8, "m:start:new")],
-      config,
-      initialState,
-      {
-        sendMessage: async () => assert.fail("response follows acknowledgement"),
-        editMessage: async () => assert.fail("response follows acknowledgement"),
-        answerCallback: async () => {
-          throw new Error("callback acknowledgement unavailable");
-        },
-        saveState: async (value) => saved.push(structuredClone(value)),
+    processUpdates([callback(8, "m:start:new")], config, initialState, {
+      sendMessage: async () => assert.fail("response follows acknowledgement"),
+      editMessage: async () => assert.fail("response follows acknowledgement"),
+      answerCallback: async () => {
+        throw new Error("callback acknowledgement unavailable");
       },
-    ),
+      saveState: async (value) => saved.push(structuredClone(value)),
+    }),
     /callback acknowledgement unavailable/u,
   );
 

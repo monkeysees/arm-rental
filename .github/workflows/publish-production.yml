@@ -59,7 +59,7 @@ jobs:
           PACKAGE_LOCK_SHA256="$(sha256sum package-lock.json | cut -d ' ' -f 1)"
           test "$(docker image inspect --format '{{ index .Config.Labels "org.opencontainers.image.revision" }}' rental-apartments-bot:publication)" = "$SOURCE_REVISION"
           test "$(docker image inspect --format '{{ index .Config.Labels "org.opencontainers.image.node.version" }}' rental-apartments-bot:publication)" = "24.18.0"
-          test "$(docker image inspect --format '{{ index .Config.Labels "org.opencontainers.image.chrome.version" }}' rental-apartments-bot:publication)" = "151.0.7922.71"
+          test "$(docker image inspect --format '{{ index .Config.Labels "org.opencontainers.image.chrome.version" }}' rental-apartments-bot:publication)" = "151.0.7922.137"
           test "$(docker image inspect --format '{{ index .Config.Labels "org.opencontainers.image.package-lock.sha256" }}' rental-apartments-bot:publication)" = "$PACKAGE_LOCK_SHA256"
           test "$(docker image inspect --format '{{ index .Config.Labels "com.rental-apartments.state.backend" }}' rental-apartments-bot:publication)" = "json"
           test "$(docker image inspect --format '{{ index .Config.Labels "com.rental-apartments.state.schema.minimum" }}' rental-apartments-bot:publication)" = "0"

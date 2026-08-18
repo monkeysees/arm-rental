@@ -301,7 +301,7 @@ npm run check:production-contract
 
 ## Production image
 
-The production image pins Node.js 24.18.0 and Debian Chromium 151.0.7922.71
+The production image pins Node.js 24.18.0 and Debian Chromium 151.0.7922.137
 from Puppeteer's supported Chrome 151 milestone. It installs the browser,
 sandbox helper, and libraries from a dated Debian snapshot and application
 packages with

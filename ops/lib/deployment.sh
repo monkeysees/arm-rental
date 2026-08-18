@@ -318,9 +318,9 @@ deployment_verify_release() {
      .imageReference == $image and
      .imageDigest == ($image | split("@")[1]) and
      .sourceRevision == $revision and
-     .stateBackend == "json" and
-     .minimumStateSchema == 0 and
-     .maximumStateSchema == 0 and
+     .stateBackend == "sqlite" and
+     .minimumStateSchema == 1 and
+     .maximumStateSchema == 1 and
      (.packageLockSha256 | test("^[0-9a-f]{64}$")) and
      (.composeSha256 | test("^[0-9a-f]{64}$")) and
      (.operationsBundleSha256 | test("^[0-9a-f]{64}$"))' \

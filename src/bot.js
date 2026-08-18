@@ -654,7 +654,6 @@ export async function processUpdates(
     }
 
     if (query) {
-      await answerCallback(query.id);
       if (query.data === "m:start") {
         const chatId = senderId;
         const user = userState(current, chatId);
@@ -663,6 +662,7 @@ export async function processUpdates(
           pendingFilterInput: null,
         });
         await saveState(current);
+        await answerCallback(query.id);
         await showFilterView(
           chatId,
           query.message.message_id,
@@ -686,6 +686,7 @@ export async function processUpdates(
           pendingFilterInput: null,
         });
         await saveState(current);
+        await answerCallback(query.id);
         await showFilterView(
           chatId,
           query.message.message_id,
@@ -716,7 +717,13 @@ export async function processUpdates(
           actions,
         );
         current = withUserState(current, chatId, user);
+        await answerCallback(query.id);
+        continue;
       }
+      // Unknown callbacks still advance their update offset durably before
+      // acknowledgement so a failed acknowledgement cannot replay them.
+      await saveState(current);
+      await answerCallback(query.id);
       continue;
     }
 

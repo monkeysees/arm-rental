@@ -269,6 +269,32 @@ test("mismatched callback persists its offset before acknowledgement", async () 
   assert.equal(limits.accessDeniedResponses.size, 0);
 });
 
+test("callback state and offset commit before acknowledgement", async () => {
+  const saved = [];
+
+  await assert.rejects(
+    processUpdates(
+      [callback(8, "m:start:new")],
+      config,
+      initialState,
+      {
+        sendMessage: async () => assert.fail("response follows acknowledgement"),
+        editMessage: async () => assert.fail("response follows acknowledgement"),
+        answerCallback: async () => {
+          throw new Error("callback acknowledgement unavailable");
+        },
+        saveState: async (value) => saved.push(structuredClone(value)),
+      },
+    ),
+    /callback acknowledgement unavailable/u,
+  );
+
+  assert.equal(saved.length, 1);
+  assert.equal(saved[0].updateOffset, 9);
+  assert.equal(saved[0].users[42].active, true);
+  assert.equal(saved[0].users[42].sendInitialApartments, false);
+});
+
 test("denied users receive one bounded response without limiter or state entries", async () => {
   let now = 0;
   const senderId = 73_429_851;
@@ -821,7 +847,7 @@ test("filter changes are persisted before the menu is refreshed", async () => {
   );
 
   assert.deepEqual(state.users["42"].filters.locations, ["r:0"]);
-  assert.deepEqual(events.slice(0, 3), ["answer", "save", "edit"]);
+  assert.deepEqual(events.slice(0, 3), ["save", "edit", "answer"]);
 });
 
 test("private users maintain independent filter input and settings", async () => {

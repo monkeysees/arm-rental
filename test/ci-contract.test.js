@@ -109,9 +109,9 @@ test("release manifest binds the deployable image to its complete inputs", async
   assert.deepEqual(metadata, {
     schemaVersion: 1,
     sourceRevision: "a".repeat(40),
-    stateBackend: "json",
-    minimumStateSchema: 0,
-    maximumStateSchema: 0,
+    stateBackend: "sqlite",
+    minimumStateSchema: 1,
+    maximumStateSchema: 1,
     nodeVersion: nodeVersion.trim(),
     browserVersion: "151.0.7922.137",
     packageLockSha256: createHash("sha256").update(packageLock).digest("hex"),
@@ -150,9 +150,9 @@ test("published release metadata binds the scanned registry digest and host bund
   ]);
 
   assert.equal(metadata.schemaVersion, 2);
-  assert.equal(metadata.stateBackend, "json");
-  assert.equal(metadata.minimumStateSchema, 0);
-  assert.equal(metadata.maximumStateSchema, 0);
+  assert.equal(metadata.stateBackend, "sqlite");
+  assert.equal(metadata.minimumStateSchema, 1);
+  assert.equal(metadata.maximumStateSchema, 1);
   assert.equal(metadata.imageReference, imageReference);
   assert.equal(metadata.imageDigest, `sha256:${"d".repeat(64)}`);
   assert.equal(

@@ -12,6 +12,7 @@ import {
   statfs,
 } from "node:fs/promises";
 import path from "node:path";
+import { backup as backupSqlite } from "node:sqlite";
 
 import {
   compatibleApartmentState,
@@ -26,14 +27,22 @@ import { compatibleChannelState } from "./channel.js";
 import { compatibleDeliveryState, deliveryStateCounts } from "./crawler.js";
 import { compatibleExchangeRateSnapshot } from "./exchange-rates.js";
 import { acquireSingletonLock } from "./singleton-lock.js";
+import { openStateDatabase } from "./sqlite-database.js";
+import { createSqliteRepositories } from "./sqlite-repositories.js";
+import {
+  SQLITE_APPLICATION_ID,
+  SQLITE_SCHEMA_VERSION,
+} from "./sqlite-schema.js";
 import { readState, writeState } from "./state.js";
 import {
+  readStateBackendSelector,
   requireBridgeJsonBackend,
   stateBackendPaths,
 } from "./state-backend.js";
 
 const BACKUP_TYPE = "rental-apartments-backup";
-const BACKUP_VERSION = 1;
+const JSON_BACKUP_VERSION = 1;
+const SQLITE_BACKUP_VERSION = 2;
 const DEFAULT_DAILY_RETENTION = 7;
 const DEFAULT_WEEKLY_RETENTION = 4;
 const UNSUPPORTED_DIRECTORY_SYNC_CODES = new Set([
@@ -152,7 +161,40 @@ async function optionalState(filename) {
   }
 }
 
-export async function validateRecoveryState(config, root) {
+async function browserRecoverySummary(config, root) {
+  const profileDirectory = relocated(config, root, config.browserProfileDir);
+  let profileDetails;
+  try {
+    profileDetails = await lstat(profileDirectory);
+  } catch (error) {
+    if (error.code !== "ENOENT") throw error;
+  }
+  if (!profileDetails?.isDirectory() || profileDetails.isSymbolicLink()) {
+    throw new RecoveryValidationError(
+      "Required browser profile is missing or unsafe",
+      { profileDirectory },
+    );
+  }
+  const verificationFilename = relocated(
+    config,
+    root,
+    browserVerificationStateFile(config),
+  );
+  const verification = await optionalState(verificationFilename);
+  if (!compatibleBrowserVerification(verification, config.listUrlTemplate)) {
+    throw new RecoveryValidationError(
+      "Browser profile does not contain a compatible verification record",
+      { filename: verificationFilename },
+    );
+  }
+  return {
+    present: true,
+    verifiedAt: verification.verifiedAt,
+    regularAdsCount: verification.regularAdsCount,
+  };
+}
+
+async function validateJsonRecoveryState(config, root) {
   await requireBridgeJsonBackend(root);
   const summary = {};
   for (const specification of stateSpecifications(config, root)) {
@@ -181,37 +223,69 @@ export async function validateRecoveryState(config, root) {
     };
   }
 
-  const profileDirectory = relocated(config, root, config.browserProfileDir);
-  let profileDetails;
-  try {
-    profileDetails = await lstat(profileDirectory);
-  } catch (error) {
-    if (error.code !== "ENOENT") throw error;
-  }
-  if (!profileDetails?.isDirectory() || profileDetails.isSymbolicLink()) {
-    throw new RecoveryValidationError(
-      "Required browser profile is missing or unsafe",
-      { profileDirectory },
-    );
-  }
-  const verificationFilename = relocated(
-    config,
-    root,
-    browserVerificationStateFile(config),
-  );
-  const verification = await optionalState(verificationFilename);
-  if (!compatibleBrowserVerification(verification, config.listUrlTemplate)) {
-    throw new RecoveryValidationError(
-      "Browser profile does not contain a compatible verification record",
-      { filename: verificationFilename },
-    );
-  }
-  summary.browser = {
-    present: true,
-    verifiedAt: verification.verifiedAt,
-    regularAdsCount: verification.regularAdsCount,
-  };
+  summary.browser = await browserRecoverySummary(config, root);
   return summary;
+}
+
+async function validateSqliteRecoveryState(config, root) {
+  const selector = await readStateBackendSelector(root);
+  if (selector.backend !== "sqlite") {
+    throw new RecoveryValidationError(
+      "Recovery state does not select a stable SQLite backend",
+    );
+  }
+  let database;
+  try {
+    database = openStateDatabase({
+      dataDirectory: root,
+      listUrlTemplate: config.listUrlTemplate,
+      channelId: config.telegramChannelId,
+    });
+    database.validate({ full: true });
+    const metadata = database
+      .prepare(
+        "SELECT database_id, list_url_template, channel_id FROM application_metadata WHERE singleton = 1",
+      )
+      .get();
+    if (metadata?.database_id !== selector.databaseId) {
+      throw new RecoveryValidationError(
+        "Recovery selector and database identities do not match",
+      );
+    }
+    const repositories = createSqliteRepositories(database, {
+      listUrlTemplate: config.listUrlTemplate,
+      channelId: config.telegramChannelId,
+    });
+    const telegram = repositories.telegram.load();
+    return {
+      database: {
+        present: true,
+        applicationId: SQLITE_APPLICATION_ID,
+        userVersion: SQLITE_SCHEMA_VERSION,
+        databaseId: metadata.database_id,
+        listUrlTemplate: metadata.list_url_template,
+        channelId: metadata.channel_id,
+        ...database.logicalCounts(),
+        updateOffset: telegram.updateOffset,
+      },
+      browser: await browserRecoverySummary(config, root),
+    };
+  } catch (error) {
+    if (error instanceof RecoveryValidationError) throw error;
+    throw new RecoveryValidationError("SQLite recovery state is invalid", {
+      cause: error.message,
+      code: error.code,
+    });
+  } finally {
+    database?.close();
+  }
+}
+
+export async function validateRecoveryState(config, root) {
+  const selector = await readStateBackendSelector(root);
+  return selector.backend === "sqlite"
+    ? validateSqliteRecoveryState(config, root)
+    : validateJsonRecoveryState(config, root);
 }
 
 async function visitFiles(root, visitor, relative = "") {
@@ -294,6 +368,7 @@ async function fileHashes(root) {
 
 async function copyData(config, destinationRoot) {
   await mkdir(destinationRoot, { recursive: true, mode: 0o700 });
+  const selector = await readStateBackendSelector(config.dataDirectory);
   const targets = [
     config.apartmentsStateFile,
     config.deliveryStateFile,
@@ -323,6 +398,21 @@ async function copyData(config, destinationRoot) {
       force: false,
       preserveTimestamps: true,
     });
+  }
+
+  if (selector.backend === "sqlite") {
+    const sourceDatabase = openStateDatabase({
+      dataDirectory: config.dataDirectory,
+      listUrlTemplate: config.listUrlTemplate,
+      channelId: config.telegramChannelId,
+    });
+    const destinationDatabase = stateBackendPaths(destinationRoot).database;
+    try {
+      await backupSqlite(sourceDatabase.connection, destinationDatabase);
+      await chmod(destinationDatabase, 0o600);
+    } finally {
+      sourceDatabase.close();
+    }
   }
 
   const profileDestination = relocated(
@@ -433,9 +523,20 @@ export async function createSnapshot(
       );
     }
     const hashes = await fileHashes(path.join(temporary, "data"));
+    const backupVersion = sourceSummary.database
+      ? SQLITE_BACKUP_VERSION
+      : JSON_BACKUP_VERSION;
+    if (
+      snapshotClass === "pre-sqlite" &&
+      backupVersion !== JSON_BACKUP_VERSION
+    ) {
+      throw new RecoveryValidationError(
+        "Protected pre-SQLite snapshots require the JSON bridge backend",
+      );
+    }
     const manifest = {
       type: BACKUP_TYPE,
-      version: BACKUP_VERSION,
+      version: backupVersion,
       createdAt: createdAt.toISOString(),
       summary: copiedSummary,
       hashes,
@@ -498,7 +599,7 @@ export async function validateSnapshot(config, snapshotDirectory) {
   );
   if (
     manifest?.type !== BACKUP_TYPE ||
-    manifest.version !== BACKUP_VERSION ||
+    ![JSON_BACKUP_VERSION, SQLITE_BACKUP_VERSION].includes(manifest.version) ||
     Number.isNaN(Date.parse(manifest.createdAt)) ||
     !manifest.summary ||
     !manifest.hashes ||
@@ -516,6 +617,15 @@ export async function validateSnapshot(config, snapshotDirectory) {
     });
   }
   const summary = await validateRecoveryState(config, dataRoot);
+  if (
+    (manifest.version === SQLITE_BACKUP_VERSION) !==
+    Boolean(summary.database)
+  ) {
+    throw new RecoveryValidationError(
+      "Backup manifest version does not match its state backend",
+      { snapshotDirectory },
+    );
+  }
   if (JSON.stringify(summary) !== JSON.stringify(manifest.summary)) {
     throw new RecoveryValidationError(
       "Backup schema counts or Telegram update offset do not match its manifest",

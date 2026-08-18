@@ -103,17 +103,23 @@ For a new digest, `ops/deploy`:
    verifies image, package lock, Compose, and operational-bundle digests;
 4. renders Compose and proves one fixed production container, stop-first
    updates, no ports, and unchanged data and backup mounts;
-5. stops the old bot, creates and validates a snapshot, then starts the
-   candidate against the same named volumes;
-6. requires healthy startup, ready Telegram and optional channel preflight, one
+5. classifies the state transition from both releases' metadata, stops the old
+   bot, then creates and validates the ordinary pre-deploy snapshot;
+6. for the one allowed JSON-to-SQLite transition, verifies that the current
+   image, release metadata, and independently protected pre-SQLite snapshot are
+   the same bridge rollback point, then runs the candidate's stopped-service
+   migration `plan`, `migrate`, and full `validate` commands in that order;
+7. skips migration for a compatible SQLite-to-SQLite deployment and otherwise
+   starts the candidate against the unchanged named volumes;
+8. requires healthy startup, ready Telegram and optional channel preflight, one
    `crawl.succeeded`, and final readiness after one poll interval plus five
    minutes;
-7. atomically replaces `/opt/rental-apartments/current` and
+9. atomically replaces `/opt/rental-apartments/current` and
    `current-image.env`, starts the systemd-owned application service, and writes
    an exclusive sanitized receipt;
-8. updates the current-plus-two rollback index and attempts explicit-ID image
-   cleanup without turning cleanup failure into rollback of an already healthy
-   accepted release.
+10. updates the current-plus-two rollback index and attempts explicit-ID image
+    cleanup without turning cleanup failure into rollback of an already healthy
+    accepted release.
 
 The retention index keeps the current and two prior evidence records. Release
 directories, digest-pinned Docker images, receipts, and associated deployment
@@ -153,11 +159,12 @@ stopped. A backend mismatch or out-of-range schema fails with
 `ERR_RELEASE_STATE_INCOMPATIBLE`; use the matching protected snapshot and the
 `restore` strategy for a reviewed break-glass rollback.
 
-Before the apartment schema first advances to version 3, retain the validated
-pre-deploy snapshot as the rollback point. An older image must start only after
-that matching snapshot is restored; it must never read or rewrite version-3
-apartment state. Candidate acceptance must show a `source.integrity.checked`
-record and `crawl.succeeded` record with the same crawl ID.
+Before a SQLite schema first advances beyond an older image's declared range,
+retain the validated pre-deploy snapshot as the rollback point. An older image
+must start only after that matching snapshot is restored; it must never read or
+rewrite an unsupported database. Candidate acceptance must show a
+`source.integrity.checked` record and `crawl.succeeded` record with the same
+crawl ID.
 
 The restored deployment configuration remains the access-policy authority;
 never infer an access mode from snapshot users or resume users that the
@@ -173,6 +180,14 @@ requires readiness. A successful recovery emits
 `deployment.rollback.completed`, records `rollback.result: completed`, opens a
 deployment alert, and leaves `rental-deploy.service` failed so the incident is
 visible.
+
+The same recovery path covers migration planning, migration, post-migration
+validation, launch, and observation failures. In a first cutover the restore is
+performed by the previous bridge image, so its exact managed-target list removes
+the selector, database, sidecars, migration workspace, and SQLite sentinels
+before reinstalling the verified JSON snapshot. The bridge is restarted only
+after restore succeeds. Deployment never attempts migration during a normal
+SQLite-to-SQLite code release.
 
 If snapshot restore or previous-image readiness fails, the command records
 `deployment.rollback.failed`, preserves its evidence, and leaves the unit

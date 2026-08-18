@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
 import {
   chmod,
+  mkdir,
   mkdtemp,
   readFile,
   rm,
@@ -402,6 +403,146 @@ test("deployment evidence is exclusive and retention tracks three complete relea
   );
 });
 
+test("deployment classifies cutover from metadata and binds it to the protected bridge", async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "deploy-state-transition-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const state = join(root, "state");
+  const backups = join(root, "backups");
+  const protectedSnapshot = join(
+    backups,
+    "protected",
+    "pre-sqlite-2026-08-18T10-00-00Z",
+  );
+  const previousRelease = join(root, "bridge-release");
+  await Promise.all([
+    mkdir(state, { recursive: true }),
+    mkdir(protectedSnapshot, { recursive: true }),
+    mkdir(previousRelease, { recursive: true }),
+  ]);
+  const previousImage = digest("a");
+  const candidateImage = digest("b");
+  const revision = "a".repeat(40);
+  const previousMetadata = join(previousRelease, "release-metadata.json");
+  const candidateMetadata = join(root, "candidate-metadata.json");
+  const migrationCalls = join(root, "migration-calls");
+  await Promise.all([
+    writeFile(
+      previousMetadata,
+      JSON.stringify({
+        schemaVersion: 2,
+        imageReference: previousImage,
+        sourceRevision: revision,
+        stateBackend: "json",
+        minimumStateSchema: 0,
+        maximumStateSchema: 0,
+      }),
+    ),
+    writeFile(
+      candidateMetadata,
+      JSON.stringify({
+        schemaVersion: 2,
+        imageReference: candidateImage,
+        stateBackend: "sqlite",
+        minimumStateSchema: 1,
+        maximumStateSchema: 1,
+      }),
+    ),
+    writeFile(
+      join(state, "deployment-retention.json"),
+      JSON.stringify({
+        schemaVersion: 2,
+        protectedReleases: [
+          {
+            candidateImage: previousImage,
+            sourceRevision: revision,
+            releaseDirectory: previousRelease,
+            protectedSnapshot,
+          },
+        ],
+      }),
+    ),
+  ]);
+  const script = `
+    set -Eeuo pipefail
+    RENTAL_OPS_STATE_DIR=$1
+    RENTAL_BACKUP_ROOT=$2
+    source ops/lib/deployment.sh
+    test "$(deployment_state_transition "$3" "$4" "$5" "$6")" = json-to-sqlite
+    test "$(deployment_bridge_protected_snapshot "$3" "$5" "$7")" = "$8"
+    jq '.stateBackend = "sqlite" | .minimumStateSchema = 1 | .maximumStateSchema = 1' "$3" >"$3.next"
+    mv "$3.next" "$3"
+    test "$(deployment_state_transition "$3" "$4" "$5" "$6")" = sqlite-to-sqlite
+    migration_log=$9
+    ops_set_step() { :; }
+    deployment_compose() {
+      command="\${!#}"
+      printf '%s\n' "$command" >>"$migration_log"
+      [[ $command != "\${FAIL_MIGRATION_COMMAND:-}" ]]
+    }
+    export FAIL_MIGRATION_COMMAND=migrate
+    if deployment_migrate_json_state candidate-release candidate-environment; then
+      exit 1
+    fi
+    test "$(cat "$migration_log")" = $'plan\nmigrate'
+    : >"$migration_log"
+    unset FAIL_MIGRATION_COMMAND
+    deployment_migrate_json_state candidate-release candidate-environment
+    test "$(cat "$migration_log")" = $'plan\nmigrate\nvalidate'
+  `;
+  await executeFile(
+    "bash",
+    [
+      "-c",
+      script,
+      "deploy-state-transition-test",
+      state,
+      backups,
+      previousMetadata,
+      candidateMetadata,
+      previousImage,
+      candidateImage,
+      previousRelease,
+      protectedSnapshot,
+      migrationCalls,
+    ],
+    { cwd: new URL("..", import.meta.url) },
+  );
+
+  const retention = JSON.parse(
+    await readFile(join(state, "deployment-retention.json"), "utf8"),
+  );
+  retention.protectedReleases[0].candidateImage = digest("c");
+  await writeFile(
+    join(state, "deployment-retention.json"),
+    JSON.stringify(retention),
+  );
+  await assert.rejects(
+    executeFile(
+      "bash",
+      [
+        "-c",
+        `
+          set -Eeuo pipefail
+          RENTAL_OPS_STATE_DIR=$1
+          RENTAL_BACKUP_ROOT=$2
+          source ops/lib/deployment.sh
+          deployment_bridge_protected_snapshot "$3" "$4" "$5"
+        `,
+        "deploy-state-transition-test",
+        state,
+        backups,
+        previousMetadata,
+        previousImage,
+        previousRelease,
+      ],
+      { cwd: new URL("..", import.meta.url) },
+    ),
+    (error) =>
+      error.code === 65 &&
+      error.stderr.includes("not the protected rollback image"),
+  );
+});
+
 test("unattended deploy contract covers no-op, first install, rollback, and failed rollback", async () => {
   const [
     deploy,
@@ -447,6 +588,17 @@ test("unattended deploy contract covers no-op, first install, rollback, and fail
   assert.match(deploy, /deployment_write_quarantine/u);
   assert.match(deploy, /node src\/recovery-cli\.js backup/u);
   assert.match(deploy, /node src\/recovery-cli\.js restore/u);
+  assert.match(library, /for command in plan migrate validate/u);
+  assert.match(library, /node src\/state-migration-cli\.js "\$command"/u);
+  assert.match(deploy, /DEPLOYMENT_STATE_TRANSITION == json-to-sqlite/u);
+  assert.match(deploy, /deployment_bridge_protected_snapshot/u);
+  assert.ok(
+    deploy.indexOf("ops_stop_application") <
+      deploy.indexOf("deployment_migrate_json_state") &&
+      deploy.indexOf("deployment_migrate_json_state") <
+        deploy.indexOf("up --detach --force-recreate bot"),
+    "JSON cutover must stop, plan, migrate, validate, and only then launch",
+  );
   assert.match(deploy, /deployment_read_optional_setting POLL_INTERVAL_MS/u);
   assert.match(deploy, /poll_interval_ms=\$\{poll_interval_ms:-60000\}/u);
   assert.match(library, /minimumRetainedReleases: 3/u);

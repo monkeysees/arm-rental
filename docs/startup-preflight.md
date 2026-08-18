@@ -48,38 +48,37 @@ any request for credentials unrelated to List.am verification.
 
 ## Incompatible state
 
-`ERR_STATE_INCOMPATIBLE` reports the exact file, observed type/version, and
-whether the problem is an unsupported schema, malformed contents, invalid
-JSON, or target mismatch. Startup reads the file without writing it and leaves
-it unchanged.
+SQLite state failures report a stable storage code and sanitized identity,
+schema, integrity, pragma, or target-mismatch context. Startup validates the
+selector before opening the database, validates identity and schema before any
+persistent pragma, and never falls back to legacy JSON when SQLite is
+authoritative.
 
 ### Prerequisites, safe checks, and commands
 
-Prerequisites are a stopped service, named operator, verified full snapshot,
+Prerequisites are a stopped service, named operator, verified complete snapshot,
 retained immutable image, and the target/owner/channel configuration that
-created the state. Confirm the container is stopped and hash the reported file
-before inspection:
+created the state. Confirm the container is stopped and inspect only sanitized
+selector and database metadata:
 
 ```sh
 docker inspect --format '{{.State.Running}}' rental-apartments-bot
-sha256sum .data/apartments.json
-cp --archive .data/apartments.json .data/apartments.json.preflight-backup
-node -e 'const s=require("./.data/apartments.json"); console.log({type:s.type,version:s.version})'
+npm run backup:validate -- /app-backups/daily/SELECTED_SNAPSHOT
+node --env-file-if-exists=.env src/state-migration-cli.js validate
 ```
 
-Expected output is `false`, a recorded hash, and only the non-secret
-`type`/`version`. If JSON parsing fails, keep the hash and copy; do not use a
-tool that rewrites the file merely by opening it.
+Expected output is `false`, a valid manifest-v2 identity/count summary, and a
+successful SQLite identity, schema, integrity, target, and semantic result.
+Do not open the production database with an ad hoc SQLite client or copy only
+the main database while WAL may contain committed transactions.
 
 ### Recovery, expected output, and escalation
 
-Restore the matching deployment artifact if it still supports that schema.
-Otherwise use a tested migration. If neither is possible, an operator may
-approve a reset only after confirming the backup and the delivery-duplication
-impact; move the exact reported file to a dated quarantine name while the
-service is stopped, then restart. Never replace an incompatible file with `{}`,
-and never reset apartment state without reviewing the corresponding private
-and channel delivery state.
+Restore a complete matching snapshot and use an image whose declared backend
+and schema range includes it. If neither is available, keep the service stopped
+and escalate; there is no supported per-table reset, database replacement, or
+best-effort SQLite-to-JSON export. Never delete a selector, sidecar, sentinel,
+or database to make startup initialize new state.
 
 For a target mismatch, correct the environment when the persisted owner,
 List.am target, or channel is still authoritative. Treat an intentional target
@@ -87,16 +86,16 @@ change as a migration/reset decision; do not allow startup to silently
 reclassify existing apartments or delivery acknowledgements.
 
 After correction, run the stopped-service snapshot validator or restore the
-complete matching snapshot—never only the malformed file—then start the
-retained compatible image. Expected recovery is ready preflight with the
+complete matching snapshot—never only one managed file—then start the retained
+compatible image. Expected recovery is ready preflight with the
 original apartment/delivery counts and Telegram update offset, followed by one
 successful crawl without historical resend.
 
 Keep the service stopped and escalate when the source of corruption is unknown,
 the backup hash/schema/counts fail, related delivery state may be inconsistent,
 no retained artifact understands the schema, target identity genuinely
-changed, a migration has not passed deterministic compatibility and restore
-tests, or reset could duplicate private or channel delivery.
+changed, migration identities disagree, or recovery could duplicate private or
+channel delivery.
 
 ## Telegram credentials or channel permissions
 

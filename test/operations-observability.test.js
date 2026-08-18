@@ -59,6 +59,28 @@ function applicationRecord(observedAt, record) {
   })}\n`;
 }
 
+function databaseOperationRecords({
+  count,
+  durationMs,
+  event = "state.transaction.completed",
+  operation = "private_delivery_acknowledge",
+  errorCode,
+}) {
+  const startedAt = Date.parse("2026-07-25T11:30:00.000Z");
+  return Array.from({ length: count }, (_value, index) =>
+    applicationRecord(new Date(startedAt + index * 1_000).toISOString(), {
+      severity: event.endsWith(".failed") ? "error" : "info",
+      event,
+      operation,
+      rowsChanged: event.endsWith(".failed") ? 0 : 1,
+      durationMs,
+      databaseBytes: 12_582_912,
+      walBytes: 37_080,
+      ...(errorCode ? { errorCode } : {}),
+    }),
+  ).join("");
+}
+
 async function fakeHost(
   t,
   {
@@ -261,6 +283,18 @@ test("rentalctl preserves malformed logs and aggregates bounded journal metrics"
       durationMs: { p50: 100, p95: 501 },
     },
   ]);
+  assert.deepEqual(result.metrics.databaseOperations, [
+    {
+      operation: "private_delivery_acknowledge",
+      count: 2,
+      failureCount: 1,
+      busyFailureCount: 1,
+      rowsChanged: 1,
+      durationMs: { p50: 3, p95: 9 },
+      databaseBytes: 12_582_912,
+      walBytes: 37_080,
+    },
+  ]);
   assert.deepEqual(result.metrics.sourceIntegrity, {
     checkedPages: 1,
     failures: 1,
@@ -292,6 +326,13 @@ test("rentalctl preserves malformed logs and aggregates bounded journal metrics"
 test("monitor sends only firing and resolved transitions and keeps redacted fallback logs", async (t) => {
   const host = await fakeHost(t);
   await execute(monitor, [], { env: host.env });
+  let alertState = JSON.parse(
+    await readFile(join(host.state, "alerts.json"), "utf8"),
+  );
+  assert.deepEqual(
+    alertState.alerts.map(({ name }) => name),
+    ["state_database_busy"],
+  );
   await execute(monitor, [], { env: host.env });
   assert.equal(
     (await readFile(host.env.RENTAL_TEST_CURL_CALLS, "utf8")).trim().split("\n")
@@ -306,13 +347,116 @@ test("monitor sends only firing and resolved transitions and keeps redacted fall
       .length,
     2,
   );
-  const alertState = JSON.parse(
+  alertState = JSON.parse(
     await readFile(join(host.state, "alerts.json"), "utf8"),
   );
   assert.deepEqual(alertState.alerts, []);
   const serviceLog = await readFile(host.env.RENTAL_TEST_SYSTEMD_LOG, "utf8");
   assert.doesNotMatch(serviceLog, /abcdefghijklmnopqrstuvwxyz|123456789/u);
   assert.match(serviceLog, /monitor\.succeeded/u);
+});
+
+test("transaction latency requires a meaningful sample and resolves with hysteresis", async (t) => {
+  const host = await fakeHost(t);
+  await writeFile(
+    host.journal,
+    databaseOperationRecords({ count: 19, durationMs: 900 }),
+  );
+  await execute(monitor, [], { env: host.env });
+
+  let state = JSON.parse(
+    await readFile(join(host.state, "alerts.json"), "utf8"),
+  );
+  assert.equal(
+    state.alerts.some(({ name }) => name === "state_transaction_latency"),
+    false,
+  );
+
+  await writeFile(
+    host.journal,
+    databaseOperationRecords({ count: 20, durationMs: 600 }),
+  );
+  await execute(monitor, [], { env: host.env });
+  state = JSON.parse(await readFile(join(host.state, "alerts.json"), "utf8"));
+  let latency = state.alerts.find(
+    ({ name }) => name === "state_transaction_latency",
+  );
+  assert.equal(latency?.status, "firing");
+  assert.equal(
+    latency?.reason,
+    "database transaction private_delivery_acknowledge p95 is 600 ms across 20 samples",
+  );
+
+  await writeFile(
+    host.journal,
+    databaseOperationRecords({ count: 20, durationMs: 300 }),
+  );
+  await execute(monitor, [], { env: host.env });
+  state = JSON.parse(await readFile(join(host.state, "alerts.json"), "utf8"));
+  latency = state.alerts.find(
+    ({ name }) => name === "state_transaction_latency",
+  );
+  assert.equal(latency?.status, "firing");
+  assert.match(latency?.reason, /p95 is 300 ms/u);
+
+  await writeFile(
+    host.journal,
+    databaseOperationRecords({ count: 20, durationMs: 250 }),
+  );
+  await execute(monitor, [], { env: host.env });
+  state = JSON.parse(await readFile(join(host.state, "alerts.json"), "utf8"));
+  assert.equal(
+    state.alerts.some(({ name }) => name === "state_transaction_latency"),
+    false,
+  );
+
+  const transitions = (await readFile(host.env.RENTAL_TEST_SYSTEMD_LOG, "utf8"))
+    .trim()
+    .split("\n")
+    .map((line) => JSON.parse(line))
+    .filter(({ alertName }) => alertName === "state_transaction_latency");
+  assert.deepEqual(
+    transitions.map(({ alertStatus }) => alertStatus),
+    ["firing", "resolved"],
+  );
+});
+
+test("database busy exhaustion and other operation failures alert separately", async (t) => {
+  const host = await fakeHost(t);
+  await writeFile(
+    host.journal,
+    databaseOperationRecords({
+      count: 2,
+      durationMs: 5,
+      event: "state.transaction.failed",
+      operation: "private_delivery_acknowledge",
+      errorCode: "ERR_STATE_DATABASE_BUSY",
+    }) +
+      databaseOperationRecords({
+        count: 1,
+        durationMs: 8,
+        event: "state.checkpoint.failed",
+        operation: "checkpoint",
+      }),
+  );
+  await execute(monitor, [], { env: host.env });
+
+  const state = JSON.parse(
+    await readFile(join(host.state, "alerts.json"), "utf8"),
+  );
+  assert.deepEqual(state.alerts.map(({ name }) => name).sort(), [
+    "state_database_busy",
+    "state_database_operation_failure",
+  ]);
+  assert.equal(
+    state.alerts.find(({ name }) => name === "state_database_busy")?.reason,
+    "database busy failure count for private_delivery_acknowledge is 2",
+  );
+  assert.equal(
+    state.alerts.find(({ name }) => name === "state_database_operation_failure")
+      ?.reason,
+    "database operation failure count for checkpoint is 1",
+  );
 });
 
 test("filesystem alerts share the free-space calculation and resolve with hysteresis", async (t) => {

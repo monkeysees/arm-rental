@@ -89,8 +89,9 @@ to read those snapshots without exposing root-only deployment state.
 
 The stable snapshot covers image/revision, container health, readiness, uptime
 and restarts; last preflight/crawl; 1-hour and 24-hour crawl totals, ratios,
-p50/p95 duration and result counters; bounded retry and state-file groupings;
-journal and filesystem capacity; last/next/result state for all eight production
+p50/p95 duration and result counters; bounded retry and SQLite-operation
+groupings with failure, busy-timeout, changed-row, database-byte, and WAL-byte
+counts; journal and filesystem capacity; last/next/result state for all eight production
 timers, including image cleanup and the reboot check; application alerts; and the newest
 backup/maintenance receipts when present. Percentiles use nearest rank. Windows
 use journal timestamps, not application-supplied timestamps. Crawl IDs,
@@ -117,7 +118,8 @@ ratios and percentiles.
 
 Primary events are `source.integrity.checked`, `source.integrity.failed`,
 `crawl.succeeded`, `crawl.failed`, `retry.scheduled`,
-`state.write.completed`, `state.write.failed`, `maintenance.report`,
+`state.transaction.completed`, `state.transaction.failed`,
+`state.checkpoint.completed`, `state.checkpoint.failed`, `maintenance.report`,
 `alert.firing`, `alert.resolved`, `monitor.alert.firing`, and
 `monitor.alert.resolved`.
 
@@ -141,8 +143,13 @@ Telegram attempt remains retryable. This prevents a short source-integrity
 failure and recovery from disappearing between five-minute evaluations.
 
 The evaluator covers application alerts, restart loops, two consecutive
-readiness failures, exhausted/missing containers, state-write p95 over 500 ms,
-filesystem/journal capacity, and failed systemd jobs. Filesystem capacity uses
+readiness failures, exhausted/missing containers, SQLite operation failures,
+busy-timeout exhaustion, sustained transaction latency, filesystem/journal
+capacity, and failed systemd jobs. Transaction latency is evaluated per bounded
+operation name only after at least 20 observations in the one-hour window. It
+fires when p95 exceeds 500 ms and, once firing, resolves only when p95 is at or
+below 250 ms (or the operation no longer has the minimum sample count).
+Filesystem capacity uses
 the same available-bytes/total-bytes fraction as the hourly application storage
 check. It fires below 20% free and resolves only after reaching 25% free, which
 prevents integer `df` rounding from flapping the alert at one boundary. Messages include a safe,
@@ -160,22 +167,24 @@ Telegram delivery. Credentials come from
 `/etc/rental-apartments/env`; curl receives URL and form configuration on stdin
 so token and owner destination never enter argv or journal records.
 
-| Alert name                             | Trigger                                    |
-| -------------------------------------- | ------------------------------------------ |
-| `readiness_failure`                    | readiness remains failed                   |
-| `browser_challenge`                    | List.am verification challenge             |
-| `list_am_source_integrity`             | hard List.am source-integrity failure      |
-| `invalid_telegram_credentials`         | terminal Telegram authentication rejection |
-| `invalid_telegram_channel_permissions` | terminal channel permission rejection      |
-| `five_consecutive_crawl_failures`      | fifth consecutive failed crawl             |
-| `stale_exchange_rates`                 | CBA snapshot exceeds 48 hours              |
-| `backup_failure`                       | snapshot operation fails                   |
-| `restore_test_failure`                 | snapshot validation or restore drill fails |
-| `low_disk`                             | free-space threshold is crossed            |
-| `state_file_growth`                    | a state file reaches 25 MiB                |
-| `state_sqlite_migration`               | a state file reaches 50 MiB                |
-| `process_restart_loop`                 | over three starts occur in ten minutes     |
-| `state_write_latency`                  | state-write p95 exceeds 500 ms             |
+| Alert name                             | Trigger                                                 |
+| -------------------------------------- | ------------------------------------------------------- |
+| `readiness_failure`                    | readiness remains failed                                |
+| `browser_challenge`                    | List.am verification challenge                          |
+| `list_am_source_integrity`             | hard List.am source-integrity failure                   |
+| `invalid_telegram_credentials`         | terminal Telegram authentication rejection              |
+| `invalid_telegram_channel_permissions` | terminal channel permission rejection                   |
+| `five_consecutive_crawl_failures`      | fifth consecutive failed crawl                          |
+| `stale_exchange_rates`                 | CBA snapshot exceeds 48 hours                           |
+| `backup_failure`                       | snapshot operation fails                                |
+| `restore_test_failure`                 | snapshot validation or restore drill fails              |
+| `low_disk`                             | free-space threshold is crossed                         |
+| `state_database_growth`                | the SQLite database reaches 25 MiB                      |
+| `state_wal_growth`                     | the SQLite WAL reaches 25 MiB                           |
+| `process_restart_loop`                 | over three starts occur in ten minutes                  |
+| `state_transaction_latency`            | transaction p95 exceeds 500 ms over at least 20 samples |
+| `state_database_busy`                  | a database busy timeout is exhausted                    |
+| `state_database_operation_failure`     | a non-busy transaction or checkpoint fails              |
 
 If Telegram delivery fails, the transition remains eligible for retry and
 `rental-monitor.service` fails without logging the response or credentials:

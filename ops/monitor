@@ -190,12 +190,45 @@ main() {
                 + ", health=" + ($metrics.deployment.health // "unknown")
                 + ", restart count="
                 + (($metrics.deployment.restartCount // "unknown") | tostring)))),
-        ($metrics.windows["1h"].stateWrites[]?
-          | select((.durationMs.p95 // 0) > 500)
-          | alert("state_write_latency"; "warning";
-              "rentalctl metrics --since 1h";
-              ("state " + .state + " write p95 is "
-                + (.durationMs.p95 | tostring) + " ms"))),
+        ([$metrics.windows["1h"].databaseOperations[]?
+          | select(.operation != "checkpoint")
+          | select((.count // 0) >= 20)
+          | select(
+              if was_firing("state_transaction_latency")
+              then (.durationMs.p95 // 0) > 250
+              else (.durationMs.p95 // 0) > 500
+              end
+            )]
+          | if length == 0 then empty
+            else max_by(.durationMs.p95)
+            | alert("state_transaction_latency"; "warning";
+                "rentalctl metrics --since 1h";
+                ("database transaction " + .operation + " p95 is "
+                  + (.durationMs.p95 | tostring) + " ms across "
+                  + (.count | tostring) + " samples"))
+            end),
+        ([$metrics.windows["1h"].databaseOperations[]?
+          | select((.busyFailureCount // 0) > 0)]
+          | if length == 0 then empty
+            else max_by(.busyFailureCount)
+            | alert("state_database_busy"; "error";
+                "rentalctl metrics --since 1h";
+                ("database busy failure count for " + .operation + " is "
+                  + (.busyFailureCount | tostring)))
+            end),
+        ([$metrics.windows["1h"].databaseOperations[]?
+          | . + {
+              nonBusyFailureCount:
+                ((.failureCount // 0) - (.busyFailureCount // 0))
+            }
+          | select(.nonBusyFailureCount > 0)]
+          | if length == 0 then empty
+            else max_by(.nonBusyFailureCount)
+            | alert("state_database_operation_failure"; "error";
+                "rentalctl metrics --since 1h";
+                ("database operation failure count for " + .operation
+                  + " is " + (.nonBusyFailureCount | tostring)))
+            end),
         ($metrics.filesystems[]?
           | . as $filesystem
           | ("filesystem_capacity_" + .name) as $alertName

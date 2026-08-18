@@ -111,6 +111,39 @@ def grouped_state_writes($records):
         }
     );
 
+def grouped_database_operations($records):
+  [
+    $records[]
+    | select(
+        (.record.event // "")
+        | test("^state\\.(transaction|checkpoint)\\.(completed|failed)$")
+      )
+    | {
+        operation: ((.record.operation // "unknown") | safe_group_key),
+        failed: (.record.event | endswith(".failed")),
+        busy: (.record.errorCode == "ERR_STATE_DATABASE_BUSY"),
+        rowsChanged: ((.record.rowsChanged | tonumber?) // 0),
+        durationMs: ((.record.durationMs | tonumber?) // 0),
+        databaseBytes: ((.record.databaseBytes | tonumber?) // 0),
+        walBytes: ((.record.walBytes | tonumber?) // 0)
+      }
+  ]
+  | sort_by(.operation)
+  | group_by(.operation)
+  | map({
+      operation: .[0].operation,
+      count: length,
+      failureCount: (map(select(.failed)) | length),
+      busyFailureCount: (map(select(.busy)) | length),
+      rowsChanged: (map(.rowsChanged) | add // 0),
+      durationMs: {
+        p50: percentile(map(.durationMs); 0.50),
+        p95: percentile(map(.durationMs); 0.95)
+      },
+      databaseBytes: (map(.databaseBytes) | max // 0),
+      walBytes: (map(.walBytes) | max // 0)
+    });
+
 def source_integrity($records):
   [$records[] | select(.record.event == "source.integrity.checked")] as $checked
   | [$records[] | select(.record.event == "source.integrity.failed")] as $failed
@@ -161,6 +194,7 @@ def aggregate($records; $seconds; $now):
       },
       retries: grouped_retries($window),
       stateWrites: grouped_state_writes($window),
+      databaseOperations: grouped_database_operations($window),
       sourceIntegrity: source_integrity($window),
       applicationStarts:
         ([$window[] | select(.record.event == "application.started")] | length)

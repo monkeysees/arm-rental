@@ -13,7 +13,6 @@
     "backup:validate": "node --env-file-if-exists=.env src/recovery-cli.js validate",
     "restore": "node --env-file-if-exists=.env src/recovery-cli.js restore",
     "storage:check": "node --env-file-if-exists=.env src/recovery-cli.js disk-check",
-    "state:migrate": "node --env-file-if-exists=.env src/state-migration-cli.js",
     "maintenance:report": "node --env-file-if-exists=.env src/maintenance-cli.js report",
     "release:validate": "node scripts/release-operations.js validate",
     "release:deploy": "node scripts/release-operations.js deploy",

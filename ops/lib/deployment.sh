@@ -10,7 +10,6 @@
 : "${RENTAL_QUARANTINE_DIR:=$RENTAL_OPS_STATE_DIR/quarantine}"
 : "${RENTAL_CURRENT_LINK:=/opt/rental-apartments/current}"
 : "${RENTAL_MINIMUM_FREE_KB:=1048576}"
-: "${RENTAL_DEPLOYMENT_RETENTION_FILE:=$RENTAL_OPS_STATE_DIR/deployment-retention.json}"
 
 deployment_validate_actor() {
   local actor=$1
@@ -253,8 +252,6 @@ deployment_fetch_release() {
   if [[ -d $final && ! -L $final ]]; then
     [[ -f $final/compose.production.yaml &&
       -f $final/package-lock.json &&
-      -f $final/release-metadata.json &&
-      ! -L $final/release-metadata.json &&
       -d $final/ops &&
       -d $final/infra/systemd ]] || {
       printf 'Existing release directory is incomplete\n' >&2
@@ -309,116 +306,6 @@ deployment_fetch_release() {
   printf '%s\n' "$final"
 }
 
-deployment_state_transition() {
-  local previous_metadata=$1
-  local candidate_metadata=$2
-  local previous_image=$3
-  local candidate_image=$4
-  [[ -f $previous_metadata && ! -L $previous_metadata ]]
-  [[ -f $candidate_metadata && ! -L $candidate_metadata ]]
-  jq -e --arg image "$previous_image" '
-    .schemaVersion == 2 and
-    .imageReference == $image and
-    (.sourceRevision | test("^[0-9a-f]{40}$")) and
-    (.stateBackend == "json" or .stateBackend == "sqlite") and
-    (.minimumStateSchema | type) == "number" and
-    (.maximumStateSchema | type) == "number" and
-    .minimumStateSchema >= 0 and
-    .maximumStateSchema >= .minimumStateSchema and
-    .minimumStateSchema == (.minimumStateSchema | floor) and
-    .maximumStateSchema == (.maximumStateSchema | floor) and
-    (if .stateBackend == "json"
-     then .minimumStateSchema == 0 and .maximumStateSchema == 0
-     else .minimumStateSchema >= 1
-     end)
-  ' "$previous_metadata" >/dev/null || return 65
-  jq -e --arg image "$candidate_image" '
-    .schemaVersion == 2 and
-    .imageReference == $image and
-    .stateBackend == "sqlite" and
-    (.minimumStateSchema | type) == "number" and
-    (.maximumStateSchema | type) == "number" and
-    .minimumStateSchema >= 1 and
-    .maximumStateSchema >= .minimumStateSchema and
-    .minimumStateSchema == (.minimumStateSchema | floor) and
-    .maximumStateSchema == (.maximumStateSchema | floor)
-  ' "$candidate_metadata" >/dev/null || return 65
-
-  local previous_backend
-  previous_backend=$(jq -r .stateBackend "$previous_metadata") || return
-  if [[ $previous_backend == json ]]; then
-    printf 'json-to-sqlite\n'
-    return
-  fi
-  jq -e --slurpfile previous "$previous_metadata" '
-    .minimumStateSchema <= $previous[0].minimumStateSchema and
-    .maximumStateSchema >= $previous[0].maximumStateSchema
-  ' "$candidate_metadata" >/dev/null || {
-    printf 'Candidate does not support the previous SQLite schema range\n' >&2
-    return 65
-  }
-  printf 'sqlite-to-sqlite\n'
-}
-
-deployment_bridge_protected_snapshot() {
-  local previous_metadata=$1
-  local previous_image=$2
-  local previous_release=$3
-  local revision snapshot protected_root
-  local -a protected_snapshots=()
-  [[ -f $RENTAL_DEPLOYMENT_RETENTION_FILE &&
-    ! -L $RENTAL_DEPLOYMENT_RETENTION_FILE ]]
-  revision=$(jq -r .sourceRevision "$previous_metadata") || return
-  snapshot=$(jq -er \
-    --arg image "$previous_image" \
-    --arg revision "$revision" \
-    --arg release "$previous_release" '
-      select(
-        .schemaVersion == 2 and
-        (.protectedReleases | length) == 1 and
-        .protectedReleases[0].candidateImage == $image and
-        .protectedReleases[0].sourceRevision == $revision and
-        .protectedReleases[0].releaseDirectory == $release
-      ) |
-      .protectedReleases[0].protectedSnapshot
-    ' "$RENTAL_DEPLOYMENT_RETENTION_FILE") || {
-    printf 'Current JSON bridge release is not the protected rollback image\n' >&2
-    return 65
-  }
-  [[ $snapshot == "$RENTAL_BACKUP_ROOT"/protected/pre-sqlite-* &&
-    -d $snapshot && ! -L $snapshot ]] || {
-    printf 'Protected bridge snapshot is unavailable or unsafe\n' >&2
-    return 65
-  }
-  protected_root="$RENTAL_BACKUP_ROOT/protected"
-  shopt -s nullglob
-  protected_snapshots=("$protected_root"/pre-sqlite-*)
-  shopt -u nullglob
-  ((${#protected_snapshots[@]} == 1)) &&
-    [[ ${protected_snapshots[0]} == "$snapshot" ]] || {
-    printf 'Protected bridge snapshot set is ambiguous\n' >&2
-    return 65
-  }
-  printf '%s\n' "$snapshot"
-}
-
-deployment_migrate_json_state() {
-  local candidate_release=$1
-  local candidate_environment=$2
-  local command
-  for command in plan migrate validate; do
-    case $command in
-      plan) ops_set_step plan-state-migration ;;
-      migrate) ops_set_step migrate-state ;;
-      validate) ops_set_step validate-migrated-state ;;
-    esac
-    deployment_compose \
-      "$candidate_release" "$candidate_environment" \
-      run --rm --no-deps bot node src/state-migration-cli.js "$command" ||
-      return
-  done
-}
-
 deployment_verify_release() {
   local bundle_directory=$1
   local candidate=$2
@@ -431,9 +318,9 @@ deployment_verify_release() {
      .imageReference == $image and
      .imageDigest == ($image | split("@")[1]) and
      .sourceRevision == $revision and
-     .stateBackend == "sqlite" and
-     .minimumStateSchema == 1 and
-     .maximumStateSchema == 1 and
+     .stateBackend == "json" and
+     .minimumStateSchema == 0 and
+     .maximumStateSchema == 0 and
      (.packageLockSha256 | test("^[0-9a-f]{64}$")) and
      (.composeSha256 | test("^[0-9a-f]{64}$")) and
      (.operationsBundleSha256 | test("^[0-9a-f]{64}$"))' \

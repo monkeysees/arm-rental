@@ -16,7 +16,12 @@ import { compatibleDeliveryState, deliveryStateCounts } from "./crawler.js";
 import { compatibleExchangeRateSnapshot } from "./exchange-rates.js";
 import { checkDiskSpace } from "./recovery.js";
 import { acquireSingletonLock } from "./singleton-lock.js";
+import { openStateDatabase } from "./sqlite-database.js";
 import { readState, writeState } from "./state.js";
+import {
+  readStateBackendSelector,
+  stateBackendPaths,
+} from "./state-backend.js";
 
 export const STATE_SIZE_WARNING_BYTES = 25 * 1024 * 1024;
 export const STATE_SIZE_MIGRATION_BYTES = 50 * 1024 * 1024;
@@ -202,6 +207,71 @@ async function stateFileReport(specification) {
   };
 }
 
+async function regularFileBytes(filename) {
+  try {
+    const details = await lstat(filename);
+    if (!details.isFile() || details.isSymbolicLink()) {
+      throw new MaintenanceValidationError(
+        `Managed state is not a safe regular file: ${filename}`,
+        { filename },
+      );
+    }
+    return details.size;
+  } catch (error) {
+    if (error.code === "ENOENT") return 0;
+    throw error;
+  }
+}
+
+async function sqliteStateReport(config) {
+  const paths = stateBackendPaths(config.dataDirectory);
+  let database;
+  try {
+    database = openStateDatabase({
+      dataDirectory: config.dataDirectory,
+      listUrlTemplate: config.listUrlTemplate,
+      channelId: config.telegramChannelId,
+    });
+    database.validate({ full: true });
+    database.checkpoint("TRUNCATE");
+    const counts = database.logicalCounts();
+    const updateOffset = Number(
+      database
+        .prepare("SELECT update_offset FROM telegram_state WHERE singleton = 1")
+        .get().update_offset,
+    );
+    const databaseBytes = await regularFileBytes(paths.database);
+    const walBytes = await regularFileBytes(paths.databaseWal);
+    const bytes = databaseBytes + walBytes;
+    return {
+      name: "sqlite",
+      stateFile: path.basename(paths.database),
+      present: true,
+      bytes,
+      databaseBytes,
+      walBytes,
+      entryCount:
+        counts.apartments +
+        counts.privateDecisions +
+        counts.channelDeliveries +
+        counts.telegramUsers +
+        counts.exchangeRateSnapshots,
+      ...counts,
+      updateOffset,
+      schemaVersion: 1,
+      status: stateSizeStatus(bytes),
+    };
+  } catch (error) {
+    if (error instanceof MaintenanceValidationError) throw error;
+    throw new MaintenanceValidationError("SQLite state validation failed", {
+      code: error.code,
+      cause: error.message,
+    });
+  } finally {
+    database?.close({ checkpoint: false });
+  }
+}
+
 async function treeSize(root) {
   let details;
   try {
@@ -325,9 +395,23 @@ export async function runMaintenance(
     );
     const previous = await previousHistory(historyFilename);
     const profileBytesBeforeCleanup = await treeSize(config.browserProfileDir);
-    const stateFiles = await Promise.all(
-      stateSpecifications(config).map(stateFileReport),
-    );
+    const selector = await readStateBackendSelector(config.dataDirectory);
+    if (selector.backend === "migrating") {
+      throw new MaintenanceValidationError(
+        "Maintenance cannot inspect an incomplete state migration",
+      );
+    }
+    const stateFiles =
+      selector.backend === "sqlite"
+        ? await Promise.all([
+            sqliteStateReport(config),
+            stateFileReport(
+              stateSpecifications(config).find(
+                ({ name }) => name === "browserVerification",
+              ),
+            ),
+          ])
+        : await Promise.all(stateSpecifications(config).map(stateFileReport));
     const cacheCleanup = await cleanupChromeCaches(
       config.browserProfileDir,
       config.dataDirectory,

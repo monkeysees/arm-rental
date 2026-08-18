@@ -230,7 +230,9 @@ unit_result() {
   result=$(systemctl show "$1" --property=Result --value 2>/dev/null) ||
     result=unknown
   case $result in
-    success | failed | timeout) printf '%s\n' "$result" ;;
+    success) printf '%s\n' "$result" ;;
+    exit-code | failed) printf '%s\n' failed ;;
+    timeout) printf '%s\n' "$result" ;;
     *) printf '%s\n' unknown ;;
   esac
 }

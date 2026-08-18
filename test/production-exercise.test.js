@@ -89,7 +89,7 @@ if [[ "\${1:-}" == "show" ]]; then
           if [[ -f "$RENTAL_OPS_STATE_DIR/fake-deploy-retry-success" ]]; then
             printf '%s\\n' success
           else
-            printf '%s\\n' failed
+            printf '%s\\n' exit-code
           fi
           ;;
         rental-restore-drill.service)
@@ -352,6 +352,10 @@ test("exercise harness records observed recovery outcomes without raw logs or se
   assert.equal(
     evidence.exercises.failedDeploymentRollback.rollbackResult,
     "completed",
+  );
+  assert.equal(
+    evidence.exercises.failedDeploymentRollback.deployUnitResult,
+    "failed",
   );
   assert.equal(evidence.exercises.hostRebootRecovery.beforeBootId, firstBootId);
   assert.equal(evidence.exercises.hostRebootRecovery.afterBootId, secondBootId);

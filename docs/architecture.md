@@ -228,6 +228,9 @@ prevents mismatched or incomplete observations from becoming passing evidence.
 The host reboot check is split into before/after phases. A failed-candidate
 exercise must prove snapshot rollback, previous-digest readiness, quarantine,
 and a successful quarantine-skip rerun before timer freshness is evaluated.
+The evidence collector normalizes systemd's concrete `exit-code` result to the
+failed-deployment outcome so an expected nonzero deploy is not mistaken for an
+unknown unit state.
 The checked-in evidence is intentionally pending: deterministic fake-command
 tests verify the collection contract but do not claim real VPS observations.
 

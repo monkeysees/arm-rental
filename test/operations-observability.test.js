@@ -591,9 +591,14 @@ test("the host readiness alert resolves alongside an application alert of its ow
   // the monitor's alert once suppressed the host all-clear entirely.
   await appendFile(
     host.journal,
-    alertRecord("2026-07-25T11:58:00.000Z", "alert.firing", "readiness_failure", {
-      reasons: ["CRAWL_STALE"],
-    }) +
+    alertRecord(
+      "2026-07-25T11:58:00.000Z",
+      "alert.firing",
+      "readiness_failure",
+      {
+        reasons: ["CRAWL_STALE"],
+      },
+    ) +
       alertRecord(
         "2026-07-25T11:58:30.000Z",
         "alert.resolved",

@@ -13,6 +13,7 @@ into another handbook.
 | Complete or transfer browser verification           | [Production browser operations](browser-operations.md)                                          |
 | Restore persistent state                            | [Persistent-state restore](state-recovery.md#restore-procedure)                                 |
 | Held state-backend cutover                          | [State backend transitions](release-and-rollback.md#state-backend-transitions)                  |
+| Superseded protected rollback point                 | [Replacing a protected rollback point](state-recovery.md#replacing-a-protected-rollback-point)  |
 | Malformed, incompatible, or target-mismatched state | [Incompatible-state recovery](startup-preflight.md#incompatible-state)                          |
 | Stale crawling                                      | [Stale-crawl response](runtime-incidents.md#stale-crawling)                                     |
 | Telegram private or channel failure                 | [Telegram delivery response](runtime-incidents.md#telegram-private-or-channel-delivery-failure) |

@@ -181,6 +181,20 @@ if [[ ${RENTAL_DEPLOY_TEST_MODE:-0} == 1 ]]; then
   observation_seconds=0
 fi
 
+# The protected rollback point is a pure precondition: it reads release
+# metadata and the retention index only, so it never needs a stopped
+# application. Checking it before the stop keeps an unusable protection from
+# bouncing the bot and consuming a snapshot on every poll.
+if [[ $DEPLOYMENT_STATE_TRANSITION == json-to-sqlite ]]; then
+  ops_set_step validate-protected-bridge
+  protected_bridge_snapshot=$(
+    deployment_bridge_protected_snapshot \
+      "$previous_metadata" "$DEPLOYMENT_PREVIOUS" \
+      "$DEPLOYMENT_PREVIOUS_RELEASE"
+  )
+  ops_validate_snapshot "$protected_bridge_snapshot"
+fi
+
 if [[ $DEPLOYMENT_FIRST_INSTALL == true ]]; then
   ops_set_step validate-first-install-storage
   deployment_validate_first_install_storage
@@ -196,14 +210,6 @@ fi
 
 candidate_status=0
 if [[ $DEPLOYMENT_STATE_TRANSITION == json-to-sqlite ]]; then
-  ops_set_step validate-protected-bridge
-  protected_bridge_snapshot=$(
-    deployment_bridge_protected_snapshot \
-      "$previous_metadata" "$DEPLOYMENT_PREVIOUS" \
-      "$DEPLOYMENT_PREVIOUS_RELEASE"
-  )
-  ops_validate_snapshot "$protected_bridge_snapshot"
-
   set +e
   deployment_migrate_json_state \
     "$DEPLOYMENT_RELEASE" "$DEPLOYMENT_CANDIDATE_ENV"

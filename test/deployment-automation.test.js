@@ -554,6 +554,7 @@ test("unattended deploy contract covers no-op, first install, rollback, and fail
     service,
     timer,
     migrationProtection,
+    migrationUnprotection,
   ] = await Promise.all([
     readFile(new URL("../ops/deploy", import.meta.url), "utf8"),
     readFile(new URL("../ops/lib/deployment.sh", import.meta.url), "utf8"),
@@ -574,6 +575,10 @@ test("unattended deploy contract covers no-op, first install, rollback, and fail
     ),
     readFile(
       new URL("../ops/protect-migration-rollback", import.meta.url),
+      "utf8",
+    ),
+    readFile(
+      new URL("../ops/unprotect-migration-rollback", import.meta.url),
       "utf8",
     ),
   ]);
@@ -598,6 +603,11 @@ test("unattended deploy contract covers no-op, first install, rollback, and fail
       deploy.indexOf("deployment_migrate_json_state") <
         deploy.indexOf("up --detach --force-recreate bot"),
     "JSON cutover must stop, plan, migrate, validate, and only then launch",
+  );
+  assert.ok(
+    deploy.indexOf("validate-protected-bridge") <
+      deploy.indexOf("ops_stop_application"),
+    "an unusable rollback point must be refused before the bot is stopped",
   );
   assert.match(deploy, /deployment_read_optional_setting POLL_INTERVAL_MS/u);
   assert.match(deploy, /poll_interval_ms=\$\{poll_interval_ms:-60000\}/u);
@@ -653,4 +663,183 @@ test("unattended deploy contract covers no-op, first install, rollback, and fail
   assert.match(migrationProtection, /backup-protected/u);
   assert.match(migrationProtection, /deployment_protect_migration_release/u);
   assert.match(migrationProtection, /ops_validate_snapshot/u);
+  assert.match(migrationUnprotection, /deployment_validate_actor/u);
+  assert.match(
+    migrationUnprotection,
+    /deployment_unprotect_migration_release/u,
+  );
+  assert.match(migrationUnprotection, /ops_acquire_lock/u);
+  assert.doesNotMatch(
+    migrationUnprotection,
+    /ops_stop_application/u,
+    "releasing a rollback point is a state edit and must not stop the bot",
+  );
+});
+
+test("a rollback point protected against a superseded release can be replaced", async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "deploy-unprotect-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const state = join(root, "state");
+  const backups = join(root, "backups");
+  const staleSnapshot = join(
+    backups,
+    "protected",
+    "pre-sqlite-2026-08-18T17-57-40-023Z",
+  );
+  const freshSnapshot = join(
+    backups,
+    "protected",
+    "pre-sqlite-2026-08-19T07-32-32-202Z",
+  );
+  const bridgeRelease = join(root, "bridge-release");
+  await Promise.all([
+    mkdir(state, { recursive: true }),
+    mkdir(staleSnapshot, { recursive: true }),
+    mkdir(freshSnapshot, { recursive: true }),
+    mkdir(bridgeRelease, { recursive: true }),
+  ]);
+  const staleImage = digest("a");
+  const currentImage = digest("b");
+  const retentionFile = join(state, "deployment-retention.json");
+  const evidenceFile = join(root, "evidence.json");
+  await Promise.all([
+    writeFile(
+      retentionFile,
+      JSON.stringify({
+        schemaVersion: 2,
+        retainedReleases: [],
+        protectedReleases: [
+          {
+            candidateImage: staleImage,
+            sourceRevision: "a".repeat(40),
+            releaseDirectory: bridgeRelease,
+            protectedSnapshot: staleSnapshot,
+          },
+        ],
+      }),
+      { mode: 0o600 },
+    ),
+    writeFile(
+      evidenceFile,
+      JSON.stringify({
+        candidateImage: currentImage,
+        sourceRevision: "b".repeat(40),
+        releaseDirectory: bridgeRelease,
+      }),
+      { mode: 0o600 },
+    ),
+  ]);
+
+  const preamble = `
+    set -Eeuo pipefail
+    RENTAL_OPS_STATE_DIR=$1
+    RENTAL_BACKUP_ROOT=$2
+    source ops/lib/deployment.sh
+  `;
+  const run = (script, ...extra) =>
+    executeFile(
+      "bash",
+      [
+        "-c",
+        `${preamble}\n${script}`,
+        "deploy-unprotect-test",
+        state,
+        backups,
+        ...extra,
+      ],
+      { cwd: new URL("..", import.meta.url) },
+    );
+
+  // Naming the wrong image must not clear anything: the mistake this repairs
+  // is a protection taken against a release nobody re-read.
+  await assert.rejects(
+    run('deployment_unprotect_migration_release "$3"', currentImage),
+    (error) =>
+      error.code === 65 &&
+      error.stderr.includes("No single protected rollback point is registered"),
+  );
+  assert.equal(
+    JSON.parse(await readFile(retentionFile, "utf8")).protectedReleases.length,
+    1,
+    "a rejected unprotect must leave the protection intact",
+  );
+
+  // Replacing a protection is refused until the stale one is released.
+  await assert.rejects(
+    run(
+      'deployment_protect_migration_release "$3" "$4"',
+      evidenceFile,
+      freshSnapshot,
+    ),
+    (error) => error.code === 65,
+  );
+
+  const released = await run(
+    'deployment_unprotect_migration_release "$3"',
+    staleImage,
+  );
+  assert.equal(released.stdout.trim(), staleSnapshot);
+  assert.deepEqual(
+    JSON.parse(await readFile(retentionFile, "utf8")).protectedReleases,
+    [],
+  );
+
+  await run(
+    'deployment_protect_migration_release "$3" "$4"',
+    evidenceFile,
+    freshSnapshot,
+  );
+  const retention = JSON.parse(await readFile(retentionFile, "utf8"));
+  assert.equal(retention.protectedReleases.length, 1);
+  assert.equal(retention.protectedReleases[0].candidateImage, currentImage);
+  assert.equal(retention.protectedReleases[0].protectedSnapshot, freshSnapshot);
+});
+
+test("a refused candidate names the contract it failed", async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "deploy-verify-reason-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const metadata = join(root, "release-metadata.json");
+  const candidate = digest("c");
+  await writeFile(
+    metadata,
+    JSON.stringify({
+      schemaVersion: 2,
+      imageReference: candidate,
+      imageDigest: candidate.slice(candidate.indexOf("@") + 1),
+      sourceRevision: "d".repeat(40),
+      stateBackend: "json",
+      minimumStateSchema: 0,
+      maximumStateSchema: 0,
+      packageLockSha256: "0".repeat(64),
+      composeSha256: "0".repeat(64),
+      operationsBundleSha256: "0".repeat(64),
+    }),
+  );
+
+  await assert.rejects(
+    executeFile(
+      "bash",
+      [
+        "-c",
+        `
+          set -Eeuo pipefail
+          RENTAL_OPS_STATE_DIR=$1
+          DEPLOYMENT_SOURCE_REVISION=$2
+          source ops/lib/deployment.sh
+          deployment_verify_release "$1/absent-bundle" "$3" "$4"
+        `,
+        "deploy-verify-reason-test",
+        root,
+        "d".repeat(40),
+        candidate,
+        metadata,
+      ],
+      { cwd: new URL("..", import.meta.url) },
+    ),
+    (error) =>
+      error.code === 65 &&
+      // Both halves of the mismatch: what arrived and what this release takes.
+      error.stderr.includes("stateBackend json, state schema 0-0") &&
+      error.stderr.includes("stateBackend sqlite, state schema 1-1"),
+  );
 });

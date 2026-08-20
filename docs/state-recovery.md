@@ -47,6 +47,32 @@ idempotent; a different protected pair fails closed. Expected evidence includes
 `migration-protection.completed`. Preserve this point until migration, a
 post-cutover backup, and the isolated restore acceptance gate have all passed.
 
+### Replacing a protected rollback point
+
+Protection binds to whichever release is current when it is taken. An ordinary
+same-backend deploy afterwards moves current past that release, and the cutover
+then refuses to run: the protected image is no longer the running bridge, so
+`validate-protected-bridge` fails closed. Because a different protected pair
+also fails closed, the stale point has to be released before a correct one can
+be taken.
+
+```sh
+sudo /opt/rental-apartments/current/ops/unprotect-migration-rollback \
+  'Named Human' \
+  "$(sudo jq -r '.protectedReleases[0].candidateImage' \
+    /var/lib/rental-apartments-ops/deployment-retention.json)"
+```
+
+Naming the protected image is required: the failure this repairs is a
+protection taken against a release nobody re-read. It clears the retention
+entry and deletes the snapshot that entry named, so the protected directory
+holds no `pre-sqlite-*` directory afterwards and the protected set is
+unambiguous for the next attempt. It edits state only, so unlike taking a
+protection it never stops the application. Expected evidence includes
+`migration-unprotection.started` and `migration-unprotection.completed`. Follow
+it immediately with `protect-migration-rollback` against the running bridge,
+and confirm the new entry names the current release before deploying.
+
 ## Automated daily backup
 
 Prerequisites:

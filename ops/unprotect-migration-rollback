@@ -1,0 +1,40 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+
+SCRIPT_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
+# shellcheck source=ops/lib/operations.sh
+source "$SCRIPT_DIR/lib/operations.sh"
+# shellcheck source=ops/lib/deployment.sh
+source "$SCRIPT_DIR/lib/deployment.sh"
+
+actor=${1:-}
+expected_image=${2:-}
+if ! deployment_validate_actor "$actor" ||
+  ! deployment_validate_digest_reference "$expected_image"; then
+  printf 'Usage: unprotect-migration-rollback ACTOR PROTECTED_IMAGE\n' >&2
+  printf 'PROTECTED_IMAGE is the candidateImage of the protected entry,\n' >&2
+  printf 'read from %s\n' "$RENTAL_DEPLOYMENT_RETENTION_FILE" >&2
+  exit 64
+fi
+
+# Releasing a rollback point touches the retention index and the protected
+# backup directory only. Unlike taking one it needs no snapshot, so it never
+# stops the application.
+ops_begin migration-unprotection rental-migration-unprotection
+ops_set_step acquire-operations-lock
+ops_acquire_lock
+ops_set_step validate-runtime
+ops_validate_runtime_contract
+ops_require_backup_mount
+[[ -f $RENTAL_DEPLOYMENT_RETENTION_FILE &&
+  ! -L $RENTAL_DEPLOYMENT_RETENTION_FILE ]]
+
+ops_set_step release-protected-rollback-point
+snapshot=$(deployment_unprotect_migration_release "$expected_image")
+
+# The retention index no longer references this snapshot, and a leftover
+# pre-sqlite-* directory would make the protected set ambiguous for both the
+# next cutover and the next protection.
+ops_set_step retire-protected-snapshot
+[[ -d $snapshot && ! -L $snapshot ]]
+rm -rf -- "$snapshot"

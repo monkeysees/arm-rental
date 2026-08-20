@@ -172,6 +172,16 @@ operator to report the revision the host actually runs and refuses unless that
 matches the release `production` names. An unreadable pointer fails closed
 rather than reading as a first publication.
 
+A state-backend cutover additionally requires a protected rollback point bound
+to the running bridge. Deployment validates that binding before it stops the
+application, so an unusable protection cannot bounce the bot once per poll, and
+every refusal names both the contract the candidate declared and the one this
+release deploys. Because protection binds to whichever release was current when
+it was taken, an ordinary same-backend deploy can supersede it;
+`ops/unprotect-migration-rollback` releases the named stale point and deletes
+the snapshot it named so a correct one can be taken. It edits state only and
+never stops the application.
+
 Accepted deployments update a retention index containing the current release
 and at most two rollback releases before invoking retention-aware image
 cleanup. Cleanup validates that index against the immutable current-image

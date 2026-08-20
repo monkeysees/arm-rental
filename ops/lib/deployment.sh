@@ -331,7 +331,12 @@ deployment_state_transition() {
      then .minimumStateSchema == 0 and .maximumStateSchema == 0
      else .minimumStateSchema >= 1
      end)
-  ' "$previous_metadata" >/dev/null || return 65
+  ' "$previous_metadata" >/dev/null || {
+    deployment_verification_error "current release declares $(
+      deployment_describe_release_metadata "$previous_metadata"
+    ), which is not a deployable state contract"
+    return 65
+  }
   jq -e --arg image "$candidate_image" '
     .schemaVersion == 2 and
     .imageReference == $image and
@@ -342,7 +347,12 @@ deployment_state_transition() {
     .maximumStateSchema >= .minimumStateSchema and
     .minimumStateSchema == (.minimumStateSchema | floor) and
     .maximumStateSchema == (.maximumStateSchema | floor)
-  ' "$candidate_metadata" >/dev/null || return 65
+  ' "$candidate_metadata" >/dev/null || {
+    deployment_verification_error "candidate declares $(
+      deployment_describe_release_metadata "$candidate_metadata"
+    ), but a cutover candidate must declare stateBackend sqlite with state schema 1 or higher"
+    return 65
+  }
 
   local previous_backend
   previous_backend=$(jq -r .stateBackend "$previous_metadata") || return
@@ -419,11 +429,31 @@ deployment_migrate_json_state() {
   done
 }
 
+# A refused candidate is the deployment's most common terminal state, and it
+# is reached once every poll until someone intervenes. Naming the reason keeps
+# a repeating alert from costing an operator a bisect to learn what the
+# verifier wanted.
+deployment_verification_error() {
+  printf 'Release verification failed: %s\n' "$1" >&2
+}
+
+deployment_describe_release_metadata() {
+  local metadata=$1
+  jq -r '
+    "schemaVersion \(.schemaVersion // "absent"), " +
+    "image \(.imageReference // "absent"), " +
+    "revision \(.sourceRevision // "absent"), " +
+    "stateBackend \(.stateBackend // "absent"), " +
+    "state schema \(.minimumStateSchema // "absent")-\(.maximumStateSchema // "absent")"
+  ' "$metadata" 2>/dev/null ||
+    printf 'unreadable or malformed release metadata'
+}
+
 deployment_verify_release() {
   local bundle_directory=$1
   local candidate=$2
   local metadata=$3
-  local compose_digest package_digest operations_digest
+  local compose_digest package_digest operations_digest label_digest
   jq -e \
     --arg image "$candidate" \
     --arg revision "$DEPLOYMENT_SOURCE_REVISION" \
@@ -437,26 +467,60 @@ deployment_verify_release() {
      (.packageLockSha256 | test("^[0-9a-f]{64}$")) and
      (.composeSha256 | test("^[0-9a-f]{64}$")) and
      (.operationsBundleSha256 | test("^[0-9a-f]{64}$"))' \
-    "$metadata" >/dev/null || return 65
+    "$metadata" >/dev/null || {
+    deployment_verification_error "candidate declares $(
+      deployment_describe_release_metadata "$metadata"
+    )"
+    deployment_verification_error \
+      "this release deploys schemaVersion 2, image $candidate, revision $DEPLOYMENT_SOURCE_REVISION, stateBackend sqlite, state schema 1-1"
+    return 65
+  }
   compose_digest=$(
     sha256sum "$bundle_directory/compose.production.yaml" | awk '{print $1}'
-  ) || return 65
-  test "$compose_digest" = "$(jq -r .composeSha256 "$metadata")" || return 65
+  ) || {
+    deployment_verification_error 'compose.production.yaml is unreadable'
+    return 65
+  }
+  test "$compose_digest" = "$(jq -r .composeSha256 "$metadata")" || {
+    deployment_verification_error \
+      "compose.production.yaml digest $compose_digest does not match the metadata"
+    return 65
+  }
   package_digest=$(
     sha256sum "$bundle_directory/package-lock.json" | awk '{print $1}'
-  ) || return 65
-  test "$package_digest" = "$(jq -r .packageLockSha256 "$metadata")" ||
+  ) || {
+    deployment_verification_error 'package-lock.json is unreadable'
     return 65
-  test "$package_digest" = "$(
+  }
+  test "$package_digest" = "$(jq -r .packageLockSha256 "$metadata")" || {
+    deployment_verification_error \
+      "package-lock.json digest $package_digest does not match the metadata"
+    return 65
+  }
+  label_digest=$(
     docker image inspect \
       --format '{{index .Config.Labels "org.opencontainers.image.package-lock.sha256"}}' \
       "$candidate"
-  )" || return 65
+  ) || {
+    deployment_verification_error "candidate image $candidate cannot be inspected"
+    return 65
+  }
+  test "$package_digest" = "$label_digest" || {
+    deployment_verification_error \
+      "candidate image declares package-lock digest $label_digest but the bundle carries $package_digest"
+    return 65
+  }
   operations_digest=$(
     sha256sum "$bundle_directory/operations.tar" | awk '{print $1}'
-  ) || return 65
-  test "$operations_digest" = "$(jq -r .operationsBundleSha256 "$metadata")" ||
+  ) || {
+    deployment_verification_error 'operations.tar is unreadable'
     return 65
+  }
+  test "$operations_digest" = "$(jq -r .operationsBundleSha256 "$metadata")" || {
+    deployment_verification_error \
+      "operations.tar digest $operations_digest does not match the metadata"
+    return 65
+  }
 }
 
 deployment_validate_compose() {
@@ -632,7 +696,7 @@ deployment_write_evidence() {
 
 deployment_update_retention_index() {
   local evidence_file=$1
-  local target="$RENTAL_OPS_STATE_DIR/deployment-retention.json"
+  local target="$RENTAL_DEPLOYMENT_RETENTION_FILE"
   local temporary
   temporary=$(mktemp "$RENTAL_OPS_STATE_DIR/.retention.XXXXXX")
   if [[ -f $target ]]; then
@@ -665,11 +729,11 @@ deployment_update_retention_index() {
 
 # Adds one named bridge release and its pre-SQLite snapshot to the retention
 # index. Re-running with the same pair is idempotent; replacing the protected
-# rollback point requires an explicit future unprotect workflow.
+# rollback point requires deployment_unprotect_migration_release first.
 deployment_protect_migration_release() {
   local evidence_file=$1
   local protected_snapshot=$2
-  local target="$RENTAL_OPS_STATE_DIR/deployment-retention.json"
+  local target="$RENTAL_DEPLOYMENT_RETENTION_FILE"
   local temporary
   [[ -f $evidence_file && ! -L $evidence_file ]]
   [[ -d $protected_snapshot && ! -L $protected_snapshot ]]
@@ -700,4 +764,41 @@ deployment_protect_migration_release() {
   fi
   chmod 0600 "$temporary"
   mv -f "$temporary" "$target"
+}
+
+# Releases the protected rollback point so a replacement can be taken, and
+# prints the snapshot it released. Protection is taken against whichever
+# release is current at the time, so an ordinary JSON-to-JSON deploy can move
+# current past it and leave a protection that no cutover will ever accept.
+# The caller must name the image it believes is protected: repairing that
+# mistake by clearing the entry unread would simply repeat it.
+deployment_unprotect_migration_release() {
+  local expected_image=$1
+  local target="$RENTAL_DEPLOYMENT_RETENTION_FILE"
+  local temporary snapshot
+  [[ -f $target && ! -L $target ]]
+  snapshot=$(jq -er --arg image "$expected_image" '
+    select(
+      (.protectedReleases | length) == 1 and
+      .protectedReleases[0].candidateImage == $image
+    ) |
+    .protectedReleases[0].protectedSnapshot
+  ' "$target") || {
+    printf 'No single protected rollback point is registered for %s\n' \
+      "$expected_image" >&2
+    return 65
+  }
+  [[ $snapshot == "$RENTAL_BACKUP_ROOT"/protected/pre-sqlite-* ]] || {
+    printf 'Protected snapshot is outside the protected backup directory\n' >&2
+    return 65
+  }
+  temporary=$(mktemp "$RENTAL_OPS_STATE_DIR/.retention.XXXXXX")
+  if ! jq '.schemaVersion = 2 | .protectedReleases = []' \
+    "$target" >"$temporary"; then
+    rm -- "$temporary"
+    return 65
+  fi
+  chmod 0600 "$temporary"
+  mv -f "$temporary" "$target"
+  printf '%s\n' "$snapshot"
 }

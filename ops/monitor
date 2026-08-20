@@ -10,6 +10,9 @@ CURL_BIN="${CURL_BIN:-curl}"
 RENTAL_ENV_FILE="${RENTAL_ENV_FILE:-/etc/rental-apartments/env}"
 RENTAL_HOST_ALIAS="${RENTAL_HOST_ALIAS:-production}"
 RENTAL_OPS_LOCK_FILE="${RENTAL_OPS_LOCK_FILE:-${RENTAL_OPERATIONS_LOCK_FILE:-$RENTAL_OPS_STATE_DIR/operations.lock}}"
+# Two evaluations further apart than this cannot be called consecutive; the
+# monitor timer runs every five minutes, so this tolerates one deferred run.
+READINESS_CONTINUITY_SECONDS="${READINESS_CONTINUITY_SECONDS:-900}"
 ALERT_STATE="$RENTAL_OPS_STATE_DIR/alerts.json"
 METRICS_STATE="$RENTAL_OPS_STATE_DIR/metrics-latest.json"
 terminal_recorded=false
@@ -144,13 +147,38 @@ main() {
   else
     previous='{"schemaVersion":1,"readinessFailureCount":0,"alerts":[]}'
   fi
+  # A failure only continues the previous one when the last evaluation actually
+  # ran against this same container recently. Evaluations deferred by the
+  # operations lock leave the count untouched, so without these guards two
+  # isolated probe failures either side of a redeploy read as consecutive.
   readiness_failures="$("$JQ_BIN" -nr \
     --argjson previous "$previous" \
-    --argjson metrics "$metrics" '
-      if $metrics.deployment.readiness == "ready"
-      then 0
-      else (($previous.readinessFailureCount // 0) + 1)
-      end
+    --argjson metrics "$metrics" \
+    --arg now "$now" \
+    --argjson continuitySeconds "$READINESS_CONTINUITY_SECONDS" '
+      def rfc3339_seconds:
+        if type == "string"
+        then (try (sub("\\.[0-9]+Z$"; "Z") | fromdateiso8601) catch null)
+        else null
+        end;
+      ($previous.readinessProbeContainerStartedAt // null) as $priorContainer
+      | ($metrics.deployment.startedAt // null) as $currentContainer
+      | ($previous.updatedAt // null | rfc3339_seconds) as $priorAt
+      | ($now | rfc3339_seconds) as $nowAt
+      | (
+          $priorContainer != null
+          and $currentContainer != null
+          and $priorContainer == $currentContainer
+          and $priorAt != null
+          and $nowAt != null
+          and ($nowAt - $priorAt) <= $continuitySeconds
+        ) as $continuous
+      | if $metrics.deployment.readiness == "ready"
+        then 0
+        elif $continuous
+        then (($previous.readinessFailureCount // 0) + 1)
+        else 1
+        end
     ')"
 
   desired="$("$JQ_BIN" -cn \
@@ -158,7 +186,8 @@ main() {
     --argjson previous "$previous" \
     --argjson readinessFailures "$readiness_failures" '
       def alert($name; $severity; $runbook; $reason):
-        {name: $name, severity: $severity, runbook: $runbook, reason: $reason};
+        {name: $name, severity: $severity, runbook: $runbook, reason: $reason,
+         source: "host"};
       def was_firing($name):
         any($previous.alerts[]?; .name == $name and .status == "firing");
       [
@@ -176,7 +205,7 @@ main() {
               (($metrics.windows["10m"].applicationStarts | tostring)
                 + " application starts occurred within 10 minutes"))),
         (select($readinessFailures >= 2)
-          | alert("readiness_failure"; "error"; "rentalctl status";
+          | alert("host_readiness_failure"; "error"; "rentalctl status";
               (($readinessFailures | tostring)
                 + " consecutive readiness probes failed"))),
         (select(
@@ -332,7 +361,14 @@ main() {
               | select(($next | map(.name) | index($prior.name)) == null)
               | select(
                   ($prior.source // "") != "application"
-                  and ($applicationNames | index($prior.name)) == null
+                  and (
+                    # Alerts the monitor raises itself always resolve. The
+                    # name check only guards state written before alerts
+                    # recorded their source, where an application alert is
+                    # otherwise indistinguishable from a host one.
+                    ($prior.source // "") == "host"
+                    or ($applicationNames | index($prior.name)) == null
+                  )
                 )
               | . + {
                   status: "resolved",
@@ -361,6 +397,7 @@ main() {
       schemaVersion: 1,
       updatedAt: $now,
       readinessFailureCount: $count,
+      readinessProbeContainerStartedAt: ($metrics.deployment.startedAt // null),
       alerts: $plan.alerts,
       applicationTransitionKeys:
         [($metrics.applicationAlertTransitions // [])[].key]

@@ -14,6 +14,7 @@ DU_BIN="${DU_BIN:-du}"
 LNAV_BIN="${LNAV_BIN:-lnav}"
 
 RENTAL_CONTAINER_NAME="${RENTAL_CONTAINER_NAME:-rental-apartments-bot}"
+READINESS_PROBE_RETRY_DELAY_SECONDS="${READINESS_PROBE_RETRY_DELAY_SECONDS:-5}"
 RENTAL_OPS_STATE_DIR="${RENTAL_OPS_STATE_DIR:-/var/lib/rental-apartments-ops}"
 RENTAL_DATA_PATH="${RENTAL_DATA_PATH:-/var/lib/docker/volumes/rental-apartments-data/_data}"
 RENTAL_BACKUP_PATH="${RENTAL_BACKUP_PATH:-/mnt/rental-apartments-backups}"
@@ -59,11 +60,19 @@ probe_readiness_json() {
   # --ready queries the readiness endpoint. Without it this probe reports
   # liveness, so an application that is running but cannot crawl reads as
   # "ready" and no readiness alert can ever fire.
-  local status="not_ready"
-  if "$DOCKER_BIN" exec "$RENTAL_CONTAINER_NAME" \
-    node src/health-check.js --ready >/dev/null 2>&1; then
-    status="ready"
-  fi
+  #
+  # A single attempt also reads as not ready whenever a crawl happens to
+  # saturate the event loop, so a genuinely healthy process is retried once
+  # before the result counts against it.
+  local status="not_ready" attempt
+  for attempt in 1 2; do
+    if "$DOCKER_BIN" exec "$RENTAL_CONTAINER_NAME" \
+      node src/health-check.js --ready >/dev/null 2>&1; then
+      status="ready"
+      break
+    fi
+    [[ $attempt -eq 1 ]] && sleep "$READINESS_PROBE_RETRY_DELAY_SECONDS"
+  done
   "$JQ_BIN" -cn --arg status "$status" '{status: $status}'
 }
 

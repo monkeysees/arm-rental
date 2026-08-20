@@ -98,9 +98,13 @@ async function fakeHost(
   const journal = join(root, "journal.jsonl");
   const unitJournal = join(root, "unit-journal.jsonl");
   const diskAvailable = join(root, "disk-available-kb");
+  const containerStarted = join(root, "container-started-at");
+  const readinessExit = join(root, "readiness-exit-code");
   await copyFile(fixture, journal);
   await writeFile(unitJournal, "");
   await writeFile(diskAvailable, "900\n");
+  await writeFile(containerStarted, `${containerStartedAt}\n`);
+  await writeFile(readinessExit, "0\n");
 
   await executable(
     join(bin, "journalctl"),
@@ -114,9 +118,9 @@ esac
   await executable(
     join(bin, "docker"),
     `#!/bin/sh
-if [ "$1" = "exec" ]; then exit 0; fi
+if [ "$1" = "exec" ]; then exit "$(cat "$RENTAL_TEST_READINESS_EXIT")"; fi
 if [ "$1" = "inspect" ]; then
-  printf '%s\\n' '[{"Image":"sha256:abc","Config":{"Labels":{"org.opencontainers.image.revision":"${"a".repeat(40)}"}},"State":{"Running":true,"StartedAt":"${containerStartedAt}","Health":{"Status":"healthy"}},"RestartCount":0}]'
+  printf '%s\\n' '[{"Image":"sha256:abc","Config":{"Labels":{"org.opencontainers.image.revision":"${"a".repeat(40)}"}},"State":{"Running":true,"StartedAt":"'"$(cat "$RENTAL_TEST_CONTAINER_STARTED")"'","Health":{"Status":"healthy"}},"RestartCount":0}]'
   exit 0
 fi
 exit 1
@@ -177,6 +181,8 @@ exit ${operationsLockAvailable ? 0 : 1}
     journal,
     unitJournal,
     diskAvailable,
+    containerStarted,
+    readinessExit,
     env: {
       ...process.env,
       PATH: `${bin}:${process.env.PATH}`,
@@ -190,6 +196,9 @@ exit ${operationsLockAvailable ? 0 : 1}
       RENTAL_TEST_JOURNAL: journal,
       RENTAL_TEST_UNIT_JOURNAL: unitJournal,
       RENTAL_TEST_DISK_AVAILABLE: diskAvailable,
+      RENTAL_TEST_CONTAINER_STARTED: containerStarted,
+      RENTAL_TEST_READINESS_EXIT: readinessExit,
+      READINESS_PROBE_RETRY_DELAY_SECONDS: "0",
       RENTAL_TEST_SYSTEMD_LOG: join(root, "systemd.log"),
       RENTAL_TEST_CURL_CALLS: join(root, "curl.calls"),
       RENTAL_TEST_CURL_PAYLOADS: join(root, "curl.payloads"),
@@ -573,6 +582,79 @@ test("monitor includes validated readiness reasons in alert notifications", asyn
   assert.equal(
     alertState.alerts.find(({ name }) => name === "readiness_failure")?.reason,
     "BROWSER_VERIFICATION_REQUIRED, CRAWL_STALE",
+  );
+});
+
+test("the host readiness alert resolves alongside an application alert of its own", async (t) => {
+  const host = await fakeHost(t);
+  // The application raises its own readiness_failure. Sharing that name with
+  // the monitor's alert once suppressed the host all-clear entirely.
+  await appendFile(
+    host.journal,
+    alertRecord("2026-07-25T11:58:00.000Z", "alert.firing", "readiness_failure", {
+      reasons: ["CRAWL_STALE"],
+    }) +
+      alertRecord(
+        "2026-07-25T11:58:30.000Z",
+        "alert.resolved",
+        "readiness_failure",
+      ),
+  );
+
+  await writeFile(host.readinessExit, "1\n");
+  await execute(monitor, [], { env: host.env });
+  await execute(monitor, [], { env: host.env });
+  await writeFile(host.readinessExit, "0\n");
+  await execute(monitor, [], { env: host.env });
+
+  const payloads = await readFile(host.env.RENTAL_TEST_CURL_PAYLOADS, "utf8");
+  assert.match(payloads, /alert firing: host_readiness_failure/u);
+  assert.match(payloads, /2 consecutive readiness probes failed/u);
+  assert.match(payloads, /alert resolved: host_readiness_failure/u);
+
+  const alertState = JSON.parse(
+    await readFile(join(host.state, "alerts.json"), "utf8"),
+  );
+  assert.equal(alertState.readinessFailureCount, 0);
+  assert.equal(
+    alertState.alerts.find(({ name }) => name === "host_readiness_failure"),
+    undefined,
+  );
+});
+
+test("readiness failures either side of a replaced container are not consecutive", async (t) => {
+  const host = await fakeHost(t);
+  await writeFile(host.readinessExit, "1\n");
+
+  await execute(monitor, [], { env: host.env });
+  let alertState = JSON.parse(
+    await readFile(join(host.state, "alerts.json"), "utf8"),
+  );
+  assert.equal(alertState.readinessFailureCount, 1);
+
+  // A deploy replaces the container; the surviving count describes a process
+  // that no longer exists.
+  await writeFile(host.containerStarted, "2026-07-25T11:56:00Z\n");
+  await execute(monitor, [], { env: host.env });
+
+  alertState = JSON.parse(
+    await readFile(join(host.state, "alerts.json"), "utf8"),
+  );
+  assert.equal(alertState.readinessFailureCount, 1);
+  assert.equal(
+    alertState.readinessProbeContainerStartedAt,
+    "2026-07-25T11:56:00Z",
+  );
+  assert.doesNotMatch(
+    await readFile(host.env.RENTAL_TEST_CURL_PAYLOADS, "utf8"),
+    /host_readiness_failure/u,
+  );
+
+  // A second failure against the same container does complete the pair.
+  await execute(monitor, [], { env: host.env });
+  assert.match(
+    await readFile(host.env.RENTAL_TEST_CURL_PAYLOADS, "utf8"),
+    /alert firing: host_readiness_failure/u,
   );
 });
 

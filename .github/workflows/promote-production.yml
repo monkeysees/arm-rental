@@ -1,0 +1,109 @@
+name: Promote production
+
+# A state-backend cutover is the one pointer move the publisher will not make
+# on its own. The bridge release that knows how to perform the cutover has to
+# be running on the host before the pointer advances, and publishing that
+# bridge is not the same as the host having taken it. Only an operator reading
+# the host can tell the difference, so they confirm it here.
+on:
+  workflow_dispatch:
+    inputs:
+      revision:
+        description: Full 40-character source revision to point production at
+        required: true
+        type: string
+      deployed_bridge_revision:
+        description: Revision currently deployed on the host, from `rentalctl status`
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  packages: write
+
+# Shared with publish-production: the pointer has one writer at a time.
+concurrency:
+  group: production-publication
+  cancel-in-progress: false
+
+jobs:
+  promote:
+    name: Promote / production discovery pointer
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Check out the promotion tooling
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Use production Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .nvmrc
+
+      - name: Authenticate to GHCR
+        env:
+          GHCR_TOKEN: ${{ github.token }}
+        run: printf '%s' "$GHCR_TOKEN" | docker login ghcr.io --username "${{ github.actor }}" --password-stdin
+
+      - name: Resolve the requested release and the release production runs
+        id: resolve
+        env:
+          REVISION: ${{ inputs.revision }}
+        run: |
+          if [[ ! $REVISION =~ ^[0-9a-f]{40}$ ]]; then
+            printf 'revision must be a full 40-character Git SHA\n' >&2
+            exit 1
+          fi
+          IMAGE_REPOSITORY="ghcr.io/${GITHUB_REPOSITORY,,}"
+          docker pull --quiet "$IMAGE_REPOSITORY:revision-$REVISION" >/dev/null
+          IMAGE_REFERENCE="$(docker image inspect --format '{{index .RepoDigests 0}}' "$IMAGE_REPOSITORY:revision-$REVISION")"
+
+          mkdir -p release current
+          docker pull --quiet "$IMAGE_REPOSITORY:metadata-$REVISION" >/dev/null
+          CANDIDATE_CONTAINER="$(docker create "$IMAGE_REPOSITORY:metadata-$REVISION" /release/release-metadata.json)"
+          docker cp "$CANDIDATE_CONTAINER:/release/release-metadata.json" release/release-metadata.json
+          docker rm "$CANDIDATE_CONTAINER" >/dev/null
+
+          docker pull --quiet "$IMAGE_REPOSITORY:production" >/dev/null
+          CURRENT_REVISION="$(docker image inspect --format '{{ index .Config.Labels "org.opencontainers.image.revision" }}' "$IMAGE_REPOSITORY:production")"
+          docker pull --quiet "$IMAGE_REPOSITORY:metadata-$CURRENT_REVISION" >/dev/null
+          CURRENT_CONTAINER="$(docker create "$IMAGE_REPOSITORY:metadata-$CURRENT_REVISION" /release/release-metadata.json)"
+          docker cp "$CURRENT_CONTAINER:/release/release-metadata.json" current/release-metadata.json
+          docker rm "$CURRENT_CONTAINER" >/dev/null
+
+          # The metadata must name the exact image the pointer will carry.
+          test "$(jq -r .imageReference release/release-metadata.json)" = "$IMAGE_REFERENCE"
+
+          printf 'image_repository=%s\n' "$IMAGE_REPOSITORY" >> "$GITHUB_OUTPUT"
+          printf 'image_reference=%s\n' "$IMAGE_REFERENCE" >> "$GITHUB_OUTPUT"
+          printf 'current_revision=%s\n' "$CURRENT_REVISION" >> "$GITHUB_OUTPUT"
+
+      # The operator reports what the host is running. If that disagrees with
+      # the pointer, the host has not converged and the bridge they checked is
+      # not the release this promotion would deploy from.
+      - name: Require the confirmed bridge to be the release production runs
+        env:
+          CONFIRMED: ${{ inputs.deployed_bridge_revision }}
+          CURRENT_REVISION: ${{ steps.resolve.outputs.current_revision }}
+        run: |
+          if [ "$CONFIRMED" != "$CURRENT_REVISION" ]; then
+            printf 'Host was reported at %s but production points at %s.\n' "$CONFIRMED" "$CURRENT_REVISION" >&2
+            printf 'Let the host converge on the bridge release before promoting.\n' >&2
+            exit 1
+          fi
+
+      - name: Confirm the running release can deploy the candidate
+        run: |
+          node scripts/check-production-transition.js \
+            release/release-metadata.json \
+            current/release-metadata.json
+
+      - name: Advance production discovery pointer
+        env:
+          IMAGE_REPOSITORY: ${{ steps.resolve.outputs.image_repository }}
+          IMAGE_REFERENCE: ${{ steps.resolve.outputs.image_reference }}
+        run: |
+          docker tag "$IMAGE_REFERENCE" "$IMAGE_REPOSITORY:production"
+          docker push "$IMAGE_REPOSITORY:production"
+          test "$(docker image inspect --format '{{index .RepoDigests 0}}' "$IMAGE_REPOSITORY:production")" = "$IMAGE_REFERENCE"

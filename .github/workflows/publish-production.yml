@@ -138,9 +138,50 @@ jobs:
           cmp compose.production.yaml release/published/compose.production.yaml
           cmp package-lock.json release/published/package-lock.json
 
+      # The host deploys each candidate using the operations bundle of the
+      # release it is already running, so a candidate that release cannot
+      # deploy becomes undeployable the instant the pointer moves, and the
+      # host retries it every five minutes until someone intervenes.
+      # Classify the transition before the pointer is touched.
+      - name: Classify the state transition against production
+        id: transition
+        env:
+          IMAGE_REPOSITORY: ${{ steps.candidate.outputs.image_repository }}
+        run: |
+          # Absent current metadata means "no pointer exists yet", which is
+          # what the classifier reads as an unguarded first publish. Only a
+          # registry that answers with a missing manifest may produce it: a
+          # denied, throttled, or unreachable registry must not be able to
+          # retire the guard.
+          PULL_LOG="$(mktemp)"
+          if docker pull --quiet "$IMAGE_REPOSITORY:production" >/dev/null 2>"$PULL_LOG"; then
+            CURRENT_REVISION="$(docker image inspect --format '{{ index .Config.Labels "org.opencontainers.image.revision" }}' "$IMAGE_REPOSITORY:production")"
+            docker pull --quiet "$IMAGE_REPOSITORY:metadata-$CURRENT_REVISION" >/dev/null
+            CURRENT_CONTAINER="$(docker create "$IMAGE_REPOSITORY:metadata-$CURRENT_REVISION" /release/release-metadata.json)"
+            trap 'docker rm "$CURRENT_CONTAINER" >/dev/null' EXIT
+            mkdir -p current
+            docker cp "$CURRENT_CONTAINER:/release/release-metadata.json" current/release-metadata.json
+          elif grep -qiE 'manifest unknown|manifest for .* not found|not found: manifest' "$PULL_LOG"; then
+            printf 'No production pointer exists yet; this is the first publication.\n'
+          else
+            cat "$PULL_LOG" >&2
+            printf 'Could not read the release production runs, so the state '
+            printf 'transition cannot be classified. Refusing to advance the '
+            printf 'production pointer.\n' >&2
+            exit 1
+          fi
+          node scripts/check-production-transition.js \
+            release/release-metadata.json \
+            current/release-metadata.json
+
       # This is intentionally last: the host sees a new digest only after the
       # candidate, its exact metadata, and every earlier quality gate exist.
+      # A state-backend cutover is deliberately excluded. Publishing the
+      # bridge release is not the same as the host having deployed it, and
+      # only the host knows which, so promote-production advances the
+      # pointer once an operator has confirmed it.
       - name: Advance production discovery pointer
+        if: steps.transition.outputs.cutover != 'true'
         env:
           IMAGE_REPOSITORY: ${{ steps.candidate.outputs.image_repository }}
           IMAGE_REFERENCE: ${{ steps.candidate.outputs.image_reference }}
@@ -148,3 +189,12 @@ jobs:
           docker tag "$IMAGE_REFERENCE" "$IMAGE_REPOSITORY:production"
           docker push "$IMAGE_REPOSITORY:production"
           test "$(docker image inspect --format '{{index .RepoDigests 0}}' "$IMAGE_REPOSITORY:production")" = "$IMAGE_REFERENCE"
+
+      - name: Report the held cutover
+        if: steps.transition.outputs.cutover == 'true'
+        env:
+          IMAGE_REFERENCE: ${{ steps.candidate.outputs.image_reference }}
+        run: |
+          printf 'Published %s without advancing the production pointer.\n' "$IMAGE_REFERENCE"
+          printf 'This release changes the state backend. Confirm the bridge '
+          printf 'release is deployed on the host, then run promote-production.\n'

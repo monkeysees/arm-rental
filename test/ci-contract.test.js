@@ -112,6 +112,7 @@ test("release manifest binds the deployable image to its complete inputs", async
     stateBackend: "sqlite",
     minimumStateSchema: 1,
     maximumStateSchema: 1,
+    deployableStateBackends: ["sqlite"],
     nodeVersion: nodeVersion.trim(),
     browserVersion: "151.0.7922.137",
     packageLockSha256: createHash("sha256").update(packageLock).digest("hex"),
@@ -224,5 +225,136 @@ test("production publication advances discovery only after scan, push, and metad
   assert.doesNotMatch(
     workflow.slice(0, production),
     /docker push "\$IMAGE_REPOSITORY:production"/u,
+  );
+
+  // The pointer may only move after the transition has been classified, and
+  // never on its own across a state-backend cutover.
+  const transition = workflow.indexOf(
+    "name: Classify the state transition against production",
+  );
+  assert.ok(transition > metadata && transition < production);
+  assert.match(workflow, /scripts\/check-production-transition\.js/u);
+  assert.match(
+    workflow,
+    /if: steps\.transition\.outputs\.cutover != 'true'/u,
+    "a cutover must not advance the pointer automatically",
+  );
+  // Absent current metadata reads as an unguarded first publish, so only a
+  // missing manifest may produce it.
+  assert.match(workflow, /manifest unknown/u);
+  assert.match(
+    workflow,
+    /Refusing to advance the /u,
+    "an unreadable production pointer must not retire the transition guard",
+  );
+});
+
+test("a state backend cutover reaches production only by confirmed promotion", async () => {
+  const workflow = await readProjectFile(
+    ".github/workflows/promote-production.yml",
+  );
+
+  assert.match(workflow, /workflow_dispatch/u);
+  assert.match(workflow, /deployed_bridge_revision/u);
+  assert.match(workflow, /group: production-publication/u);
+  assert.match(workflow, /cancel-in-progress: false/u);
+  assert.match(workflow, /scripts\/check-production-transition\.js/u);
+
+  const confirm = workflow.indexOf(
+    "name: Require the confirmed bridge to be the release production runs",
+  );
+  const compatible = workflow.indexOf(
+    "name: Confirm the running release can deploy the candidate",
+  );
+  const advance = workflow.indexOf(
+    "name: Advance production discovery pointer",
+  );
+  assert.ok(
+    confirm > 0 && confirm < compatible && compatible < advance,
+    "confirm the host, then compatibility, and only then move the pointer",
+  );
+});
+
+test("the publisher refuses a candidate the running release cannot deploy", async () => {
+  const { classifyProductionTransition } =
+    await import("../scripts/check-production-transition.js");
+
+  // The incident: a SQLite release published while a plain JSON release was
+  // current. Its verifier accepted only JSON, so every poll failed silently.
+  const refused = classifyProductionTransition({
+    current: { stateBackend: "json", sourceRevision: "f".repeat(40) },
+    candidate: { stateBackend: "sqlite" },
+  });
+  assert.equal(refused.allowed, false);
+  assert.equal(refused.cutover, true);
+  assert.match(refused.reason, /deploys only json/u);
+
+  // The bridge release declares that it can deploy the next backend, so the
+  // publish succeeds, but the pointer still waits for a confirmed promotion.
+  const bridged = classifyProductionTransition({
+    current: {
+      stateBackend: "json",
+      deployableStateBackends: ["json", "sqlite"],
+    },
+    candidate: { stateBackend: "sqlite" },
+  });
+  assert.equal(bridged.allowed, true);
+  assert.equal(bridged.cutover, true);
+
+  // Ordinary same-backend releases are untouched by any of this.
+  const ordinary = classifyProductionTransition({
+    current: { stateBackend: "sqlite", deployableStateBackends: ["sqlite"] },
+    candidate: { stateBackend: "sqlite" },
+  });
+  assert.equal(ordinary.allowed, true);
+  assert.equal(ordinary.cutover, false);
+
+  const firstPublish = classifyProductionTransition({
+    current: undefined,
+    candidate: { stateBackend: "sqlite" },
+  });
+  assert.equal(firstPublish.allowed, true);
+  assert.equal(firstPublish.cutover, false);
+});
+
+test("declared deployable backends are the ones this release's verifier accepts", async (t) => {
+  const temporaryDirectory = await mkdtemp(
+    join(tmpdir(), "deployable-backends-"),
+  );
+  t.after(() => rm(temporaryDirectory, { recursive: true, force: true }));
+  const archivePath = join(temporaryDirectory, "production-image.tar.gz");
+  await writeFile(archivePath, "deterministic image archive");
+  const [metadata, library] = await Promise.all([
+    createReleaseMetadata({
+      sourceRevision: "a".repeat(40),
+      imageArchive: archivePath,
+    }),
+    readProjectFile("ops/lib/deployment.sh"),
+  ]);
+
+  // The publisher trusts this field when deciding whether the pointer may
+  // advance past a release. Deriving it from the verifier that actually
+  // refuses candidates keeps a widened field from promising a cutover the
+  // host would reject on every poll, and a forgotten one from stranding a
+  // bridge release that can perform it.
+  const verifier = library.slice(
+    library.indexOf("\ndeployment_verify_release() {"),
+    library.indexOf("\ndeployment_validate_compose() {"),
+  );
+  assert.ok(verifier.includes("jq"), "the release verifier must be readable");
+  const accepted = [
+    ...new Set(
+      [...verifier.matchAll(/\.stateBackend == "(?<backend>[a-z]+)"/gu)].map(
+        (match) => match.groups.backend,
+      ),
+    ),
+  ];
+  assert.ok(
+    accepted.length > 0,
+    "the verifier must constrain the state backend",
+  );
+  assert.deepEqual(
+    metadata.deployableStateBackends.toSorted(),
+    accepted.toSorted(),
   );
 });

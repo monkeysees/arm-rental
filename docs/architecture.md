@@ -159,6 +159,19 @@ complete observation window, atomically advances runtime pointers, and
 restores the prior snapshot and digest on failure. Failed candidate digests are
 quarantined to prevent retry loops.
 
+The host deploys each candidate with the operations bundle of the release it is
+already running, so a candidate whose state backend that release cannot deploy
+is undeployable the moment the pointer moves and is retried every poll. Release
+metadata therefore declares `deployableStateBackends`, the backends this
+release's own verifier accepts, and publication classifies the transition
+before touching the pointer: a same-backend candidate advances it, a candidate
+the running release cannot deploy fails publication, and a cutover the running
+bridge can deploy is published with the pointer held. A held cutover advances
+only through the separate `promote-production` workflow, which requires an
+operator to report the revision the host actually runs and refuses unless that
+matches the release `production` names. An unreadable pointer fails closed
+rather than reading as a first publication.
+
 Accepted deployments update a retention index containing the current release
 and at most two rollback releases before invoking retention-aware image
 cleanup. Cleanup validates that index against the immutable current-image

@@ -94,6 +94,13 @@ export async function createReleaseMetadata({
     stateBackend: "sqlite",
     minimumStateSchema: 1,
     maximumStateSchema: 1,
+    // What this release's own deployer will accept as a candidate, which is
+    // not the same as the backend it runs. The host deploys the next candidate
+    // with the operations bundle it is already running, so the publisher uses
+    // this to refuse advancing the pointer past a release that cannot deploy
+    // what comes next. A bridge release carrying cutover machinery lists both
+    // backends; every other release lists only the one its verifier accepts.
+    deployableStateBackends: ["sqlite"],
     nodeVersion: nodeVersionText.trim(),
     browserVersion,
     packageLockSha256: sha256(packageLock),

@@ -33,6 +33,8 @@ publishes a metadata image tagged `metadata-<full-git-revision>`. Its
 
 - the full source revision and exact image reference/digest;
 - the supported state backend and inclusive schema range;
+- the state backends this release's own deployer accepts
+  (`deployableStateBackends`);
 - the `package-lock.json` digest;
 - the production Compose digest; and
 - a deterministic archive digest for `ops/` and `infra/systemd/`.
@@ -40,6 +42,28 @@ publishes a metadata image tagged `metadata-<full-git-revision>`. Its
 The publisher copies the metadata back out and compares it byte-for-byte before
 advancing `production`. Therefore a failed quality gate, provenance check,
 scan, candidate push, or metadata push cannot change host discovery.
+
+### State backend transitions
+
+The host deploys each candidate using the operations bundle of the release it
+is already running, so a candidate that release cannot deploy is undeployable
+the moment the pointer moves, and the host retries it every poll. Before
+advancing the pointer the publisher reads the metadata of the release
+`production` currently names and compares state backends:
+
+- same backend: the pointer advances as usual;
+- backend change, and the current release's `deployableStateBackends` does not
+  include the candidate's: publication fails. The bridge release that performs
+  the cutover has to be published first;
+- backend change the current release can deploy: the image and metadata are
+  published but the pointer is held.
+
+A held cutover is deliberate. Publishing the bridge is not the same as the host
+having deployed it, and only the host knows which. Confirm the deployed
+revision on the host, then run `promote-production.yml` with the revision to
+promote and the deployed bridge revision. It refuses unless the reported
+revision matches the release `production` names, so a host that has not yet
+converged cannot be promoted past.
 
 Expected publication evidence is the successful
 `Publish production / Publish / scanned production digest` check, the immutable

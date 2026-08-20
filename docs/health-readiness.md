@@ -72,12 +72,20 @@ docker exec rental-apartments-bot node src/health-check.js
 docker inspect --format '{{json .State.Health}}' rental-apartments-bot
 ```
 
-Inspect readiness without publishing its port:
+Inspect readiness without publishing its port. The `--ready` flag reports the
+verdict as an exit status; the inline fetch also prints the `reasons` array that
+explains a failure:
 
 ```sh
+docker exec rental-apartments-bot node src/health-check.js --ready
 docker exec rental-apartments-bot node -e \
   'fetch("http://127.0.0.1:8787/ready").then(async response => { console.log(await response.text()); process.exitCode = response.ok ? 0 : 1 })'
 ```
+
+Scheduled monitoring uses the `--ready` form. Passing neither flag probes
+`/live`, which answers whether the process is responsive rather than whether it
+can crawl, so a running but unready application would report as ready and no
+readiness alert would fire.
 
 Monitoring should alert on HTTP 503 and route the returned reason/component
 code to the matching runbook. It should never copy environment variables,

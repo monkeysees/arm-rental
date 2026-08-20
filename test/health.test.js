@@ -7,7 +7,11 @@ import {
   HealthMonitor,
   startHealthServer,
 } from "../src/health.js";
-import { isApplicationCommand, probeLiveness } from "../src/health-check.js";
+import {
+  isApplicationCommand,
+  probeLiveness,
+  probeReadiness,
+} from "../src/health-check.js";
 
 const readyPreflight = {
   status: "ready",
@@ -103,7 +107,9 @@ test("liveness supervision targets the application, not the probe process", () =
 test("liveness probe accepts only a responsive success status", async (t) => {
   let statusCode = 200;
   let shouldRespond = true;
-  const server = createServer((_request, response) => {
+  const requestedPaths = [];
+  const server = createServer((request, response) => {
+    requestedPaths.push(request.url);
     if (!shouldRespond) return;
     response.writeHead(statusCode);
     response.end();
@@ -130,15 +136,26 @@ test("liveness probe accepts only a responsive success status", async (t) => {
   });
 
   await probeLiveness({ timeoutMs: probeOptions.timeoutMs });
+  await probeReadiness({ timeoutMs: probeOptions.timeoutMs });
+  // Each probe must query its own endpoint. Reporting readiness from /live
+  // would call a running-but-unready application ready and silence its alert.
+  assert.deepEqual(requestedPaths, ["/live", "/ready"]);
+
   statusCode = 503;
   await assert.rejects(
     probeLiveness(probeOptions),
-    /Liveness probe returned 503/u,
+    /Probe of \/live returned 503/u,
+  );
+  // A 503 is exactly how the application reports that it cannot crawl, so the
+  // readiness probe has to treat it as a failure rather than a reachable host.
+  await assert.rejects(
+    probeReadiness(probeOptions),
+    /Probe of \/ready returned 503/u,
   );
   shouldRespond = false;
   await assert.rejects(
     probeLiveness({ ...probeOptions, timeoutMs: 10 }),
-    /Liveness probe timed out/u,
+    /Probe of \/live timed out/u,
   );
 });
 

@@ -56,9 +56,12 @@ aggregate_application_journal() {
 }
 
 probe_readiness_json() {
+  # --ready queries the readiness endpoint. Without it this probe reports
+  # liveness, so an application that is running but cannot crawl reads as
+  # "ready" and no readiness alert can ever fire.
   local status="not_ready"
   if "$DOCKER_BIN" exec "$RENTAL_CONTAINER_NAME" \
-    node src/health-check.js >/dev/null 2>&1; then
+    node src/health-check.js --ready >/dev/null 2>&1; then
     status="ready"
   fi
   "$JQ_BIN" -cn --arg status "$status" '{status: $status}'

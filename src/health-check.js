@@ -3,6 +3,17 @@ import { readFile, readdir } from "node:fs/promises";
 import { getHealthEndpointConfig } from "./environment-config.js";
 
 export async function probeLiveness(options = {}) {
+  return probeEndpoint("/live", options);
+}
+
+// Readiness is a separate judgement from liveness: a responsive process that
+// cannot crawl is live but not ready. Probing it must never restart anything,
+// so this stays distinct from the supervised liveness path below.
+export async function probeReadiness(options = {}) {
+  return probeEndpoint("/ready", options);
+}
+
+function probeEndpoint(endpointPath, options = {}) {
   const endpoint = getHealthEndpointConfig(options.env);
   const host = options.host ?? endpoint.host;
   const port = options.port ?? endpoint.port;
@@ -12,7 +23,7 @@ export async function probeLiveness(options = {}) {
       {
         host,
         port,
-        path: "/live",
+        path: endpointPath,
         method: "GET",
         timeout: timeoutMs,
       },
@@ -20,11 +31,15 @@ export async function probeLiveness(options = {}) {
         response.resume();
         if (response.statusCode === 200) resolve();
         else
-          reject(new Error(`Liveness probe returned ${response.statusCode}`));
+          reject(
+            new Error(
+              `Probe of ${endpointPath} returned ${response.statusCode}`,
+            ),
+          );
       },
     );
     probe.once("timeout", () => {
-      probe.destroy(new Error("Liveness probe timed out"));
+      probe.destroy(new Error(`Probe of ${endpointPath} timed out`));
     });
     probe.once("error", reject);
     probe.end();
@@ -60,10 +75,15 @@ async function terminateApplication() {
 }
 
 async function main() {
+  // --ready reports whether the application can do its job; the default
+  // liveness probe reports only whether the process still answers. Restarting
+  // on readiness would loop the container through failures a restart cannot
+  // fix, so the two never share the recovery path.
+  const readinessMode = process.argv.includes("--ready");
   try {
-    await probeLiveness();
+    await (readinessMode ? probeReadiness() : probeLiveness());
   } catch {
-    if (process.argv.includes("--restart-unresponsive")) {
+    if (!readinessMode && process.argv.includes("--restart-unresponsive")) {
       // The probe is a sibling process under the container's minimal init.
       // Killing the unresponsive Node child makes init exit non-zero, engaging
       // Docker's bounded restart policy.

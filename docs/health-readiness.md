@@ -57,15 +57,49 @@ The image and Compose definition run this liveness command every 30 seconds:
 node src/health-check.js --restart-unresponsive
 ```
 
-The command runs outside the application event loop in the same container. If
-the private `/live` endpoint cannot answer within three seconds, it terminates
-the container. Docker's bounded `on-failure` policy then restarts it. The
-60-second start period allows preflight to begin without confusing startup work
-with an event-loop failure. The Docker healthcheck intentionally does not use
-readiness: restarting a responsive process does not remediate missing channel
-permissions, a browser challenge, stale crawling, or an unavailable upstream.
+The command runs outside the application event loop in the same container and
+gives the private `/live` endpoint three seconds to answer. That budget is
+deliberately shorter than Compose's five-second healthcheck timeout: a failed
+probe must be able to record the failure and exit before Docker kills the check
+itself, or the recovery below could never advance.
 
-Inspect liveness from the deployment host:
+Docker runs this command on every probe, not only on the ones that decide the
+reported health status, so the command counts consecutive failures itself and
+terminates the application only on the third in a row. Two failed probes
+already report the container unhealthy through `retries: 2`, which makes the
+kill deliberately one probe behind the alert: the application must have been
+unable to answer for two full 30-second intervals — roughly 60 to 75 seconds
+including each probe's own budget — before anything is signalled. A single
+successful probe ends the run, so a transient event-loop stall recovers without
+a restart. The earliest a fresh container can reach three failures is its
+90-second probe, 30 seconds past the 60-second start period reserved for
+preflight.
+
+The count lives in a private `0700` directory under the container's `/tmp`
+tmpfs, which the kernel recreates empty at every container start, so a
+replacement container never inherits its predecessor's failures and the count
+is never written to the persistent data volume. A missing, unreadable, or
+malformed count is treated as no failures at all: a counter that cannot be
+trusted never becomes the reason production is killed.
+
+Termination targets the Node process that is executing `src/index.js` — the
+executable in `argv[0]` with the script as its first non-option argument. The
+container's minimal init is PID 1 and lists the same script among its own
+arguments (`/sbin/docker-init -- docker-entrypoint.sh node src/index.js`), and
+`/proc` yields it first; it is never the target, both because it fails that
+test and because a PID namespace's init cannot receive an unhandled signal
+raised inside the namespace. Killing the application makes init exit non-zero
+and Docker's bounded `on-failure` policy restarts the container, which is
+visible as an increased `RestartCount` and, if it repeats, the
+`process_restart_loop` alert.
+
+The Docker healthcheck intentionally does not use readiness: restarting a
+responsive process does not remediate missing channel permissions, a browser
+challenge, stale crawling, or an unavailable upstream.
+
+Inspect liveness from the deployment host. Only the supervised
+`--restart-unresponsive` form keeps the failure count, so a manual probe
+neither arms termination nor clears a run already counting towards it:
 
 ```sh
 docker exec rental-apartments-bot node src/health-check.js

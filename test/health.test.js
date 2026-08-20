@@ -1,5 +1,10 @@
 import assert from "node:assert/strict";
+import { spawn } from "node:child_process";
+import { once } from "node:events";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { createServer, request } from "node:http";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import test from "node:test";
 
 import {
@@ -11,7 +16,39 @@ import {
   isApplicationCommand,
   probeLiveness,
   probeReadiness,
+  superviseLiveness,
 } from "../src/health-check.js";
+
+// The command line captured from production PID 1: the container's minimal
+// init passes the application's command through as its own trailing arguments.
+const CONTAINER_INIT_COMMAND =
+  "/sbin/docker-init\0--\0docker-entrypoint.sh\0node\0src/index.js\0";
+const APPLICATION_COMMAND = "node\0src/index.js\0";
+// Named by src/health-check.js inside its private state directory.
+const FAILURE_COUNTER = "consecutive-liveness-failures";
+
+async function writeProcessTable(root, commandLines) {
+  for (const [processId, commandLine] of Object.entries(commandLines)) {
+    await mkdir(join(root, processId), { recursive: true });
+    await writeFile(join(root, processId, "cmdline"), commandLine);
+  }
+  // /proc also lists non-numeric entries the walk has to ignore.
+  await mkdir(join(root, "self"), { recursive: true });
+}
+
+async function temporaryDirectory(t, prefix) {
+  const directory = await mkdtemp(join(tmpdir(), prefix));
+  t.after(() => rm(directory, { recursive: true, force: true }));
+  return directory;
+}
+
+async function unusedLoopbackPort() {
+  const server = createServer();
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const { port } = server.address();
+  await new Promise((resolve) => server.close(resolve));
+  return port;
+}
 
 const readyPreflight = {
   status: "ready",
@@ -100,8 +137,164 @@ test("runtime failures use stable stage and error codes", () => {
 });
 
 test("liveness supervision targets the application, not the probe process", () => {
-  assert.equal(isApplicationCommand("node\0src/index.js\0"), true);
+  assert.equal(isApplicationCommand(APPLICATION_COMMAND), true);
+  assert.equal(
+    isApplicationCommand(
+      "/usr/local/bin/node\0--enable-source-maps\0/app/src/index.js\0",
+    ),
+    true,
+  );
   assert.equal(isApplicationCommand("node\0/app/src/health-check.js\0"), false);
+  // PID 1 names the application's script in its own arguments and /proc lists
+  // it first, so a predicate that only searches the arguments picks the init
+  // the kernel refuses to kill and no restart ever happens.
+  assert.equal(isApplicationCommand(CONTAINER_INIT_COMMAND), false);
+  assert.equal(
+    isApplicationCommand("/bin/sh\0-c\0exec node src/index.js\0"),
+    false,
+  );
+});
+
+test("supervised liveness kills the application only after a sustained run of failures", async (t) => {
+  let responsive = true;
+  const server = createServer((request, response) => {
+    // An unresponsive event loop accepts the connection and never answers,
+    // which is the failure the probe times out on in production.
+    if (!responsive) return;
+    response.writeHead(200);
+    response.end();
+  });
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  t.after(() => server.close());
+
+  const stateDirectory = await temporaryDirectory(t, "liveness-state-");
+  const processTable = await temporaryDirectory(t, "liveness-proc-");
+  const application = spawn(
+    process.execPath,
+    ["-e", "setInterval(() => {}, 1_000)"],
+    { stdio: "ignore" },
+  );
+  const applicationExit = once(application, "exit");
+  t.after(() => application.kill("SIGKILL"));
+  await writeProcessTable(processTable, {
+    1: CONTAINER_INIT_COMMAND,
+    [application.pid]: APPLICATION_COMMAND,
+  });
+
+  const supervision = { host: "127.0.0.1", port: server.address().port };
+  const failedProbe = () => {
+    responsive = false;
+    return superviseLiveness({
+      ...supervision,
+      stateDirectory,
+      processTable,
+      timeoutMs: 100,
+    });
+  };
+  const successfulProbe = () => {
+    responsive = true;
+    return superviseLiveness({
+      ...supervision,
+      stateDirectory,
+      processTable,
+      // Leave headroom for architecture-emulated CI on the answered probe.
+      timeoutMs: 2_000,
+    });
+  };
+
+  assert.deepEqual(await failedProbe(), {
+    live: false,
+    failures: 1,
+    terminated: false,
+  });
+  assert.deepEqual(await failedProbe(), {
+    live: false,
+    failures: 2,
+    terminated: false,
+  });
+  // Docker already reports the container unhealthy here (`retries: 2`), and
+  // the application is still running: recovery stays one probe behind the
+  // alert so a transient stall is never fatal.
+  assert.equal(application.exitCode, null);
+
+  assert.deepEqual(await successfulProbe(), {
+    live: true,
+    failures: 0,
+    terminated: false,
+  });
+  // A single success ends the run rather than merely pausing it.
+  assert.deepEqual(await failedProbe(), {
+    live: false,
+    failures: 1,
+    terminated: false,
+  });
+  assert.deepEqual(await failedProbe(), {
+    live: false,
+    failures: 2,
+    terminated: false,
+  });
+  assert.deepEqual(await failedProbe(), {
+    live: false,
+    failures: 3,
+    terminated: true,
+  });
+
+  // The signal reached the Node process running the application and not the
+  // init listed ahead of it, which a kill of PID 1 could not have achieved.
+  const [, signal] = await applicationExit;
+  assert.equal(signal, "SIGKILL");
+});
+
+test("a process table holding only the container init produces no victim", async (t) => {
+  const stateDirectory = await temporaryDirectory(t, "liveness-state-");
+  const processTable = await temporaryDirectory(t, "liveness-proc-");
+  await writeProcessTable(processTable, { 1: CONTAINER_INIT_COMMAND });
+  // Two failures are already recorded, so this probe reaches the threshold and
+  // has to choose a target: production's PID 1 is the only candidate, and
+  // signalling it would be discarded by the kernel rather than restart
+  // anything.
+  await writeFile(join(stateDirectory, FAILURE_COUNTER), "2\n");
+
+  await assert.rejects(
+    superviseLiveness({
+      host: "127.0.0.1",
+      port: await unusedLoopbackPort(),
+      timeoutMs: 2_000,
+      stateDirectory,
+      processTable,
+    }),
+    /Application process was not found/u,
+  );
+});
+
+test("an untrusted liveness counter is never a reason to kill", async (t) => {
+  const stateDirectory = await temporaryDirectory(t, "liveness-counter-");
+  const supervision = {
+    host: "127.0.0.1",
+    port: await unusedLoopbackPort(),
+    timeoutMs: 2_000,
+  };
+
+  for (const untrusted of ["", "not-a-number", "2 3", "99999999999999999999"]) {
+    await writeFile(join(stateDirectory, FAILURE_COUNTER), untrusted);
+    // A counter that cannot be believed restarts the run instead of inheriting
+    // a length that would bring the next probe to the threshold.
+    assert.deepEqual(
+      await superviseLiveness({ ...supervision, stateDirectory }),
+      {
+        live: false,
+        failures: 1,
+        terminated: false,
+      },
+    );
+  }
+
+  const unwritable = join(stateDirectory, "occupied");
+  await writeFile(unwritable, "");
+  assert.deepEqual(
+    await superviseLiveness({ ...supervision, stateDirectory: unwritable }),
+    { live: false, failures: 0, terminated: false },
+  );
 });
 
 test("liveness probe accepts only a responsive success status", async (t) => {

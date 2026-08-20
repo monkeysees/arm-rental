@@ -31,6 +31,14 @@ test("production supervision prevents overlapping replicas and bounds restarts",
     deployment,
     /healthcheck:[\s\S]*?src\/health-check\.js[\s\S]*?--restart-unresponsive/u,
   );
+  // The liveness command derives its own termination threshold and probe
+  // budget from these settings, and keeps its consecutive-failure count on the
+  // /tmp tmpfs so a replacement container starts a fresh run.
+  assert.match(
+    deployment,
+    /healthcheck:[\s\S]*?interval: 30s[\s\S]*?timeout: 5s[\s\S]*?start_period: 60s[\s\S]*?retries: 2/u,
+  );
+  assert.match(deployment, /tmpfs:[\s\S]*?- \/tmp:size=\d+,mode=1777/u);
   assert.doesNotMatch(deployment, /^\s+ports:/mu);
 
   const dockerfile = await readProjectFile("Dockerfile");

@@ -397,9 +397,10 @@ or mount a developer `.data` tree into production.
 
 The loopback-only health service exposes `/live` for process/event-loop
 liveness and `/ready` (also `/health`) for startup and crawl readiness. The
-container healthcheck terminates an unresponsive container so the bounded
-restart policy can recover it; readiness failures remain available to private
-monitoring without causing a restart loop. See
+container healthcheck terminates an unresponsive container after three
+consecutive failed liveness probes so the bounded restart policy can recover
+it; a single successful probe clears that run, and readiness failures remain
+available to private monitoring without causing a restart loop. See
 [health and readiness operations](docs/health-readiness.md) for thresholds,
 component codes, access, and rollout checks.
 

@@ -291,12 +291,23 @@ List.am, CBA, storage, and configuration remediation without exposing raw
 exceptions.
 
 The Docker and Compose healthcheck calls `src/health-check.js` from a separate
-process. Failure to receive `/live` within three seconds kills the container,
-which makes the bounded `on-failure` policy restart an unresponsive Node event
-loop. It never restarts on `/ready` failure because repeated restarts cannot
-repair upstream, permission, verification, or stale-crawl conditions. Probe
-behavior and private operator access are documented in
-[`docs/health-readiness.md`](health-readiness.md).
+process, which gives `/live` three seconds to answer — inside Compose's
+five-second check timeout, so a failing probe always survives long enough to
+record its own failure. Docker runs the command on every probe rather than only
+on the ones that change the reported status, so the command owns the recovery
+decision: it counts consecutive failures in a private directory on the
+container's `/tmp` tmpfs, discards any count it cannot parse, and kills the
+application only on the third consecutive failure, one probe behind the
+`retries: 2` unhealthy report. A single success clears the run, and the tmpfs
+gives the count exactly the lifetime of one container. The target is identified
+as the Node executable running `src/index.js` as its first non-option argument,
+which excludes the PID 1 container init that carries the same script among its
+own arguments and that the kernel would refuse to kill from inside its own PID
+namespace. Killing the application makes init exit non-zero and the bounded
+`on-failure` policy restart it. It never restarts on `/ready` failure because
+repeated restarts cannot repair upstream, permission, verification, or
+stale-crawl conditions. Probe behavior and private operator access are
+documented in [`docs/health-readiness.md`](health-readiness.md).
 
 ### Reproducible runtime packaging
 

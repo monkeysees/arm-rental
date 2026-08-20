@@ -53,8 +53,11 @@ reading Telegram state.
   [capacity runbook](state-maintenance.md#low-disk-and-state-growth-response).
 - A responsive process with a transient upstream error should recover through
   bounded retry. A dead/unresponsive process should be restarted by the
-  supervisor; confirm `application.started`, ready preflight, and a successful
-  crawl afterward.
+  supervisor after three consecutive failed liveness probes, roughly 90 seconds
+  of unanswered `/live`, and shows as an increased `RestartCount`; confirm
+  `application.started`, ready preflight, and a successful crawl afterward. An
+  unhealthy container whose `RestartCount` is unchanged has not yet failed
+  three probes in a row — a single probe answering in time clears the run.
 
 Rollback to the retained immutable artifact and verified snapshot when staleness
 began with a release and upstream/storage checks are healthy. Escalate at the

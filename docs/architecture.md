@@ -681,11 +681,14 @@ commit transactionally. The transaction helper rejects asynchronous callbacks,
 always rolls back failures, and maps SQLite errors to stable sanitized codes.
 
 Repository transactions emit `state.transaction.completed` or
-`state.transaction.failed` with a stable operation, bounded row count, duration,
-database/WAL bytes, and schema version. Checkpoints emit matching events. The
-collector reports p50/p95, failures, busy exhaustion, rows changed, and current
-database/WAL size by operation. Values, SQL, item IDs, chat IDs, and absolute
-database paths are never logged, and telemetry failures cannot alter durability.
+`state.transaction.failed` with a stable operation, bounded row count,
+duration, database/WAL bytes, and schema version. Each transaction brackets
+only the rows it writes, so a private delivery acknowledgement reports the cost
+of that single row rather than of a surrounding state comparison. Checkpoints
+emit matching events. The collector reports p50/p95, failures, busy exhaustion,
+rows changed, and current database/WAL size by operation. Values, SQL, item
+IDs, chat IDs, and absolute database paths are never logged, and telemetry
+failures cannot alter durability.
 
 `src/state.js` remains the atomic JSON primitive only for the backend selector,
 defensive migration sentinels, browser verification record, and maintenance
@@ -879,13 +882,16 @@ operator procedures are indexed in
    each with independent `src/filters.js` admission and delivery history.
    Recipient workers run concurrently so a slow user does not delay peers or
    channel publication, while every user's worker remains sequential and
-   oldest-first. Because those workers share one private-delivery file, their
-   classifications and acknowledgements are merged through a serialized,
-   failure-latching state-write chain. On first admission, non-matches become
-   filtered, and on an empty user delivery history either the latest matching
-   `INITIAL_DELIVERY_LIMIT` are selected or, when that user declined the initial
-   selection, all existing matches are atomically marked `skipped_initial`. The
-   default limit is 100. A filtered apartment whose source `updatedAt` advances
+   oldest-first. A worker persists only its own recipient's rows: one
+   bounded write per initial selection, re-admission batch, classification
+   batch, or acknowledgement. Those writes still pass through a serialized,
+   failure-latching chain: it orders them against user deletion, which still
+   replaces delivery state as a whole, and stops recording once a write has
+   failed. On first admission, non-matches become filtered, and on an empty
+   user delivery history either the latest matching `INITIAL_DELIVERY_LIMIT`
+   are selected or, when that user declined the initial selection, all
+   existing matches are atomically marked `skipped_initial`. The default limit
+   is 100. A filtered apartment whose source `updatedAt` advances
    beyond its rejection timestamp is durably re-admitted when its updated data
    matches the user's current filters; filter changes alone do not release old
    history. A previously delivered apartment similarly becomes pending again

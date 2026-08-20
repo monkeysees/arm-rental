@@ -5,6 +5,7 @@ import path from "node:path";
 import test from "node:test";
 
 import { openApplicationState } from "../src/application-state.js";
+import { crawlApartments } from "../src/crawler.js";
 import { emptyFilters } from "../src/filters.js";
 import { openStateDatabase } from "../src/sqlite-database.js";
 import { createSqliteRepositories } from "../src/sqlite-repositories.js";
@@ -32,6 +33,51 @@ async function temporaryConfig(t) {
     ),
     telegramStateFile: path.join(dataDirectory, "telegram-bot.json"),
     exchangeRatesStateFile: path.join(dataDirectory, "exchange-rates.json"),
+  };
+}
+
+function listPage(...apartments) {
+  return `<div id="contentr">${apartments
+    .map(
+      ([itemId, priceAmd]) => `
+        <a class="fav-item-info-container" href="/ru/item/${itemId}">
+          <div class="dltitle"><div class="pt">Apartment ${itemId}</div></div>
+          <div class="p">${priceAmd} \u058F monthly</div>
+          <div class="at">Arabkir, 2 rm., 50 sq.m., 3/5 floor</div>
+          <div class="d">\u041F\u044F\u0442\u043D\u0438\u0446\u0430, \u0418\u044E\u043B\u044C 24, 2026, 14:31</div>
+        </a>`,
+    )
+    .join("")}</div>`;
+}
+
+/** Runs the delivery hot path against a real database, as production does. */
+async function deliveryCrawl(t, { onMetric = () => {} } = {}) {
+  const config = {
+    ...(await temporaryConfig(t)),
+    initialPageCount: 1,
+    initialDeliveryLimit: 10,
+  };
+  const database = openStateDatabase({
+    dataDirectory: config.dataDirectory,
+    listUrlTemplate: LIST_URL,
+    onMetric,
+  });
+  t.after(() => database.close());
+  const repositories = createSqliteRepositories(database, {
+    listUrlTemplate: LIST_URL,
+  });
+  const access = createSqliteStateAccess(config, database, repositories);
+  return {
+    config,
+    repositories,
+    crawl: (options) =>
+      crawlApartments(config, {
+        loadState: access.loadState,
+        saveState: access.saveState,
+        deliveryDecisions: access.deliveryDecisions,
+        now: () => new Date(TIME),
+        ...options,
+      }),
   };
 }
 
@@ -188,4 +234,159 @@ test("bounded Telegram commits compare users by meaning, not key order", async (
   assert.equal(stored.updateOffset, 3);
   assert.equal(stored.users[42].active, true);
   assert.equal(stored.users[77].active, false);
+});
+
+test("a private delivery write never reads a peer recipient's decisions", async (t) => {
+  const metrics = [];
+  const { repositories, crawl } = await deliveryCrawl(t, {
+    onMetric: (metric) => metrics.push(metric),
+  });
+  const privateDeliveries = repositories.privateDeliveries;
+  // A peer history large enough that a whole-state write would have to read it.
+  privateDeliveries.initializeSelection("99", {
+    skipped: Object.fromEntries(
+      Array.from({ length: 500 }, (_, index) => [`peer-${index}`, TIME]),
+    ),
+  });
+  let scans = 0;
+  const loadAllDecisions =
+    privateDeliveries.loadAllDecisions.bind(privateDeliveries);
+  privateDeliveries.loadAllDecisions = () => {
+    scans += 1;
+    return loadAllDecisions();
+  };
+
+  const delivered = [];
+  let scansWhenDeliveryStarted;
+  await crawl({
+    fetchPage: async () =>
+      new Response(listPage(["2", 120_000], ["1", 110_000])),
+    privateDeliveries: [
+      {
+        recipientId: "42",
+        deliverApartment: async ({ itemId }) => {
+          scansWhenDeliveryStarted ??= scans;
+          delivered.push(itemId);
+        },
+      },
+    ],
+  });
+
+  assert.deepEqual(delivered, ["1", "2"]);
+  assert.equal(scans, scansWhenDeliveryStarted);
+  const acknowledgements = metrics.filter(
+    ({ name, operation }) =>
+      name === "state.transaction.completed" &&
+      operation === "private_delivery_acknowledge",
+  );
+  assert.deepEqual(
+    acknowledgements.map(({ rowsChanged }) => rowsChanged),
+    [1, 1],
+  );
+  assert.equal(
+    metrics.some(
+      ({ operation }) => operation === "private_delivery_state_commit",
+    ),
+    false,
+  );
+  assert.equal(
+    Object.keys(privateDeliveries.loadRecipient("99").skipped).length,
+    500,
+  );
+});
+
+test("interleaved recipients keep each other's acknowledgements", async (t) => {
+  const { repositories, crawl } = await deliveryCrawl(t);
+  let peerCompleted;
+  const peerFinished = new Promise((resolve) => {
+    peerCompleted = resolve;
+  });
+  let deliveryWrites = Promise.resolve();
+
+  await crawl({
+    fetchPage: async () =>
+      new Response(listPage(["3", 130_000], ["2", 120_000], ["1", 110_000])),
+    // The bot serializes crawl writes against user deletion through this chain.
+    deliveryStateMutation: (operation) => {
+      const pending = deliveryWrites.then(operation);
+      deliveryWrites = pending.catch(() => {});
+      return pending;
+    },
+    privateDeliveries: [
+      {
+        recipientId: "42",
+        deliverApartment: async ({ itemId }) => {
+          if (itemId === "1") await peerFinished;
+        },
+      },
+      {
+        recipientId: "99",
+        deliverApartment: async ({ itemId }) => {
+          if (itemId === "3") peerCompleted();
+        },
+      },
+    ],
+  });
+
+  for (const recipientId of ["42", "99"]) {
+    assert.deepEqual(
+      Object.keys(
+        repositories.privateDeliveries.loadRecipient(recipientId).notified,
+      ),
+      ["1", "2", "3"],
+    );
+  }
+});
+
+test("re-admission and later classification stay one bounded write each", async (t) => {
+  const metrics = [];
+  const { repositories, crawl } = await deliveryCrawl(t, {
+    onMetric: (metric) => metrics.push(metric),
+  });
+  const delivered = [];
+  const recipient = {
+    recipientId: "42",
+    filters: { ...emptyFilters(), price: { min: null, max: 250_000 } },
+    deliverApartment: async ({ itemId }) => delivered.push(itemId),
+  };
+
+  await crawl({
+    fetchPage: async () => new Response(listPage(["51", 300_000])),
+    privateDeliveries: [recipient],
+  });
+  assert.deepEqual(delivered, []);
+
+  // The price drop readmits 51 while the unseen 52 is classified for the first
+  // time, so one crawl exercises both remaining bounded decision writes.
+  const result = await crawl({
+    fetchPage: async () =>
+      new Response(listPage(["51", 220_000], ["52", 300_000])),
+    privateDeliveries: [recipient],
+    now: () => new Date("2026-08-18T10:12:00.000Z"),
+  });
+
+  assert.deepEqual(delivered, ["51"]);
+  assert.equal(result.readmittedCount, 1);
+  assert.equal(result.filteredCount, 1);
+  assert.deepEqual(repositories.privateDeliveries.loadRecipient("42"), {
+    initialSelectionApplied: true,
+    notified: { 51: "2026-08-18T10:12:00.000Z" },
+    skipped: {},
+    filtered: { 52: "2026-08-18T10:12:00.000Z" },
+  });
+  assert.deepEqual(
+    metrics
+      .filter(
+        ({ name, operation }) =>
+          name === "state.transaction.completed" &&
+          ["private_delivery_readmit", "private_delivery_classify"].includes(
+            operation,
+          ),
+      )
+      .map(({ operation, rowsChanged }) => [operation, rowsChanged]),
+    [
+      ["private_delivery_readmit", 1],
+      ["private_delivery_classify", 1],
+    ],
+  );
 });

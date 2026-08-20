@@ -11,6 +11,12 @@ function recipientId(value) {
   return nonEmptyIdentifier(value, "Private recipient ID");
 }
 
+function invalidDecisionError() {
+  const error = new Error("Stored private delivery decision is invalid");
+  error.code = "ERR_STATE_DATABASE_DOMAIN_INVALID";
+  return error;
+}
+
 function validateRecipient(recipient) {
   if (!recipient || typeof recipient !== "object" || Array.isArray(recipient)) {
     throw new TypeError("Private recipient state must be an object");
@@ -45,6 +51,14 @@ export class SqlitePrivateDeliveriesRepository {
     this.selectDecisions =
       database.prepare(`SELECT recipient_id, item_id, status, decided_at
       FROM private_delivery_decisions ORDER BY recipient_id, item_id`);
+    this.selectRecipient = database.prepare(
+      "SELECT initial_selection_applied FROM private_recipients WHERE recipient_id = ?",
+    );
+    // The (recipient_id, item_id) primary key indexes this lookup and supplies
+    // the ordering, so one recipient is read without touching a peer's rows.
+    this.selectRecipientDecisions =
+      database.prepare(`SELECT item_id, status, decided_at
+      FROM private_delivery_decisions WHERE recipient_id = ? ORDER BY item_id`);
     this.upsertRecipient =
       database.prepare(`INSERT INTO private_recipients(recipient_id, initial_selection_applied)
       VALUES (?, ?) ON CONFLICT(recipient_id) DO UPDATE SET initial_selection_applied = excluded.initial_selection_applied`);
@@ -85,9 +99,7 @@ export class SqlitePrivateDeliveriesRepository {
     for (const row of this.selectDecisions.all()) {
       const recipient = recipients[row.recipient_id];
       if (!recipient || !STATUSES.includes(row.status)) {
-        const error = new Error("Stored private delivery decision is invalid");
-        error.code = "ERR_STATE_DATABASE_DOMAIN_INVALID";
-        throw error;
+        throw invalidDecisionError();
       }
       canonicalIsoTimestamp(
         row.decided_at,
@@ -104,7 +116,24 @@ export class SqlitePrivateDeliveriesRepository {
   }
 
   loadRecipient(value) {
-    return this.loadAllDecisions().recipients[recipientId(value)];
+    const id = recipientId(value);
+    const row = this.selectRecipient.get(id);
+    if (!row) return undefined;
+    const recipient = {
+      notified: {},
+      skipped: {},
+      filtered: {},
+      initialSelectionApplied: Boolean(row.initial_selection_applied),
+    };
+    for (const decision of this.selectRecipientDecisions.all(id)) {
+      if (!STATUSES.includes(decision.status)) throw invalidDecisionError();
+      canonicalIsoTimestamp(
+        decision.decided_at,
+        "Stored private delivery timestamp",
+      );
+      recipient[decision.status][decision.item_id] = decision.decided_at;
+    }
+    return recipient;
   }
 
   ensureRecipient(value, { transaction = true } = {}) {

@@ -830,6 +830,7 @@ export async function runTelegramBot(
     api,
     loadState = readState,
     saveState = writeState,
+    deliveryDecisions,
     deleteUserData,
     crawl = crawlApartments,
     publishChannel = publishChannelApartments,
@@ -1227,6 +1228,7 @@ export async function runTelegramBot(
                 }),
                 legacyRecipientId:
                   state.legacyRecipientId || String(config.telegramOwnerId),
+                ...(deliveryDecisions ? { deliveryDecisions } : {}),
                 deliveryStateMutation: withDeliveryStateMutation,
               }
             : {}),

@@ -50,7 +50,7 @@ function savePrivateState(database, repository, state) {
     for (const recipientId of changedKeys(previousRecipients, nextRecipients)) {
       const prior = previousRecipients[recipientId];
       const next = nextRecipients[recipientId];
-      if (!next || sameValue(prior, next)) continue;
+      if (!next) continue;
 
       if (!prior) {
         repository.ensureRecipient(recipientId, { transaction: false });
@@ -93,6 +93,31 @@ function savePrivateState(database, repository, state) {
     }
     return state;
   });
+}
+
+/**
+ * The bounded write path for private delivery. Every call touches one
+ * recipient's rows inside one transaction, so `state.transaction.*` measures
+ * exactly the work a delivery decision performs.
+ */
+function createDeliveryDecisions(database, repository) {
+  return {
+    applyInitialSelection: (recipientId, selection) =>
+      repository.initializeSelection(recipientId, selection),
+    classifyFiltered: (recipientId, filtered) =>
+      repository.addDecisions(recipientId, "filtered", filtered),
+    readmitFiltered: (recipientId, itemIds) =>
+      database.transaction("private_delivery_readmit", () => {
+        for (const itemId of itemIds) {
+          repository.removeFilteredDecision(recipientId, itemId, {
+            transaction: false,
+          });
+        }
+        return itemIds.length;
+      }),
+    acknowledge: (recipientId, itemId, decidedAt) =>
+      repository.acknowledge(recipientId, itemId, decidedAt),
+  };
 }
 
 function saveChannelState(database, repository, state) {
@@ -223,6 +248,10 @@ export function createSqliteStateAccess(config, database, repositories) {
   return {
     loadState,
     saveState,
+    deliveryDecisions: createDeliveryDecisions(
+      database,
+      repositories.privateDeliveries,
+    ),
     deleteUserData: (chatId) =>
       repositories.telegram.deleteUserAndPrivateDeliveries(
         chatId,

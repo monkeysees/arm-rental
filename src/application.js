@@ -190,6 +190,7 @@ export async function runApplication({
       signal: controller.signal,
       loadState: applicationState.loadState,
       saveState: applicationState.saveState,
+      deliveryDecisions: applicationState.deliveryDecisions,
       deleteUserData: applicationState.deleteUserData,
       exchangeRateService,
       pageFetch: fetchRuntimePage,

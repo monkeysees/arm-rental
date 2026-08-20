@@ -81,6 +81,57 @@ function normalizedDeliveryState(stored, template, legacyRecipientId) {
   };
 }
 
+/**
+ * Replays bounded delivery decisions onto the whole-state file route. Only the
+ * JSON backend still needs it; SQLite supplies the bounded writes directly.
+ */
+function wholeStateDeliveryDecisions(
+  config,
+  { loadState, saveState, state, reload, legacyRecipientId },
+) {
+  let current = state;
+  const update = async (recipientId, apply) => {
+    if (reload) {
+      current = normalizedDeliveryState(
+        await loadState(config.deliveryStateFile),
+        config.listUrlTemplate,
+        legacyRecipientId,
+      );
+    }
+    const recipient = deliveryRecipientState(current.recipients[recipientId]);
+    current = {
+      ...current,
+      recipients: { ...current.recipients, [recipientId]: apply(recipient) },
+    };
+    await saveState(config.deliveryStateFile, current);
+  };
+  return {
+    applyInitialSelection: (recipientId, { skipped, filtered }) =>
+      update(recipientId, (recipient) => ({
+        ...recipient,
+        initialSelectionApplied: true,
+        skipped: { ...recipient.skipped, ...skipped },
+        filtered: { ...recipient.filtered, ...filtered },
+      })),
+    classifyFiltered: (recipientId, filtered) =>
+      update(recipientId, (recipient) => ({
+        ...recipient,
+        filtered: { ...recipient.filtered, ...filtered },
+      })),
+    readmitFiltered: (recipientId, itemIds) =>
+      update(recipientId, (recipient) => {
+        const filtered = { ...recipient.filtered };
+        for (const itemId of itemIds) delete filtered[itemId];
+        return { ...recipient, filtered };
+      }),
+    acknowledge: (recipientId, itemId, decidedAt) =>
+      update(recipientId, (recipient) => ({
+        ...recipient,
+        notified: { ...recipient.notified, [itemId]: decidedAt },
+      })),
+  };
+}
+
 export async function removeDeliveryRecipient(
   config,
   recipientId,
@@ -200,6 +251,7 @@ export async function crawlApartments(
     filters = emptyFilters(),
     now = () => new Date(),
     afterStateSaved,
+    deliveryDecisions,
     deliveryStateMutation,
     onSourceIntegrityChecked = () => {},
   } = {},
@@ -419,41 +471,37 @@ export async function crawlApartments(
   const privateDelivery = async () => {
     if (deliveryTargets.length === 0) return;
     const storedDeliveries = await loadState(config.deliveryStateFile);
-    let deliveryState = normalizedDeliveryState(
+    const recipientHistory = legacyRecipientId || recipientIds[0];
+    const deliveryState = normalizedDeliveryState(
       storedDeliveries,
       config.listUrlTemplate,
-      legacyRecipientId || recipientIds[0],
+      recipientHistory,
     );
 
-    // Recipient workers run concurrently, but their independent histories live
-    // in one JSON file. Merge and persist them through one failure-latching
-    // chain so a whole-file replacement cannot lose a peer acknowledgement.
+    // Recipient workers run concurrently while every decision passes through
+    // one chain. A bounded per-recipient write can no longer overwrite a peer,
+    // but recipient deletion still replaces the delivery state as a whole, so
+    // the chain is what keeps a late acknowledgement from resurrecting a
+    // deleted recipient. It also latches the first failure, so nothing further
+    // is recorded once a write has failed.
     let deliveryStateWrites = Promise.resolve();
-    const mutateDeliveryState =
+    const recordDecision =
       deliveryStateMutation ||
       ((operation) => {
         deliveryStateWrites = deliveryStateWrites.then(operation);
         return deliveryStateWrites;
       });
-    const saveRecipient = (recipientId, recipient) => {
-      return mutateDeliveryState(async () => {
-        if (deliveryStateMutation) {
-          deliveryState = normalizedDeliveryState(
-            await loadState(config.deliveryStateFile),
-            config.listUrlTemplate,
-            legacyRecipientId || recipientIds[0],
-          );
-        }
-        deliveryState = {
-          ...deliveryState,
-          recipients: {
-            ...deliveryState.recipients,
-            [recipientId]: recipient,
-          },
-        };
-        await saveState(config.deliveryStateFile, deliveryState);
+    const decisions =
+      deliveryDecisions ||
+      wholeStateDeliveryDecisions(config, {
+        loadState,
+        saveState,
+        state: deliveryState,
+        // A caller that supplies its own chain shares the delivery state with
+        // another writer, so each write has to start from the stored copy.
+        reload: Boolean(deliveryStateMutation),
+        legacyRecipientId: recipientHistory,
       });
-    };
 
     const deliverRecipient = async (target) => {
       if (target.isAuthorized?.() === false) return;
@@ -494,7 +542,9 @@ export async function crawlApartments(
         };
         // Persist classification before sending so a restart cannot enqueue
         // historical apartments that were intentionally omitted for this user.
-        await saveRecipient(recipientId, recipient);
+        await recordDecision(() =>
+          decisions.applyInitialSelection(recipientId, { skipped, filtered }),
+        );
       }
 
       const readmittedIds = apartmentOrder.filter((itemId) => {
@@ -512,7 +562,9 @@ export async function crawlApartments(
         // Make re-admission durable before Telegram delivery. If sending is
         // interrupted, the now-unclassified apartment remains pending on the
         // next crawl instead of falling back into its obsolete rejection.
-        await saveRecipient(recipientId, recipient);
+        await recordDecision(() =>
+          decisions.readmitFiltered(recipientId, readmittedIds),
+        );
         readmittedCount += readmittedIds.length;
       }
 
@@ -528,17 +580,17 @@ export async function crawlApartments(
       );
       if (newlyFilteredIds.length > 0) {
         const filteredAt = now().toISOString();
+        const newlyFiltered = Object.fromEntries(
+          newlyFilteredIds.map((itemId) => [itemId, filteredAt]),
+        );
         recipient = {
           ...recipient,
-          filtered: {
-            ...recipient.filtered,
-            ...Object.fromEntries(
-              newlyFilteredIds.map((itemId) => [itemId, filteredAt]),
-            ),
-          },
+          filtered: { ...recipient.filtered, ...newlyFiltered },
         };
         filteredCount += newlyFilteredIds.length;
-        await saveRecipient(recipientId, recipient);
+        await recordDecision(() =>
+          decisions.classifyFiltered(recipientId, newlyFiltered),
+        );
       }
 
       // List.am is newest-first; reverse its stable order for ascending delivery.
@@ -565,14 +617,14 @@ export async function crawlApartments(
           if (error.privateRecipientUnavailable) break;
           throw error;
         }
+        const deliveredAt = now().toISOString();
         recipient = {
           ...recipient,
-          notified: {
-            ...recipient.notified,
-            [apartment.itemId]: now().toISOString(),
-          },
+          notified: { ...recipient.notified, [apartment.itemId]: deliveredAt },
         };
-        await saveRecipient(recipientId, recipient);
+        await recordDecision(() =>
+          decisions.acknowledge(recipientId, apartment.itemId, deliveredAt),
+        );
         notifiedCount += 1;
       }
     };

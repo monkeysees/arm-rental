@@ -6,8 +6,27 @@ function samePath(left, right) {
   return path.resolve(left) === path.resolve(right);
 }
 
+// A domain value reaches these guards from two directions: rebuilt from SQLite
+// rows, or carried in memory since the process first constructed it. Both
+// describe the same record, but their keys were inserted in different orders,
+// and JSON.stringify would report that as a difference. Ordering keys keeps the
+// bounded-write guards measuring meaning instead of construction order. Array
+// order is preserved because it carries meaning.
+function canonicalValue(value) {
+  if (Array.isArray(value)) return value.map(canonicalValue);
+  if (!value || typeof value !== "object") return value;
+  return Object.fromEntries(
+    Object.keys(value)
+      .sort()
+      .map((key) => [key, canonicalValue(value[key])]),
+  );
+}
+
 function sameValue(left, right) {
-  return JSON.stringify(left) === JSON.stringify(right);
+  return (
+    JSON.stringify(canonicalValue(left)) ===
+    JSON.stringify(canonicalValue(right))
+  );
 }
 
 function changedKeys(previous, next) {

@@ -1277,6 +1277,45 @@ test("TelegramApi serializes interactive filter controls", async () => {
   ]);
 });
 
+test("an expired callback query does not fail the update batch", async () => {
+  let calls = 0;
+  const api = new TelegramApi("secret", {
+    fetchImpl: async () => {
+      calls += 1;
+      return Response.json(
+        {
+          ok: false,
+          error_code: 400,
+          description:
+            "Bad Request: query is too old and response timeout expired or query ID is invalid",
+        },
+        { status: 400 },
+      );
+    },
+    sleep: async () => assert.fail("expired acknowledgements must not retry"),
+  });
+
+  assert.equal(await api.answerCallbackQuery("query-1"), undefined);
+  assert.equal(calls, 1);
+
+  const rejectingApi = new TelegramApi("secret", {
+    fetchImpl: async () =>
+      Response.json(
+        {
+          ok: false,
+          error_code: 400,
+          description: "Bad Request: CALLBACK_QUERY_ID_EMPTY",
+        },
+        { status: 400 },
+      ),
+    sleep: async () => assert.fail("terminal failures must not sleep"),
+  });
+  await assert.rejects(
+    rejectingApi.answerCallbackQuery("query-2"),
+    (error) => error.code === "ERR_TELEGRAM_API",
+  );
+});
+
 test("the start button wakes the monitor after /start setup", async () => {
   const controller = new AbortController();
   const sent = [];

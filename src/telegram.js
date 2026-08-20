@@ -194,7 +194,16 @@ export class TelegramApi {
       "answerCallbackQuery",
       { callback_query_id: callbackQueryId },
       { signal },
-    );
+    ).catch((error) => {
+      // Telegram expires a callback query after roughly a minute; a slow poll
+      // cycle or a replayed update can reach the acknowledgement after that.
+      // The tap has already timed out client side, so there is nothing left to
+      // acknowledge and the rest of the update batch must still be processed.
+      if (/query is too old|query id is invalid/iu.test(error.message)) {
+        return undefined;
+      }
+      throw error;
+    });
   }
 }
 

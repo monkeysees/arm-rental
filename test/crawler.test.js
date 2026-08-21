@@ -1,11 +1,12 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { crawlApartments, removeDeliveryRecipient } from "../src/crawler.js";
+import { crawlApartments } from "../src/crawler.js";
 import { emptyFilters } from "../src/filters.js";
 import { PrivateDeliveryBarrier } from "../src/rate-limit.js";
 import { ListAmIntegrityReason } from "../src/source-integrity.js";
 import { LIST_AM_URL_TEMPLATE } from "../src/target.js";
+import { createMemoryStateAccess } from "../test-support/memory-state.js";
 
 const config = {
   listUrlTemplate: LIST_AM_URL_TEMPLATE,
@@ -36,19 +37,16 @@ function datedPage(...apartments) {
     </div>`;
 }
 
-function memoryState(initial = {}) {
-  const files = new Map(Object.entries(initial));
-  return {
-    files,
-    loadState: async (filename) => structuredClone(files.get(filename)),
-    saveState: async (filename, state) => {
-      files.set(filename, structuredClone(state));
-    },
-  };
+function memoryState(options = {}) {
+  const access = createMemoryStateAccess({
+    listUrlTemplate: config.listUrlTemplate,
+    ...options,
+  });
+  return { stateAccess: access, stored: access.stored, writes: access.writes };
 }
 
 function defaultDeliveries(state) {
-  return state.files.get(config.deliveryStateFile).recipients.default;
+  return state.stored.recipients.default;
 }
 
 test("initial crawl parses pages 1 through 10 and stores every apartment", async () => {
@@ -83,10 +81,7 @@ test("initial crawl parses pages 1 through 10 and stores every apartment", async
   assert.equal(result.skippedCount, 7);
   assert.equal(fetched.length, 10);
   assert.deepEqual(delivered, ["3", "2", "1"]);
-  assert.equal(
-    Object.keys(state.files.get(config.apartmentsStateFile).apartments).length,
-    10,
-  );
+  assert.equal(Object.keys(state.stored.apartments.apartments).length, 10);
   assert.deepEqual(Object.keys(defaultDeliveries(state).skipped).sort(), [
     "10",
     "4",
@@ -139,10 +134,7 @@ test("crawler consumes normalized apartments from page diagnostics", async () =>
   );
 
   assert.equal(result.discoveredCount, 1);
-  assert.deepEqual(
-    Object.keys(state.files.get(config.apartmentsStateFile).apartments),
-    ["500"],
-  );
+  assert.deepEqual(Object.keys(state.stored.apartments.apartments), ["500"]);
 });
 
 test("a later empty page is a valid pagination terminator", async () => {
@@ -163,23 +155,11 @@ test("a later empty page is a valid pagination terminator", async () => {
   assert.equal(fetchCount, 2);
   assert.equal(result.pagesParsed, 2);
   assert.equal(result.exhausted, true);
-  assert.deepEqual(
-    Object.keys(state.files.get(config.apartmentsStateFile).apartments),
-    ["700"],
-  );
+  assert.deepEqual(Object.keys(state.stored.apartments.apartments), ["700"]);
 });
 
 test("a late integrity failure leaves apartment, delivery, and channel state untouched", async () => {
-  const deliverySeed = {
-    version: 2,
-    type: "telegram-deliveries",
-    urlTemplate: config.listUrlTemplate,
-    recipients: {},
-  };
-  const state = memoryState({
-    [config.deliveryStateFile]: deliverySeed,
-  });
-  const writes = [];
+  const state = memoryState();
   const privateSends = [];
   const channelCallbacks = [];
   const integrityChecks = [];
@@ -194,7 +174,6 @@ test("a late integrity failure leaves apartment, delivery, and channel state unt
       { ...config, initialPageCount: 2 },
       {
         ...state,
-        saveState: async (...arguments_) => writes.push(arguments_),
         fetchPage: async () => {
           fetchCount += 1;
           return new Response(
@@ -215,12 +194,12 @@ test("a late integrity failure leaves apartment, delivery, and channel state unt
   );
 
   assert.equal(fetchCount, 2);
-  assert.deepEqual(writes, []);
+  assert.deepEqual(state.writes, []);
   assert.deepEqual(privateSends, []);
   assert.deepEqual(channelCallbacks, []);
   assert.deepEqual(integrityChecks, []);
-  assert.equal(state.files.has(config.apartmentsStateFile), false);
-  assert.deepEqual(state.files.get(config.deliveryStateFile), deliverySeed);
+  assert.equal(state.stored.apartments, undefined);
+  assert.deepEqual(state.stored.recipients, {});
 });
 
 test("integrity validation precedes posting-date watermark termination", async () => {
@@ -237,7 +216,7 @@ test("integrity validation precedes posting-date watermark termination", async (
     },
     apartmentOrder: ["900"],
   };
-  const state = memoryState({ [config.apartmentsStateFile]: apartmentSeed });
+  const state = memoryState({ apartments: apartmentSeed });
   const invalidWatermarkPage = datedPage([
     "899",
     "Friday, July 24, 2026, 14:30",
@@ -245,22 +224,18 @@ test("integrity validation precedes posting-date watermark termination", async (
     /\s*<\/div>\s*$/u,
     '<a class="fav-item-info-container" href="/item/invalid">Rejected</a></div>',
   );
-  let writes = 0;
 
   await assert.rejects(
     crawlApartments(config, {
       ...state,
-      saveState: async () => {
-        writes += 1;
-      },
       fetchPage: async () => new Response(invalidWatermarkPage),
     }),
     (error) =>
       error.reason === ListAmIntegrityReason.IDENTITY_REJECTION &&
       error.page === 1,
   );
-  assert.equal(writes, 0);
-  assert.deepEqual(state.files.get(config.apartmentsStateFile), apartmentSeed);
+  assert.deepEqual(state.writes, []);
+  assert.deepEqual(state.stored.apartments, apartmentSeed);
 });
 
 test("successful crawls atomically retain the five newest first-page counts", async () => {
@@ -275,7 +250,7 @@ test("successful crawls atomically retain the five newest first-page counts", as
       lastSuccessfulAt: "2026-07-24T11:00:00.000Z",
     },
   };
-  const state = memoryState({ [config.apartmentsStateFile]: apartmentSeed });
+  const state = memoryState({ apartments: apartmentSeed });
 
   await crawlApartments(
     { ...config, initialPageCount: 1 },
@@ -286,7 +261,7 @@ test("successful crawls atomically retain the five newest first-page counts", as
     },
   );
 
-  const stored = state.files.get(config.apartmentsStateFile);
+  const stored = state.stored.apartments;
   assert.equal(stored.version, 3);
   assert.deepEqual(stored.sourceIntegrity, {
     recentFirstPageCounts: [4, 3, 2, 1, 3],
@@ -306,7 +281,7 @@ test("restart reuses the baseline and a failure cannot advance it", async () => 
       lastSuccessfulAt: "2026-07-24T11:00:00.000Z",
     },
   };
-  const state = memoryState({ [config.apartmentsStateFile]: apartmentSeed });
+  const state = memoryState({ apartments: apartmentSeed });
   const ids = Array.from({ length: 9 }, (_value, index) =>
     String(1100 + index),
   );
@@ -322,7 +297,7 @@ test("restart reuses the baseline and a failure cannot advance it", async () => 
     (error) => error.reason === ListAmIntegrityReason.FIRST_PAGE_COUNT_DROP,
   );
 
-  assert.deepEqual(state.files.get(config.apartmentsStateFile), apartmentSeed);
+  assert.deepEqual(state.stored.apartments, apartmentSeed);
 });
 
 test("a failed apartment-state commit cannot advance count history", async () => {
@@ -337,16 +312,20 @@ test("a failed apartment-state commit cannot advance count history", async () =>
       lastSuccessfulAt: "2026-07-24T11:00:00.000Z",
     },
   };
-  const state = memoryState({ [config.apartmentsStateFile]: apartmentSeed });
+  const state = memoryState({
+    apartments: apartmentSeed,
+    onWrite: (domain) => {
+      if (domain === "apartments") {
+        throw new Error("durable apartment write failed");
+      }
+    },
+  });
 
   await assert.rejects(
     crawlApartments(
       { ...config, initialPageCount: 1 },
       {
         ...state,
-        saveState: async () => {
-          throw new Error("durable apartment write failed");
-        },
         fetchPage: async () => new Response(page("1201", "1202", "1203")),
         now: () => new Date("2026-07-24T12:00:00.000Z"),
       },
@@ -354,7 +333,7 @@ test("a failed apartment-state commit cannot advance count history", async () =>
     /durable apartment write failed/u,
   );
 
-  assert.deepEqual(state.files.get(config.apartmentsStateFile), apartmentSeed);
+  assert.deepEqual(state.stored.apartments, apartmentSeed);
 });
 
 test("crawler fails closed on a malformed version-three baseline", async () => {
@@ -366,16 +345,12 @@ test("crawler fails closed on a malformed version-three baseline", async () => {
     apartmentOrder: [],
     sourceIntegrity: { recentFirstPageCounts: [1, 2, 3, 4, 5, 6] },
   };
-  const state = memoryState({ [config.apartmentsStateFile]: apartmentSeed });
+  const state = memoryState({ apartments: apartmentSeed });
   let fetched = false;
-  let writes = 0;
 
   await assert.rejects(
     crawlApartments(config, {
       ...state,
-      saveState: async () => {
-        writes += 1;
-      },
       fetchPage: async () => {
         fetched = true;
         return new Response(page("1"));
@@ -384,8 +359,8 @@ test("crawler fails closed on a malformed version-three baseline", async () => {
     (error) => error.code === "ERR_STATE_INCOMPATIBLE",
   );
   assert.equal(fetched, false);
-  assert.equal(writes, 0);
-  assert.deepEqual(state.files.get(config.apartmentsStateFile), apartmentSeed);
+  assert.deepEqual(state.writes, []);
+  assert.deepEqual(state.stored.apartments, apartmentSeed);
 });
 
 test("later crawl continues past known IDs until the latest known date", async () => {
@@ -408,7 +383,7 @@ test("later crawl continues past known IDs until the latest known date", async (
     apartmentOrder: ["90", "95"],
   };
   const state = memoryState({
-    [config.apartmentsStateFile]: known,
+    apartments: known,
   });
   let fetchCount = 0;
 
@@ -439,10 +414,7 @@ test("later crawl continues past known IDs until the latest known date", async (
     result.discovered.map(({ itemId }) => itemId),
     ["101", "100", "91"],
   );
-  assert.equal(
-    state.files.get(config.apartmentsStateFile).apartments["80"],
-    undefined,
-  );
+  assert.equal(state.stored.apartments.apartments["80"], undefined);
 });
 
 test("a known ad encountered at the date watermark records a durable last-seen time", async () => {
@@ -471,7 +443,7 @@ test("a known ad encountered at the date watermark records a durable last-seen t
     now: () => new Date("2026-07-24T12:01:00Z"),
   });
 
-  const stored = state.files.get(config.apartmentsStateFile);
+  const stored = state.stored.apartments;
   assert.equal(stored.apartments["1"].lastSeenAt, "2026-07-24T12:01:00.000Z");
   assert.equal(stored.apartments["1"].updatedAt, undefined);
   assert.equal(
@@ -507,10 +479,11 @@ test("a failed Telegram delivery remains pending without losing discovery", asyn
   assert.equal(integrityChecks.length, 1);
   assert.equal(integrityChecks[0].pages[0].parsedCount, 3);
   assert.equal(JSON.stringify(integrityChecks).includes("apartments"), false);
-  assert.deepEqual(
-    Object.keys(state.files.get(config.apartmentsStateFile).apartments).sort(),
-    ["1", "2", "3"],
-  );
+  assert.deepEqual(Object.keys(state.stored.apartments.apartments).sort(), [
+    "1",
+    "2",
+    "3",
+  ]);
   assert.deepEqual(Object.keys(defaultDeliveries(state).notified), ["1"]);
 
   const retried = [];
@@ -575,10 +548,7 @@ test("delivery filters skip non-matching apartments without losing discovery", a
     "3",
     "4",
   ]);
-  assert.equal(
-    Object.keys(state.files.get(config.apartmentsStateFile).apartments).length,
-    4,
-  );
+  assert.equal(Object.keys(state.stored.apartments.apartments).length, 4);
 });
 
 test("an updated filtered apartment is readmitted privately when it now matches", async () => {
@@ -654,20 +624,16 @@ test("one crawl maintains independent delivery histories for multiple users", as
   assert.deepEqual(delivered[42], ["1", "2", "3"]);
   assert.deepEqual(delivered[99], []);
   assert.equal(result.notifiedCount, 3);
-  const deliveryState = state.files.get(config.deliveryStateFile);
-  assert.deepEqual(Object.keys(deliveryState.recipients["42"].notified), [
+  const recipients = state.stored.recipients;
+  assert.deepEqual(Object.keys(recipients["42"].notified), ["1", "2", "3"]);
+  assert.deepEqual(Object.keys(recipients["99"].filtered).sort(), [
     "1",
     "2",
     "3",
   ]);
-  assert.deepEqual(
-    Object.keys(deliveryState.recipients["99"].filtered).sort(),
-    ["1", "2", "3"],
-  );
 });
 
 test("slow recipients do not block peers or channel publication", async () => {
-  const state = memoryState();
   const delivered = { 42: [], 99: [] };
   let releaseSlowRecipient;
   const slowRecipientReleased = new Promise((resolve) => {
@@ -685,8 +651,11 @@ test("slow recipients do not block peers or channel publication", async () => {
   let concurrentDeliveryWrites = 0;
   let maximumConcurrentDeliveryWrites = 0;
   let channelPublished = false;
-  const saveState = async (filename, value) => {
-    if (filename === config.deliveryStateFile) {
+  // Every delivery decision yields inside its write, so an unserialized second
+  // writer would overlap with it and raise the observed concurrency.
+  const state = memoryState({
+    onWrite: async (domain) => {
+      if (domain !== "privateDeliveries") return;
       deliveryWrites += 1;
       concurrentDeliveryWrites += 1;
       maximumConcurrentDeliveryWrites = Math.max(
@@ -694,16 +663,14 @@ test("slow recipients do not block peers or channel publication", async () => {
         concurrentDeliveryWrites,
       );
       await Promise.resolve();
-    }
-    state.files.set(filename, structuredClone(value));
-    if (filename === config.deliveryStateFile) concurrentDeliveryWrites -= 1;
-  };
+      concurrentDeliveryWrites -= 1;
+    },
+  });
 
   const crawling = crawlApartments(
     { ...config, initialPageCount: 1 },
     {
       ...state,
-      saveState,
       fetchPage: async () => new Response(page("3", "2", "1")),
       privateDeliveries: [
         {
@@ -743,7 +710,7 @@ test("slow recipients do not block peers or channel publication", async () => {
   assert.equal(result.notifiedCount, 6);
   assert.ok(deliveryWrites > 0);
   assert.equal(maximumConcurrentDeliveryWrites, 1);
-  const recipients = state.files.get(config.deliveryStateFile).recipients;
+  const recipients = state.stored.recipients;
   assert.deepEqual(Object.keys(recipients[42].notified), ["1", "2", "3"]);
   assert.deepEqual(Object.keys(recipients[99].notified), ["1", "2", "3"]);
 });
@@ -810,11 +777,11 @@ test("deletion drains target acknowledgements without blocking peers or channel"
   assert.equal(channelPublished, true);
   releaseTarget();
   await drained;
-  await mutateDeliveryState(() => removeDeliveryRecipient(config, "42", state));
+  await mutateDeliveryState(() => state.stateAccess.deleteUserData("42"));
   barrier.clear("42");
   await crawling;
 
-  const recipients = state.files.get(config.deliveryStateFile).recipients;
+  const recipients = state.stored.recipients;
   assert.equal(recipients[42], undefined);
   assert.deepEqual(Object.keys(recipients[99].notified), ["1", "2"]);
 });
@@ -856,7 +823,7 @@ test("private delivery rechecks live authorization without blocking peers", asyn
   assert.deepEqual(delivered[42], []);
   assert.deepEqual(delivered[99], ["1"]);
   assert.deepEqual(delivered[7], ["1", "2", "3"]);
-  const recipients = state.files.get(config.deliveryStateFile).recipients;
+  const recipients = state.stored.recipients;
   assert.equal(recipients[42], undefined);
   assert.deepEqual(Object.keys(recipients[99].notified), ["1"]);
   assert.deepEqual(Object.keys(recipients[7].notified), ["1", "2", "3"]);
@@ -885,12 +852,11 @@ test("a user can skip the initial selection and receive later apartments", async
   assert.deepEqual(delivered, []);
   assert.equal(initialResult.notifiedCount, 0);
   assert.equal(initialResult.skippedCount, 3);
-  assert.deepEqual(
-    Object.keys(
-      state.files.get(config.deliveryStateFile).recipients["42"].skipped,
-    ).sort(),
-    ["1", "2", "3"],
-  );
+  assert.deepEqual(Object.keys(state.stored.recipients["42"].skipped).sort(), [
+    "1",
+    "2",
+    "3",
+  ]);
 
   const laterResult = await crawlApartments(config, {
     ...state,
@@ -940,9 +906,9 @@ test("crawler stores converted AMD prices and delivers the original price data",
     },
   );
 
-  const stored = state.files.get(config.apartmentsStateFile).apartments["20"];
+  const stored = state.stored.apartments.apartments["20"];
   assert.equal(result.notifiedCount, 1);
-  assert.equal(state.files.get(config.apartmentsStateFile).version, 3);
+  assert.equal(state.stored.apartments.version, 3);
   assert.deepEqual(stored.price, {
     amountAmd: 585_392,
     originalAmount: 1_600,
@@ -968,7 +934,7 @@ test("crawler migrates legacy foreign prices with the current persisted rate", a
     url: "https://www.list.am/ru/item/30",
   };
   const state = memoryState({
-    [config.apartmentsStateFile]: {
+    apartments: {
       version: 1,
       type: "list-am-apartments",
       urlTemplate: LIST_AM_URL_TEMPLATE,
@@ -1005,7 +971,7 @@ test("crawler migrates legacy foreign prices with the current persisted rate", a
     now: () => new Date("2026-07-24T12:00:00Z"),
   });
 
-  const migrated = state.files.get(config.apartmentsStateFile);
+  const migrated = state.stored.apartments;
   assert.equal(migrated.version, 3);
   assert.deepEqual(migrated.apartments["30"].price, {
     amountAmd: 416_430,
@@ -1025,7 +991,7 @@ test("known cards update source data while preserving first-seen and price audit
   const firstSeenAt = "2026-07-24T08:00:00.000Z";
   const oldRateAt = "2026-07-23T09:15:00.000Z";
   const state = memoryState({
-    [config.apartmentsStateFile]: {
+    apartments: {
       version: 2,
       type: "list-am-apartments",
       urlTemplate: LIST_AM_URL_TEMPLATE,
@@ -1083,7 +1049,7 @@ test("known cards update source data while preserving first-seen and price audit
     now: () => new Date("2026-07-24T12:00:00Z"),
   });
 
-  const updated = state.files.get(config.apartmentsStateFile).apartments["40"];
+  const updated = state.stored.apartments.apartments["40"];
   assert.equal(result.status, "updated-apartments");
   assert.equal(result.updatedCount, 1);
   assert.equal(updated.firstSeenAt, firstSeenAt);

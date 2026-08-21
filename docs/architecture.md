@@ -32,12 +32,14 @@ automatically scaled deployment. A supervisor restarts the process, forwards
 SIGTERM for graceful shutdown, and mounts `.data` on durable local storage.
 
 `state-backend.json` is the authoritative backend selector; database-file
-presence never selects storage. The migration-aware release accepts the legacy
-JSON state only while the selector is absent or explicitly `json`, refuses the
-`migrating` state during normal startup, and opens SQLite only when the selector
-is `sqlite` and its immutable database ID matches `application_metadata`.
-Malformed, missing, corrupt, newer-schema, wrong-application-ID, and
-target-mismatched databases fail closed without JSON fallback or dual writes.
+presence never selects storage. The application carries no JSON application-state
+backend: it opens SQLite only when the selector is `sqlite` and its immutable
+database ID matches `application_metadata`, and refuses `json`, `migrating`, and
+an absent selector alike. Only the migration and bridge tooling, which run before
+a selector file exists, may read an absent selector as JSON, and they ask for
+that explicitly. Malformed, missing, corrupt, newer-schema, wrong-application-ID,
+and target-mismatched databases fail closed without JSON fallback or dual
+writes.
 
 Schema version 1 is a deliberate compatibility decision: one `STRICT` database
 stores an apartment payload per row, compact ordered crawl metadata, normalized
@@ -558,13 +560,16 @@ specified in [`docs/observability.md`](observability.md).
 until `src/preflight.js` returns `ready`. Storage validation first proves that
 the managed tree supports create, write, rename, and removal; the singleton
 lease is then acquired and remains held for the rest of preflight and runtime.
-Existing apartment, private-delivery, channel-delivery, exchange-rate, and bot
-files are parsed read-only and checked against the schema versions and target
-identities understood by their runtime consumers. The bindings include the
-List.am URL template, Telegram owner, channel username, and AMD rate base.
-Unsupported, malformed, and target-mismatched files produce
-`ERR_STATE_INCOMPATIBLE`, including the filename and observed type/version, and
-are never interpreted as empty state.
+Each stored domain — apartments, private delivery, channel delivery, exchange
+rates, and the Telegram bot — is then read once through its repository. Decoding
+the rows is what proves they are usable, and the rebuilt state is re-checked
+against the target identities its runtime consumer relies on: the List.am URL
+template, Telegram owner, channel username, and AMD rate base. Moving that read
+ahead of the first delivery is the point, because a bad row would otherwise
+surface mid-crawl. Rows that cannot be read or rebuild into malformed state
+produce `ERR_STATE_INCOMPATIBLE` naming the domain and the reason, and are never
+interpreted as empty state. A domain with no rows yet is an untouched domain,
+not a failure.
 
 External checks use Telegram `getMe`, `getChat`, and `getChatMember` to verify
 credentials, channel reachability, and the bot's Post Messages and Edit
@@ -578,7 +583,8 @@ terminal. A List.am challenge instead produces the distinct
 
 Startup emits exactly one structured `Startup preflight completed` result. It
 contains component states, a stable failure code, terminal/readiness flags, and
-when applicable the state filename/schema or browser remediation command. It
+when applicable the affected state domain and the reason its stored rows were
+rejected, or the browser remediation command. It
 never contains the bot token, Telegram API URL, bot identity, or response
 payload. Chrome and the singleton lease are released on every failed preflight.
 Operational diagnosis and recovery are documented in

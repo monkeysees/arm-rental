@@ -90,9 +90,11 @@ test("rate service persists daily refreshes and retries failures hourly", async 
         if (response instanceof Error) throw response;
         return response;
       },
-      loadState: async () => structuredClone(stored),
-      saveState: async (_filename, value) => {
-        stored = structuredClone(value);
+      stateStore: {
+        load: async () => structuredClone(stored),
+        save: async (value) => {
+          stored = structuredClone(value);
+        },
       },
       now: () => currentTime,
       onFetchError: (error) => errors.push(error.message),
@@ -138,7 +140,7 @@ test("rate service reuses a fresh persisted snapshot after restart", async () =>
       fetchImpl: async () => {
         throw new Error("A fresh snapshot should not trigger a request");
       },
-      loadState: async () => persisted,
+      stateStore: { load: async () => persisted },
       now: () => new Date("2026-07-24T10:00:00.000Z"),
     },
   );

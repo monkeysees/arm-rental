@@ -2,6 +2,7 @@ import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 
 import { runApplication } from "../src/application.js";
+import { createMemoryStateAccess } from "./memory-state.js";
 
 const dataDirectory = path.resolve(process.argv[2]);
 const browserProfileDir = path.join(dataDirectory, "chrome-profile");
@@ -67,6 +68,12 @@ try {
       },
     }),
     exchangeRateServiceFactory: () => ({}),
+    // Lease and shutdown behavior is what these tests isolate, so the state
+    // backend is stubbed rather than migrated into a real database.
+    stateBackendFactory: () => ({
+      stateAccess: createMemoryStateAccess({}),
+      close: () => {},
+    }),
     // Singleton process tests isolate lease/shutdown behavior. The real
     // integration boundaries are covered in test/preflight.test.js.
     preflight: async () => ({

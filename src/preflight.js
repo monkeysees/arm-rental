@@ -1,9 +1,6 @@
 import path from "node:path";
 
-import {
-  compatibleApartmentState,
-  migrateApartmentState,
-} from "./apartment-state.js";
+import { compatibleApartmentState } from "./apartment-state.js";
 import {
   BROWSER_VERIFICATION_COMMAND,
   BrowserVerificationRequiredError,
@@ -12,7 +9,6 @@ import { compatibleBotState } from "./bot.js";
 import { compatibleChannelState } from "./channel.js";
 import { compatibleDeliveryState } from "./crawler.js";
 import { compatibleExchangeRateSnapshot } from "./exchange-rates.js";
-import { readState } from "./state.js";
 import { pageUrl } from "./target.js";
 import { TelegramApi, TelegramApiError } from "./telegram.js";
 import { recordBrowserVerification } from "./browser-verification-state.js";
@@ -58,130 +54,105 @@ export class PreflightError extends Error {
 }
 
 export class StateCompatibilityError extends PreflightError {
-  constructor(filename, observedSchema, reason, cause) {
-    const schema = `${observedSchema.type}@${observedSchema.version}`;
+  constructor(domain, reason, cause) {
     super(
       "state",
-      `State file ${filename} has incompatible schema ${schema}: ${reason}. The file was left unchanged.`,
+      `Stored ${domain} state cannot be used by this release: ${reason}. Stored state was left unchanged.`,
       {
         cause,
         code: "ERR_STATE_INCOMPATIBLE",
         terminal: true,
-        details: {
-          filename,
-          observedSchema,
-          reason,
-        },
+        details: { domain, reason },
       },
     );
     this.name = "StateCompatibilityError";
-    this.filename = filename;
-    this.observedSchema = observedSchema;
+    this.domain = domain;
   }
 }
 
-function observedSchema(state, invalidJson = false) {
-  if (invalidJson) return { type: "invalid-json", version: "unknown" };
-  return {
-    type:
-      typeof state?.type === "string" && state.type ? state.type : "unknown",
-    version: Number.isSafeInteger(state?.version) ? state.version : "unknown",
-  };
-}
-
-function stateSpecifications(config) {
+/**
+ * What preflight must be able to read before the process serves anything. The
+ * repositories decode and validate rows on load, so reading each domain once
+ * is what proves the stored rows are usable; the predicates then re-assert the
+ * domain invariants the running code relies on against what was rebuilt.
+ */
+function stateDomains(config, stateAccess) {
   return [
     {
-      filename: config.apartmentsStateFile,
-      types: new Set(["list-am-apartments"]),
-      versions: new Set([1, 2, 3]),
-      targetMatches: (state) => state.urlTemplate === config.listUrlTemplate,
-      targetName: "List.am URL template",
+      domain: "apartments",
+      store: stateAccess.apartments,
       compatible: (state) =>
         compatibleApartmentState(state, config.listUrlTemplate),
     },
     {
-      filename: config.deliveryStateFile,
-      types: new Set(["telegram-deliveries"]),
-      versions: new Set([1, 2]),
-      targetMatches: (state) => state.urlTemplate === config.listUrlTemplate,
-      targetName: "List.am URL template",
+      domain: "private delivery",
+      store: stateAccess.privateDeliveries,
       compatible: (state) =>
         compatibleDeliveryState(state, config.listUrlTemplate),
     },
+    // Channel storage exists only while a channel is configured, so a missing
+    // store is a configuration mismatch rather than an empty domain.
+    ...(config.telegramChannelId
+      ? [
+          {
+            domain: "channel delivery",
+            store: stateAccess.channelDeliveries,
+            compatible: (state) => compatibleChannelState(state, config),
+          },
+        ]
+      : []),
     {
-      filename: config.channelDeliveryStateFile,
-      types: new Set(["telegram-channel-deliveries"]),
-      versions: new Set([1]),
-      targetMatches: (state) =>
-        state.urlTemplate === config.listUrlTemplate &&
-        state.channelId === config.telegramChannelId,
-      targetName: "configured List.am target or Telegram channel",
-      compatible: (state) => compatibleChannelState(state, config),
-    },
-    {
-      filename: config.exchangeRatesStateFile,
-      types: new Set(["cba-exchange-rates"]),
-      versions: new Set([1]),
-      targetMatches: (state) => state.baseCurrency === "AMD",
-      targetName: "AMD base currency",
+      domain: "exchange rate",
+      store: stateAccess.exchangeRates,
       compatible: compatibleExchangeRateSnapshot,
     },
     {
-      filename: config.telegramStateFile,
-      types: new Set(["telegram-bot"]),
-      versions: new Set([1, 2, 3]),
-      targetMatches: () => true,
-      targetName: "Telegram bot update stream",
+      domain: "Telegram bot",
+      store: stateAccess.telegram,
       compatible: compatibleBotState,
     },
   ];
 }
 
-async function validateExistingState(config, loadState) {
+/**
+ * Refuses to start on stored state the running code cannot safely use. Reading
+ * every domain up front moves that decision ahead of the first delivery, which
+ * is where a lazily decoded bad row would otherwise surface. The apartment
+ * state is returned so the List.am check can reuse the source-integrity
+ * baseline it carries instead of reading those rows twice.
+ */
+async function validateExistingState(config, stateAccess) {
+  if (!stateAccess) {
+    throw new PreflightError(
+      "state",
+      "Startup preflight requires the opened state backend.",
+      { code: "ERR_PREFLIGHT_STATE", terminal: true },
+    );
+  }
   let apartmentState;
-  for (const specification of stateSpecifications(config)) {
+  for (const { domain, store, compatible } of stateDomains(
+    config,
+    stateAccess,
+  )) {
+    if (!store) {
+      throw new StateCompatibilityError(domain, "storage is not configured");
+    }
     let state;
     try {
-      state = await loadState(specification.filename);
+      state = await store.load();
     } catch (error) {
       throw new StateCompatibilityError(
-        specification.filename,
-        observedSchema(undefined, true),
-        "invalid JSON",
+        domain,
+        "stored rows could not be read",
         error,
       );
     }
+    // An untouched domain has no rows yet; only stored content can be wrong.
     if (state === undefined) continue;
-
-    const schema = observedSchema(state);
-    if (
-      !specification.types.has(state?.type) ||
-      !specification.versions.has(state?.version)
-    ) {
-      throw new StateCompatibilityError(
-        specification.filename,
-        schema,
-        "unsupported type or version",
-      );
+    if (!compatible(state)) {
+      throw new StateCompatibilityError(domain, "rebuilt state is malformed");
     }
-    if (!specification.targetMatches(state)) {
-      throw new StateCompatibilityError(
-        specification.filename,
-        schema,
-        `target mismatch (${specification.targetName})`,
-      );
-    }
-    if (!specification.compatible(state)) {
-      throw new StateCompatibilityError(
-        specification.filename,
-        schema,
-        "schema contents are malformed",
-      );
-    }
-    if (specification.filename === config.apartmentsStateFile) {
-      apartmentState = migrateApartmentState(state, config.listUrlTemplate);
-    }
+    if (domain === "apartments") apartmentState = state;
   }
   return apartmentState;
 }
@@ -332,7 +303,7 @@ export async function runStartupPreflight(
     browserFetcher,
     exchangeRateService,
     api,
-    loadState = readState,
+    stateAccess,
     recordVerification = recordBrowserVerification,
     onSourceIntegrityChecked = () => {},
     onRetry = () => {},
@@ -357,7 +328,7 @@ export async function runStartupPreflight(
     }
     result.checks.storage = "passed";
 
-    const apartmentState = await validateExistingState(config, loadState);
+    const apartmentState = await validateExistingState(config, stateAccess);
     result.checks.state = "passed";
 
     if (

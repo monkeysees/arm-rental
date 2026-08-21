@@ -5,7 +5,6 @@ import {
   readStateBackendSelector,
   StateBackendError,
 } from "./state-backend.js";
-import { readState, writeState } from "./state.js";
 
 /** Opens the selector-authorized backend; database-file presence is ignored. */
 export async function openApplicationState(
@@ -19,14 +18,14 @@ export async function openApplicationState(
       { backend: selector.backend },
     );
   }
-  if (selector.backend === "json") {
-    return {
-      backend: "json",
-      schemaVersion: 0,
-      loadState: readState,
-      saveState: writeState,
-      close: () => {},
-    };
+  // The selector still names JSON for the migration and bridge tooling, but the
+  // application no longer carries a JSON backend. Refusing here keeps a host
+  // that never migrated from starting on empty SQLite state.
+  if (selector.backend !== "sqlite") {
+    throw new StateBackendError(
+      `This release stores application state in SQLite and cannot open the ${selector.backend} state backend; run the state migration first`,
+      { backend: selector.backend },
+    );
   }
 
   const database = openStateDatabase({
@@ -51,13 +50,12 @@ export async function openApplicationState(
       listUrlTemplate: config.listUrlTemplate,
       channelId: config.telegramChannelId,
     });
-    const access = createSqliteStateAccess(config, database, repositories);
     return {
       backend: "sqlite",
       schemaVersion: 1,
       database,
       repositories,
-      ...access,
+      stateAccess: createSqliteStateAccess(database, repositories),
       close: () => database.close(),
     };
   } catch (error) {

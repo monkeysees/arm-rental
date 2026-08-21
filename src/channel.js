@@ -9,7 +9,6 @@ import {
   regionLocationId,
 } from "./filters.js";
 import { amdPriceAmount } from "./prices.js";
-import { readState, writeState } from "./state.js";
 import { formatApartmentMessage } from "./telegram.js";
 
 const CHANNEL_STATE_VERSION = 1;
@@ -341,8 +340,7 @@ export async function publishChannelApartments(
   apartmentState,
   {
     api,
-    loadState = readState,
-    saveState = writeState,
+    stateStore,
     now = () => new Date(),
     signal,
     onOperation = () => {},
@@ -363,7 +361,10 @@ export async function publishChannelApartments(
   }
 
   const fingerprint = channelFilterFingerprint(config.channelFilters);
-  const stored = await loadState(config.channelDeliveryStateFile);
+  if (!stateStore) {
+    throw new Error("Channel delivery storage is not configured");
+  }
+  const stored = await stateStore.load();
   const compatible = compatibleChannelState(stored, config);
   let state = compatible
     ? structuredClone(stored)
@@ -406,7 +407,7 @@ export async function publishChannelApartments(
       }),
     );
     // The whole initial admission decision is durable before the first send.
-    await saveState(config.channelDeliveryStateFile, state);
+    await stateStore.save(state);
   } else {
     if (state.filterFingerprint !== fingerprint) {
       onFilterFingerprintChange({
@@ -415,7 +416,7 @@ export async function publishChannelApartments(
         filterFingerprint: fingerprint,
       });
       state.filterFingerprint = fingerprint;
-      await saveState(config.channelDeliveryStateFile, state);
+      await stateStore.save(state);
     }
 
     const readmitted = apartmentOrder.flatMap((itemId) => {
@@ -448,7 +449,7 @@ export async function publishChannelApartments(
       // Persist admission before sending so a failed or interrupted Telegram
       // request remains pending and is retried without depending on another
       // List.am encounter.
-      await saveState(config.channelDeliveryStateFile, state);
+      await stateStore.save(state);
       for (const { itemId, reason } of readmitted) {
         operationEvent(onOperation, {
           channelId: config.telegramChannelId,
@@ -475,7 +476,7 @@ export async function publishChannelApartments(
         if (status === "filtered") filteredCount += 1;
         state.apartments[itemId] = { status, classifiedAt };
       }
-      await saveState(config.channelDeliveryStateFile, state);
+      await stateStore.save(state);
     }
   }
 
@@ -509,7 +510,7 @@ export async function publishChannelApartments(
         contentHash,
         publishedAt,
       };
-      await saveState(config.channelDeliveryStateFile, state);
+      await stateStore.save(state);
       sentCount += 1;
       operationEvent(onOperation, {
         channelId: config.telegramChannelId,
@@ -569,7 +570,7 @@ export async function publishChannelApartments(
         };
         delete replacement.updatedAt;
         state.apartments[itemId] = replacement;
-        await saveState(config.channelDeliveryStateFile, state);
+        await stateStore.save(state);
         sentCount += 1;
         operationEvent(onOperation, {
           channelId: config.telegramChannelId,
@@ -610,7 +611,7 @@ export async function publishChannelApartments(
 
       entry.contentHash = contentHash;
       entry.updatedAt = now().toISOString();
-      await saveState(config.channelDeliveryStateFile, state);
+      await stateStore.save(state);
       editedCount += 1;
       operationEvent(onOperation, {
         channelId: config.telegramChannelId,

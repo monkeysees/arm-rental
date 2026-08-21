@@ -239,8 +239,7 @@ metrics_command() {
         ["success ratio", ($metrics.crawl.successRatio // "n/a" | tostring)],
         ["duration p50 ms", ($metrics.crawl.durationMs.p50 // "n/a" | tostring)],
         ["duration p95 ms", ($metrics.crawl.durationMs.p95 // "n/a" | tostring)],
-        ["retries", ([$metrics.retries[].count] | add // 0 | tostring)],
-        ["state writes", ([$metrics.stateWrites[].count] | add // 0 | tostring)]
+        ["retries", ([$metrics.retries[].count] | add // 0 | tostring)]
       ]
     | .[] | @tsv
   ' <<<"$result" | column -t -s $'\t'

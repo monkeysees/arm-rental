@@ -9,6 +9,15 @@ import {
   ListAmIntegrityReason,
   ListAmSourceIntegrityError,
 } from "../src/source-integrity.js";
+import { createMemoryStateAccess } from "../test-support/memory-state.js";
+
+/** Stands in for the opened SQLite backend these lifecycle tests do not own. */
+function stateBackendFactory() {
+  return {
+    stateAccess: createMemoryStateAccess({}),
+    close: () => {},
+  };
+}
 
 test("configuration validation fails before locks, resources, or loops start", async () => {
   const calls = [];
@@ -64,6 +73,7 @@ test("runtime page fetch immediately retries a browser challenge once", async ()
     logger,
     healthMonitor: monitor,
     validateConfig: async () => {},
+    stateBackendFactory,
     acquireLock: async () => ({
       dataDirectory: "/data",
       owner: { id: "lease", pid: 42 },
@@ -186,6 +196,7 @@ test("application lifecycle drives crawl and exchange-rate readiness", async () 
     signalEmitter,
     healthMonitor: monitor,
     validateConfig: async () => {},
+    stateBackendFactory,
     acquireLock: async () => ({
       dataDirectory: "/data",
       owner: { pid: 42 },

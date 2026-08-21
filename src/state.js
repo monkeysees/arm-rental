@@ -1,7 +1,13 @@
+/**
+ * The atomic, fsynced, 0600 read/write primitive for the small control files
+ * that sit beside the state database: the backend selector, the singleton
+ * lease, maintenance history, backup manifests, and the browser verification
+ * record. Application state itself lives in SQLite and never comes through
+ * here, so a write is a handful of bytes and a failed one rolls itself back.
+ */
 import { link, mkdir, open, readFile, rename, rm } from "node:fs/promises";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
-import { performance } from "node:perf_hooks";
 
 const UNSUPPORTED_DIRECTORY_SYNC_CODES = new Set([
   "EINVAL",
@@ -16,32 +22,6 @@ const defaultOperations = {
   rename,
   rm,
 };
-
-let stateWriteObserver = () => {};
-
-/**
- * Installs the process-level sink for state-write metrics. The returned
- * function restores the previous sink so lifecycle owners cannot leak it into
- * a later application run in the same process.
- */
-export function observeStateWrites(observer) {
-  if (typeof observer !== "function") {
-    throw new TypeError("State-write observer must be a function");
-  }
-  const previous = stateWriteObserver;
-  stateWriteObserver = observer;
-  return () => {
-    if (stateWriteObserver === observer) stateWriteObserver = previous;
-  };
-}
-
-function emitWriteMetric(observer, metric) {
-  try {
-    observer(metric);
-  } catch {
-    // Telemetry must never turn a durable write into an application failure.
-  }
-}
 
 async function syncDirectory(directory, operations) {
   let handle;
@@ -84,14 +64,8 @@ export async function readState(filename) {
 export async function writeState(
   filename,
   state,
-  {
-    validateSerialized,
-    operations: operationOverrides = {},
-    onMetric = stateWriteObserver,
-    monotonicNow = () => performance.now(),
-  } = {},
+  { validateSerialized, operations: operationOverrides = {} } = {},
 ) {
-  const startedAt = monotonicNow();
   const operations = { ...defaultOperations, ...operationOverrides };
   const directory = path.dirname(filename);
   let serialized;
@@ -149,17 +123,9 @@ export async function writeState(
     throw error;
   } finally {
     if (outcome === "completed" && priorStateLinked) {
-      // The renamed entry is already committed; cleanup is deliberately best
-      // effort but remains part of the observed write-call duration.
+      // The renamed entry is already committed, so cleaning up the rollback
+      // link is deliberately best effort.
       await operations.rm(rollbackFile, { force: true }).catch(() => {});
     }
-    emitWriteMetric(onMetric, {
-      name: `state.write.${outcome}`,
-      component: "storage",
-      stateFile: path.basename(filename),
-      bytes: serialized === undefined ? 0 : Buffer.byteLength(serialized),
-      durationMs: Math.max(0, monotonicNow() - startedAt),
-      outcome,
-    });
   }
 }

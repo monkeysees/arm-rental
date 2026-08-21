@@ -414,7 +414,9 @@ export async function runMaintenance(
     );
     const previous = await previousHistory(historyFilename);
     const profileBytesBeforeCleanup = await treeSize(config.browserProfileDir);
-    const selector = await readStateBackendSelector(config.dataDirectory);
+    const selector = await readStateBackendSelector(config.dataDirectory, {
+      allowAbsent: true,
+    });
     if (selector.backend === "migrating") {
       throw new MaintenanceValidationError(
         "Maintenance cannot inspect an incomplete state migration",

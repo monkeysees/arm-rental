@@ -63,9 +63,11 @@ function memoryState(initial) {
     get value() {
       return structuredClone(value);
     },
-    loadState: async () => structuredClone(value),
-    saveState: async (_filename, state) => {
-      value = structuredClone(state);
+    stateStore: {
+      load: async () => structuredClone(value),
+      save: async (state) => {
+        value = structuredClone(state);
+      },
     },
   };
 }

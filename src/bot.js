@@ -3,7 +3,7 @@ import { performance } from "node:perf_hooks";
 import { setTimeout as delay } from "node:timers/promises";
 
 import { publishChannelApartments } from "./channel.js";
-import { crawlApartments, removeDeliveryRecipient } from "./crawler.js";
+import { crawlApartments } from "./crawler.js";
 import {
   deleteDataMenu,
   filtersMenu,
@@ -19,7 +19,6 @@ import {
   normalizeFilters,
   parseRangeInput,
 } from "./filters.js";
-import { readState, writeState } from "./state.js";
 import {
   formatApartmentMessage,
   isMainMenuCommand,
@@ -828,10 +827,7 @@ export async function runTelegramBot(
   config,
   {
     api,
-    loadState = readState,
-    saveState = writeState,
-    deliveryDecisions,
-    deleteUserData,
+    stateAccess,
     crawl = crawlApartments,
     publishChannel = publishChannelApartments,
     pageFetch = globalThis.fetch,
@@ -866,16 +862,9 @@ export async function runTelegramBot(
     retryMaxMs: config.externalRetryMaxMs,
     onRetry,
   });
-  const stored = await loadState(config.telegramStateFile);
-  let state =
-    stored === undefined
-      ? {
-          version: 3,
-          type: "telegram-bot",
-          updateOffset: 0,
-          users: {},
-        }
-      : migrateBotState(stored);
+  // The Telegram store always answers with a state; an empty installation
+  // reports offset zero and no users rather than nothing at all.
+  let state = migrateBotState(await stateAccess.telegram.load());
   let activationWaiter;
   let lastCrawlAttemptStartedAt;
   let botStateMutation = Promise.resolve();
@@ -901,7 +890,7 @@ export async function runTelegramBot(
     return pending;
   };
   const persistBotState = async (value) => {
-    await saveState(config.telegramStateFile, value);
+    await stateAccess.telegram.save(value);
     state = value;
     privateRateLimits.acknowledgeOffset(value.updateOffset);
   };
@@ -915,33 +904,18 @@ export async function runTelegramBot(
       privateDeliveryBarrier.block(senderId);
       await privateDeliveryRateLimiter.cancelRecipient(senderId);
       await privateDeliveryBarrier.drain(senderId);
-      let removed;
-      if (deleteUserData) {
-        removed = await withBotStateMutation(() =>
-          withDeliveryStateMutation(async () => {
-            const user = state.users[String(senderId)];
-            if (!user?.deletionPendingAt) return false;
-            await deleteUserData(senderId);
-            state = withoutUser(state, senderId);
-            return true;
-          }),
-        );
-      } else {
-        await withDeliveryStateMutation(() =>
-          removeDeliveryRecipient(config, senderId, {
-            legacyRecipientId: state.legacyRecipientId,
-            loadState,
-            saveState,
-          }),
-        );
-
-        removed = await withBotStateMutation(async () => {
+      // The user row and their delivery history are removed in one
+      // transaction, so a crash can only leave the deletion still pending and
+      // the next startup replays it.
+      const removed = await withBotStateMutation(() =>
+        withDeliveryStateMutation(async () => {
           const user = state.users[String(senderId)];
           if (!user?.deletionPendingAt) return false;
-          await persistBotState(withoutUser(state, senderId));
+          await stateAccess.deleteUserData(senderId);
+          state = withoutUser(state, senderId);
           return true;
-        });
-      }
+        }),
+      );
       privateRateLimits.clearSenderBuckets(senderId);
       privateDeliveryRateLimiter.clearRecipient(senderId);
       privateDeliveryBarrier.clear(senderId);
@@ -1162,8 +1136,7 @@ export async function runTelegramBot(
         };
         const result = await crawl(config, {
           fetchPage: pageFetch,
-          loadState,
-          saveState,
+          stateAccess,
           exchangeRates,
           onSourceIntegrityChecked: (observation) =>
             onSourceIntegrityChecked({ ...observation, crawlId }),
@@ -1226,9 +1199,6 @@ export async function runTelegramBot(
                     },
                   };
                 }),
-                legacyRecipientId:
-                  state.legacyRecipientId || String(config.telegramOwnerId),
-                ...(deliveryDecisions ? { deliveryDecisions } : {}),
                 deliveryStateMutation: withDeliveryStateMutation,
               }
             : {}),
@@ -1242,8 +1212,7 @@ export async function runTelegramBot(
                       {
                         api,
                         signal,
-                        loadState,
-                        saveState,
+                        stateStore: stateAccess.channelDeliveries,
                         onOperation: (event) =>
                           onChannelOperation({
                             ...event,

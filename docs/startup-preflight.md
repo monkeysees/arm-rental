@@ -51,8 +51,10 @@ any request for credentials unrelated to List.am verification.
 SQLite state failures report a stable storage code and sanitized identity,
 schema, integrity, pragma, or target-mismatch context. Startup validates the
 selector before opening the database, validates identity and schema before any
-persistent pragma, and never falls back to legacy JSON when SQLite is
-authoritative.
+persistent pragma, and carries no JSON application-state backend to fall back
+to. A selector naming `json` or `migrating`, and a selector file that is missing
+altogether, are each refused with an error naming the backend; deleting the
+selector cannot make startup initialize new state.
 
 ### Prerequisites, safe checks, and commands
 

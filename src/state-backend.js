@@ -65,8 +65,19 @@ export function stateBackendPaths(dataDirectory) {
   });
 }
 
-export function parseStateBackendSelector(value) {
+/**
+ * An absent selector is only meaningful to callers that predate one: the bridge
+ * startup check and the JSON→SQLite tooling, which both run before a selector
+ * file exists. Every other caller has to name the backend it opens, so an
+ * absent selector is refused rather than silently read as JSON.
+ */
+export function parseStateBackendSelector(value, { allowAbsent = false } = {}) {
   if (value === undefined) {
+    if (!allowAbsent) {
+      throw new StateBackendError(
+        "State backend selector is absent; state must be migrated to SQLite",
+      );
+    }
     return Object.freeze({ backend: "json", version: 1, implicit: true });
   }
   if (
@@ -112,7 +123,10 @@ export function parseStateBackendSelector(value) {
   return Object.freeze({ ...value, implicit: false });
 }
 
-export async function readStateBackendSelector(dataDirectory) {
+export async function readStateBackendSelector(
+  dataDirectory,
+  { allowAbsent = false } = {},
+) {
   const { selector } = stateBackendPaths(dataDirectory);
   let value;
   try {
@@ -122,11 +136,15 @@ export async function readStateBackendSelector(dataDirectory) {
       cause,
     });
   }
-  return parseStateBackendSelector(value);
+  return parseStateBackendSelector(value, { allowAbsent });
 }
 
 export async function requireBridgeJsonBackend(dataDirectory) {
-  const selector = await readStateBackendSelector(dataDirectory);
+  // A bridge release predates the selector file, so a fresh install with no
+  // selector is the JSON backend it expects.
+  const selector = await readStateBackendSelector(dataDirectory, {
+    allowAbsent: true,
+  });
   if (selector.backend !== "json") {
     throw new StateBackendError(
       `This bridge release cannot open the ${selector.backend} state backend`,

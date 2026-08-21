@@ -11,7 +11,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 
-import { observeStateWrites, readState, writeState } from "../src/state.js";
+import { readState, writeState } from "../src/state.js";
 
 test("state is atomically persisted and malformed JSON is reported clearly", async (t) => {
   const directory = await mkdtemp(path.join(tmpdir(), "arm-rental-"));
@@ -141,78 +141,4 @@ test("flush, rename, validation, and directory-sync failures preserve prior stat
     /failed validation/u,
   );
   assert.equal(await readFile(filename, "utf8"), prior);
-});
-
-test("state writes expose byte and duration metrics without making telemetry part of durability", async (t) => {
-  const directory = await mkdtemp(path.join(tmpdir(), "arm-rental-"));
-  t.after(() => rm(directory, { recursive: true, force: true }));
-  const filename = path.join(directory, "apartments.json");
-  const metrics = [];
-  const failedMetrics = [];
-  const times = [100, 112, 200, 225, 300, 307];
-  const stopObserving = observeStateWrites((metric) => metrics.push(metric));
-  t.after(stopObserving);
-
-  await writeState(
-    filename,
-    { version: 1, value: "saved" },
-    { monotonicNow: () => times.shift() },
-  );
-  await writeState(
-    filename,
-    { version: 1, value: "telemetry-isolated" },
-    {
-      monotonicNow: () => times.shift(),
-      onMetric: () => {
-        throw new Error("collector unavailable");
-      },
-    },
-  );
-  await assert.rejects(
-    writeState(
-      filename,
-      { version: 1, value: "failed" },
-      {
-        monotonicNow: () => times.shift(),
-        onMetric: (metric) => failedMetrics.push(metric),
-        operations: {
-          open: async () => {
-            throw Object.assign(new Error("storage unavailable"), {
-              code: "EIO",
-            });
-          },
-        },
-      },
-    ),
-    /storage unavailable/u,
-  );
-
-  assert.deepEqual(metrics, [
-    {
-      name: "state.write.completed",
-      component: "storage",
-      stateFile: "apartments.json",
-      bytes: Buffer.byteLength(
-        `${JSON.stringify({ version: 1, value: "saved" }, null, 2)}\n`,
-      ),
-      durationMs: 12,
-      outcome: "completed",
-    },
-  ]);
-  assert.deepEqual(failedMetrics, [
-    {
-      name: "state.write.failed",
-      component: "storage",
-      stateFile: "apartments.json",
-      bytes: Buffer.byteLength(
-        `${JSON.stringify({ version: 1, value: "failed" }, null, 2)}\n`,
-      ),
-      durationMs: 7,
-      outcome: "failed",
-    },
-  ]);
-  assert.deepEqual(await readState(filename), {
-    version: 1,
-    value: "telemetry-isolated",
-  });
 });

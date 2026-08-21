@@ -282,7 +282,8 @@ async function validateSqliteRecoveryState(config, root) {
 }
 
 export async function validateRecoveryState(config, root) {
-  const selector = await readStateBackendSelector(root);
+  // A snapshot taken before the cutover carries no selector file.
+  const selector = await readStateBackendSelector(root, { allowAbsent: true });
   return selector.backend === "sqlite"
     ? validateSqliteRecoveryState(config, root)
     : validateJsonRecoveryState(config, root);
@@ -368,7 +369,9 @@ async function fileHashes(root) {
 
 async function copyData(config, destinationRoot) {
   await mkdir(destinationRoot, { recursive: true, mode: 0o700 });
-  const selector = await readStateBackendSelector(config.dataDirectory);
+  const selector = await readStateBackendSelector(config.dataDirectory, {
+    allowAbsent: true,
+  });
   const targets = [
     config.apartmentsStateFile,
     config.deliveryStateFile,

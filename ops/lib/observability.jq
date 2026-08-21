@@ -76,41 +76,6 @@ def grouped_retries($records):
       count: length
     });
 
-def grouped_state_writes($records):
-  [
-    $records[]
-    | select(
-        .record.event == "state.write.completed"
-        or .record.event == "state.write.failed"
-      )
-    | {
-        state:
-          (if (.record.stateFile | type) == "string"
-              and (.record.stateFile | test("^[^/\\\\]{1,80}$"))
-           then .record.stateFile
-           else "other"
-           end),
-        failed: (.record.event == "state.write.failed"),
-        bytes: ((.record.bytes | tonumber?) // 0),
-        durationMs: ((.record.durationMs | tonumber?) // 0)
-      }
-  ]
-  | sort_by(.state)
-  | group_by(.state)
-  | map(
-      . as $writes
-      | {
-          state: .[0].state,
-          count: length,
-          failureCount: (map(select(.failed)) | length),
-          bytes: (map(.bytes) | add // 0),
-          durationMs: {
-            p50: percentile(map(.durationMs); 0.50),
-            p95: percentile(map(.durationMs); 0.95)
-          }
-        }
-    );
-
 def grouped_database_operations($records):
   [
     $records[]
@@ -193,7 +158,6 @@ def aggregate($records; $seconds; $now):
         channelEdited: sum_field($successful; "channelEdited")
       },
       retries: grouped_retries($window),
-      stateWrites: grouped_state_writes($window),
       databaseOperations: grouped_database_operations($window),
       sourceIntegrity: source_integrity($window),
       applicationStarts:

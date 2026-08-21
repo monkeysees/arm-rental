@@ -1,6 +1,5 @@
 import * as cheerio from "cheerio";
 
-import { readState, writeState } from "./state.js";
 import { ExponentialBackoff, retryOperation } from "./retry.js";
 
 const CBA_API_URL = "https://api.cba.am/exchangerates.asmx";
@@ -97,8 +96,7 @@ export class ExchangeRateService {
     config,
     {
       fetchImpl = globalThis.fetch,
-      loadState = readState,
-      saveState = writeState,
+      stateStore,
       now = () => new Date(),
       refreshMs = DAY_MS,
       retryMs = HOUR_MS,
@@ -107,11 +105,10 @@ export class ExchangeRateService {
       onRetry = () => {},
     } = {},
   ) {
-    this.stateFile = config.exchangeRatesStateFile;
     this.timeoutMs = config.timeoutMs || 30_000;
     this.fetchImpl = fetchImpl;
-    this.loadState = loadState;
-    this.saveState = saveState;
+    // The persisted snapshot is one row; the store is the only way to it.
+    this.stateStore = stateStore;
     this.now = now;
     this.refreshMs = refreshMs;
     this.retryMs = retryMs;
@@ -128,7 +125,7 @@ export class ExchangeRateService {
 
   async load() {
     if (this.loaded) return;
-    const stored = await this.loadState(this.stateFile);
+    const stored = await this.stateStore.load();
     this.snapshot = compatibleExchangeRateSnapshot(stored) ? stored : undefined;
     this.nextAttemptAt = this.snapshot
       ? Date.parse(this.snapshot.fetchedAt) + this.refreshMs
@@ -178,7 +175,7 @@ export class ExchangeRateService {
             delayMs,
           }),
       });
-      await this.saveState(this.stateFile, snapshot);
+      await this.stateStore.save(snapshot);
       this.snapshot = snapshot;
       this.nextAttemptAt = Date.parse(snapshot.fetchedAt) + this.refreshMs;
       await this.onRefresh(snapshot);

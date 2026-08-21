@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { EventEmitter } from "node:events";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -16,6 +16,7 @@ import {
 } from "../src/preflight.js";
 import { TelegramApiError } from "../src/telegram.js";
 import { ListAmIntegrityReason } from "../src/source-integrity.js";
+import { createMemoryStateAccess } from "../test-support/memory-state.js";
 
 const REGULAR_ADS_HTML = `
   <div id="contentr">
@@ -110,8 +111,13 @@ function telegramApi(events = [], overrides = {}) {
   };
 }
 
-async function writeJson(filename, value) {
-  await writeFile(filename, `${JSON.stringify(value, null, 2)}\n`, "utf8");
+/** Stored state as the repositories rebuild it, which is all preflight sees. */
+function storedState(config, seed = {}) {
+  return createMemoryStateAccess({
+    listUrlTemplate: config.listUrlTemplate,
+    channelConfigured: Boolean(config.telegramChannelId),
+    ...seed,
+  });
 }
 
 test("preflight validates every state target and all external boundaries before readiness", async (t) => {
@@ -119,21 +125,17 @@ test("preflight validates every state target and all external boundaries before 
     TELEGRAM_CHANNEL_ID: "@rentals",
   });
   const rates = ratesSnapshot();
-  await Promise.all([
-    writeJson(config.apartmentsStateFile, {
-      version: 2,
+  const stateAccess = storedState(config, {
+    apartments: {
+      version: 3,
       type: "list-am-apartments",
       urlTemplate: config.listUrlTemplate,
       apartments: {},
       apartmentOrder: [],
-    }),
-    writeJson(config.deliveryStateFile, {
-      version: 1,
-      type: "telegram-deliveries",
-      urlTemplate: config.listUrlTemplate,
-      notified: {},
-    }),
-    writeJson(config.channelDeliveryStateFile, {
+      sourceIntegrity: { recentFirstPageCounts: [] },
+    },
+    deliveries: { 42: { notified: {}, initialSelectionApplied: true } },
+    channel: {
       version: 1,
       type: "telegram-channel-deliveries",
       channelId: config.telegramChannelId,
@@ -141,15 +143,9 @@ test("preflight validates every state target and all external boundaries before 
       initialized: true,
       filterFingerprint: "a".repeat(64),
       apartments: {},
-    }),
-    writeJson(config.exchangeRatesStateFile, rates),
-    writeJson(config.telegramStateFile, {
-      version: 1,
-      type: "telegram-bot",
-      ownerId: config.telegramOwnerId,
-      updateOffset: 0,
-    }),
-  ]);
+    },
+    exchangeRates: rates,
+  });
   const events = [];
 
   const result = await runStartupPreflight(config, {
@@ -163,6 +159,7 @@ test("preflight validates every state target and all external boundaries before 
       },
     },
     api: telegramApi(events),
+    stateAccess,
   });
 
   assert.deepEqual(result, {
@@ -212,6 +209,7 @@ test("preflight records parsed unique apartments rather than raw candidates", as
     },
     exchangeRateService: { getSnapshot: async () => ratesSnapshot() },
     api: telegramApi(),
+    stateAccess: storedState(config),
     onSourceIntegrityChecked: async (observation) =>
       integrityChecks.push(observation),
     recordVerification: async (_config, count) =>
@@ -245,6 +243,7 @@ test("preflight and runtime report the same integrity reason without writes", as
       },
       exchangeRateService: { getSnapshot: async () => ratesSnapshot() },
       api: telegramApi(),
+      stateAccess: storedState(config),
       recordVerification: async (_config, count) =>
         verificationCounts.push(count),
     }),
@@ -259,13 +258,12 @@ test("preflight and runtime report the same integrity reason without writes", as
   );
 
   let runtimeError;
-  const runtimeWrites = [];
+  const runtimeState = storedState(config);
   await assert.rejects(
     crawlApartments(
       { ...config, initialPageCount: 1 },
       {
-        loadState: async () => undefined,
-        saveState: async (...arguments_) => runtimeWrites.push(arguments_),
+        stateAccess: runtimeState,
         fetchPage: async () => new Response(missingTitleHtml),
       },
     ),
@@ -277,20 +275,22 @@ test("preflight and runtime report the same integrity reason without writes", as
 
   assert.equal(preflightError.details.reason, runtimeError.reason);
   assert.deepEqual(verificationCounts, []);
-  assert.deepEqual(runtimeWrites, []);
+  assert.deepEqual(runtimeState.writes, []);
 });
 
 test("preflight applies the persisted count baseline before verification", async (t) => {
   const config = await temporaryConfig(t);
-  await writeJson(config.apartmentsStateFile, {
-    version: 3,
-    type: "list-am-apartments",
-    urlTemplate: config.listUrlTemplate,
-    apartments: {},
-    apartmentOrder: [],
-    sourceIntegrity: {
-      recentFirstPageCounts: [20, 20, 20],
-      lastSuccessfulAt: "2026-07-26T11:00:00.000Z",
+  const baseline = storedState(config, {
+    apartments: {
+      version: 3,
+      type: "list-am-apartments",
+      urlTemplate: config.listUrlTemplate,
+      apartments: {},
+      apartmentOrder: [],
+      sourceIntegrity: {
+        recentFirstPageCounts: [20, 20, 20],
+        lastSuccessfulAt: "2026-07-26T11:00:00.000Z",
+      },
     },
   });
   const verificationCounts = [];
@@ -305,6 +305,7 @@ test("preflight applies the persisted count baseline before verification", async
       },
       exchangeRateService: { getSnapshot: async () => ratesSnapshot() },
       api: telegramApi(),
+      stateAccess: baseline,
       recordVerification: async (_config, count) =>
         verificationCounts.push(count),
     }),
@@ -316,101 +317,144 @@ test("preflight applies the persisted count baseline before verification", async
   assert.deepEqual(verificationCounts, []);
 });
 
-test("unsupported and malformed state fails closed without changing files", async (t) => {
-  const config = await temporaryConfig(t);
+test("preflight refuses stored rows the running code cannot use", async (t) => {
+  const config = await temporaryConfig(t, { TELEGRAM_CHANNEL_ID: "@rentals" });
+  const unreadable = () => {
+    const error = new Error("Stored private delivery decision is invalid");
+    error.code = "ERR_STATE_DATABASE_DOMAIN_INVALID";
+    throw error;
+  };
   const cases = [
     {
-      filename: config.apartmentsStateFile,
-      state: {
-        version: 99,
-        type: "list-am-apartments",
-        urlTemplate: config.listUrlTemplate,
-        apartments: {},
+      name: "an apartment history longer than the source-integrity window",
+      seed: {
+        apartments: {
+          version: 3,
+          type: "list-am-apartments",
+          urlTemplate: config.listUrlTemplate,
+          apartments: {},
+          apartmentOrder: [],
+          sourceIntegrity: { recentFirstPageCounts: [1, 2, 3, 4, 5, 6] },
+        },
       },
-      reason: /unsupported type or version/u,
-      schema: { type: "list-am-apartments", version: 99 },
+      domain: "apartments",
+      reason: /rebuilt state is malformed/u,
     },
     {
-      filename: config.apartmentsStateFile,
-      state: {
-        version: 3,
-        type: "list-am-apartments",
-        urlTemplate: config.listUrlTemplate,
-        apartments: {},
-        sourceIntegrity: { recentFirstPageCounts: [1, 2, 3, 4, 5, 6] },
+      name: "apartments belonging to a different List.am target",
+      seed: {
+        apartments: {
+          version: 3,
+          type: "list-am-apartments",
+          urlTemplate: "https://www.list.am/category/99/{page}",
+          apartments: {},
+          apartmentOrder: [],
+          sourceIntegrity: { recentFirstPageCounts: [] },
+        },
       },
-      reason: /schema contents are malformed/u,
-      schema: { type: "list-am-apartments", version: 3 },
+      domain: "apartments",
+      reason: /rebuilt state is malformed/u,
     },
     {
-      filename: config.telegramStateFile,
-      state: {
-        version: 2,
-        type: "telegram-bot",
-        updateOffset: 0,
-        users: [],
+      name: "a channel state pointing at another channel",
+      seed: {
+        channel: {
+          version: 1,
+          type: "telegram-channel-deliveries",
+          channelId: "@somewhere_else",
+          urlTemplate: config.listUrlTemplate,
+          initialized: true,
+          filterFingerprint: "a".repeat(64),
+          apartments: {},
+        },
       },
-      reason: /schema contents are malformed/u,
-      schema: { type: "telegram-bot", version: 2 },
+      domain: "channel delivery",
+      reason: /rebuilt state is malformed/u,
     },
     {
-      filename: config.telegramStateFile,
-      state: {
-        version: 2,
-        type: "telegram-bot",
-        updateOffset: 10,
-        users: {
-          42: {
-            chatId: 42,
-            active: false,
-            deletionPendingAt: "2026-07-26T12:00:00.000Z",
+      name: "a bot user whose pending deletion left it active",
+      seed: {
+        telegram: {
+          version: 3,
+          type: "telegram-bot",
+          updateOffset: 10,
+          users: {
+            42: {
+              chatId: 42,
+              active: true,
+              sendInitialApartments: false,
+              filters: {
+                price: { min: null, max: null },
+                rooms: { min: null, max: null },
+                locations: [],
+              },
+              pendingFilterInput: null,
+              deletionPendingAt: "2026-07-26T12:00:00.000Z",
+            },
           },
         },
       },
-      reason: /schema contents are malformed/u,
-      schema: { type: "telegram-bot", version: 2 },
+      domain: "Telegram bot",
+      reason: /rebuilt state is malformed/u,
     },
     {
-      filename: config.telegramStateFile,
-      state: {
-        version: 3,
-        type: "telegram-bot",
-        updateOffset: -1,
-        users: {},
+      name: "a delivery decision row the repository refuses to decode",
+      seed: {},
+      corrupt: (stateAccess) => {
+        stateAccess.privateDeliveries.load = unreadable;
       },
-      reason: /schema contents are malformed/u,
-      schema: { type: "telegram-bot", version: 3 },
+      domain: "private delivery",
+      reason: /stored rows could not be read/u,
     },
   ];
 
   for (const stateCase of cases) {
-    await Promise.all(
-      cases.map(({ filename }) => rm(filename, { force: true })),
-    );
-    const contents = `${JSON.stringify(stateCase.state, null, 4)}\n`;
-    await writeFile(stateCase.filename, contents, "utf8");
-
-    await assert.rejects(
-      runStartupPreflight(config, {
-        storageValidated: true,
-        loadState: undefined,
-      }),
-      (error) => {
-        assert.ok(error instanceof StateCompatibilityError);
-        assert.equal(error.code, "ERR_STATE_INCOMPATIBLE");
-        assert.equal(error.terminal, true);
-        assert.equal(error.filename, stateCase.filename);
-        assert.deepEqual(error.observedSchema, stateCase.schema);
-        assert.match(error.message, stateCase.reason);
-        assert.equal(
-          error.preflightResult.failure.filename,
-          stateCase.filename,
-        );
-        return true;
-      },
-    );
-    assert.equal(await readFile(stateCase.filename, "utf8"), contents);
+    await t.test(stateCase.name, async () => {
+      const stateAccess = storedState(config, stateCase.seed);
+      stateCase.corrupt?.(stateAccess);
+      await assert.rejects(
+        runStartupPreflight(config, { storageValidated: true, stateAccess }),
+        (error) => {
+          assert.ok(error instanceof StateCompatibilityError);
+          assert.equal(error.code, "ERR_STATE_INCOMPATIBLE");
+          assert.equal(error.terminal, true);
+          assert.equal(error.domain, stateCase.domain);
+          assert.match(error.message, stateCase.reason);
+          assert.equal(error.preflightResult.failure.domain, stateCase.domain);
+          assert.equal(error.preflightResult.checks.state, "failed");
+          return true;
+        },
+      );
+      // Refusing must never rewrite what it refused.
+      assert.deepEqual(stateAccess.writes, []);
+    });
   }
+
+  // Channel publication has no storage to reach when a channel is configured
+  // but the database predates it, so preflight refuses rather than crash later.
+  await assert.rejects(
+    runStartupPreflight(config, {
+      storageValidated: true,
+      stateAccess: createMemoryStateAccess({
+        listUrlTemplate: config.listUrlTemplate,
+      }),
+    }),
+    (error) =>
+      error instanceof StateCompatibilityError &&
+      error.domain === "channel delivery" &&
+      /storage is not configured/u.test(error.message),
+  );
+});
+
+test("preflight without an opened state backend refuses to start", async (t) => {
+  const config = await temporaryConfig(t);
+  await assert.rejects(
+    runStartupPreflight(config, { storageValidated: true }),
+    (error) =>
+      error.code === "ERR_PREFLIGHT_STATE" &&
+      error.terminal === true &&
+      error.preflightResult.checks.state === "failed",
+  );
 });
 
 test("invalid credentials and missing channel permissions are terminal", async (t) => {
@@ -425,6 +469,7 @@ test("invalid credentials and missing channel permissions are terminal", async (
       singletonLock: singletonLock(config),
       browserFetcher: browser(),
       exchangeRateService: { getSnapshot: async () => ratesSnapshot() },
+      stateAccess: storedState(config),
       api: telegramApi([], {
         getMe: async () => {
           throw new TelegramApiError("getMe", "Unauthorized", {
@@ -453,6 +498,7 @@ test("invalid credentials and missing channel permissions are terminal", async (
         },
       },
       exchangeRateService: { getSnapshot: async () => ratesSnapshot() },
+      stateAccess: storedState(config),
       api: telegramApi([], {
         getChatMember: async () => ({
           status: "administrator",
@@ -483,6 +529,7 @@ test("browser verification is a distinct non-ready result with remediation", asy
         },
       },
       exchangeRateService: { getSnapshot: async () => ratesSnapshot() },
+      stateAccess: storedState(config),
       api: telegramApi(),
     }),
     (error) => {
@@ -544,6 +591,10 @@ test("application logs one safe preflight result and never enters loops on chall
       exchangeRateServiceFactory: () => ({
         getSnapshot: async () => ratesSnapshot(),
       }),
+      stateBackendFactory: async () => ({
+        stateAccess: storedState(config),
+        close: () => events.push("state:close"),
+      }),
       preflight: (preflightConfig, options) =>
         runStartupPreflight(preflightConfig, {
           ...options,
@@ -580,5 +631,10 @@ test("application logs one safe preflight result and never enters loops on chall
       },
     },
   ]);
-  assert.deepEqual(events, ["storage", "browser:close", "lock:release"]);
+  assert.deepEqual(events, [
+    "storage",
+    "browser:close",
+    "state:close",
+    "lock:release",
+  ]);
 });

@@ -353,7 +353,9 @@ function openMigrationDatabase(config, dataDirectory, metadata) {
 }
 
 export async function planStateMigration(config) {
-  const selector = await readStateBackendSelector(config.dataDirectory);
+  const selector = await readStateBackendSelector(config.dataDirectory, {
+    allowAbsent: true,
+  });
   if (selector.backend !== "json") {
     throw new StateMigrationError(
       "Migration planning requires the JSON backend",
@@ -449,7 +451,11 @@ function validateInstalledDatabase(config, selector) {
 
 export async function migrateState(config, { migrationId } = {}) {
   const paths = stateBackendPaths(config.dataDirectory);
-  const selector = await readStateBackendSelector(config.dataDirectory);
+  // The pre-migration installation has no selector file yet, so planning and
+  // migrating are the two places that still read an absent one as JSON.
+  const selector = await readStateBackendSelector(config.dataDirectory, {
+    allowAbsent: true,
+  });
   if (selector.backend === "sqlite") {
     return {
       status: "already-migrated",

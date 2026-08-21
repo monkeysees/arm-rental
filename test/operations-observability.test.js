@@ -283,15 +283,7 @@ test("rentalctl preserves malformed logs and aggregates bounded journal metrics"
   assert.deepEqual(result.metrics.retries, [
     { component: "telegram", operation: "send", count: 1 },
   ]);
-  assert.deepEqual(result.metrics.stateWrites, [
-    {
-      state: "apartments.json",
-      count: 2,
-      failureCount: 0,
-      bytes: 260,
-      durationMs: { p50: 100, p95: 501 },
-    },
-  ]);
+  assert.equal(Object.hasOwn(result.metrics, "stateWrites"), false);
   assert.deepEqual(result.metrics.databaseOperations, [
     {
       operation: "private_delivery_acknowledge",

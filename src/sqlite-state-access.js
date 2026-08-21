@@ -1,10 +1,4 @@
-import path from "node:path";
-
 import { migrateBotState } from "./bot.js";
-
-function samePath(left, right) {
-  return path.resolve(left) === path.resolve(right);
-}
 
 // A domain value reaches these guards from two directions: rebuilt from SQLite
 // rows, or carried in memory since the process first constructed it. Both
@@ -31,68 +25,6 @@ function sameValue(left, right) {
 
 function changedKeys(previous, next) {
   return new Set([...Object.keys(previous || {}), ...Object.keys(next || {})]);
-}
-
-function savePrivateState(database, repository, state) {
-  const previous = repository.loadAllDecisions();
-  const nextRecipients = state?.recipients || {};
-  const previousRecipients = previous.recipients;
-  const removed = Object.keys(previousRecipients).filter(
-    (recipientId) => !Object.hasOwn(nextRecipients, recipientId),
-  );
-  if (removed.length > 0) {
-    throw new TypeError(
-      "Private recipients must be deleted through the atomic user-deletion operation",
-    );
-  }
-
-  return database.transaction("private_delivery_state_commit", () => {
-    for (const recipientId of changedKeys(previousRecipients, nextRecipients)) {
-      const prior = previousRecipients[recipientId];
-      const next = nextRecipients[recipientId];
-      if (!next) continue;
-
-      if (!prior) {
-        repository.ensureRecipient(recipientId, { transaction: false });
-      }
-      if (next.initialSelectionApplied && !prior?.initialSelectionApplied) {
-        repository.initializeSelection(
-          recipientId,
-          { skipped: next.skipped || {}, filtered: next.filtered || {} },
-          { transaction: false },
-        );
-      } else {
-        for (const status of ["skipped", "filtered"]) {
-          const additions = Object.fromEntries(
-            Object.entries(next[status] || {}).filter(
-              ([itemId, timestamp]) => prior?.[status]?.[itemId] !== timestamp,
-            ),
-          );
-          if (Object.keys(additions).length > 0) {
-            repository.addDecisions(recipientId, status, additions, {
-              transaction: false,
-            });
-          }
-        }
-      }
-
-      for (const itemId of Object.keys(prior?.filtered || {})) {
-        if (!Object.hasOwn(next.filtered || {}, itemId)) {
-          repository.removeFilteredDecision(recipientId, itemId, {
-            transaction: false,
-          });
-        }
-      }
-      for (const [itemId, timestamp] of Object.entries(next.notified || {})) {
-        if (prior?.notified?.[itemId] !== timestamp) {
-          repository.acknowledge(recipientId, itemId, timestamp, {
-            transaction: false,
-          });
-        }
-      }
-    }
-    return state;
-  });
 }
 
 /**
@@ -199,59 +131,43 @@ function saveTelegramState(repository, state) {
 }
 
 /**
- * Adapts existing domain entry points to bounded repository operations during
- * the storage cutover. Each filename is only a routing key; SQLite never stores
- * or replaces a serialized copy of a former state file.
+ * Names one store per domain so a caller reaches its own rows directly. The
+ * channel and Telegram stores still accept a whole domain state because their
+ * callers hold one in memory for a whole publication or poll; each translates
+ * it into the bounded repository operations the change actually implies.
+ * Private delivery has no whole-state writer left: every decision is written
+ * through `decisions`, and a recipient only ever leaves through the atomic
+ * `deleteUserData` transaction.
  */
-export function createSqliteStateAccess(config, database, repositories) {
-  const loadState = async (filename) => {
-    if (samePath(filename, config.apartmentsStateFile)) {
-      return repositories.apartments.load();
-    }
-    if (samePath(filename, config.deliveryStateFile)) {
-      return repositories.privateDeliveries.loadAllDecisions();
-    }
-    if (samePath(filename, config.channelDeliveryStateFile)) {
-      return repositories.channelDeliveries?.load();
-    }
-    if (samePath(filename, config.telegramStateFile)) {
-      return repositories.telegram.load();
-    }
-    if (samePath(filename, config.exchangeRatesStateFile)) {
-      return repositories.exchangeRates.load();
-    }
-    throw new TypeError("Unknown SQLite domain state route");
-  };
-
-  const saveState = async (filename, state) => {
-    if (samePath(filename, config.apartmentsStateFile)) {
-      return repositories.apartments.commitCrawl(state);
-    }
-    if (samePath(filename, config.deliveryStateFile)) {
-      return savePrivateState(database, repositories.privateDeliveries, state);
-    }
-    if (samePath(filename, config.channelDeliveryStateFile)) {
-      if (!repositories.channelDeliveries) {
-        throw new TypeError("Channel delivery storage is not configured");
-      }
-      return saveChannelState(database, repositories.channelDeliveries, state);
-    }
-    if (samePath(filename, config.telegramStateFile)) {
-      return saveTelegramState(repositories.telegram, state);
-    }
-    if (samePath(filename, config.exchangeRatesStateFile)) {
-      return repositories.exchangeRates.save(state);
-    }
-    throw new TypeError("Unknown SQLite domain state route");
-  };
-
+export function createSqliteStateAccess(database, repositories) {
   return {
-    loadState,
-    saveState,
-    deliveryDecisions: createDeliveryDecisions(
-      database,
-      repositories.privateDeliveries,
-    ),
+    apartments: {
+      load: () => repositories.apartments.load(),
+      save: (state) => repositories.apartments.commitCrawl(state),
+    },
+    privateDeliveries: {
+      load: () => repositories.privateDeliveries.loadAllDecisions(),
+      decisions: createDeliveryDecisions(
+        database,
+        repositories.privateDeliveries,
+      ),
+    },
+    channelDeliveries: repositories.channelDeliveries
+      ? {
+          load: () => repositories.channelDeliveries.load(),
+          save: (state) =>
+            saveChannelState(database, repositories.channelDeliveries, state),
+        }
+      : null,
+    telegram: {
+      load: () => repositories.telegram.load(),
+      save: (state) => saveTelegramState(repositories.telegram, state),
+    },
+    exchangeRates: {
+      load: () => repositories.exchangeRates.load(),
+      save: (snapshot) => repositories.exchangeRates.save(snapshot),
+    },
+    /** Removes a user and their delivery history in one transaction. */
     deleteUserData: (chatId) =>
       repositories.telegram.deleteUserAndPrivateDeliveries(
         chatId,

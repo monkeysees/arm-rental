@@ -6,7 +6,9 @@ import test from "node:test";
 
 import { processUpdates, runTelegramBot } from "../src/bot.js";
 import { createPrivateRateLimits } from "../src/rate-limit.js";
-import { readState, writeState } from "../src/state.js";
+import { openStateDatabase } from "../src/sqlite-database.js";
+import { createSqliteRepositories } from "../src/sqlite-repositories.js";
+import { createSqliteStateAccess } from "../src/sqlite-state-access.js";
 
 function message(updateId, senderId, text) {
   return {
@@ -217,8 +219,7 @@ async function deletionFixture(t) {
     telegramBotToken: "token",
     telegramOwnerId: 42,
     telegramAccessMode: "public",
-    telegramStateFile: path.join(directory, "telegram-bot.json"),
-    deliveryStateFile: path.join(directory, "telegram-deliveries.json"),
+    dataDirectory: directory,
     listUrlTemplate: "https://www.list.am/category/56?n=0&page={page}",
     telegramPollTimeoutSeconds: 25,
     telegramUserUpdatesPerMinute: 30,
@@ -232,9 +233,20 @@ async function deletionFixture(t) {
   return config;
 }
 
-async function writePendingFixture(config) {
-  await writeState(
-    config.telegramStateFile,
+/**
+ * A real database holding one user with a pending deletion and one untouched
+ * peer, which is the state a restart has to recover from.
+ */
+function pendingDeletionState(t, config) {
+  const database = openStateDatabase({
+    dataDirectory: config.dataDirectory,
+    listUrlTemplate: config.listUrlTemplate,
+  });
+  t.after(() => database.close());
+  const repositories = createSqliteRepositories(database, {
+    listUrlTemplate: config.listUrlTemplate,
+  });
+  repositories.telegram.importState(
     botState(
       {
         42: user(42, {
@@ -246,7 +258,7 @@ async function writePendingFixture(config) {
       123,
     ),
   );
-  await writeState(config.deliveryStateFile, {
+  repositories.privateDeliveries.importState({
     version: 2,
     type: "telegram-deliveries",
     urlTemplate: config.listUrlTemplate,
@@ -265,15 +277,28 @@ async function writePendingFixture(config) {
       },
     },
   });
+  return {
+    repositories,
+    stateAccess: createSqliteStateAccess(database, repositories),
+  };
 }
 
-async function recoverAndStop(config, overrides = {}) {
+// The bot stops as soon as it announces a completed deletion. A restart with
+// nothing left to recover never announces anything, so `stopOnPoll` stops it at
+// the first poll instead, which is where such a restart arrives.
+async function recoverAndStop(
+  config,
+  { stopOnPoll = false, ...overrides } = {},
+) {
   const controller = new AbortController();
   const completions = [];
   await runTelegramBot(config, {
     signal: controller.signal,
     api: {
-      getUpdates: async () => [],
+      getUpdates: async () => {
+        if (stopOnPoll) controller.abort();
+        return [];
+      },
       setMyCommands: async () => true,
       setMyDescription: async () => true,
       setMyShortDescription: async () => true,
@@ -282,8 +307,6 @@ async function recoverAndStop(config, overrides = {}) {
         controller.abort();
       },
     },
-    loadState: readState,
-    saveState: writeState,
     crawl: async () =>
       assert.fail("pending deletion must recover before crawl"),
     onPrivateUserDeletionCompleted: async (event) => completions.push(event),
@@ -294,20 +317,22 @@ async function recoverAndStop(config, overrides = {}) {
 
 test("startup recovery removes only the requested user and preserves offset and peers", async (t) => {
   const config = await deletionFixture(t);
-  await writePendingFixture(config);
+  const { repositories, stateAccess } = pendingDeletionState(t, config);
 
-  const events = await recoverAndStop(config);
-  const bot = await readState(config.telegramStateFile);
-  const deliveries = await readState(config.deliveryStateFile);
+  const events = await recoverAndStop(config, { stateAccess });
+  const bot = repositories.telegram.load();
   assert.equal(bot.version, 3);
   assert.equal(bot.updateOffset, 123);
   assert.equal(bot.users[42], undefined);
   assert.equal(bot.legacyRecipientId, undefined);
   assert.equal(bot.users[99].chatId, 99);
-  assert.equal(deliveries.recipients[42], undefined);
-  assert.deepEqual(deliveries.recipients[99].notified, {
-    peer: "2026-07-26T11:00:00.000Z",
-  });
+  assert.equal(repositories.privateDeliveries.loadRecipient("42"), undefined);
+  assert.deepEqual(
+    repositories.privateDeliveries.loadRecipient("99").notified,
+    {
+      peer: "2026-07-26T11:00:00.000Z",
+    },
+  );
   assert.deepEqual(events[0], { recovered: true });
   assert.match(events[1][1], /данные удалены/u);
 
@@ -331,68 +356,68 @@ test("startup recovery removes only the requested user and preserves offset and 
   });
   assert.match(sent[0][1], /Мониторинг: остановлен/u);
 
-  const edited = [];
-  await processUpdates(
-    [callback(125, 42, "m:start")],
-    { telegramOwnerId: 42, telegramAccessMode: "public" },
-    registered,
-    {
-      sendMessage: async () => {},
-      editMessage: async (...arguments_) => edited.push(arguments_),
-      answerCallback: async () => {},
-      saveState: async () => {},
-    },
-  );
-  assert.match(edited[0][2], /Отправить уже найденные квартиры/u);
-  assert.equal(deliveries.recipients[42], undefined);
+  // Re-registering must not resurrect the deleted delivery history.
+  assert.equal(repositories.privateDeliveries.loadRecipient("42"), undefined);
 });
 
-test("every durable deletion boundary is idempotently restartable", async (t) => {
-  for (const boundary of ["delivery", "bot"]) {
+test("a crash around the atomic deletion stays replayable and idempotent", async (t) => {
+  for (const boundary of ["before", "after"]) {
     await t.test(boundary, async (t) => {
       const config = await deletionFixture(t);
-      await writePendingFixture(config);
+      const { repositories, stateAccess } = pendingDeletionState(t, config);
       let interrupted = false;
-      const saveState = async (filename, value) => {
-        if (filename === config.deliveryStateFile) {
-          await writeState(filename, value);
-          if (boundary === "delivery" && !interrupted) {
+      const crashing = {
+        ...stateAccess,
+        deleteUserData: async (chatId) => {
+          if (boundary === "before" && !interrupted) {
             interrupted = true;
             throw new Error("crash after delivery boundary");
           }
-          return;
-        }
-        if (filename === config.telegramStateFile && boundary === "bot") {
-          await writeState(filename, value);
+          const result = await stateAccess.deleteUserData(chatId);
           if (!interrupted) {
             interrupted = true;
             throw new Error("crash after bot boundary");
           }
-          return;
-        }
-        await writeState(filename, value);
+          return result;
+        },
       };
+
       await assert.rejects(
-        recoverAndStop(config, { saveState }),
+        recoverAndStop(config, { stateAccess: crashing }),
         /crash after/u,
       );
 
-      const afterCrashBot = await readState(config.telegramStateFile);
-      const afterCrashDelivery = await readState(config.deliveryStateFile);
-      assert.equal(afterCrashDelivery.recipients[42], undefined);
-      if (boundary === "delivery") {
-        assert.ok(afterCrashBot.users[42].deletionPendingAt);
-        await recoverAndStop(config);
+      // The user row and the delivery history move together, so the only two
+      // states a crash can leave are "both present" and "both gone".
+      const afterCrash = repositories.telegram.load();
+      const deletedRecipient =
+        repositories.privateDeliveries.loadRecipient("42");
+      if (boundary === "before") {
+        assert.ok(afterCrash.users[42].deletionPendingAt);
+        assert.ok(deletedRecipient);
+        await recoverAndStop(config, { stateAccess: crashing });
       } else {
-        assert.equal(afterCrashBot.users[42], undefined);
+        assert.equal(afterCrash.users[42], undefined);
+        assert.equal(deletedRecipient, undefined);
       }
-      const finalBot = await readState(config.telegramStateFile);
-      const finalDelivery = await readState(config.deliveryStateFile);
-      assert.equal(finalBot.users[42], undefined);
-      assert.equal(finalBot.updateOffset, 123);
-      assert.equal(finalDelivery.recipients[42], undefined);
-      assert.ok(finalBot.users[99]);
-      assert.ok(finalDelivery.recipients[99]);
+
+      // Restarting once more must reach polling with nothing left to recover,
+      // and must not announce the deletion a second time.
+      const replayed = await recoverAndStop(config, {
+        stateAccess: crashing,
+        stopOnPoll: true,
+      });
+      assert.deepEqual(replayed, []);
+
+      const final = repositories.telegram.load();
+      assert.equal(final.users[42], undefined);
+      assert.equal(final.updateOffset, 123);
+      assert.ok(final.users[99]);
+      assert.equal(
+        repositories.privateDeliveries.loadRecipient("42"),
+        undefined,
+      );
+      assert.ok(repositories.privateDeliveries.loadRecipient("99"));
     });
   }
 });

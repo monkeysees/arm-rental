@@ -21,6 +21,7 @@ import {
   TELEGRAM_BOT_METADATA,
 } from "../src/telegram-metadata.js";
 import { createPrivateRateLimits } from "../src/rate-limit.js";
+import { createMemoryStateAccess } from "../test-support/memory-state.js";
 import {
   ListAmIntegrityReason,
   ListAmSourceIntegrityError,
@@ -36,18 +37,34 @@ const initialState = {
   updateOffset: 0,
 };
 
+/**
+ * Runs the bot against repository-shaped storage. A test names the stored bot
+ * state it starts from and, where it matters, watches what the Telegram store
+ * is asked to commit.
+ */
 function runTelegramBot(config, options = {}) {
-  const metadataCapableApi = options.api
+  const { telegramState, onTelegramSave, stateAccess, ...rest } = options;
+  const metadataCapableApi = rest.api
     ? {
         setMyCommands: async () => true,
         setMyDescription: async () => true,
         setMyShortDescription: async () => true,
-        ...options.api,
+        ...rest.api,
       }
     : undefined;
   return runTelegramBotRuntime(config, {
-    ...options,
+    ...rest,
     ...(metadataCapableApi ? { api: metadataCapableApi } : {}),
+    stateAccess:
+      stateAccess ??
+      createMemoryStateAccess({
+        listUrlTemplate: config.listUrlTemplate,
+        channelConfigured: Boolean(config.telegramChannelId),
+        ...(telegramState ? { telegram: telegramState } : {}),
+        onWrite: async (domain, detail) => {
+          if (domain === "telegram") await onTelegramSave?.(detail.state);
+        },
+      }),
   });
 }
 
@@ -545,8 +562,7 @@ test("runtime offsets follow durable writes across later and earlier failures", 
       {
         api,
         signal: controller.signal,
-        loadState: async () => undefined,
-        saveState: async () => {
+        onTelegramSave: async () => {
           saves += 1;
           if (failSave && saves === 1) {
             throw new Error("durable write failed");
@@ -1045,8 +1061,7 @@ test("bot startup begins metadata synchronization without blocking polling", asy
     {
       api,
       signal: controller.signal,
-      loadState: async () => initialState,
-      saveState: async () => {},
+      telegramState: initialState,
       onTelegramMetadataSynchronized: async () => events.push("synchronized"),
     },
   );
@@ -1090,8 +1105,7 @@ test("metadata synchronization retries hourly after failure and stops after succ
     {
       api,
       signal: controller.signal,
-      loadState: async () => initialState,
-      saveState: async () => {},
+      telegramState: initialState,
       metadataRetryIntervalMs: 60 * 60 * 1_000,
       sleep: async (milliseconds) => sleepDelays.push(milliseconds),
       onTelegramMetadataSynchronizationFailed: async (error, context) =>
@@ -1357,8 +1371,6 @@ test("the start button wakes the monitor after /start setup", async () => {
     {
       api,
       signal: controller.signal,
-      loadState: async () => undefined,
-      saveState: async () => {},
       crawl: async (_config, { privateDeliveries }) => {
         assert.equal(privateDeliveries[0].sendInitialApartments, true);
         await privateDeliveries[0].deliverApartment({
@@ -1439,8 +1451,7 @@ test("private controls cannot interrupt the singleton crawl interval", async () 
     {
       api,
       signal: controller.signal,
-      loadState: async () => state,
-      saveState: async () => {},
+      telegramState: state,
       sleep: async (milliseconds, _value, { signal }) => {
         sleepDelays.push(milliseconds);
         if (signal.aborted) return;
@@ -1528,8 +1539,7 @@ test("stopping during an activation cadence wait returns to dormancy", async () 
       api,
       signal: controller.signal,
       monotonicNow: () => now,
-      loadState: async () => state,
-      saveState: async () => {},
+      telegramState: state,
       sleep: async (milliseconds, _value, { signal }) => {
         signal.throwIfAborted();
         sleepCalls += 1;
@@ -1608,8 +1618,7 @@ test("private controls cannot bypass crawl failure backoff", async () => {
     {
       api,
       signal: controller.signal,
-      loadState: async () => state,
-      saveState: async () => {},
+      telegramState: state,
       sleep: async (milliseconds, _value, { signal }) => {
         retries.push(milliseconds);
         if (signal.aborted) return;
@@ -1668,8 +1677,7 @@ test("source-integrity failure uses crawl backoff and recovers", async () => {
     {
       api,
       signal: controller.signal,
-      loadState: async () => state,
-      saveState: async () => {},
+      telegramState: state,
       sleep: async (milliseconds, _value, { signal }) => {
         signal.throwIfAborted();
         retryDelays.push(milliseconds);
@@ -1717,8 +1725,7 @@ test("exchange rates refresh without private monitoring activation", async () =>
     {
       api,
       signal: controller.signal,
-      loadState: async () => initialState,
-      saveState: async () => {},
+      telegramState: initialState,
       exchangeRateService: {
         getSnapshot: async () => {
           refreshCalls += 1;
@@ -1759,8 +1766,7 @@ test("an enabled channel crawls and publishes without private activation", async
     {
       api,
       signal: controller.signal,
-      loadState: async () => initialState,
-      saveState: async () => {},
+      telegramState: initialState,
       crawl: async (_config, options) => {
         crawlCalls += 1;
         privateDelivery = options.privateDeliveries;
@@ -1820,8 +1826,7 @@ test("runtime crawls only authorized active users and exposes live predicates", 
   await runTelegramBot(runtimeConfig, {
     api,
     signal: controller.signal,
-    loadState: async () => stored,
-    saveState: async () => {},
+    telegramState: stored,
     crawl: async (_config, { privateDeliveries }) => {
       assert.deepEqual(
         privateDeliveries.map(({ recipientId }) => recipientId),
@@ -1906,8 +1911,7 @@ test("private delivery reauthorizes after a limiter wait without deactivation", 
       now += milliseconds;
       runtimeConfig.telegramOwnerId = 7;
     },
-    loadState: async () => stored,
-    saveState: async () => {},
+    telegramState: stored,
     crawl: async (_config, { privateDeliveries }) => {
       const delivery = privateDeliveries[0];
       for (let index = 0; index < 5; index += 1) {
@@ -1975,8 +1979,7 @@ test("a channel failure does not prevent an active private delivery", async () =
     {
       api,
       signal: controller.signal,
-      loadState: async () => activeState,
-      saveState: async () => {},
+      telegramState: activeState,
       crawl: async (_config, options) => {
         await Promise.all([
           options.privateDeliveries[0].deliverApartment({
@@ -2054,8 +2057,8 @@ test("a blocked private user is deactivated without stopping the bot", async () 
     {
       api,
       signal: controller.signal,
-      loadState: async () => activeUserState,
-      saveState: async (_filename, value) => saved.push(structuredClone(value)),
+      telegramState: activeUserState,
+      onTelegramSave: async (value) => saved.push(structuredClone(value)),
       crawl: async (_config, { privateDeliveries }) => {
         await assert.rejects(
           privateDeliveries[0].deliverApartment({
@@ -2131,8 +2134,8 @@ test("concurrent unavailable recipients preserve cumulative bot state", async ()
     {
       api,
       signal: controller.signal,
-      loadState: async () => stored,
-      saveState: async (_filename, value) => {
+      telegramState: stored,
+      onTelegramSave: async (value) => {
         writesInFlight += 1;
         maximumWritesInFlight = Math.max(maximumWritesInFlight, writesInFlight);
         await Promise.resolve();
@@ -2203,8 +2206,7 @@ test("a terminal command reply deactivates only that private user", async () => 
     {
       api,
       signal: controller.signal,
-      loadState: async () => undefined,
-      saveState: async (_filename, value) => saved.push(structuredClone(value)),
+      onTelegramSave: async (value) => saved.push(structuredClone(value)),
       crawl: async () => ({
         status: "unchanged",
         pagesParsed: 1,

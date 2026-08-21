@@ -11,7 +11,7 @@ import { openStateDatabase } from "../src/sqlite-database.js";
 import { createSqliteRepositories } from "../src/sqlite-repositories.js";
 import { createSqliteStateAccess } from "../src/sqlite-state-access.js";
 import { writeState } from "../src/state.js";
-import { stateBackendPaths } from "../src/state-backend.js";
+import { StateBackendError, stateBackendPaths } from "../src/state-backend.js";
 
 const LIST_URL = "https://www.list.am/category/60/{page}";
 const TIME = "2026-08-18T10:11:12.000Z";
@@ -66,22 +66,21 @@ async function deliveryCrawl(t, { onMetric = () => {} } = {}) {
   const repositories = createSqliteRepositories(database, {
     listUrlTemplate: LIST_URL,
   });
-  const access = createSqliteStateAccess(config, database, repositories);
+  const stateAccess = createSqliteStateAccess(database, repositories);
   return {
     config,
     repositories,
+    stateAccess,
     crawl: (options) =>
       crawlApartments(config, {
-        loadState: access.loadState,
-        saveState: access.saveState,
-        deliveryDecisions: access.deliveryDecisions,
+        stateAccess,
         now: () => new Date(TIME),
         ...options,
       }),
   };
 }
 
-test("SQLite state access translates whole-domain callers into bounded writes", async (t) => {
+test("domain stores translate their callers into bounded row writes", async (t) => {
   const config = await temporaryConfig(t);
   const metrics = [];
   const database = openStateDatabase({
@@ -95,33 +94,38 @@ test("SQLite state access translates whole-domain callers into bounded writes", 
     listUrlTemplate: LIST_URL,
     channelId: config.telegramChannelId,
   });
-  const access = createSqliteStateAccess(config, database, repositories);
+  const access = createSqliteStateAccess(database, repositories);
 
-  await access.saveState(config.deliveryStateFile, {
-    version: 2,
-    type: "telegram-deliveries",
-    urlTemplate: LIST_URL,
-    recipients: {
-      42: {
-        initialSelectionApplied: true,
-        notified: {},
-        skipped: { old: TIME },
-        filtered: { retry: TIME },
-      },
-    },
+  const { decisions } = access.privateDeliveries;
+  await decisions.applyInitialSelection("42", {
+    skipped: { old: TIME },
+    filtered: { retry: TIME },
   });
-  const delivery = await access.loadState(config.deliveryStateFile);
-  delete delivery.recipients[42].filtered.retry;
-  delivery.recipients[42].notified.fresh = TIME;
-  await access.saveState(config.deliveryStateFile, delivery);
+  await decisions.readmitFiltered("42", ["retry"]);
+  await decisions.acknowledge("42", "fresh", TIME);
   assert.deepEqual(repositories.privateDeliveries.loadRecipient("42"), {
     initialSelectionApplied: true,
     notified: { fresh: TIME },
     skipped: { old: TIME },
     filtered: {},
   });
+  assert.deepEqual(await access.privateDeliveries.load(), {
+    version: 2,
+    type: "telegram-deliveries",
+    urlTemplate: LIST_URL,
+    recipients: {
+      42: {
+        initialSelectionApplied: true,
+        notified: { fresh: TIME },
+        skipped: { old: TIME },
+        filtered: {},
+      },
+    },
+  });
 
-  await access.saveState(config.telegramStateFile, {
+  // The Telegram store is still handed a whole bot state, because the poll
+  // loop holds one; it has to reach the rows the change actually implies.
+  await access.telegram.save({
     version: 3,
     type: "telegram-bot",
     updateOffset: 9,
@@ -136,12 +140,26 @@ test("SQLite state access translates whole-domain callers into bounded writes", 
     },
   });
   assert.equal(repositories.telegram.load().updateOffset, 9);
+
+  // A recipient leaves only through the atomic user deletion, which takes the
+  // user row and the delivery history together and is safe to replay.
+  assert.deepEqual(await access.deleteUserData(42), {
+    userDeleted: 1,
+    recipientDeleted: 1,
+  });
+  assert.equal(repositories.privateDeliveries.loadRecipient("42"), undefined);
+  assert.equal(repositories.telegram.load().users[42], undefined);
+  assert.deepEqual(await access.deleteUserData(42), {
+    userDeleted: 0,
+    recipientDeleted: 0,
+  });
+
+  // Nothing in the domain stores reaches the retired whole-state commit.
   assert.equal(
     metrics.some(
-      ({ operation, rowsChanged }) =>
-        operation === "private_delivery_state_commit" && rowsChanged === 2,
+      ({ operation }) => operation === "private_delivery_state_commit",
     ),
-    true,
+    false,
   );
 });
 
@@ -173,6 +191,28 @@ test("application state follows only the authoritative selector identity", async
     databaseId: "wrong-database-id",
   });
   await assert.rejects(openApplicationState(config), /does not identify/u);
+
+  // A host that never migrated must fail closed rather than start on the empty
+  // database this release would otherwise create for it.
+  await writeState(stateBackendPaths(config.dataDirectory).selector, {
+    backend: "json",
+    version: 1,
+  });
+  await assert.rejects(
+    openApplicationState(config),
+    (error) =>
+      error instanceof StateBackendError &&
+      error.backend === "json" &&
+      /cannot open the json state backend/u.test(error.message),
+  );
+
+  await rm(stateBackendPaths(config.dataDirectory).selector);
+  await assert.rejects(
+    openApplicationState(config),
+    (error) =>
+      error instanceof StateBackendError &&
+      /selector is absent/u.test(error.message),
+  );
 });
 
 test("bounded Telegram commits compare users by meaning, not key order", async (t) => {
@@ -187,7 +227,7 @@ test("bounded Telegram commits compare users by meaning, not key order", async (
     listUrlTemplate: LIST_URL,
     channelId: config.telegramChannelId,
   });
-  const access = createSqliteStateAccess(config, database, repositories);
+  const access = createSqliteStateAccess(database, repositories);
 
   // The order SqliteTelegramRepository.load() rebuilds from stored rows.
   const storedOrder = (chatId, active) => ({
@@ -213,20 +253,15 @@ test("bounded Telegram commits compare users by meaning, not key order", async (
     users,
   });
 
-  await access.saveState(
-    config.telegramStateFile,
-    botState({ 42: storedOrder(42, true) }, 1),
-  );
-  await access.saveState(
-    config.telegramStateFile,
+  await access.telegram.save(botState({ 42: storedOrder(42, true) }, 1));
+  await access.telegram.save(
     botState({ 42: storedOrder(42, true), 77: storedOrder(77, true) }, 2),
   );
 
   // Deactivating one user is a single-user change. The other user is untouched
   // and differs from its stored row only by key order, so the bounded-write
   // guard must not count it as a second mutation and reject the commit.
-  await access.saveState(
-    config.telegramStateFile,
+  await access.telegram.save(
     botState({ 42: memoryOrder(42, true), 77: memoryOrder(77, false) }, 3),
   );
 

@@ -14,11 +14,22 @@ import {
 import { writeState } from "../src/state.js";
 
 test("selector parsing is strict for every authoritative backend state", () => {
-  assert.deepEqual(parseStateBackendSelector(undefined), {
-    backend: "json",
-    version: 1,
-    implicit: true,
-  });
+  // Only the callers that predate a selector file may read its absence, and
+  // they have to say so; everything else has to name the backend it opens.
+  assert.throws(
+    () => parseStateBackendSelector(undefined),
+    (error) =>
+      error instanceof StateBackendError &&
+      /selector is absent/u.test(error.message),
+  );
+  assert.deepEqual(
+    parseStateBackendSelector(undefined, { allowAbsent: true }),
+    {
+      backend: "json",
+      version: 1,
+      implicit: true,
+    },
+  );
   assert.deepEqual(parseStateBackendSelector({ backend: "json", version: 1 }), {
     backend: "json",
     version: 1,

@@ -3,7 +3,6 @@ import { openApplicationState } from "./application-state.js";
 import { validateStartupConfig } from "./config.js";
 import { runStartupPreflight, startupFailureResult } from "./preflight.js";
 import { classifyRuntimeFailure } from "./health.js";
-import { observeStateWrites } from "./state.js";
 import { isExpectedExternalFailure, retryOperation } from "./retry.js";
 import {
   LIST_AM_SOURCE_INTEGRITY_ERROR,
@@ -64,10 +63,6 @@ export async function runApplication({
   const signalHandlers = new Map();
   let browserFetcher;
   let applicationState;
-  const stopObservingStateWrites = observeStateWrites(
-    ({ name: event, ...metric }) =>
-      logger.info("State write metric", { event, ...metric }),
-  );
   const recordSourceIntegrityChecked = ({ pages = [], ...context }) => {
     healthMonitor?.recordSourceIntegritySuccess();
     for (const page of pages) {
@@ -119,9 +114,9 @@ export async function runApplication({
         }
       },
     });
+    const { stateAccess } = applicationState;
     const exchangeRateService = exchangeRateServiceFactory(config, {
-      loadState: applicationState.loadState,
-      saveState: applicationState.saveState,
+      stateStore: stateAccess.exchangeRates,
       onRefresh: (snapshot) => {
         healthMonitor?.recordExchangeRateSnapshot(snapshot);
         logger.info("CBA exchange rates refreshed", {
@@ -156,7 +151,7 @@ export async function runApplication({
         }),
       onSourceIntegrityChecked: (observation) =>
         recordSourceIntegrityChecked({ ...observation, phase: "preflight" }),
-      loadState: applicationState.loadState,
+      stateAccess,
     });
     logger.info("Startup preflight completed", {
       preflight: preflightResult,
@@ -188,10 +183,7 @@ export async function runApplication({
       });
     await runBot(config, {
       signal: controller.signal,
-      loadState: applicationState.loadState,
-      saveState: applicationState.saveState,
-      deliveryDecisions: applicationState.deliveryDecisions,
-      deleteUserData: applicationState.deleteUserData,
+      stateAccess,
       exchangeRateService,
       pageFetch: fetchRuntimePage,
       onResult: (result) => {
@@ -391,7 +383,6 @@ export async function runApplication({
     }
     throw error;
   } finally {
-    stopObservingStateWrites();
     for (const [signal, handler] of signalHandlers) {
       signalEmitter.removeListener(signal, handler);
     }

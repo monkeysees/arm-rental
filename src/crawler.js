@@ -13,7 +13,6 @@ import {
   normalizeApartmentPrice,
   originalPrice,
 } from "./prices.js";
-import { readState, writeState } from "./state.js";
 import { pageUrl } from "./target.js";
 import { postingDateSortValue } from "./posting-date.js";
 import {
@@ -48,109 +47,29 @@ function deliveryRecipientState(state = {}) {
   };
 }
 
-function normalizedDeliveryState(stored, template, legacyRecipientId) {
-  if (!compatibleDeliveryState(stored, template)) {
-    return {
-      version: 2,
-      type: "telegram-deliveries",
-      urlTemplate: template,
-      recipients: {},
-    };
-  }
-  if (stored.version === 2) {
-    return {
-      ...stored,
-      recipients: Object.fromEntries(
-        Object.entries(stored.recipients).map(([recipientId, recipient]) => [
-          recipientId,
-          deliveryRecipientState(recipient),
-        ]),
-      ),
-    };
-  }
-  if (!legacyRecipientId) {
-    throw new Error("Legacy private-delivery state requires a recipient ID");
-  }
-  return {
-    version: 2,
-    type: "telegram-deliveries",
-    urlTemplate: template,
-    recipients: {
-      [String(legacyRecipientId)]: deliveryRecipientState(stored),
-    },
-  };
-}
-
 /**
- * Replays bounded delivery decisions onto the whole-state file route. Only the
- * JSON backend still needs it; SQLite supplies the bounded writes directly.
+ * The private-delivery store rebuilds one recipient entry per stored row, so
+ * every key is present but may be empty. Filling the gaps here keeps the
+ * delivery loop free of optional chaining, and an unrecognised shape is
+ * refused rather than silently replaced with an empty history.
  */
-function wholeStateDeliveryDecisions(
-  config,
-  { loadState, saveState, state, reload, legacyRecipientId },
-) {
-  let current = state;
-  const update = async (recipientId, apply) => {
-    if (reload) {
-      current = normalizedDeliveryState(
-        await loadState(config.deliveryStateFile),
-        config.listUrlTemplate,
-        legacyRecipientId,
-      );
-    }
-    const recipient = deliveryRecipientState(current.recipients[recipientId]);
-    current = {
-      ...current,
-      recipients: { ...current.recipients, [recipientId]: apply(recipient) },
-    };
-    await saveState(config.deliveryStateFile, current);
-  };
-  return {
-    applyInitialSelection: (recipientId, { skipped, filtered }) =>
-      update(recipientId, (recipient) => ({
-        ...recipient,
-        initialSelectionApplied: true,
-        skipped: { ...recipient.skipped, ...skipped },
-        filtered: { ...recipient.filtered, ...filtered },
-      })),
-    classifyFiltered: (recipientId, filtered) =>
-      update(recipientId, (recipient) => ({
-        ...recipient,
-        filtered: { ...recipient.filtered, ...filtered },
-      })),
-    readmitFiltered: (recipientId, itemIds) =>
-      update(recipientId, (recipient) => {
-        const filtered = { ...recipient.filtered };
-        for (const itemId of itemIds) delete filtered[itemId];
-        return { ...recipient, filtered };
-      }),
-    acknowledge: (recipientId, itemId, decidedAt) =>
-      update(recipientId, (recipient) => ({
-        ...recipient,
-        notified: { ...recipient.notified, [itemId]: decidedAt },
-      })),
-  };
-}
-
-export async function removeDeliveryRecipient(
-  config,
-  recipientId,
-  { legacyRecipientId, loadState = readState, saveState = writeState } = {},
-) {
-  const stored = await loadState(config.deliveryStateFile);
-  if (stored === undefined) return false;
-  if (!compatibleDeliveryState(stored, config.listUrlTemplate)) {
-    throw new Error("Private-delivery state has an incompatible schema");
+function normalizedDeliveryState(stored, template) {
+  if (!compatibleDeliveryState(stored, template)) {
+    const error = new Error(
+      "Private-delivery state has an incompatible schema",
+    );
+    error.code = "ERR_STATE_INCOMPATIBLE";
+    throw error;
   }
-  const state = normalizedDeliveryState(
-    stored,
-    config.listUrlTemplate,
-    legacyRecipientId,
-  );
-  const recipients = { ...state.recipients };
-  const removed = delete recipients[String(recipientId)];
-  await saveState(config.deliveryStateFile, { ...state, recipients });
-  return removed;
+  return {
+    ...stored,
+    recipients: Object.fromEntries(
+      Object.entries(stored.recipients).map(([recipientId, recipient]) => [
+        recipientId,
+        deliveryRecipientState(recipient),
+      ]),
+    ),
+  };
 }
 
 export function deliveryStateCounts(state) {
@@ -242,16 +161,13 @@ export async function crawlApartments(
   config,
   {
     fetchPage = globalThis.fetch,
-    loadState = readState,
-    saveState = writeState,
+    stateAccess,
     deliverApartment,
     privateDeliveries,
-    legacyRecipientId,
     exchangeRates,
     filters = emptyFilters(),
     now = () => new Date(),
     afterStateSaved,
-    deliveryDecisions,
     deliveryStateMutation,
     onSourceIntegrityChecked = () => {},
   } = {},
@@ -274,7 +190,7 @@ export async function crawlApartments(
     throw new Error("Private delivery recipient IDs must be unique");
   }
 
-  const stored = await loadState(config.apartmentsStateFile);
+  const stored = await stateAccess.apartments.load();
   const apartmentState = migrateApartmentState(stored, config.listUrlTemplate);
   if (stored !== undefined && !apartmentState) {
     const error = new Error("Apartment state has an incompatible schema");
@@ -458,7 +374,7 @@ export async function crawlApartments(
     },
   };
 
-  await saveState(config.apartmentsStateFile, state);
+  await stateAccess.apartments.save(state);
 
   const channelPublication = afterStateSaved
     ? Promise.resolve().then(() => afterStateSaved(state))
@@ -470,20 +386,17 @@ export async function crawlApartments(
   let readmittedCount = 0;
   const privateDelivery = async () => {
     if (deliveryTargets.length === 0) return;
-    const storedDeliveries = await loadState(config.deliveryStateFile);
-    const recipientHistory = legacyRecipientId || recipientIds[0];
     const deliveryState = normalizedDeliveryState(
-      storedDeliveries,
+      await stateAccess.privateDeliveries.load(),
       config.listUrlTemplate,
-      recipientHistory,
     );
 
     // Recipient workers run concurrently while every decision passes through
-    // one chain. A bounded per-recipient write can no longer overwrite a peer,
-    // but recipient deletion still replaces the delivery state as a whole, so
-    // the chain is what keeps a late acknowledgement from resurrecting a
-    // deleted recipient. It also latches the first failure, so nothing further
-    // is recorded once a write has failed.
+    // one chain. Bounded writes can no longer overwrite a peer, but the chain
+    // is still what orders a decision against the user deletion the bot may be
+    // committing at the same moment, so a late acknowledgement cannot
+    // resurrect a deleted recipient. It also latches the first failure, so
+    // nothing further is recorded once a write has failed.
     let deliveryStateWrites = Promise.resolve();
     const recordDecision =
       deliveryStateMutation ||
@@ -491,17 +404,7 @@ export async function crawlApartments(
         deliveryStateWrites = deliveryStateWrites.then(operation);
         return deliveryStateWrites;
       });
-    const decisions =
-      deliveryDecisions ||
-      wholeStateDeliveryDecisions(config, {
-        loadState,
-        saveState,
-        state: deliveryState,
-        // A caller that supplies its own chain shares the delivery state with
-        // another writer, so each write has to start from the stored copy.
-        reload: Boolean(deliveryStateMutation),
-        legacyRecipientId: recipientHistory,
-      });
+    const decisions = stateAccess.privateDeliveries.decisions;
 
     const deliverRecipient = async (target) => {
       if (target.isAuthorized?.() === false) return;

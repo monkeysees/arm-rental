@@ -31,16 +31,18 @@ SQLite database, and the persistent Chrome profile exclude serverless or
 automatically scaled deployment. A supervisor restarts the process, forwards
 SIGTERM for graceful shutdown, and mounts `.data` on durable local storage.
 
-`state-backend.json` is the authoritative backend selector; database-file
-presence never selects storage. SQLite is the only backend this release can
-open: the selector must name `sqlite` with an immutable database ID matching
-`application_metadata`. `json` is no longer a name the selector may carry, and
-an absent selector is refused by every caller rather than read as an empty
-database. `migrating` remains recognised so a selector left by an interrupted
-cutover is named as such, but no release can finish that migration; the only way
-forward is a snapshot taken after the cutover. Malformed, missing, corrupt,
-newer-schema, wrong-application-ID, and target-mismatched databases fail closed
-without fallback or dual writes.
+SQLite is the only backend this release has, so there is no backend selector:
+the installed `state.sqlite3` is the state, and it is bound to its target by the
+list URL template and channel ID in `application_metadata`. No runtime caller
+may create one. An absent database is refused by every caller rather than read
+as an empty one, because startup cannot tell a fresh host from a data directory
+that lost its state. `state:init` is the single command allowed to create the
+empty database a first installation starts from; it refuses to run over an
+existing one, so discarding stored state stays an operator decision made through
+a restore. Migration from the retired JSON state is no longer possible in either
+direction; the only way forward from a pre-cutover host is a snapshot taken
+after the cutover. Missing, corrupt, newer-schema, wrong-application-ID, and
+target-mismatched databases fail closed without fallback or dual writes.
 
 Schema version 1 is a deliberate compatibility decision: one `STRICT` database
 stores an apartment payload per row, compact ordered crawl metadata, normalized
@@ -709,9 +711,9 @@ rows changed, and current database/WAL size by operation. Values, SQL, item
 IDs, chat IDs, and absolute database paths are never logged, and telemetry
 failures cannot alter durability.
 
-`src/state.js` remains the atomic JSON primitive only for the backend selector,
-defensive migration sentinels, browser verification record, and maintenance
-history. Normal SQLite domain mutations do not call it.
+`src/state.js` remains the atomic JSON primitive only for the defensive
+migration sentinels, browser verification record, and maintenance history.
+Normal SQLite domain mutations do not call it.
 
 Every successful interactive verification, production browser smoke, and
 startup List.am preflight writes a versioned verification record inside the
@@ -723,7 +725,7 @@ smoke remains the required live verification before polling is enabled.
 `src/recovery.js` is the maintenance boundary for the complete persistence set.
 Backup and restore acquire the application singleton lease, so the service must
 be stopped and no browser can mutate the profile. A manifest-v2 SQLite backup
-validates the selector, identity, schema, target bindings, full integrity,
+validates identity, schema, target bindings, full integrity,
 foreign keys, logical counts, update offset, and browser record. It uses Node's
 SQLite online backup API to produce a consistent standalone database, validates
 that destination through a new connection, hashes every staged file, and

@@ -18,7 +18,7 @@ managed volume or remote-mounted filesystem whose loss is independent of the
 application volume and host.
 
 Snapshots contain a standalone mode-`0600` database produced by
-Node's SQLite backup API, the selector and defensive sentinels, a manifest-v2,
+Node's SQLite backup API, the defensive sentinels, a manifest-v2,
 SHA-256 hashes, identity/schema/target/count summaries, the Telegram update
 offset, and the last successful browser verification record. The backup and restore commands emit stable
 `backup.*`, `restore.*`, and `storage.low_disk` events for later alert routing.
@@ -29,8 +29,8 @@ apartment or user data.
 ### The stranded pre-SQLite recovery point
 
 A snapshot taken before the SQLite cutover carries a manifest-v1 body naming
-the five JSON state files and no `state-backend.json` beside them. **No release
-in this tree can read one.** It is not a restorable backup, and it must not be
+the five JSON state files and no `state.sqlite3` beside them. **No release in
+this tree can read one.** It is not a restorable backup, and it must not be
 counted as a recovery point when judging RPO. `backup`, `backup:validate`, and
 `restore` all refuse it by name:
 

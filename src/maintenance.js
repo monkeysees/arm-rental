@@ -8,12 +8,8 @@ import {
 } from "./browser-verification-state.js";
 import { checkDiskSpace } from "./recovery.js";
 import { acquireSingletonLock } from "./singleton-lock.js";
-import { openStateDatabase } from "./sqlite-database.js";
+import { openStateDatabase, stateDatabasePaths } from "./sqlite-database.js";
 import { readState, writeState } from "./state.js";
-import {
-  readStateBackendSelector,
-  stateBackendPaths,
-} from "./state-backend.js";
 
 export const STATE_SIZE_WARNING_BYTES = 25 * 1024 * 1024;
 // Once the only escape hatch was migrating off JSON; now it names the point at
@@ -157,7 +153,7 @@ async function regularFileBytes(filename) {
 }
 
 async function sqliteStateReport(config) {
-  const paths = stateBackendPaths(config.dataDirectory);
+  const paths = stateDatabasePaths(config.dataDirectory);
   let database;
   try {
     database = openStateDatabase({
@@ -328,12 +324,6 @@ export async function runMaintenance(
     );
     const previous = await previousHistory(historyFilename);
     const profileBytesBeforeCleanup = await treeSize(config.browserProfileDir);
-    const selector = await readStateBackendSelector(config.dataDirectory);
-    if (selector.backend !== "sqlite") {
-      throw new MaintenanceValidationError(
-        "Maintenance cannot inspect an incomplete state migration",
-      );
-    }
     const stateFiles = await Promise.all([
       sqliteStateReport(config),
       stateFileReport(browserVerificationSpecification(config)),

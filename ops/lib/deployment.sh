@@ -515,6 +515,23 @@ deployment_validate_first_install_storage() {
   }
 }
 
+# A first installation creates its own empty database before launching the
+# candidate, so a rejected candidate has to leave the volume as it found it.
+# Without this the storage gate above refuses every later attempt, including the
+# browser-verification retry it deliberately allows for.
+deployment_clear_first_install_state() {
+  local mountpoint
+  mountpoint=$(
+    docker volume inspect --format '{{.Mountpoint}}' rental-apartments-data
+  ) || return 0
+  ops_require_absolute_path "data volume mountpoint" "$mountpoint" || return 0
+  [[ -d $mountpoint && ! -L $mountpoint ]] || return 0
+  rm -f \
+    "$mountpoint/state.sqlite3" \
+    "$mountpoint/state.sqlite3-wal" \
+    "$mountpoint/state.sqlite3-shm"
+}
+
 deployment_wait_candidate() {
   local started_epoch=$1
   local observation_seconds=$2

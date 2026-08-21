@@ -241,6 +241,7 @@ function pendingDeletionState(t, config) {
   const database = openStateDatabase({
     dataDirectory: config.dataDirectory,
     listUrlTemplate: config.listUrlTemplate,
+    create: true,
   });
   t.after(() => database.close());
   const repositories = createSqliteRepositories(database, {

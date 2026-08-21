@@ -334,14 +334,15 @@ sudo jq \
   /var/lib/rental-apartments-ops/deployments/*.json
 ```
 
-**A first installation cannot currently start.** The application opens state
-only through `state-backend.json`, and no command in this tree creates that
-selector: the JSON-to-SQLite importer that used to write it on a fresh host was
-removed with the rest of the migration machinery. Until a reviewed
-initialization path exists, a genuinely empty data volume fails startup with
-"State backend selector is absent" and the candidate is quarantined. Creating a
-selector by hand is not a supported workaround — the selector's database ID has
-to match the database it names.
+A first installation has no state database, and the application refuses to
+create one: startup cannot distinguish an empty data volume from a data
+directory that lost its state, so an absent database always fails closed. The
+deploy runs `state:init` once, immediately after it has proved the volume empty,
+and that is the only command in the tree permitted to create a database. It
+refuses to run over an existing one. A quarantined first candidate leaves the
+volume as it found it — the deploy removes the database it created, keeping the
+dedicated Chrome profile — so the next attempt initializes normally rather than
+being refused by the empty-storage gate.
 
 Expected result: the source revision and immutable candidate digest equal the
 GitHub release record, `firstInstall` is true, readiness is healthy, and a

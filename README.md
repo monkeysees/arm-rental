@@ -330,11 +330,13 @@ absolute `DATA_DIRECTORY`, `BROWSER_HEADLESS=true`, and an absolute
 `CHROME_EXECUTABLE_PATH`. Managed state and the Chrome profile must resolve
 below `DATA_DIRECTORY`; symlink redirection outside that tree is rejected.
 Startup creates or verifies the data tree, proves it is writable, restricts
-directories to mode `0700`, and requires the SQLite database and selector to be
-safe regular mode-`0600` files before Telegram polling or crawling starts.
+directories to mode `0700`, and requires the SQLite database to be a safe
+regular mode-`0600` file before Telegram polling or crawling starts. The
+database is never created by startup; a first installation creates it once with
+`npm run state:init`, which refuses to run over an existing one.
 
-Before either long-running loop starts, preflight validates the authoritative
-selector, database identity/schema/pragmas/target and domain invariants, proves
+Before either long-running loop starts, preflight validates the installed
+database identity/schema/pragmas/target and domain invariants, proves
 the singleton lease is held, authenticates the bot with Telegram, checks
 optional channel posting/editing permissions, launches the persistent Chrome
 profile, parses the List.am Regular Ads container, and obtains usable CBA rates.

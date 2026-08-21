@@ -36,6 +36,7 @@ function openDatabase(directory, options = {}) {
     dataDirectory: directory,
     listUrlTemplate: LIST_URL,
     channelId: CHANNEL_ID,
+    create: true,
     ...options,
   });
 }

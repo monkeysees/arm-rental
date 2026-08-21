@@ -12,8 +12,8 @@ systemd wrapper stops the bot before invoking it. A live bot makes the command
 fail with `ERR_SINGLETON_LOCKED` before it reads state or changes the Chrome
 profile. Take a successful backup first.
 
-The command reads the backend selector, refuses anything but a settled `sqlite`
-selector, validates the database in full, and emits one `maintenance.report`
+The command opens the installed database, refuses a data directory that holds
+none, validates the database in full, and emits one `maintenance.report`
 JSON log record containing:
 
 - combined SQLite database/WAL bytes, schema version, update offset, and

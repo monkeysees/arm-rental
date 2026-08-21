@@ -19,18 +19,17 @@ import {
   compatibleBrowserVerification,
 } from "./browser-verification-state.js";
 import { acquireSingletonLock } from "./singleton-lock.js";
-import { openStateDatabase } from "./sqlite-database.js";
+import {
+  openStateDatabase,
+  STATE_DATABASE_ABSENT,
+  stateDatabasePaths,
+} from "./sqlite-database.js";
 import { createSqliteRepositories } from "./sqlite-repositories.js";
 import {
   SQLITE_APPLICATION_ID,
   SQLITE_SCHEMA_VERSION,
 } from "./sqlite-schema.js";
 import { readState, writeState } from "./state.js";
-import {
-  readStateBackendSelector,
-  STATE_BACKEND_ABSENT,
-  stateBackendPaths,
-} from "./state-backend.js";
 
 const BACKUP_TYPE = "rental-apartments-backup";
 // Version 1 named a snapshot of the five JSON state files. This release cannot
@@ -130,30 +129,43 @@ async function browserRecoverySummary(config, root) {
   };
 }
 
-async function validateSqliteRecoveryState(config, root, selector) {
-  if (selector.backend !== "sqlite") {
-    throw new RecoveryValidationError(
-      "Recovery state does not select a stable SQLite backend",
-    );
-  }
-  let database;
+/**
+ * A directory holding no database is a snapshot taken before the SQLite
+ * cutover: this release has no backend that can read the JSON state beside it.
+ * Only an absent database means that; one that is present but unreadable is a
+ * damaged directory and keeps its own error, so the two cannot be confused for
+ * each other.
+ */
+function openRecoveryDatabase(config, root) {
   try {
-    database = openStateDatabase({
+    return openStateDatabase({
       dataDirectory: root,
       listUrlTemplate: config.listUrlTemplate,
       channelId: config.telegramChannelId,
     });
+  } catch (error) {
+    if (error.code === STATE_DATABASE_ABSENT) {
+      throw new RecoveryValidationError(
+        "Recovery state predates the SQLite cutover and cannot be read by this release",
+        { root, cause: error.message },
+      );
+    }
+    throw new RecoveryValidationError("SQLite recovery state is invalid", {
+      cause: error.message,
+      code: error.code,
+    });
+  }
+}
+
+export async function validateRecoveryState(config, root) {
+  const database = openRecoveryDatabase(config, root);
+  try {
     database.validate({ full: true });
     const metadata = database
       .prepare(
         "SELECT database_id, list_url_template, channel_id FROM application_metadata WHERE singleton = 1",
       )
       .get();
-    if (metadata?.database_id !== selector.databaseId) {
-      throw new RecoveryValidationError(
-        "Recovery selector and database identities do not match",
-      );
-    }
     const repositories = createSqliteRepositories(database, {
       listUrlTemplate: config.listUrlTemplate,
       channelId: config.telegramChannelId,
@@ -179,28 +191,8 @@ async function validateSqliteRecoveryState(config, root, selector) {
       code: error.code,
     });
   } finally {
-    database?.close();
+    database.close();
   }
-}
-
-/**
- * A snapshot taken before the SQLite cutover carries no selector file, and this
- * release has no backend that can read the JSON state beside it. Only an absent
- * selector means that; a malformed one is a damaged snapshot and keeps its own
- * error, so the two cannot be confused for each other.
- */
-export async function validateRecoveryState(config, root) {
-  let selector;
-  try {
-    selector = await readStateBackendSelector(root);
-  } catch (error) {
-    if (error.code !== STATE_BACKEND_ABSENT) throw error;
-    throw new RecoveryValidationError(
-      "Recovery state predates the SQLite cutover and cannot be read by this release",
-      { root, cause: error.message },
-    );
-  }
-  return validateSqliteRecoveryState(config, root, selector);
 }
 
 async function visitFiles(root, visitor, relative = "") {
@@ -281,10 +273,10 @@ async function fileHashes(root) {
   return hashes;
 }
 
-// Only reached once validateRecoveryState has proved the live selector names
-// SQLite, so the database is always part of the snapshot. The five legacy paths
-// hold post-cutover sentinels rather than state, and travel with the snapshot
-// so that restoring one leaves the data directory exactly as it was found.
+// Only reached once validateRecoveryState has opened the live database, so it
+// is always part of the snapshot. The five legacy paths hold post-cutover
+// sentinels rather than state, and travel with the snapshot so that restoring
+// one leaves the data directory exactly as it was found.
 async function copyData(config, destinationRoot) {
   await mkdir(destinationRoot, { recursive: true, mode: 0o700 });
   const targets = [
@@ -293,7 +285,6 @@ async function copyData(config, destinationRoot) {
     config.telegramStateFile,
     config.exchangeRatesStateFile,
     config.channelDeliveryStateFile,
-    stateBackendPaths(config.dataDirectory).selector,
   ];
   for (const source of targets) {
     const destination = relocated(config, destinationRoot, source);
@@ -323,7 +314,7 @@ async function copyData(config, destinationRoot) {
     listUrlTemplate: config.listUrlTemplate,
     channelId: config.telegramChannelId,
   });
-  const destinationDatabase = stateBackendPaths(destinationRoot).database;
+  const destinationDatabase = stateDatabasePaths(destinationRoot).database;
   try {
     await backupSqlite(sourceDatabase.connection, destinationDatabase);
     await chmod(destinationDatabase, 0o600);
@@ -532,14 +523,13 @@ export async function validateSnapshot(config, snapshotDirectory) {
 }
 
 function managedTargets(config) {
-  const backend = stateBackendPaths(config.dataDirectory);
+  const backend = stateDatabasePaths(config.dataDirectory);
   return [
     config.apartmentsStateFile,
     config.deliveryStateFile,
     config.telegramStateFile,
     config.exchangeRatesStateFile,
     config.channelDeliveryStateFile,
-    backend.selector,
     backend.database,
     backend.databaseWal,
     backend.databaseShm,

@@ -49,20 +49,20 @@ any request for credentials unrelated to List.am verification.
 ## Incompatible state
 
 SQLite state failures report a stable storage code and sanitized identity,
-schema, integrity, pragma, or target-mismatch context. Startup validates the
-selector before opening the database, validates identity and schema before any
-persistent pragma, and has no other backend to fall back to. `json` is no longer
-a name the selector can carry and is refused as incompatible; a selector naming
-`migrating` reports an interrupted cutover that cannot be resumed; a missing
-selector is refused outright. Deleting the selector cannot make startup
-initialize new state.
+schema, integrity, pragma, or target-mismatch context. Startup validates
+identity and schema before any persistent pragma, and has no other backend to
+fall back to. A data directory holding no database is refused outright with
+`ERR_STATE_DATABASE_ABSENT`: startup cannot tell a fresh host from a data
+directory that lost its state, so it never creates one. Only `state:init`
+creates a database, and only on a directory that has none, so deleting state
+cannot make startup silently initialize new state.
 
 ### Prerequisites, safe checks, and commands
 
 Prerequisites are a stopped service, named operator, verified complete snapshot,
 retained immutable image, and the target/owner/channel configuration that
 created the state. Confirm the container is stopped and inspect only sanitized
-selector and database metadata:
+database metadata:
 
 ```sh
 docker inspect --format '{{.State.Running}}' rental-apartments-bot
@@ -82,7 +82,8 @@ Restore a complete matching snapshot and use an image whose declared schema
 range includes it. If neither is available, keep the service stopped and
 escalate; there is no supported per-table reset, database replacement, export
 back to the legacy JSON files, or migration into the database. Never delete a
-selector, sidecar, sentinel, or database to make startup initialize new state.
+sidecar, sentinel, or database, and never reach for `state:init`, to make
+startup initialize new state.
 
 For a target mismatch, correct the environment when the persisted owner,
 List.am target, or channel is still authoritative. Treat an intentional target

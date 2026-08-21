@@ -70,6 +70,8 @@ function mappedDatabaseError(error, operation) {
   );
 }
 
+export const STATE_DATABASE_ABSENT = "ERR_STATE_DATABASE_ABSENT";
+
 export class StateDatabaseError extends Error {
   constructor(message, code, sqliteCode) {
     super(message);
@@ -255,6 +257,22 @@ function secureDataDirectory(dataDirectory) {
   return resolved;
 }
 
+/**
+ * Returns the fixed paths that name the state database. None are configurable
+ * independently, so state cannot be redirected outside DATA_DIRECTORY.
+ */
+export function stateDatabasePaths(dataDirectory) {
+  const database = path.join(
+    path.resolve(dataDirectory),
+    STATE_DATABASE_BASENAME,
+  );
+  return Object.freeze({
+    database,
+    databaseWal: `${database}-wal`,
+    databaseShm: `${database}-shm`,
+  });
+}
+
 function validateExistingFile(filename) {
   const details = lstatSync(filename);
   if (!details.isFile() || details.isSymbolicLink()) {
@@ -275,6 +293,7 @@ export function openStateDatabase({
   dataDirectory,
   listUrlTemplate,
   channelId = null,
+  create = false,
   databaseId = randomUUID(),
   migratedFrom = null,
   migrationId = null,
@@ -296,6 +315,15 @@ export function openStateDatabase({
     validateExistingFile(filename);
   } catch (error) {
     if (error.code !== "ENOENT") throw error;
+    // Only an explicit initialization may bring a database into existence.
+    // Every runtime caller opens what is already there, so a data directory
+    // that lost its state fails closed instead of starting on empty rows.
+    if (!create) {
+      throw new StateDatabaseError(
+        "State database is absent; initialize one with state:init",
+        STATE_DATABASE_ABSENT,
+      );
+    }
     created = true;
     // Establish the final mode before SQLite can write a header or journal.
     closeSync(openSync(filename, "wx", 0o600));

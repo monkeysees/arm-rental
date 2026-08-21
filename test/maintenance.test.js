@@ -22,8 +22,6 @@ import {
 } from "../src/maintenance.js";
 import { acquireSingletonLock } from "../src/singleton-lock.js";
 import { openStateDatabase } from "../src/sqlite-database.js";
-import { writeState } from "../src/state.js";
-import { stateBackendPaths } from "../src/state-backend.js";
 
 const DATABASE_ID = "maintenance-database";
 
@@ -44,14 +42,9 @@ async function fixture(t) {
     listUrlTemplate: config.listUrlTemplate,
     channelId: config.telegramChannelId,
     databaseId: DATABASE_ID,
+    create: true,
   });
   database.close();
-  await writeState(stateBackendPaths(config.dataDirectory).selector, {
-    backend: "sqlite",
-    version: 1,
-    migrationId: "maintenance-migration",
-    databaseId: DATABASE_ID,
-  });
   await recordBrowserVerification(config, 12, {
     now: () => new Date("2026-07-25T08:05:00.000Z"),
   });

@@ -23,7 +23,6 @@ import {
   getEnvironmentName,
   getHealthEndpointConfig,
 } from "./environment-config.js";
-import { stateBackendPaths } from "./state-backend.js";
 
 const RESERVED_DATA_PATHS = new Set([
   ".maintenance-history.json",
@@ -462,10 +461,6 @@ export async function validateStartupConfig(config) {
   for (const filename of stateFiles) {
     await secureExistingStateFile(filename);
   }
-  await secureExistingStateFile(
-    stateBackendPaths(config.dataDirectory).selector,
-  );
-
   const probePath = path.join(
     config.dataDirectory,
     `.configuration-write-probe.${process.pid}.${randomUUID()}`,

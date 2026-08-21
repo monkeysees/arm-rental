@@ -10,6 +10,7 @@ import {
 } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import { DatabaseSync } from "node:sqlite";
 import test from "node:test";
 
 import { recordBrowserVerification } from "../src/browser-verification-state.js";
@@ -22,10 +23,12 @@ import {
   validateSnapshot,
 } from "../src/recovery.js";
 import { acquireSingletonLock } from "../src/singleton-lock.js";
-import { openStateDatabase } from "../src/sqlite-database.js";
+import {
+  openStateDatabase,
+  stateDatabasePaths,
+} from "../src/sqlite-database.js";
 import { createSqliteRepositories } from "../src/sqlite-repositories.js";
 import { writeState } from "../src/state.js";
-import { stateBackendPaths } from "../src/state-backend.js";
 
 const DATABASE_ID = "database-1";
 const MIGRATION_ID = "migration-1";
@@ -47,8 +50,8 @@ function rates() {
 }
 
 /**
- * Builds the only state shape a snapshot can hold: rows in the database named
- * by the selector, beside a verified browser profile.
+ * Builds the only state shape a snapshot can hold: rows in the installed
+ * database, beside a verified browser profile.
  */
 async function fixture(t) {
   const root = await mkdtemp(path.join(os.tmpdir(), "rental-recovery-"));
@@ -80,6 +83,7 @@ async function fixture(t) {
     channelId: config.telegramChannelId,
     databaseId: DATABASE_ID,
     migrationId: MIGRATION_ID,
+    create: true,
   });
   try {
     const repositories = createSqliteRepositories(database, {
@@ -115,12 +119,6 @@ async function fixture(t) {
   } finally {
     database.close();
   }
-  await writeState(stateBackendPaths(dataDirectory).selector, {
-    backend: "sqlite",
-    version: 1,
-    migrationId: MIGRATION_ID,
-    databaseId: DATABASE_ID,
-  });
   return { root, config, dataDirectory, backupDirectory };
 }
 
@@ -184,35 +182,35 @@ test("an intact snapshot restores every state and the verified browser profile",
 
 test("backup rejects incompatible source state and validation detects damaged snapshots", async (t) => {
   const { config, dataDirectory } = await fixture(t);
-  const paths = stateBackendPaths(dataDirectory);
-  await writeState(paths.selector, {
-    backend: "sqlite",
-    version: 1,
-    migrationId: MIGRATION_ID,
-    databaseId: "some-other-database",
-  });
+  const paths = stateDatabasePaths(dataDirectory);
 
+  // A database bound to another target is refused rather than backed up under
+  // this installation's name.
+  const retargeted = new DatabaseSync(paths.database);
+  retargeted
+    .prepare("UPDATE application_metadata SET list_url_template = ?")
+    .run("https://www.list.am/category/99/{page}");
+  retargeted.close();
   await assert.rejects(
     createSnapshot(config, {
       now: () => new Date("2026-07-26T03:15:00.000Z"),
     }),
     (error) =>
       error instanceof RecoveryValidationError &&
-      /identities do not match/u.test(error.message),
+      error.details.code === "ERR_STATE_DATABASE_TARGET",
   );
 
-  await writeState(paths.selector, {
-    backend: "sqlite",
-    version: 1,
-    migrationId: MIGRATION_ID,
-    databaseId: DATABASE_ID,
-  });
+  const restored = new DatabaseSync(paths.database);
+  restored
+    .prepare("UPDATE application_metadata SET list_url_template = ?")
+    .run(config.listUrlTemplate);
+  restored.close();
   const backup = await createSnapshot(config, {
     now: () => new Date("2026-07-26T03:16:00.000Z"),
   });
   await writeFile(
-    path.join(backup.snapshot, "data", "state-backend.json"),
-    '{"tampered":true}\n',
+    path.join(backup.snapshot, "data", "state.sqlite3"),
+    "tampered",
   );
   await assert.rejects(
     validateSnapshot(config, backup.snapshot),
@@ -258,17 +256,17 @@ test("a snapshot taken before the SQLite cutover is refused by name", async (t) 
   );
 });
 
-test("a snapshot with no backend selector is refused before it is read", async (t) => {
+test("a directory holding no database is refused before it is read", async (t) => {
   const { config, dataDirectory, backupDirectory } = await fixture(t);
   const backup = await createSnapshot(config, {
     now: () => new Date("2026-07-26T03:15:00.000Z"),
   });
-  await rm(path.join(backup.snapshot, "data", "state-backend.json"));
-  await rm(stateBackendPaths(dataDirectory).selector);
+  const paths = stateDatabasePaths(dataDirectory);
+  await rm(path.join(backup.snapshot, "data", "state.sqlite3"));
+  await rm(paths.database);
 
-  // Both halves of the same guarantee: a directory that names no backend is
-  // never read as an empty SQLite database, whether it is a snapshot or the
-  // live data directory.
+  // Both halves of the same guarantee: a directory holding no database is never
+  // read as an empty one, whether it is a snapshot or the live data directory.
   await assert.rejects(
     validateSnapshot(config, backup.snapshot),
     /checksum failed/u,
@@ -283,19 +281,18 @@ test("a snapshot with no backend selector is refused before it is read", async (
       /predates the SQLite cutover/u.test(error.message),
   );
 
-  // A selector that is present but unreadable is a damaged directory, not an
+  // A database that is present but unreadable is a damaged directory, not an
   // old one; conflating the two would send an operator hunting for a snapshot
   // that never existed.
-  await writeState(stateBackendPaths(dataDirectory).selector, {
-    backend: "json",
-    version: 1,
-  });
+  await writeFile(paths.database, "not-a-database", { mode: 0o600 });
   await assert.rejects(
     createSnapshot(config, {
       backupDirectory,
       now: () => new Date("2026-07-26T03:18:00.000Z"),
     }),
-    (error) => error.code === "ERR_STATE_BACKEND_UNSUPPORTED",
+    (error) =>
+      error instanceof RecoveryValidationError &&
+      /SQLite recovery state is invalid/u.test(error.message),
   );
 });
 
@@ -328,7 +325,7 @@ test("restore removes every exact managed target before the service restarts", a
   const backup = await createSnapshot(config, {
     now: () => new Date("2026-07-26T03:15:00.000Z"),
   });
-  const paths = stateBackendPaths(dataDirectory);
+  const paths = stateDatabasePaths(dataDirectory);
   await Promise.all([
     writeFile(paths.databaseWal, "stale-wal", { mode: 0o600 }),
     writeFile(paths.databaseShm, "stale-shm", { mode: 0o600 }),

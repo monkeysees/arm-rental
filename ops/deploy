@@ -184,6 +184,13 @@ fi
 if [[ $DEPLOYMENT_FIRST_INSTALL == true ]]; then
   ops_set_step validate-first-install-storage
   deployment_validate_first_install_storage
+  # A first installation has no database yet, and the application refuses to
+  # create one so that a lost data volume can never be read as a fresh host.
+  # This is the one place allowed to make it, on storage just proved empty.
+  ops_set_step initialize-first-install-state
+  deployment_compose \
+    "$DEPLOYMENT_RELEASE" "$DEPLOYMENT_CANDIDATE_ENV" \
+    run --rm --no-deps bot node src/state-init-cli.js
 else
   DEPLOYMENT_RESTART_REQUIRED=1
   ops_set_step stop-application
@@ -268,6 +275,9 @@ deployment_write_quarantine \
 if [[ $DEPLOYMENT_FIRST_INSTALL == true ]]; then
   deployment_compose \
     "$DEPLOYMENT_RELEASE" "$DEPLOYMENT_CANDIDATE_ENV" stop bot || true
+  ops_set_step clear-first-install-state
+  deployment_clear_first_install_state
+  ops_set_step quarantine-rejected-candidate
   deployment_write_evidence \
     failed "$actor" "$DEPLOYMENT_CANDIDATE" "" \
     "$DEPLOYMENT_SOURCE_REVISION" "" true not-applicable \

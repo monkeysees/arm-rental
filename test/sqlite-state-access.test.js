@@ -7,11 +7,13 @@ import test from "node:test";
 import { openApplicationState } from "../src/application-state.js";
 import { crawlApartments } from "../src/crawler.js";
 import { emptyFilters } from "../src/filters.js";
-import { openStateDatabase } from "../src/sqlite-database.js";
+import {
+  openStateDatabase,
+  STATE_DATABASE_ABSENT,
+  stateDatabasePaths,
+} from "../src/sqlite-database.js";
 import { createSqliteRepositories } from "../src/sqlite-repositories.js";
 import { createSqliteStateAccess } from "../src/sqlite-state-access.js";
-import { writeState } from "../src/state.js";
-import { StateBackendError, stateBackendPaths } from "../src/state-backend.js";
 
 const LIST_URL = "https://www.list.am/category/60/{page}";
 const TIME = "2026-08-18T10:11:12.000Z";
@@ -60,6 +62,7 @@ async function deliveryCrawl(t, { onMetric = () => {} } = {}) {
   const database = openStateDatabase({
     dataDirectory: config.dataDirectory,
     listUrlTemplate: LIST_URL,
+    create: true,
     onMetric,
   });
   t.after(() => database.close());
@@ -87,6 +90,7 @@ test("domain stores translate their callers into bounded row writes", async (t) 
     dataDirectory: config.dataDirectory,
     listUrlTemplate: LIST_URL,
     channelId: config.telegramChannelId,
+    create: true,
     onMetric: (metric) => metrics.push(metric),
   });
   t.after(() => database.close());
@@ -163,70 +167,37 @@ test("domain stores translate their callers into bounded row writes", async (t) 
   );
 });
 
-test("application state follows only the authoritative selector identity", async (t) => {
+test("application state opens an installed database and never creates one", async (t) => {
   const config = await temporaryConfig(t);
-  const databaseId = "database-test-id";
   const database = openStateDatabase({
     dataDirectory: config.dataDirectory,
     listUrlTemplate: LIST_URL,
     channelId: config.telegramChannelId,
-    databaseId,
+    create: true,
   });
   database.close();
-  await writeState(stateBackendPaths(config.dataDirectory).selector, {
-    backend: "sqlite",
-    version: 1,
-    migrationId: "migration-test-id",
-    databaseId,
-  });
 
   const state = await openApplicationState(config);
   assert.equal(state.backend, "sqlite");
   state.close();
 
-  await writeState(stateBackendPaths(config.dataDirectory).selector, {
-    backend: "sqlite",
-    version: 1,
-    migrationId: "migration-test-id",
-    databaseId: "wrong-database-id",
-  });
-  await assert.rejects(openApplicationState(config), /does not identify/u);
-
-  // A host that never migrated must fail closed rather than start on the empty
-  // database this release would otherwise create for it. The JSON backend is
-  // no longer a name the selector can carry at all.
-  await writeState(stateBackendPaths(config.dataDirectory).selector, {
-    backend: "json",
-    version: 1,
-  });
+  // A database belonging to another target is refused rather than adopted.
   await assert.rejects(
-    openApplicationState(config),
-    (error) =>
-      error instanceof StateBackendError &&
-      /selector is incompatible/u.test(error.message),
+    openApplicationState({
+      ...config,
+      listUrlTemplate: "https://other/{page}",
+    }),
+    (error) => error.code === "ERR_STATE_DATABASE_TARGET",
   );
 
-  // An interrupted cutover is still named, and can no longer be resumed.
-  await writeState(stateBackendPaths(config.dataDirectory).selector, {
-    backend: "migrating",
-    version: 1,
-    migrationId: "migration-test-id",
-    sourceHashes: { apartments: "a".repeat(64) },
-  });
+  // A data directory that lost its database must fail closed rather than start
+  // on the empty one this release would otherwise create for it. Startup has no
+  // way to tell that apart from a fresh host, so only state:init may create.
+  await rm(stateDatabasePaths(config.dataDirectory).database);
   await assert.rejects(
     openApplicationState(config),
     (error) =>
-      error instanceof StateBackendError &&
-      error.backend === "migrating" &&
-      /cannot be resumed/u.test(error.message),
-  );
-
-  await rm(stateBackendPaths(config.dataDirectory).selector);
-  await assert.rejects(
-    openApplicationState(config),
-    (error) =>
-      error instanceof StateBackendError &&
-      /selector is absent/u.test(error.message),
+      error.code === STATE_DATABASE_ABSENT && /state:init/u.test(error.message),
   );
 });
 
@@ -236,6 +207,7 @@ test("bounded Telegram commits compare users by meaning, not key order", async (
     dataDirectory: config.dataDirectory,
     listUrlTemplate: LIST_URL,
     channelId: config.telegramChannelId,
+    create: true,
   });
   t.after(() => database.close());
   const repositories = createSqliteRepositories(database, {

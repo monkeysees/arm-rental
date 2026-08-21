@@ -314,30 +314,19 @@ async function inspectImageStateCompatibility(image) {
 }
 
 async function inspectLiveState() {
+  // The database is the whole answer: SQLite is the only backend a release can
+  // serve, so a directory without one is a host with no state to be compatible
+  // with rather than a host on some other backend.
   const expression = String.raw`
-    const { readFile } = await import("node:fs/promises");
     const path = await import("node:path");
+    const { DatabaseSync } = await import("node:sqlite");
     const root = process.env.DATA_DIRECTORY || "/app/.data";
-    let selector;
+    const database = new DatabaseSync(path.join(root, "state.sqlite3"), { readOnly: true });
     try {
-      selector = JSON.parse(await readFile(path.join(root, "state-backend.json"), "utf8"));
-    } catch (error) {
-      if (error.code !== "ENOENT") throw error;
-    }
-    const backend = selector?.backend || "json";
-    if (backend === "json") {
-      console.log(JSON.stringify({ stateBackend: "json", stateSchema: 0 }));
-    } else if (backend === "sqlite") {
-      const { DatabaseSync } = await import("node:sqlite");
-      const database = new DatabaseSync(path.join(root, "state.sqlite3"), { readOnly: true });
-      try {
-        const stateSchema = database.prepare("PRAGMA user_version").get().user_version;
-        console.log(JSON.stringify({ stateBackend: "sqlite", stateSchema }));
-      } finally {
-        database.close();
-      }
-    } else {
-      throw new Error("Live state backend is not stable");
+      const stateSchema = database.prepare("PRAGMA user_version").get().user_version;
+      console.log(JSON.stringify({ stateBackend: "sqlite", stateSchema }));
+    } finally {
+      database.close();
     }
   `;
   const { stdout } = await run("docker", [

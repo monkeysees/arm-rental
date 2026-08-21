@@ -213,7 +213,7 @@ visible.
 
 The same recovery path covers launch and observation failures. The restore is
 performed by the previous image, whose exact managed-target list removes the
-selector, database, and sidecars before reinstalling the verified snapshot. The
+database and sidecars before reinstalling the verified snapshot. The
 previous release is restarted only after restore succeeds. Deployment never
 converts state during a code release.
 

@@ -13,14 +13,26 @@ No production host state has been changed.
 
 ## Implementation status
 
-| Step | Work                                                  | State                                                  | Commit    |
-| ---- | ----------------------------------------------------- | ------------------------------------------------------ | --------- |
-| 1    | Part 1 — delivery hot path (1.1–1.4)                  | **done**                                               | `78e2b64` |
-| 2    | Liveness recovery — both defects together             | **done**                                               | `8e905f3` |
-| 3    | Part 2 — remove the JSON application-state backend    | **done**                                               | `962e22c` |
-| 4    | Re-measure crawl tail and browser timeouts            | blocked — needs Parts 1–3 deployed to production first | —         |
-| 5    | Part 3 — remove JSON migration and rollback machinery | not started                                            | —         |
-| 6    | Part 4 — the five sentinel files on disk              | **declined** — owner chose to leave them on disk       | —         |
+| Step | Work                                                   | State                                                  | Commit    |
+| ---- | ------------------------------------------------------ | ------------------------------------------------------ | --------- |
+| 1    | Part 1 — delivery hot path (1.1–1.4)                   | **done**                                               | `78e2b64` |
+| 2    | Liveness recovery — both defects together              | **done**                                               | `8e905f3` |
+| 3    | Part 2 — remove the JSON application-state backend     | **done**                                               | `962e22c` |
+| 4    | Re-measure crawl tail and browser timeouts             | blocked — needs Parts 1–3 deployed to production first | —         |
+| 5    | Part 3 — remove JSON migration and rollback machinery  | **done**                                               | `7032d9a` |
+| 6    | Part 4 — the five sentinel files on disk               | **declined** — owner chose to leave them on disk       | —         |
+| 7    | Part 5 — remove the backend selector, add `state:init` | **done**                                               | this      |
+
+### Found during implementation — not in the original plan
+
+**A first installation could not start.** Nothing in the tree wrote
+`state-backend.json`. Part 2 made an absent selector throw, and Part 3 removed
+`state:migrate`, which was the only command that created a selector on a fresh
+host. A genuinely empty data volume failed startup with _"State backend selector
+is absent"_ and the candidate was quarantined.
+
+Fixed by Part 5 below. Production was never affected — its selector named
+`sqlite` — and no existing host regressed.
 
 ### Owner decisions taken during implementation
 
@@ -56,8 +68,8 @@ them.)
 On production all five are already 184-byte `sqlite-migrated` sentinels holding
 no data. SQLite has been the live backend since 2026-08-19T07:33:55Z.
 
-**Out of scope — meta files, explicitly not wanted:** `state-backend.json`,
-`.singleton.json` / `.singleton.sock`, `.maintenance-history.json`, backup
+**Out of scope — meta files, explicitly not wanted** (`state-backend.json` was,
+until Part 5 removed it): `.singleton.json` / `.singleton.sock`, `.maintenance-history.json`, backup
 `manifest.json`, `chrome-profile/.rental-apartments-verification.json`. See
 [Meta files](#meta-files--out-of-scope-with-one-unavoidable-touch) for the single
 place the work unavoidably touches one.
@@ -224,6 +236,38 @@ itself.
 
 ---
 
+## Part 5 — remove the backend selector, add `state:init`
+
+Added after the owner asked whether `state-backend.json` was needed at all. It
+was, for exactly one thing: it fail-closed on an empty data volume, because
+`openStateDatabase` created a database when the file was absent. Everything else
+it carried was dead (`migrationId` was validated and never read; `migrating` was
+a state no release could produce any more) or duplicated by the database's own
+`application_id`, `user_version`, and target checks. And nothing wrote it, which
+is the first-install defect above.
+
+The guard moved instead of being dropped. `openStateDatabase` now takes an
+explicit `create`, defaulting to false, so every runtime caller opens what is
+already installed and an absent database throws `ERR_STATE_DATABASE_ABSENT`.
+`state:init` (`src/state-init.js`, `src/state-init-cli.js`) is the only caller
+that passes it: it takes the singleton lease, refuses an existing database, and
+creates the empty one a first installation starts from. `ops/deploy` runs it once
+on first install, right after the empty-storage gate, and clears the database
+again if the candidate is rejected so the storage gate still admits the retry.
+
+Removed with the selector: `src/state-backend.js` and its test entirely
+(`stateBackendPaths` became `stateDatabasePaths` in `src/sqlite-database.js`,
+minus the `selector` entry), the selector read and `databaseId` cross-check in
+`src/application-state.js` and `src/recovery.js`, the backend refusal in
+`src/maintenance.js`, the permissions call in `src/config.js`, the selector from
+the backup target list, and the absent-selector-means-JSON inference in
+`scripts/release-operations.js`.
+
+What this gives up, deliberately: the `databaseId` cross-check (a database from
+another install of the _same_ target is no longer named as such — the target
+check and the backup manifest hashes remain), and the by-name refusal of a
+`migrating` selector, which no host in the deploy path can be in.
+
 ## Part 4 — the five files on disk
 
 Deleting the sentinels is **safe for everything currently running**. Verified
@@ -287,6 +331,10 @@ Part 2 improves this by accident: with the JSON branch gone,
 `undefined` — so it errors instead of losing data. **Make that explicit rather
 than incidental**: have `parseStateBackendSelector(undefined)` throw. One line,
 and it closes the only remaining silent-data-loss path.
+
+_Superseded by Part 5._ The selector is gone; the same guarantee now lives in
+`openStateDatabase`, which refuses to create a database unless `state:init`
+asks it to.
 
 ---
 
@@ -358,6 +406,8 @@ reason Part 1 matters beyond the immediate alert.
 5. **Part 3** — irreversible; decide on the `pre-sqlite` snapshot at the same
    time.
 6. **Part 4** — whenever; it is 920 bytes.
+7. **Part 5** — the selector and `state:init` together; the first-install defect
+   is not fixed by either half alone.
 
 ## Checks before any push
 

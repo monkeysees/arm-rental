@@ -1,0 +1,26 @@
+# Chromium security update pending in Debian bookworm.
+#
+# Debian's security tracker records these as resolved in
+# chromium 151.0.7922.169-1~deb12u1, but that build is not published to
+# bookworm-security yet — the archive still carries 151.0.7922.137-1~deb12u1,
+# so the Dockerfile pin cannot move and `ignore-unfixed` does not apply.
+#
+# Affects chromium, chromium-common and chromium-sandbox (33 findings).
+#
+# When 151.0.7922.169-1~deb12u1 lands: bump CHROME_VERSION,
+# CHROMIUM_PACKAGE_VERSION and DEBIAN_SNAPSHOT in the Dockerfile, update the
+# two 151.0.7922.137 assertions in the "Verify deployment runtime metadata"
+# step of .github/workflows/quality.yml, then delete this file. The expiry
+# dates below re-break the build if that has not happened, rather than letting
+# the exception go stale silently.
+CVE-2026-76033 exp:2026-08-28
+CVE-2026-76036 exp:2026-08-28
+CVE-2026-76037 exp:2026-08-28
+CVE-2026-76038 exp:2026-08-28
+CVE-2026-76039 exp:2026-08-28
+CVE-2026-76040 exp:2026-08-28
+CVE-2026-76041 exp:2026-08-28
+CVE-2026-76043 exp:2026-08-28
+CVE-2026-76044 exp:2026-08-28
+CVE-2026-76045 exp:2026-08-28
+CVE-2026-76047 exp:2026-08-28

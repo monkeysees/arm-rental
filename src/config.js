@@ -23,10 +23,7 @@ import {
   getEnvironmentName,
   getHealthEndpointConfig,
 } from "./environment-config.js";
-import {
-  requireBridgeJsonBackend,
-  stateBackendPaths,
-} from "./state-backend.js";
+import { stateBackendPaths } from "./state-backend.js";
 
 const RESERVED_DATA_PATHS = new Set([
   ".maintenance-history.json",
@@ -438,10 +435,7 @@ async function secureExistingStateFile(filename) {
   await chmod(filename, 0o600);
 }
 
-export async function validateStartupConfig(
-  config,
-  { allowNonJsonBackend = false } = {},
-) {
+export async function validateStartupConfig(config) {
   // Recheck callers that construct configuration without getConfig, including
   // operational scripts, before granting them access to persistent storage.
   validateTelegramAccessPolicy(config);
@@ -471,9 +465,6 @@ export async function validateStartupConfig(
   await secureExistingStateFile(
     stateBackendPaths(config.dataDirectory).selector,
   );
-  if (!allowNonJsonBackend) {
-    await requireBridgeJsonBackend(config.dataDirectory);
-  }
 
   const probePath = path.join(
     config.dataDirectory,

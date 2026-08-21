@@ -124,29 +124,6 @@ ops_latest_snapshot() {
   printf '%s\n' "$latest"
 }
 
-ops_latest_protected_snapshot() {
-  local protected candidate latest="" name
-  protected=$RENTAL_BACKUP_ROOT/protected
-  ops_require_absolute_path "RENTAL_BACKUP_ROOT" "$RENTAL_BACKUP_ROOT"
-  [[ -d $protected && ! -L $protected ]]
-  shopt -s nullglob
-  for candidate in "$protected"/pre-sqlite-*; do
-    [[ -d $candidate && ! -L $candidate ]] || continue
-    name=${candidate##*/}
-    [[ $name =~ ^pre-sqlite-[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9TZ.-]+$ ]] ||
-      continue
-    if [[ -z $latest || $name > ${latest##*/} ]]; then
-      latest=$candidate
-    fi
-  done
-  shopt -u nullglob
-  [[ -n $latest ]] || {
-    printf 'No protected pre-SQLite snapshot exists\n' >&2
-    return 66
-  }
-  printf '%s\n' "$latest"
-}
-
 ops_snapshot_container_path() {
   local snapshot=$1
   local resolved_root resolved_snapshot
@@ -156,6 +133,8 @@ ops_snapshot_container_path() {
     "$resolved_root"/daily/*)
       printf '/app-backups/daily/%s\n' "${resolved_snapshot##*/}"
       ;;
+    # A protected pre-cutover snapshot can still be named so that pointing the
+    # validator at one reports what it is rather than an unknown directory.
     "$resolved_root"/protected/pre-sqlite-*)
       printf '/app-backups/protected/%s\n' "${resolved_snapshot##*/}"
       ;;

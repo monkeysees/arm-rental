@@ -7,34 +7,22 @@ import test from "node:test";
 import { getConfig, validateStartupConfig } from "../src/config.js";
 import {
   parseStateBackendSelector,
-  requireBridgeJsonBackend,
+  readStateBackendSelector,
   stateBackendPaths,
   StateBackendError,
 } from "../src/state-backend.js";
 import { writeState } from "../src/state.js";
 
 test("selector parsing is strict for every authoritative backend state", () => {
-  // Only the callers that predate a selector file may read its absence, and
-  // they have to say so; everything else has to name the backend it opens.
+  // No caller may read an absent selector any more: with JSON gone there is no
+  // backend an absent selector could name, and reading one as empty SQLite is
+  // exactly the silent data loss the selector exists to prevent.
   assert.throws(
     () => parseStateBackendSelector(undefined),
     (error) =>
       error instanceof StateBackendError &&
       /selector is absent/u.test(error.message),
   );
-  assert.deepEqual(
-    parseStateBackendSelector(undefined, { allowAbsent: true }),
-    {
-      backend: "json",
-      version: 1,
-      implicit: true,
-    },
-  );
-  assert.deepEqual(parseStateBackendSelector({ backend: "json", version: 1 }), {
-    backend: "json",
-    version: 1,
-    implicit: false,
-  });
   assert.equal(
     parseStateBackendSelector({
       backend: "migrating",
@@ -56,8 +44,8 @@ test("selector parsing is strict for every authoritative backend state", () => {
 
   for (const invalid of [
     null,
-    { backend: "json", version: 2 },
-    { backend: "json", version: 1, databaseId: "surprise" },
+    { backend: "json", version: 1 },
+    { backend: "sqlite", version: 2 },
     {
       backend: "migrating",
       version: 1,
@@ -75,7 +63,7 @@ test("selector parsing is strict for every authoritative backend state", () => {
   }
 });
 
-test("bridge startup accepts absent or JSON selectors and refuses migration states", async (t) => {
+test("storage validation no longer decides which backend may be opened", async (t) => {
   const root = await mkdtemp(path.join(os.tmpdir(), "backend-bridge-"));
   t.after(() => rm(root, { recursive: true, force: true }));
   const dataDirectory = path.join(root, "data");
@@ -89,43 +77,42 @@ test("bridge startup accepts absent or JSON selectors and refuses migration stat
   );
   const paths = stateBackendPaths(dataDirectory);
 
+  // Storage validation secures paths; the selector is read by whoever opens
+  // state. Every command shares one reading of it, so a backup, a maintenance
+  // report and startup can no longer disagree about which backend is live.
   await validateStartupConfig(config);
+  await assert.rejects(
+    readStateBackendSelector(dataDirectory),
+    /selector is absent/u,
+  );
+
   await writeState(paths.selector, { backend: "json", version: 1 });
   await validateStartupConfig(config);
+  await assert.rejects(
+    readStateBackendSelector(dataDirectory),
+    (error) =>
+      error instanceof StateBackendError &&
+      error.code === "ERR_STATE_BACKEND_UNSUPPORTED" &&
+      /selector is incompatible/u.test(error.message),
+  );
 
-  for (const selector of [
-    {
-      backend: "migrating",
-      version: 1,
-      migrationId: "migration-1",
-      sourceHashes: { apartments: "a".repeat(64) },
-    },
-    {
-      backend: "sqlite",
-      version: 1,
-      migrationId: "migration-1",
-      databaseId: "database-1",
-    },
-  ]) {
-    await writeState(paths.selector, selector);
-    await assert.rejects(
-      requireBridgeJsonBackend(dataDirectory),
-      (error) =>
-        error instanceof StateBackendError &&
-        error.code === "ERR_STATE_BACKEND_UNSUPPORTED" &&
-        error.backend === selector.backend,
-    );
-    await assert.rejects(validateStartupConfig(config), /bridge release/u);
-  }
+  await writeState(paths.selector, {
+    backend: "sqlite",
+    version: 1,
+    migrationId: "migration-1",
+    databaseId: "database-1",
+  });
+  assert.equal(
+    (await readStateBackendSelector(dataDirectory)).databaseId,
+    "database-1",
+  );
 });
 
-test("future SQLite and migration paths are exact children of data storage", () => {
+test("SQLite paths are exact children of data storage", () => {
   assert.deepEqual(stateBackendPaths("/srv/app-data"), {
     selector: "/srv/app-data/state-backend.json",
     database: "/srv/app-data/state.sqlite3",
     databaseWal: "/srv/app-data/state.sqlite3-wal",
     databaseShm: "/srv/app-data/state.sqlite3-shm",
-    migrationWorkDirectory: "/srv/app-data/.state-migration",
-    migrationDatabase: "/srv/app-data/.state-migration/state.sqlite3.tmp",
   });
 });

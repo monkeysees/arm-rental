@@ -75,7 +75,7 @@ export async function runApplication({
   };
 
   try {
-    await validateConfig(config, { allowNonJsonBackend: true });
+    await validateConfig(config);
     healthMonitor?.setConfigurationValid();
     startupComponent = "singleton";
     singletonLock = await acquireLock(config.dataDirectory);

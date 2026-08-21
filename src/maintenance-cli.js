@@ -10,7 +10,7 @@ try {
     throw new Error("Usage: node src/maintenance-cli.js report");
   }
   const config = getConfig();
-  await validateStartupConfig(config, { allowNonJsonBackend: true });
+  await validateStartupConfig(config);
   const report = await runMaintenance(config);
   logger.info("Weekly state maintenance completed", {
     event: "maintenance.report",
@@ -23,12 +23,7 @@ try {
     });
   }
   const firing = new Set(report.alerts.map(({ alertName }) => alertName));
-  for (const alertName of [
-    "state_file_growth",
-    "state_sqlite_migration",
-    "state_database_growth",
-    "state_wal_growth",
-  ]) {
+  for (const alertName of ["state_database_growth", "state_wal_growth"]) {
     if (!firing.has(alertName)) {
       logger.info("Persistent state size alert resolved", {
         event: "alert.resolved",

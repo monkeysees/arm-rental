@@ -226,11 +226,11 @@ details.
 | `CHANNEL_FILTER_ROOMS`                   | blank                                    | Optional channel room-count range                              |
 | `CHANNEL_FILTER_LOCATIONS`               | `region:Ереван`                          | Comma-separated channel location selectors                     |
 | `DATA_DIRECTORY`                         | `.data`                                  | Persistent state, profile, and singleton lease                 |
-| `APARTMENTS_STATE_FILE`                  | `.data/apartments.json`                  | Legacy JSON import/sentinel path                               |
-| `DELIVERY_STATE_FILE`                    | `.data/telegram-deliveries.json`         | Legacy JSON import/sentinel path                               |
-| `CHANNEL_DELIVERY_STATE_FILE`            | `.data/telegram-channel-deliveries.json` | Legacy JSON import/sentinel path                               |
-| `EXCHANGE_RATES_STATE_FILE`              | `.data/exchange-rates.json`              | Legacy JSON import/sentinel path                               |
-| `TELEGRAM_STATE_FILE`                    | `.data/telegram-bot.json`                | Legacy JSON import/sentinel path                               |
+| `APARTMENTS_STATE_FILE`                  | `.data/apartments.json`                  | Post-cutover sentinel path; holds no state                     |
+| `DELIVERY_STATE_FILE`                    | `.data/telegram-deliveries.json`         | Post-cutover sentinel path; holds no state                     |
+| `CHANNEL_DELIVERY_STATE_FILE`            | `.data/telegram-channel-deliveries.json` | Post-cutover sentinel path; holds no state                     |
+| `EXCHANGE_RATES_STATE_FILE`              | `.data/exchange-rates.json`              | Post-cutover sentinel path; holds no state                     |
+| `TELEGRAM_STATE_FILE`                    | `.data/telegram-bot.json`                | Post-cutover sentinel path; holds no state                     |
 | `TELEGRAM_POLL_TIMEOUT_SECONDS`          | `25`                                     | Telegram long-poll duration                                    |
 | `POLL_INTERVAL_MS`                       | `60000`                                  | Delay between crawls                                           |
 | `INITIAL_PAGE_COUNT`                     | `10`                                     | Pages parsed with an empty apartment database                  |

@@ -3,17 +3,9 @@ import { lstat, readdir, rename, rm } from "node:fs/promises";
 import path from "node:path";
 
 import {
-  compatibleApartmentState,
-  sourceIntegrityStateSummary,
-} from "./apartment-state.js";
-import { compatibleBotState } from "./bot.js";
-import {
   browserVerificationStateFile,
   compatibleBrowserVerification,
 } from "./browser-verification-state.js";
-import { compatibleChannelState } from "./channel.js";
-import { compatibleDeliveryState, deliveryStateCounts } from "./crawler.js";
-import { compatibleExchangeRateSnapshot } from "./exchange-rates.js";
 import { checkDiskSpace } from "./recovery.js";
 import { acquireSingletonLock } from "./singleton-lock.js";
 import { openStateDatabase } from "./sqlite-database.js";
@@ -24,7 +16,9 @@ import {
 } from "./state-backend.js";
 
 export const STATE_SIZE_WARNING_BYTES = 25 * 1024 * 1024;
-export const STATE_SIZE_MIGRATION_BYTES = 50 * 1024 * 1024;
+// Once the only escape hatch was migrating off JSON; now it names the point at
+// which the database itself needs an operator, not a backend change.
+export const STATE_SIZE_CRITICAL_BYTES = 50 * 1024 * 1024;
 export const MAINTENANCE_HISTORY_FILENAME = ".maintenance-history.json";
 
 // Only reconstructible network, bytecode, shader, and GPU caches belong here.
@@ -52,105 +46,25 @@ export class MaintenanceValidationError extends Error {
   }
 }
 
-function stateSpecifications(config) {
-  return [
-    {
-      name: "apartments",
-      filename: config.apartmentsStateFile,
-      compatible: (state) =>
-        compatibleApartmentState(state, config.listUrlTemplate),
-      counts: (state) => ({
-        entryCount: Object.keys(state.apartments).length,
-        apartments: Object.keys(state.apartments).length,
-        ...sourceIntegrityStateSummary(state),
-      }),
-    },
-    {
-      name: "privateDelivery",
-      filename: config.deliveryStateFile,
-      compatible: (state) =>
-        compatibleDeliveryState(state, config.listUrlTemplate),
-      counts: (state) => {
-        const { recipients, notified, skipped, filtered } =
-          deliveryStateCounts(state);
-        return {
-          entryCount: notified + skipped + filtered,
-          recipients,
-          notified,
-          skipped,
-          filtered,
-        };
-      },
-    },
-    {
-      name: "channelDelivery",
-      filename: config.channelDeliveryStateFile,
-      compatible: (state) => compatibleChannelState(state, config),
-      counts: (state) => ({
-        entryCount: Object.keys(state.apartments).length,
-        published: Object.values(state.apartments).filter(
-          ({ status }) => status === "published",
-        ).length,
-      }),
-    },
-    {
-      name: "exchangeRates",
-      filename: config.exchangeRatesStateFile,
-      compatible: compatibleExchangeRateSnapshot,
-      counts: (state) => ({
-        entryCount: Object.keys(state.rates).length,
-      }),
-    },
-    {
-      name: "telegram",
-      filename: config.telegramStateFile,
-      compatible: (state) =>
-        compatibleBotState(state) &&
-        Number.isSafeInteger(state.updateOffset) &&
-        state.updateOffset >= 0,
-      counts: (state) => ({
-        entryCount: 1,
-        updateOffset: state.updateOffset,
-      }),
-    },
-    {
-      name: "browserVerification",
-      filename: browserVerificationStateFile(config),
-      compatible: (state) =>
-        compatibleBrowserVerification(state, config.listUrlTemplate),
-      counts: (state) => ({
-        entryCount: 1,
-        verifiedAt: state.verifiedAt,
-      }),
-    },
-  ];
+// The only state file maintenance still reads: the browser verification record
+// lives beside the profile it describes, not in the database.
+function browserVerificationSpecification(config) {
+  return {
+    name: "browserVerification",
+    filename: browserVerificationStateFile(config),
+    compatible: (state) =>
+      compatibleBrowserVerification(state, config.listUrlTemplate),
+    counts: (state) => ({
+      entryCount: 1,
+      verifiedAt: state.verifiedAt,
+    }),
+  };
 }
 
 export function stateSizeStatus(bytes) {
-  if (bytes >= STATE_SIZE_MIGRATION_BYTES) return "migration_required";
+  if (bytes >= STATE_SIZE_CRITICAL_BYTES) return "critical";
   if (bytes >= STATE_SIZE_WARNING_BYTES) return "warning";
   return "ok";
-}
-
-export function stateSizeAlerts(stateFile) {
-  const alerts = [];
-  if (stateFile.bytes >= STATE_SIZE_WARNING_BYTES) {
-    alerts.push({
-      alertName: "state_file_growth",
-      stateFile: stateFile.stateFile,
-      bytes: stateFile.bytes,
-      thresholdBytes: STATE_SIZE_WARNING_BYTES,
-    });
-  }
-  if (stateFile.bytes >= STATE_SIZE_MIGRATION_BYTES) {
-    alerts.push({
-      alertName: "state_sqlite_migration",
-      stateFile: stateFile.stateFile,
-      bytes: stateFile.bytes,
-      thresholdBytes: STATE_SIZE_MIGRATION_BYTES,
-    });
-  }
-  return alerts;
 }
 
 function sqliteStateAlerts(stateFile) {
@@ -414,25 +328,16 @@ export async function runMaintenance(
     );
     const previous = await previousHistory(historyFilename);
     const profileBytesBeforeCleanup = await treeSize(config.browserProfileDir);
-    const selector = await readStateBackendSelector(config.dataDirectory, {
-      allowAbsent: true,
-    });
-    if (selector.backend === "migrating") {
+    const selector = await readStateBackendSelector(config.dataDirectory);
+    if (selector.backend !== "sqlite") {
       throw new MaintenanceValidationError(
         "Maintenance cannot inspect an incomplete state migration",
       );
     }
-    const stateFiles =
-      selector.backend === "sqlite"
-        ? await Promise.all([
-            sqliteStateReport(config),
-            stateFileReport(
-              stateSpecifications(config).find(
-                ({ name }) => name === "browserVerification",
-              ),
-            ),
-          ])
-        : await Promise.all(stateSpecifications(config).map(stateFileReport));
+    const stateFiles = await Promise.all([
+      sqliteStateReport(config),
+      stateFileReport(browserVerificationSpecification(config)),
+    ]);
     const cacheCleanup = await cleanupChromeCaches(
       config.browserProfileDir,
       config.dataDirectory,
@@ -459,10 +364,9 @@ export async function runMaintenance(
           : ((managedBytes - previous.managedBytes) / previous.managedBytes) *
             100,
     };
-    const alerts =
-      selector.backend === "sqlite"
-        ? sqliteStateAlerts(stateFiles.find(({ name }) => name === "sqlite"))
-        : stateFiles.flatMap(stateSizeAlerts);
+    const alerts = sqliteStateAlerts(
+      stateFiles.find(({ name }) => name === "sqlite"),
+    );
     const report = {
       type: "rental-apartments-maintenance-report",
       version: 1,

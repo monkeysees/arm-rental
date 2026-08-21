@@ -58,6 +58,11 @@ advancing the pointer the publisher reads the metadata of the release
 - backend change the current release can deploy: the image and metadata are
   published but the pointer is held.
 
+Every release in this tree declares `sqlite`, so today the first case is the
+only one reached. The machinery stays because it is what would gate any future
+backend or storage change; it is not a path back to JSON, which no release can
+read.
+
 A held cutover is deliberate. Publishing the bridge is not the same as the host
 having deployed it, and only the host knows which. Confirm the deployed
 revision on the host, then run `promote-production.yml` with the revision to
@@ -127,30 +132,30 @@ For a new digest, `ops/deploy`:
    verifies image, package lock, Compose, and operational-bundle digests;
 4. renders Compose and proves one fixed production container, stop-first
    updates, no ports, and unchanged data and backup mounts;
-5. classifies the state transition from both releases' metadata, stops the old
-   bot, then creates and validates the ordinary pre-deploy snapshot;
-6. for the one allowed JSON-to-SQLite transition, verifies that the current
-   image, release metadata, and independently protected pre-SQLite snapshot are
-   the same bridge rollback point, then runs the candidate's stopped-service
-   migration `plan`, `migrate`, and full `validate` commands in that order;
-7. skips migration for a compatible SQLite-to-SQLite deployment and otherwise
-   starts the candidate against the unchanged named volumes;
-8. requires healthy startup, ready Telegram and optional channel preflight, one
+5. verifies the state contract from both releases' metadata — both must declare
+   `sqlite`, and the candidate must span the schema range the current release
+   serves — then stops the old bot and creates and validates the ordinary
+   pre-deploy snapshot;
+6. starts the candidate against the unchanged named volumes. No deployment
+   migrates state: SQLite is the only backend, so there is nothing to convert;
+7. requires healthy startup, ready Telegram and optional channel preflight, one
    `crawl.succeeded`, and final readiness after one poll interval plus five
    minutes;
-9. atomically replaces `/opt/rental-apartments/current` and
+8. atomically replaces `/opt/rental-apartments/current` and
    `current-image.env`, starts the systemd-owned application service, and writes
    an exclusive sanitized receipt;
-10. updates the current-plus-two rollback index and attempts explicit-ID image
-    cleanup without turning cleanup failure into rollback of an already healthy
-    accepted release.
+9. updates the current-plus-two rollback index and attempts explicit-ID image
+   cleanup without turning cleanup failure into rollback of an already healthy
+   accepted release.
 
 The retention index keeps the current and two prior evidence records. Release
 directories, digest-pinned Docker images, receipts, and associated deployment
 snapshots must not be manually removed while referenced by that index.
-An optional `protectedReleases` entry independently pins the named pre-SQLite
-snapshot, bridge application image, and release-metadata image; ordinary
-current-plus-two rotation cannot evict it.
+A host may still carry one `protectedReleases` entry left from the SQLite
+cutover, pinning a pre-SQLite snapshot, the bridge application image, and its
+release-metadata image against ordinary current-plus-two rotation. Nothing can
+create another. That snapshot cannot be read by this release; see
+[releasing the stranded rollback point](state-recovery.md#releasing-the-stranded-rollback-point).
 
 After a candidate is accepted, deployment performs retention-aware image
 cleanup. A weekly timer retries the same idempotent operation as a safety net:
@@ -179,9 +184,10 @@ the digest, and leaves the service failed.
 A `state-strategy=compatible` rollback is accepted only when the rollback
 image's metadata backend matches live state and its inclusive schema range
 contains the live schema. This check completes before the live container is
-stopped. A backend mismatch or out-of-range schema fails with
-`ERR_RELEASE_STATE_INCOMPATIBLE`; use the matching protected snapshot and the
-`restore` strategy for a reviewed break-glass rollback.
+stopped. An out-of-range schema fails with `ERR_RELEASE_STATE_INCOMPATIBLE`;
+use a matching post-cutover snapshot and the `restore` strategy for a reviewed
+break-glass rollback. Rolling back to a release that predates the SQLite
+cutover is not supported at all: the snapshot it would need cannot be read.
 
 Before a SQLite schema first advances beyond an older image's declared range,
 retain the validated pre-deploy snapshot as the rollback point. An older image
@@ -205,13 +211,11 @@ requires readiness. A successful recovery emits
 deployment alert, and leaves `rental-deploy.service` failed so the incident is
 visible.
 
-The same recovery path covers migration planning, migration, post-migration
-validation, launch, and observation failures. In a first cutover the restore is
-performed by the previous bridge image, so its exact managed-target list removes
-the selector, database, sidecars, migration workspace, and SQLite sentinels
-before reinstalling the verified JSON snapshot. The bridge is restarted only
-after restore succeeds. Deployment never attempts migration during a normal
-SQLite-to-SQLite code release.
+The same recovery path covers launch and observation failures. The restore is
+performed by the previous image, whose exact managed-target list removes the
+selector, database, and sidecars before reinstalling the verified snapshot. The
+previous release is restarted only after restore succeeds. Deployment never
+converts state during a code release.
 
 If snapshot restore or previous-image readiness fails, the command records
 `deployment.rollback.failed`, preserves its evidence, and leaves the unit

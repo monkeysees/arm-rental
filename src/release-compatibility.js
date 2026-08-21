@@ -1,24 +1,17 @@
-const BACKENDS = new Set(["json", "sqlite"]);
-
+// SQLite is the only backend a release can declare: schema 0 named the JSON
+// state files, which no release reads any more.
 export function validateReleaseStateCompatibility(metadata) {
   const { stateBackend, minimumStateSchema, maximumStateSchema } = metadata;
-  if (!BACKENDS.has(stateBackend)) {
-    throw new Error("Release stateBackend must be json or sqlite");
+  if (stateBackend !== "sqlite") {
+    throw new Error("Release stateBackend must be sqlite");
   }
   if (
     !Number.isSafeInteger(minimumStateSchema) ||
     !Number.isSafeInteger(maximumStateSchema) ||
-    minimumStateSchema < 0 ||
+    minimumStateSchema < 1 ||
     maximumStateSchema < minimumStateSchema
   ) {
     throw new Error("Release state schema range is invalid");
-  }
-  if (
-    (stateBackend === "json" &&
-      (minimumStateSchema !== 0 || maximumStateSchema !== 0)) ||
-    (stateBackend === "sqlite" && minimumStateSchema < 1)
-  ) {
-    throw new Error("Release state backend and schema range disagree");
   }
   return Object.freeze({
     stateBackend,

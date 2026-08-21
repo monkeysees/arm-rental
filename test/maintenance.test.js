@@ -16,15 +16,16 @@ import { getConfig } from "../src/config.js";
 import {
   MAINTENANCE_HISTORY_FILENAME,
   runMaintenance,
-  STATE_SIZE_MIGRATION_BYTES,
+  STATE_SIZE_CRITICAL_BYTES,
   STATE_SIZE_WARNING_BYTES,
-  stateSizeAlerts,
   stateSizeStatus,
 } from "../src/maintenance.js";
 import { acquireSingletonLock } from "../src/singleton-lock.js";
 import { openStateDatabase } from "../src/sqlite-database.js";
 import { writeState } from "../src/state.js";
 import { stateBackendPaths } from "../src/state-backend.js";
+
+const DATABASE_ID = "maintenance-database";
 
 async function fixture(t) {
   const root = await mkdtemp(path.join(os.tmpdir(), "rental-maintenance-"));
@@ -38,65 +39,19 @@ async function fixture(t) {
     },
     root,
   );
-  await Promise.all([
-    writeState(config.apartmentsStateFile, {
-      version: 3,
-      type: "list-am-apartments",
-      urlTemplate: config.listUrlTemplate,
-      apartments: {
-        100: { itemId: "100" },
-        101: { itemId: "101" },
-      },
-      apartmentOrder: ["100", "101"],
-      sourceIntegrity: {
-        recentFirstPageCounts: [20, 19, 20],
-        lastSuccessfulAt: "2026-07-25T08:00:00.000Z",
-      },
-    }),
-    writeState(config.deliveryStateFile, {
-      version: 1,
-      type: "telegram-deliveries",
-      urlTemplate: config.listUrlTemplate,
-      notified: { 100: "2026-07-25T08:00:00.000Z" },
-      skipped: { 101: "2026-07-25T08:00:00.000Z" },
-      filtered: {},
-    }),
-    writeState(config.channelDeliveryStateFile, {
-      version: 1,
-      type: "telegram-channel-deliveries",
-      channelId: "@rentals",
-      urlTemplate: config.listUrlTemplate,
-      initialized: true,
-      filterFingerprint: "a".repeat(64),
-      apartments: {
-        100: {
-          status: "published",
-          classifiedAt: "2026-07-25T08:00:00.000Z",
-          messageId: 12,
-          contentHash: "b".repeat(64),
-          publishedAt: "2026-07-25T08:01:00.000Z",
-        },
-      },
-    }),
-    writeState(config.exchangeRatesStateFile, {
-      version: 1,
-      type: "cba-exchange-rates",
-      baseCurrency: "AMD",
-      fetchedAt: "2026-07-25T08:00:00.000Z",
-      effectiveDate: "2026-07-25",
-      rates: {
-        USD: { amount: 1, rate: 382 },
-        EUR: { amount: 1, rate: 448 },
-        RUB: { amount: 1, rate: 4.8 },
-      },
-    }),
-    writeState(config.telegramStateFile, {
-      version: 1,
-      type: "telegram-bot",
-      ownerId: 42,
-      updateOffset: 815,
-    }),
-  ]);
+  const database = openStateDatabase({
+    dataDirectory: config.dataDirectory,
+    listUrlTemplate: config.listUrlTemplate,
+    channelId: config.telegramChannelId,
+    databaseId: DATABASE_ID,
+  });
+  database.close();
+  await writeState(stateBackendPaths(config.dataDirectory).selector, {
+    backend: "sqlite",
+    version: 1,
+    migrationId: "maintenance-migration",
+    databaseId: DATABASE_ID,
+  });
   await recordBrowserVerification(config, 12, {
     now: () => new Date("2026-07-25T08:05:00.000Z"),
   });
@@ -167,20 +122,17 @@ test("weekly maintenance reports state growth and cleans only reconstructible Ch
     diskCheck,
   });
 
-  assert.equal(first.stateFiles.length, 6);
-  const apartmentReport = first.stateFiles.find(
-    ({ name }) => name === "apartments",
+  // Growth is measured over the database plus the verification record beside
+  // the profile: those are the only managed state files that remain.
+  assert.deepEqual(
+    first.stateFiles.map(({ name }) => name),
+    ["sqlite", "browserVerification"],
   );
-  assert.equal(apartmentReport.entryCount, 2);
-  assert.equal(apartmentReport.apartments, 2);
-  assert.equal(apartmentReport.sourceIntegritySampleCount, 3);
+  assert.equal(first.stateFiles[0].schemaVersion, 1);
   assert.equal(
-    apartmentReport.sourceIntegrityLastSuccessfulAt,
-    "2026-07-25T08:00:00.000Z",
-  );
-  assert.equal(
-    first.stateFiles.find(({ name }) => name === "privateDelivery").entryCount,
-    2,
+    first.stateFiles.find(({ name }) => name === "browserVerification")
+      .entryCount,
+    1,
   );
   assert.equal(first.browserProfile.cacheBytesRemoved > 0, true);
   assert.deepEqual(first.browserProfile.cleanedCachePaths, [
@@ -245,12 +197,10 @@ test("weekly maintenance reports state growth and cleans only reconstructible Ch
 
 test("SQLite maintenance validates one database and reports logical counts", async (t) => {
   const config = await fixture(t);
-  const databaseId = "maintenance-database";
   const database = openStateDatabase({
     dataDirectory: config.dataDirectory,
     listUrlTemplate: config.listUrlTemplate,
     channelId: config.telegramChannelId,
-    databaseId,
   });
   database.transaction("maintenance_fixture", () => {
     database
@@ -264,12 +214,6 @@ test("SQLite maintenance validates one database and reports logical counts", asy
       );
   });
   database.close();
-  await writeState(stateBackendPaths(config.dataDirectory).selector, {
-    backend: "sqlite",
-    version: 1,
-    migrationId: "maintenance-migration",
-    databaseId,
-  });
 
   const report = await runMaintenance(config, {
     acquireLock: async () => ({ release: async () => {} }),
@@ -315,18 +259,8 @@ test("maintenance refuses a live service lease before reading or cleaning the pr
   );
 });
 
-test("state size thresholds distinguish early warning and SQLite migration", () => {
+test("state size thresholds distinguish early warning from critical growth", () => {
   assert.equal(stateSizeStatus(STATE_SIZE_WARNING_BYTES - 1), "ok");
   assert.equal(stateSizeStatus(STATE_SIZE_WARNING_BYTES), "warning");
-  assert.equal(
-    stateSizeStatus(STATE_SIZE_MIGRATION_BYTES),
-    "migration_required",
-  );
-  assert.deepEqual(
-    stateSizeAlerts({
-      stateFile: "apartments.json",
-      bytes: STATE_SIZE_MIGRATION_BYTES,
-    }).map(({ alertName }) => alertName),
-    ["state_file_growth", "state_sqlite_migration"],
-  );
+  assert.equal(stateSizeStatus(STATE_SIZE_CRITICAL_BYTES), "critical");
 });

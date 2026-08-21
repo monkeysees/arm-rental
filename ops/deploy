@@ -21,7 +21,6 @@ DEPLOYMENT_SNAPSHOT=""
 DEPLOYMENT_FIRST_INSTALL=false
 DEPLOYMENT_PREVIOUS_RELEASE=""
 DEPLOYMENT_PREVIOUS_ENV=""
-DEPLOYMENT_STATE_TRANSITION="first-install"
 
 ops_cleanup() {
   local _original_status=$1
@@ -166,11 +165,12 @@ if [[ $DEPLOYMENT_FIRST_INSTALL == false ]]; then
   deployment_write_image_environment \
     "$DEPLOYMENT_PREVIOUS_ENV" "$DEPLOYMENT_PREVIOUS"
   previous_metadata="$DEPLOYMENT_PREVIOUS_RELEASE/release-metadata.json"
-  DEPLOYMENT_STATE_TRANSITION=$(
-    deployment_state_transition \
-      "$previous_metadata" "$metadata" \
-      "$DEPLOYMENT_PREVIOUS" "$DEPLOYMENT_CANDIDATE"
-  )
+  # Both releases must name the SQLite backend and the candidate must span the
+  # schema range the current release is serving. Nothing else is deployable.
+  ops_set_step verify-state-contract
+  deployment_state_transition \
+    "$previous_metadata" "$metadata" \
+    "$DEPLOYMENT_PREVIOUS" "$DEPLOYMENT_CANDIDATE" >/dev/null
 fi
 
 poll_interval_ms=$(deployment_read_optional_setting POLL_INTERVAL_MS)
@@ -179,20 +179,6 @@ poll_interval_ms=${poll_interval_ms:-60000}
 observation_seconds=$(((poll_interval_ms + 300000 + 999) / 1000))
 if [[ ${RENTAL_DEPLOY_TEST_MODE:-0} == 1 ]]; then
   observation_seconds=0
-fi
-
-# The protected rollback point is a pure precondition: it reads release
-# metadata and the retention index only, so it never needs a stopped
-# application. Checking it before the stop keeps an unusable protection from
-# bouncing the bot and consuming a snapshot on every poll.
-if [[ $DEPLOYMENT_STATE_TRANSITION == json-to-sqlite ]]; then
-  ops_set_step validate-protected-bridge
-  protected_bridge_snapshot=$(
-    deployment_bridge_protected_snapshot \
-      "$previous_metadata" "$DEPLOYMENT_PREVIOUS" \
-      "$DEPLOYMENT_PREVIOUS_RELEASE"
-  )
-  ops_validate_snapshot "$protected_bridge_snapshot"
 fi
 
 if [[ $DEPLOYMENT_FIRST_INSTALL == true ]]; then
@@ -208,34 +194,23 @@ else
   ops_validate_snapshot "$DEPLOYMENT_SNAPSHOT"
 fi
 
-candidate_status=0
-if [[ $DEPLOYMENT_STATE_TRANSITION == json-to-sqlite ]]; then
-  set +e
-  deployment_migrate_json_state \
-    "$DEPLOYMENT_RELEASE" "$DEPLOYMENT_CANDIDATE_ENV"
-  candidate_status=$?
-  set -e
+ops_set_step launch-and-observe-candidate
+started_epoch=$(date +%s)
+expected_channel=skipped
+if [[ -n $(deployment_read_optional_setting TELEGRAM_CHANNEL_ID) ]]; then
+  expected_channel=passed
 fi
-
+set +e
+deployment_compose \
+  "$DEPLOYMENT_RELEASE" "$DEPLOYMENT_CANDIDATE_ENV" \
+  up --detach --force-recreate bot
+candidate_status=$?
 if ((candidate_status == 0)); then
-  ops_set_step launch-and-observe-candidate
-  started_epoch=$(date +%s)
-  expected_channel=skipped
-  if [[ -n $(deployment_read_optional_setting TELEGRAM_CHANNEL_ID) ]]; then
-    expected_channel=passed
-  fi
-  set +e
-  deployment_compose \
-    "$DEPLOYMENT_RELEASE" "$DEPLOYMENT_CANDIDATE_ENV" \
-    up --detach --force-recreate bot
+  deployment_wait_candidate \
+    "$started_epoch" "$observation_seconds" "$expected_channel"
   candidate_status=$?
-  if ((candidate_status == 0)); then
-    deployment_wait_candidate \
-      "$started_epoch" "$observation_seconds" "$expected_channel"
-    candidate_status=$?
-  fi
-  set -e
 fi
+set -e
 
 if ((candidate_status == 0)); then
   ops_set_step finalize-candidate

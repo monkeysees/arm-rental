@@ -12,8 +12,9 @@ systemd wrapper stops the bot before invoking it. A live bot makes the command
 fail with `ERR_SINGLETON_LOCKED` before it reads state or changes the Chrome
 profile. Take a successful backup first.
 
-The command validates every present state schema and emits one
-`maintenance.report` JSON log record containing:
+The command reads the backend selector, refuses anything but a settled `sqlite`
+selector, validates the database in full, and emits one `maintenance.report`
+JSON log record containing:
 
 - combined SQLite database/WAL bytes, schema version, update offset, and
   per-domain logical counts, plus the browser verification record;
@@ -38,8 +39,11 @@ Combined database/WAL size at or above 25 MiB emits
 `alertName=state_database_growth`; WAL alone at that threshold emits
 `alertName=state_wal_growth`. The command exits `2` when either threshold is
 active, `1` on command/validation failure, and `0` otherwise. Alert-free runs
-emit resolution records. Legacy JSON bridge reports retain their old growth and
-migration alert names so protected rollback evidence stays interpretable.
+emit resolution records. These two are the only state-size alerts: the JSON
+report and its `state_file_growth` / `state_sqlite_migration` names are gone
+with the backend they measured. A report's per-file `status` reads `ok`,
+`warning`, or `critical`; `critical` names a database that needs an operator,
+not a backend change.
 
 Runtime `state.transaction.*` and `state.checkpoint.*` records contain only a
 stable operation, rows changed, database/WAL bytes, outcome, schema version, and
@@ -87,7 +91,7 @@ delivery decisions. Removing only a delivery entry is unsafe: a retained or
 rediscovered apartment could be delivered again.
 
 No record is currently eligible for automatic removal. A future implementation
-may apply these rules only after a separate reviewed migration:
+may apply these rules only after a separate reviewed schema migration:
 
 - An old apartment payload may move to an archive only after the source has a
   reliable, persisted inactive observation and private delivery has a terminal

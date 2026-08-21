@@ -13,7 +13,6 @@ function usage() {
   return [
     "Usage:",
     "  node src/recovery-cli.js backup",
-    "  node src/recovery-cli.js backup-protected",
     "  node src/recovery-cli.js validate <snapshot-directory>",
     "  node src/recovery-cli.js restore <snapshot-directory>",
     "  node src/recovery-cli.js disk-check",
@@ -27,11 +26,9 @@ try {
   if (!command || extra.length > 0) throw new Error(usage());
   const config = getConfig();
 
-  if (command === "backup" || command === "backup-protected") {
+  if (command === "backup") {
     if (argument) throw new Error(usage());
-    await validateStartupConfig(config, {
-      allowNonJsonBackend: command === "backup",
-    });
+    await validateStartupConfig(config);
     const disk = await checkDiskSpace(config.dataDirectory, {
       warningThreshold: config.diskFreeWarningFraction,
       onEvent: (event) =>
@@ -52,7 +49,6 @@ try {
     const result = await createSnapshot(config, {
       dailyRetention: config.backupDailyRetention,
       weeklyRetention: config.backupWeeklyRetention,
-      snapshotClass: command === "backup-protected" ? "pre-sqlite" : "routine",
       onEvent: (event) =>
         logger.info("Recovery operation event", { recovery: event }),
     });
@@ -71,9 +67,7 @@ try {
     });
   } else if (command === "restore") {
     if (!argument) throw new Error(usage());
-    // A bridge restore is intentionally allowed to remove a selector left by a
-    // failed SQLite candidate even though normal bridge startup refuses it.
-    await validateStartupConfig(config, { allowNonJsonBackend: true });
+    await validateStartupConfig(config);
     const result = await restoreSnapshot(config, path.resolve(argument), {
       onEvent: (event) =>
         logger.info("Recovery operation event", { recovery: event }),

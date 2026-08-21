@@ -366,10 +366,6 @@ test("deployment evidence is exclusive and retention tracks three complete relea
         not-applicable "/var/lib/rental-apartments/releases/${2}-$character")
       deployment_update_retention_index "$evidence"
     done
-    export RENTAL_BACKUP_ROOT=$1/backups
-    protected_snapshot="$RENTAL_BACKUP_ROOT/protected/pre-sqlite-bridge"
-    mkdir -p "$protected_snapshot"
-    deployment_protect_migration_release "$evidence" "$protected_snapshot"
     candidate="ghcr.io/example/arm-rental@sha256:"
     candidate+=$(printf '%064d' 0 | tr 0 e)
     next=$(deployment_write_evidence \
@@ -380,9 +376,7 @@ test("deployment evidence is exclusive and retention tracks three complete relea
     jq -e '
       .schemaVersion == 2 and
       .minimumRetainedReleases == 3 and
-      (.protectedReleases | length) == 1 and
-      .protectedReleases[0].protectedSnapshot ==
-        ($ENV.RENTAL_BACKUP_ROOT + "/protected/pre-sqlite-bridge") and
+      (.protectedReleases | length) == 0 and
       (.retainedReleases | length) == 3 and
       ([.retainedReleases[] |
         has("candidateImage") and has("sourceRevision") and
@@ -403,20 +397,13 @@ test("deployment evidence is exclusive and retention tracks three complete relea
   );
 });
 
-test("deployment classifies cutover from metadata and binds it to the protected bridge", async (t) => {
+test("deployment refuses any release that does not declare the SQLite backend", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "deploy-state-transition-"));
   t.after(() => rm(root, { recursive: true, force: true }));
   const state = join(root, "state");
-  const backups = join(root, "backups");
-  const protectedSnapshot = join(
-    backups,
-    "protected",
-    "pre-sqlite-2026-08-18T10-00-00Z",
-  );
-  const previousRelease = join(root, "bridge-release");
+  const previousRelease = join(root, "previous-release");
   await Promise.all([
     mkdir(state, { recursive: true }),
-    mkdir(protectedSnapshot, { recursive: true }),
     mkdir(previousRelease, { recursive: true }),
   ]);
   const previousImage = digest("a");
@@ -424,99 +411,9 @@ test("deployment classifies cutover from metadata and binds it to the protected 
   const revision = "a".repeat(40);
   const previousMetadata = join(previousRelease, "release-metadata.json");
   const candidateMetadata = join(root, "candidate-metadata.json");
-  const migrationCalls = join(root, "migration-calls");
-  await Promise.all([
-    writeFile(
-      previousMetadata,
-      JSON.stringify({
-        schemaVersion: 2,
-        imageReference: previousImage,
-        sourceRevision: revision,
-        stateBackend: "json",
-        minimumStateSchema: 0,
-        maximumStateSchema: 0,
-      }),
-    ),
-    writeFile(
-      candidateMetadata,
-      JSON.stringify({
-        schemaVersion: 2,
-        imageReference: candidateImage,
-        stateBackend: "sqlite",
-        minimumStateSchema: 1,
-        maximumStateSchema: 1,
-      }),
-    ),
-    writeFile(
-      join(state, "deployment-retention.json"),
-      JSON.stringify({
-        schemaVersion: 2,
-        protectedReleases: [
-          {
-            candidateImage: previousImage,
-            sourceRevision: revision,
-            releaseDirectory: previousRelease,
-            protectedSnapshot,
-          },
-        ],
-      }),
-    ),
-  ]);
-  const script = `
-    set -Eeuo pipefail
-    RENTAL_OPS_STATE_DIR=$1
-    RENTAL_BACKUP_ROOT=$2
-    source ops/lib/deployment.sh
-    test "$(deployment_state_transition "$3" "$4" "$5" "$6")" = json-to-sqlite
-    test "$(deployment_bridge_protected_snapshot "$3" "$5" "$7")" = "$8"
-    jq '.stateBackend = "sqlite" | .minimumStateSchema = 1 | .maximumStateSchema = 1' "$3" >"$3.next"
-    mv "$3.next" "$3"
-    test "$(deployment_state_transition "$3" "$4" "$5" "$6")" = sqlite-to-sqlite
-    migration_log=$9
-    ops_set_step() { :; }
-    deployment_compose() {
-      command="\${!#}"
-      printf '%s\n' "$command" >>"$migration_log"
-      [[ $command != "\${FAIL_MIGRATION_COMMAND:-}" ]]
-    }
-    export FAIL_MIGRATION_COMMAND=migrate
-    if deployment_migrate_json_state candidate-release candidate-environment; then
-      exit 1
-    fi
-    test "$(cat "$migration_log")" = $'plan\nmigrate'
-    : >"$migration_log"
-    unset FAIL_MIGRATION_COMMAND
-    deployment_migrate_json_state candidate-release candidate-environment
-    test "$(cat "$migration_log")" = $'plan\nmigrate\nvalidate'
-  `;
-  await executeFile(
-    "bash",
-    [
-      "-c",
-      script,
-      "deploy-state-transition-test",
-      state,
-      backups,
-      previousMetadata,
-      candidateMetadata,
-      previousImage,
-      candidateImage,
-      previousRelease,
-      protectedSnapshot,
-      migrationCalls,
-    ],
-    { cwd: new URL("..", import.meta.url) },
-  );
-
-  const retention = JSON.parse(
-    await readFile(join(state, "deployment-retention.json"), "utf8"),
-  );
-  retention.protectedReleases[0].candidateImage = digest("c");
-  await writeFile(
-    join(state, "deployment-retention.json"),
-    JSON.stringify(retention),
-  );
-  await assert.rejects(
+  const writeMetadata = (filename, metadata) =>
+    writeFile(filename, JSON.stringify(metadata));
+  const transition = (extra = "") =>
     executeFile(
       "bash",
       [
@@ -524,22 +421,68 @@ test("deployment classifies cutover from metadata and binds it to the protected 
         `
           set -Eeuo pipefail
           RENTAL_OPS_STATE_DIR=$1
-          RENTAL_BACKUP_ROOT=$2
           source ops/lib/deployment.sh
-          deployment_bridge_protected_snapshot "$3" "$4" "$5"
+          ${extra}
+          deployment_state_transition "$2" "$3" "$4" "$5"
         `,
         "deploy-state-transition-test",
         state,
-        backups,
         previousMetadata,
+        candidateMetadata,
         previousImage,
-        previousRelease,
+        candidateImage,
       ],
       { cwd: new URL("..", import.meta.url) },
-    ),
+    );
+
+  await writeMetadata(previousMetadata, {
+    schemaVersion: 2,
+    imageReference: previousImage,
+    sourceRevision: revision,
+    stateBackend: "sqlite",
+    minimumStateSchema: 1,
+    maximumStateSchema: 1,
+  });
+  await writeMetadata(candidateMetadata, {
+    schemaVersion: 2,
+    imageReference: candidateImage,
+    stateBackend: "sqlite",
+    minimumStateSchema: 1,
+    maximumStateSchema: 2,
+  });
+  assert.equal((await transition()).stdout.trim(), "sqlite-to-sqlite");
+
+  // A candidate that no longer spans the schema the current release serves is
+  // still refused; only the cross-backend cutover is gone.
+  await writeMetadata(candidateMetadata, {
+    schemaVersion: 2,
+    imageReference: candidateImage,
+    stateBackend: "sqlite",
+    minimumStateSchema: 2,
+    maximumStateSchema: 2,
+  });
+  await assert.rejects(
+    transition(),
     (error) =>
       error.code === 65 &&
-      error.stderr.includes("not the protected rollback image"),
+      error.stderr.includes("does not support the previous SQLite schema"),
+  );
+
+  // The bridge backend can no longer be deployed from or to: no release in this
+  // tree can read the JSON state that schema 0 named.
+  await writeMetadata(previousMetadata, {
+    schemaVersion: 2,
+    imageReference: previousImage,
+    sourceRevision: revision,
+    stateBackend: "json",
+    minimumStateSchema: 0,
+    maximumStateSchema: 0,
+  });
+  await assert.rejects(
+    transition(),
+    (error) =>
+      error.code === 65 &&
+      error.stderr.includes("not a deployable state contract"),
   );
 });
 
@@ -553,7 +496,6 @@ test("unattended deploy contract covers no-op, first install, rollback, and fail
     hostBootstrap,
     service,
     timer,
-    migrationProtection,
     migrationUnprotection,
   ] = await Promise.all([
     readFile(new URL("../ops/deploy", import.meta.url), "utf8"),
@@ -574,10 +516,6 @@ test("unattended deploy contract covers no-op, first install, rollback, and fail
       "utf8",
     ),
     readFile(
-      new URL("../ops/protect-migration-rollback", import.meta.url),
-      "utf8",
-    ),
-    readFile(
       new URL("../ops/unprotect-migration-rollback", import.meta.url),
       "utf8",
     ),
@@ -593,21 +531,19 @@ test("unattended deploy contract covers no-op, first install, rollback, and fail
   assert.match(deploy, /deployment_write_quarantine/u);
   assert.match(deploy, /node src\/recovery-cli\.js backup/u);
   assert.match(deploy, /node src\/recovery-cli\.js restore/u);
-  assert.match(library, /for command in plan migrate validate/u);
-  assert.match(library, /node src\/state-migration-cli\.js "\$command"/u);
-  assert.match(deploy, /DEPLOYMENT_STATE_TRANSITION == json-to-sqlite/u);
-  assert.match(deploy, /deployment_bridge_protected_snapshot/u);
+  // Nothing may migrate state at deploy time any more: SQLite is the only
+  // backend, so a deploy stops, snapshots, and launches.
+  assert.doesNotMatch(deploy, /state-migration-cli|json-to-sqlite/u);
+  assert.doesNotMatch(library, /state-migration-cli|json-to-sqlite/u);
   assert.ok(
-    deploy.indexOf("ops_stop_application") <
-      deploy.indexOf("deployment_migrate_json_state") &&
-      deploy.indexOf("deployment_migrate_json_state") <
-        deploy.indexOf("up --detach --force-recreate bot"),
-    "JSON cutover must stop, plan, migrate, validate, and only then launch",
+    deploy.indexOf("verify-state-contract") <
+      deploy.indexOf("ops_stop_application"),
+    "an undeployable state contract must be refused before the bot is stopped",
   );
   assert.ok(
-    deploy.indexOf("validate-protected-bridge") <
-      deploy.indexOf("ops_stop_application"),
-    "an unusable rollback point must be refused before the bot is stopped",
+    deploy.indexOf("create-predeploy-snapshot") <
+      deploy.indexOf("up --detach --force-recreate bot"),
+    "a deploy must snapshot before it launches the candidate",
   );
   assert.match(deploy, /deployment_read_optional_setting POLL_INTERVAL_MS/u);
   assert.match(deploy, /poll_interval_ms=\$\{poll_interval_ms:-60000\}/u);
@@ -660,9 +596,6 @@ test("unattended deploy contract covers no-op, first install, rollback, and fail
   assert.match(timer, /OnBootSec=5min/u);
   assert.match(timer, /OnCalendar=\*-\*-\* \*:00\/5:00 UTC/u);
   assert.match(timer, /Persistent=true/u);
-  assert.match(migrationProtection, /backup-protected/u);
-  assert.match(migrationProtection, /deployment_protect_migration_release/u);
-  assert.match(migrationProtection, /ops_validate_snapshot/u);
   assert.match(migrationUnprotection, /deployment_validate_actor/u);
   assert.match(
     migrationUnprotection,
@@ -676,17 +609,12 @@ test("unattended deploy contract covers no-op, first install, rollback, and fail
   );
 });
 
-test("a rollback point protected against a superseded release can be replaced", async (t) => {
+test("the stranded pre-cutover rollback point can only be released by name", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "deploy-unprotect-"));
   t.after(() => rm(root, { recursive: true, force: true }));
   const state = join(root, "state");
   const backups = join(root, "backups");
-  const staleSnapshot = join(
-    backups,
-    "protected",
-    "pre-sqlite-2026-08-18T17-57-40-023Z",
-  );
-  const freshSnapshot = join(
+  const protectedSnapshot = join(
     backups,
     "protected",
     "pre-sqlite-2026-08-19T07-32-32-202Z",
@@ -694,54 +622,40 @@ test("a rollback point protected against a superseded release can be replaced", 
   const bridgeRelease = join(root, "bridge-release");
   await Promise.all([
     mkdir(state, { recursive: true }),
-    mkdir(staleSnapshot, { recursive: true }),
-    mkdir(freshSnapshot, { recursive: true }),
+    mkdir(protectedSnapshot, { recursive: true }),
     mkdir(bridgeRelease, { recursive: true }),
   ]);
-  const staleImage = digest("a");
-  const currentImage = digest("b");
+  const protectedImage = digest("a");
+  const otherImage = digest("b");
   const retentionFile = join(state, "deployment-retention.json");
-  const evidenceFile = join(root, "evidence.json");
-  await Promise.all([
-    writeFile(
-      retentionFile,
-      JSON.stringify({
-        schemaVersion: 2,
-        retainedReleases: [],
-        protectedReleases: [
-          {
-            candidateImage: staleImage,
-            sourceRevision: "a".repeat(40),
-            releaseDirectory: bridgeRelease,
-            protectedSnapshot: staleSnapshot,
-          },
-        ],
-      }),
-      { mode: 0o600 },
-    ),
-    writeFile(
-      evidenceFile,
-      JSON.stringify({
-        candidateImage: currentImage,
-        sourceRevision: "b".repeat(40),
-        releaseDirectory: bridgeRelease,
-      }),
-      { mode: 0o600 },
-    ),
-  ]);
+  await writeFile(
+    retentionFile,
+    JSON.stringify({
+      schemaVersion: 2,
+      retainedReleases: [],
+      protectedReleases: [
+        {
+          candidateImage: protectedImage,
+          sourceRevision: "a".repeat(40),
+          releaseDirectory: bridgeRelease,
+          protectedSnapshot,
+        },
+      ],
+    }),
+    { mode: 0o600 },
+  );
 
-  const preamble = `
-    set -Eeuo pipefail
-    RENTAL_OPS_STATE_DIR=$1
-    RENTAL_BACKUP_ROOT=$2
-    source ops/lib/deployment.sh
-  `;
   const run = (script, ...extra) =>
     executeFile(
       "bash",
       [
         "-c",
-        `${preamble}\n${script}`,
+        `
+    set -Eeuo pipefail
+    RENTAL_OPS_STATE_DIR=$1
+    RENTAL_BACKUP_ROOT=$2
+    source ops/lib/deployment.sh
+${script}`,
         "deploy-unprotect-test",
         state,
         backups,
@@ -750,10 +664,11 @@ test("a rollback point protected against a superseded release can be replaced", 
       { cwd: new URL("..", import.meta.url) },
     );
 
-  // Naming the wrong image must not clear anything: the mistake this repairs
-  // is a protection taken against a release nobody re-read.
+  // Naming the wrong image must not clear anything. This is now the only way a
+  // protection is ever removed: no release can take a new one, so an unread
+  // clear would destroy the record of what the retained bridge image was for.
   await assert.rejects(
-    run('deployment_unprotect_migration_release "$3"', currentImage),
+    run('deployment_unprotect_migration_release "$3"', otherImage),
     (error) =>
       error.code === 65 &&
       error.stderr.includes("No single protected rollback point is registered"),
@@ -764,35 +679,15 @@ test("a rollback point protected against a superseded release can be replaced", 
     "a rejected unprotect must leave the protection intact",
   );
 
-  // Replacing a protection is refused until the stale one is released.
-  await assert.rejects(
-    run(
-      'deployment_protect_migration_release "$3" "$4"',
-      evidenceFile,
-      freshSnapshot,
-    ),
-    (error) => error.code === 65,
-  );
-
   const released = await run(
     'deployment_unprotect_migration_release "$3"',
-    staleImage,
+    protectedImage,
   );
-  assert.equal(released.stdout.trim(), staleSnapshot);
+  assert.equal(released.stdout.trim(), protectedSnapshot);
   assert.deepEqual(
     JSON.parse(await readFile(retentionFile, "utf8")).protectedReleases,
     [],
   );
-
-  await run(
-    'deployment_protect_migration_release "$3" "$4"',
-    evidenceFile,
-    freshSnapshot,
-  );
-  const retention = JSON.parse(await readFile(retentionFile, "utf8"));
-  assert.equal(retention.protectedReleases.length, 1);
-  assert.equal(retention.protectedReleases[0].candidateImage, currentImage);
-  assert.equal(retention.protectedReleases[0].protectedSnapshot, freshSnapshot);
 });
 
 test("a refused candidate names the contract it failed", async (t) => {

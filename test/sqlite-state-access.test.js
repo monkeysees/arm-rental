@@ -193,7 +193,8 @@ test("application state follows only the authoritative selector identity", async
   await assert.rejects(openApplicationState(config), /does not identify/u);
 
   // A host that never migrated must fail closed rather than start on the empty
-  // database this release would otherwise create for it.
+  // database this release would otherwise create for it. The JSON backend is
+  // no longer a name the selector can carry at all.
   await writeState(stateBackendPaths(config.dataDirectory).selector, {
     backend: "json",
     version: 1,
@@ -202,8 +203,22 @@ test("application state follows only the authoritative selector identity", async
     openApplicationState(config),
     (error) =>
       error instanceof StateBackendError &&
-      error.backend === "json" &&
-      /cannot open the json state backend/u.test(error.message),
+      /selector is incompatible/u.test(error.message),
+  );
+
+  // An interrupted cutover is still named, and can no longer be resumed.
+  await writeState(stateBackendPaths(config.dataDirectory).selector, {
+    backend: "migrating",
+    version: 1,
+    migrationId: "migration-test-id",
+    sourceHashes: { apartments: "a".repeat(64) },
+  });
+  await assert.rejects(
+    openApplicationState(config),
+    (error) =>
+      error instanceof StateBackendError &&
+      error.backend === "migrating" &&
+      /cannot be resumed/u.test(error.message),
   );
 
   await rm(stateBackendPaths(config.dataDirectory).selector);

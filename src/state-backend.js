@@ -3,17 +3,21 @@ import path from "node:path";
 import { readState } from "./state.js";
 
 export const STATE_BACKEND_SELECTOR_VERSION = 1;
-export const JSON_STATE_SCHEMA_VERSION = 0;
 
-const BACKENDS = new Set(["json", "migrating", "sqlite"]);
+// "migrating" no longer names anything this release can produce; it stays
+// recognised so a selector left behind by an interrupted cutover is refused by
+// name instead of being reported as an unreadable file.
+const BACKENDS = new Set(["migrating", "sqlite"]);
 const IDENTIFIER = /^[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}$/u;
 const SHA256 = /^[a-f0-9]{64}$/u;
 
+export const STATE_BACKEND_ABSENT = "ERR_STATE_BACKEND_ABSENT";
+
 export class StateBackendError extends Error {
-  constructor(message, { backend, cause } = {}) {
+  constructor(message, { backend, cause, code } = {}) {
     super(message, { cause });
     this.name = "StateBackendError";
-    this.code = "ERR_STATE_BACKEND_UNSUPPORTED";
+    this.code = code || "ERR_STATE_BACKEND_UNSUPPORTED";
     this.backend = backend;
   }
 }
@@ -47,38 +51,31 @@ function validSourceHashes(value) {
 }
 
 /**
- * Returns the fixed paths understood by both the bridge restore and the future
- * SQLite migration. None are configurable independently, so state cannot be
- * redirected outside DATA_DIRECTORY.
+ * Returns the fixed paths that name the state database. None are configurable
+ * independently, so state cannot be redirected outside DATA_DIRECTORY.
  */
 export function stateBackendPaths(dataDirectory) {
   const root = path.resolve(dataDirectory);
   const database = path.join(root, "state.sqlite3");
-  const migrationWorkDirectory = path.join(root, ".state-migration");
   return Object.freeze({
     selector: path.join(root, "state-backend.json"),
     database,
     databaseWal: `${database}-wal`,
     databaseShm: `${database}-shm`,
-    migrationWorkDirectory,
-    migrationDatabase: path.join(migrationWorkDirectory, "state.sqlite3.tmp"),
   });
 }
 
 /**
- * An absent selector is only meaningful to callers that predate one: the bridge
- * startup check and the JSON→SQLite tooling, which both run before a selector
- * file exists. Every other caller has to name the backend it opens, so an
- * absent selector is refused rather than silently read as JSON.
+ * Every caller has to name the backend it opens, so an absent selector is
+ * refused: this release stores application state only in SQLite, and reading an
+ * absent selector as anything else is what used to start the bot on empty state.
  */
-export function parseStateBackendSelector(value, { allowAbsent = false } = {}) {
+export function parseStateBackendSelector(value) {
   if (value === undefined) {
-    if (!allowAbsent) {
-      throw new StateBackendError(
-        "State backend selector is absent; state must be migrated to SQLite",
-      );
-    }
-    return Object.freeze({ backend: "json", version: 1, implicit: true });
+    throw new StateBackendError(
+      "State backend selector is absent; this release reads application state only from SQLite",
+      { code: STATE_BACKEND_ABSENT },
+    );
   }
   if (
     !isRecord(value) ||
@@ -88,13 +85,7 @@ export function parseStateBackendSelector(value, { allowAbsent = false } = {}) {
     throw new StateBackendError("State backend selector is incompatible");
   }
 
-  if (value.backend === "json") {
-    if (!exactKeys(value, ["backend", "version"])) {
-      throw new StateBackendError("JSON state backend selector is malformed", {
-        backend: value.backend,
-      });
-    }
-  } else if (value.backend === "migrating") {
+  if (value.backend === "migrating") {
     if (
       !exactKeys(value, [
         "backend",
@@ -120,13 +111,10 @@ export function parseStateBackendSelector(value, { allowAbsent = false } = {}) {
     });
   }
 
-  return Object.freeze({ ...value, implicit: false });
+  return Object.freeze({ ...value });
 }
 
-export async function readStateBackendSelector(
-  dataDirectory,
-  { allowAbsent = false } = {},
-) {
+export async function readStateBackendSelector(dataDirectory) {
   const { selector } = stateBackendPaths(dataDirectory);
   let value;
   try {
@@ -136,20 +124,5 @@ export async function readStateBackendSelector(
       cause,
     });
   }
-  return parseStateBackendSelector(value, { allowAbsent });
-}
-
-export async function requireBridgeJsonBackend(dataDirectory) {
-  // A bridge release predates the selector file, so a fresh install with no
-  // selector is the JSON backend it expects.
-  const selector = await readStateBackendSelector(dataDirectory, {
-    allowAbsent: true,
-  });
-  if (selector.backend !== "json") {
-    throw new StateBackendError(
-      `This bridge release cannot open the ${selector.backend} state backend`,
-      { backend: selector.backend },
-    );
-  }
-  return selector;
+  return parseStateBackendSelector(value);
 }

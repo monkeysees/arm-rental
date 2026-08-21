@@ -7,17 +7,17 @@ import {
   validateReleaseStateCompatibility,
 } from "../src/release-compatibility.js";
 
-test("release compatibility requires one backend and a valid schema range", () => {
+test("release compatibility requires the SQLite backend and a valid schema range", () => {
   assert.deepEqual(
     validateReleaseStateCompatibility({
-      stateBackend: "json",
-      minimumStateSchema: 0,
-      maximumStateSchema: 0,
+      stateBackend: "sqlite",
+      minimumStateSchema: 1,
+      maximumStateSchema: 1,
     }),
     {
-      stateBackend: "json",
-      minimumStateSchema: 0,
-      maximumStateSchema: 0,
+      stateBackend: "sqlite",
+      minimumStateSchema: 1,
+      maximumStateSchema: 1,
     },
   );
   assert.equal(
@@ -31,8 +31,10 @@ test("release compatibility requires one backend and a valid schema range", () =
     ),
     true,
   );
+  // Schema 0 named the JSON state files, so no release may declare it and no
+  // release may declare the backend that read them.
   for (const invalid of [
-    { stateBackend: "json", minimumStateSchema: 0, maximumStateSchema: 1 },
+    { stateBackend: "json", minimumStateSchema: 0, maximumStateSchema: 0 },
     { stateBackend: "sqlite", minimumStateSchema: 0, maximumStateSchema: 1 },
     { stateBackend: "sqlite", minimumStateSchema: 2, maximumStateSchema: 1 },
   ]) {
@@ -40,7 +42,7 @@ test("release compatibility requires one backend and a valid schema range", () =
   }
 });
 
-test("compatible rollback rejects cross-backend and out-of-range live state", () => {
+test("compatible rollback rejects pre-cutover and out-of-range live state", () => {
   const targetMetadata = {
     stateBackend: "sqlite",
     minimumStateSchema: 2,

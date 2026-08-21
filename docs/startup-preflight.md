@@ -51,10 +51,11 @@ any request for credentials unrelated to List.am verification.
 SQLite state failures report a stable storage code and sanitized identity,
 schema, integrity, pragma, or target-mismatch context. Startup validates the
 selector before opening the database, validates identity and schema before any
-persistent pragma, and carries no JSON application-state backend to fall back
-to. A selector naming `json` or `migrating`, and a selector file that is missing
-altogether, are each refused with an error naming the backend; deleting the
-selector cannot make startup initialize new state.
+persistent pragma, and has no other backend to fall back to. `json` is no longer
+a name the selector can carry and is refused as incompatible; a selector naming
+`migrating` reports an interrupted cutover that cannot be resumed; a missing
+selector is refused outright. Deleting the selector cannot make startup
+initialize new state.
 
 ### Prerequisites, safe checks, and commands
 
@@ -66,21 +67,22 @@ selector and database metadata:
 ```sh
 docker inspect --format '{{.State.Running}}' rental-apartments-bot
 npm run backup:validate -- /app-backups/daily/SELECTED_SNAPSHOT
-node --env-file-if-exists=.env src/state-migration-cli.js validate
 ```
 
-Expected output is `false`, a valid manifest-v2 identity/count summary, and a
-successful SQLite identity, schema, integrity, target, and semantic result.
+Expected output is `false` and a valid manifest-v2 identity/count summary
+covering SQLite identity, schema, integrity, target, and logical counts. A
+snapshot taken before the SQLite cutover is refused with "predates the SQLite
+cutover"; it is not a recovery option.
 Do not open the production database with an ad hoc SQLite client or copy only
 the main database while WAL may contain committed transactions.
 
 ### Recovery, expected output, and escalation
 
-Restore a complete matching snapshot and use an image whose declared backend
-and schema range includes it. If neither is available, keep the service stopped
-and escalate; there is no supported per-table reset, database replacement, or
-best-effort SQLite-to-JSON export. Never delete a selector, sidecar, sentinel,
-or database to make startup initialize new state.
+Restore a complete matching snapshot and use an image whose declared schema
+range includes it. If neither is available, keep the service stopped and
+escalate; there is no supported per-table reset, database replacement, export
+back to the legacy JSON files, or migration into the database. Never delete a
+selector, sidecar, sentinel, or database to make startup initialize new state.
 
 For a target mismatch, correct the environment when the persisted owner,
 List.am target, or channel is still authoritative. Treat an intentional target
@@ -96,8 +98,8 @@ successful crawl without historical resend.
 Keep the service stopped and escalate when the source of corruption is unknown,
 the backup hash/schema/counts fail, related delivery state may be inconsistent,
 no retained artifact understands the schema, target identity genuinely
-changed, migration identities disagree, or recovery could duplicate private or
-channel delivery.
+changed, migration identities disagree, the only candidate snapshot predates the
+SQLite cutover, or recovery could duplicate private or channel delivery.
 
 ## Telegram credentials or channel permissions
 

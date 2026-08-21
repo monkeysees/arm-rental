@@ -15,17 +15,9 @@ import path from "node:path";
 import { backup as backupSqlite } from "node:sqlite";
 
 import {
-  compatibleApartmentState,
-  sourceIntegrityStateSummary,
-} from "./apartment-state.js";
-import { compatibleBotState } from "./bot.js";
-import {
   browserVerificationStateFile,
   compatibleBrowserVerification,
 } from "./browser-verification-state.js";
-import { compatibleChannelState } from "./channel.js";
-import { compatibleDeliveryState, deliveryStateCounts } from "./crawler.js";
-import { compatibleExchangeRateSnapshot } from "./exchange-rates.js";
 import { acquireSingletonLock } from "./singleton-lock.js";
 import { openStateDatabase } from "./sqlite-database.js";
 import { createSqliteRepositories } from "./sqlite-repositories.js";
@@ -36,12 +28,15 @@ import {
 import { readState, writeState } from "./state.js";
 import {
   readStateBackendSelector,
-  requireBridgeJsonBackend,
+  STATE_BACKEND_ABSENT,
   stateBackendPaths,
 } from "./state-backend.js";
 
 const BACKUP_TYPE = "rental-apartments-backup";
-const JSON_BACKUP_VERSION = 1;
+// Version 1 named a snapshot of the five JSON state files. This release cannot
+// read one, so the manifest version is what tells an operator that a snapshot
+// predates the SQLite cutover.
+const PRE_SQLITE_BACKUP_VERSION = 1;
 const SQLITE_BACKUP_VERSION = 2;
 const DEFAULT_DAILY_RETENTION = 7;
 const DEFAULT_WEEKLY_RETENTION = 4;
@@ -91,65 +86,6 @@ function relocated(config, root, filename) {
   return path.join(root, path.relative(config.dataDirectory, filename));
 }
 
-function stateSpecifications(config, root) {
-  return [
-    {
-      name: "apartments",
-      filename: relocated(config, root, config.apartmentsStateFile),
-      compatible: (state) =>
-        compatibleApartmentState(state, config.listUrlTemplate),
-      emptyCounts: {
-        apartments: 0,
-        sourceIntegritySampleCount: 0,
-        sourceIntegrityLastSuccessfulAt: null,
-      },
-      counts: (state) => ({
-        apartments: Object.keys(state.apartments).length,
-        ...sourceIntegrityStateSummary(state),
-      }),
-    },
-    {
-      name: "delivery",
-      filename: relocated(config, root, config.deliveryStateFile),
-      compatible: (state) =>
-        compatibleDeliveryState(state, config.listUrlTemplate),
-      emptyCounts: { notified: 0, skipped: 0, filtered: 0 },
-      counts: deliveryStateCounts,
-    },
-    {
-      name: "bot",
-      filename: relocated(config, root, config.telegramStateFile),
-      compatible: (state) =>
-        compatibleBotState(state) &&
-        Number.isSafeInteger(state.updateOffset) &&
-        state.updateOffset >= 0,
-      emptyCounts: { updateOffset: 0 },
-      counts: (state) => ({ updateOffset: state.updateOffset }),
-    },
-    {
-      name: "exchangeRates",
-      filename: relocated(config, root, config.exchangeRatesStateFile),
-      compatible: compatibleExchangeRateSnapshot,
-      emptyCounts: { currencies: 0 },
-      counts: (state) => ({
-        currencies: Object.keys(state.rates).length,
-      }),
-    },
-    {
-      name: "channel",
-      filename: relocated(config, root, config.channelDeliveryStateFile),
-      compatible: (state) => compatibleChannelState(state, config),
-      emptyCounts: { apartments: 0, published: 0 },
-      counts: (state) => ({
-        apartments: Object.keys(state.apartments).length,
-        published: Object.values(state.apartments).filter(
-          ({ status }) => status === "published",
-        ).length,
-      }),
-    },
-  ];
-}
-
 async function optionalState(filename) {
   try {
     return await readState(filename);
@@ -194,41 +130,7 @@ async function browserRecoverySummary(config, root) {
   };
 }
 
-async function validateJsonRecoveryState(config, root) {
-  await requireBridgeJsonBackend(root);
-  const summary = {};
-  for (const specification of stateSpecifications(config, root)) {
-    const state = await optionalState(specification.filename);
-    if (state === undefined) {
-      summary[specification.name] = {
-        present: false,
-        ...specification.emptyCounts,
-      };
-      continue;
-    }
-    if (!specification.compatible(state)) {
-      throw new RecoveryValidationError(
-        `Recovery state has an incompatible schema: ${specification.name}`,
-        {
-          name: specification.name,
-          filename: specification.filename,
-          type: state?.type,
-          version: state?.version,
-        },
-      );
-    }
-    summary[specification.name] = {
-      present: true,
-      ...specification.counts(state),
-    };
-  }
-
-  summary.browser = await browserRecoverySummary(config, root);
-  return summary;
-}
-
-async function validateSqliteRecoveryState(config, root) {
-  const selector = await readStateBackendSelector(root);
+async function validateSqliteRecoveryState(config, root, selector) {
   if (selector.backend !== "sqlite") {
     throw new RecoveryValidationError(
       "Recovery state does not select a stable SQLite backend",
@@ -281,12 +183,24 @@ async function validateSqliteRecoveryState(config, root) {
   }
 }
 
+/**
+ * A snapshot taken before the SQLite cutover carries no selector file, and this
+ * release has no backend that can read the JSON state beside it. Only an absent
+ * selector means that; a malformed one is a damaged snapshot and keeps its own
+ * error, so the two cannot be confused for each other.
+ */
 export async function validateRecoveryState(config, root) {
-  // A snapshot taken before the cutover carries no selector file.
-  const selector = await readStateBackendSelector(root, { allowAbsent: true });
-  return selector.backend === "sqlite"
-    ? validateSqliteRecoveryState(config, root)
-    : validateJsonRecoveryState(config, root);
+  let selector;
+  try {
+    selector = await readStateBackendSelector(root);
+  } catch (error) {
+    if (error.code !== STATE_BACKEND_ABSENT) throw error;
+    throw new RecoveryValidationError(
+      "Recovery state predates the SQLite cutover and cannot be read by this release",
+      { root, cause: error.message },
+    );
+  }
+  return validateSqliteRecoveryState(config, root, selector);
 }
 
 async function visitFiles(root, visitor, relative = "") {
@@ -367,11 +281,12 @@ async function fileHashes(root) {
   return hashes;
 }
 
+// Only reached once validateRecoveryState has proved the live selector names
+// SQLite, so the database is always part of the snapshot. The five legacy paths
+// hold post-cutover sentinels rather than state, and travel with the snapshot
+// so that restoring one leaves the data directory exactly as it was found.
 async function copyData(config, destinationRoot) {
   await mkdir(destinationRoot, { recursive: true, mode: 0o700 });
-  const selector = await readStateBackendSelector(config.dataDirectory, {
-    allowAbsent: true,
-  });
   const targets = [
     config.apartmentsStateFile,
     config.deliveryStateFile,
@@ -403,19 +318,17 @@ async function copyData(config, destinationRoot) {
     });
   }
 
-  if (selector.backend === "sqlite") {
-    const sourceDatabase = openStateDatabase({
-      dataDirectory: config.dataDirectory,
-      listUrlTemplate: config.listUrlTemplate,
-      channelId: config.telegramChannelId,
-    });
-    const destinationDatabase = stateBackendPaths(destinationRoot).database;
-    try {
-      await backupSqlite(sourceDatabase.connection, destinationDatabase);
-      await chmod(destinationDatabase, 0o600);
-    } finally {
-      sourceDatabase.close();
-    }
+  const sourceDatabase = openStateDatabase({
+    dataDirectory: config.dataDirectory,
+    listUrlTemplate: config.listUrlTemplate,
+    channelId: config.telegramChannelId,
+  });
+  const destinationDatabase = stateBackendPaths(destinationRoot).database;
+  try {
+    await backupSqlite(sourceDatabase.connection, destinationDatabase);
+    await chmod(destinationDatabase, 0o600);
+  } finally {
+    sourceDatabase.close();
   }
 
   const profileDestination = relocated(
@@ -481,15 +394,11 @@ export async function createSnapshot(
     backupDirectory = config.backupDirectory,
     dailyRetention = DEFAULT_DAILY_RETENTION,
     weeklyRetention = DEFAULT_WEEKLY_RETENTION,
-    snapshotClass = "routine",
     now = () => new Date(),
     acquireLock = acquireSingletonLock,
     onEvent = () => {},
   } = {},
 ) {
-  if (!new Set(["routine", "pre-sqlite"]).has(snapshotClass)) {
-    throw new Error("Snapshot class must be routine or pre-sqlite");
-  }
   if (dailyRetention < 7 || weeklyRetention < 4) {
     throw new Error(
       "Backup retention must be at least seven daily and four weekly",
@@ -503,11 +412,7 @@ export async function createSnapshot(
   const temporary = path.join(destination, `.snapshot-${randomUUID()}.tmp`);
   const dailyDirectory = path.join(destination, "daily");
   const weeklyDirectory = path.join(destination, "weekly");
-  const protectedDirectory = path.join(destination, "protected");
-  const publishedSnapshot =
-    snapshotClass === "pre-sqlite"
-      ? path.join(protectedDirectory, `pre-sqlite-${id}`)
-      : path.join(dailyDirectory, id);
+  const publishedSnapshot = path.join(dailyDirectory, id);
 
   try {
     onEvent({ name: "backup.started", destination });
@@ -526,35 +431,21 @@ export async function createSnapshot(
       );
     }
     const hashes = await fileHashes(path.join(temporary, "data"));
-    const backupVersion = sourceSummary.database
-      ? SQLITE_BACKUP_VERSION
-      : JSON_BACKUP_VERSION;
-    if (
-      snapshotClass === "pre-sqlite" &&
-      backupVersion !== JSON_BACKUP_VERSION
-    ) {
-      throw new RecoveryValidationError(
-        "Protected pre-SQLite snapshots require the JSON bridge backend",
-      );
-    }
     const manifest = {
       type: BACKUP_TYPE,
-      version: backupVersion,
+      version: SQLITE_BACKUP_VERSION,
       createdAt: createdAt.toISOString(),
       summary: copiedSummary,
       hashes,
-      ...(snapshotClass === "pre-sqlite" ? { snapshotClass } : {}),
     };
     await writeState(path.join(temporary, "manifest.json"), manifest);
     await syncHandle(temporary, { directory: true });
-    const publicationDirectory =
-      snapshotClass === "pre-sqlite" ? protectedDirectory : dailyDirectory;
-    await mkdir(publicationDirectory, { recursive: true, mode: 0o700 });
+    await mkdir(dailyDirectory, { recursive: true, mode: 0o700 });
     await rename(temporary, publishedSnapshot);
-    await syncHandle(publicationDirectory, { directory: true });
+    await syncHandle(dailyDirectory, { directory: true });
 
     let weeklySnapshot;
-    if (snapshotClass === "routine" && createdAt.getUTCDay() === 0) {
+    if (createdAt.getUTCDay() === 0) {
       await mkdir(weeklyDirectory, { recursive: true, mode: 0o700 });
       weeklySnapshot = path.join(weeklyDirectory, id);
       const temporaryWeekly = path.join(
@@ -571,14 +462,11 @@ export async function createSnapshot(
         );
       }
     }
-    if (snapshotClass === "routine") {
-      await enforceRetention(dailyDirectory, dailyRetention);
-      await enforceRetention(weeklyDirectory, weeklyRetention);
-    }
+    await enforceRetention(dailyDirectory, dailyRetention);
+    await enforceRetention(weeklyDirectory, weeklyRetention);
     const result = {
       snapshot: publishedSnapshot,
       ...(weeklySnapshot ? { weeklySnapshot } : {}),
-      protected: snapshotClass === "pre-sqlite",
       summary: copiedSummary,
     };
     onEvent({ name: "backup.completed", ...result });
@@ -600,13 +488,27 @@ export async function validateSnapshot(config, snapshotDirectory) {
   const manifest = await optionalState(
     path.join(snapshotDirectory, "manifest.json"),
   );
+  // Named separately from the generic incompatibility below: a protected
+  // pre-cutover snapshot is a well-formed manifest this release simply cannot
+  // restore, and an operator reaching for one needs to be told that rather than
+  // to suspect the snapshot of being damaged.
+  if (
+    manifest?.type === BACKUP_TYPE &&
+    (manifest.version === PRE_SQLITE_BACKUP_VERSION ||
+      manifest.snapshotClass === "pre-sqlite")
+  ) {
+    throw new RecoveryValidationError(
+      "Backup predates the SQLite cutover and cannot be restored by this release",
+      { snapshotDirectory, version: manifest.version },
+    );
+  }
   if (
     manifest?.type !== BACKUP_TYPE ||
-    ![JSON_BACKUP_VERSION, SQLITE_BACKUP_VERSION].includes(manifest.version) ||
+    manifest.version !== SQLITE_BACKUP_VERSION ||
     Number.isNaN(Date.parse(manifest.createdAt)) ||
     !manifest.summary ||
     !manifest.hashes ||
-    ![undefined, "pre-sqlite"].includes(manifest.snapshotClass)
+    manifest.snapshotClass !== undefined
   ) {
     throw new RecoveryValidationError("Backup manifest is incompatible", {
       snapshotDirectory,
@@ -620,15 +522,6 @@ export async function validateSnapshot(config, snapshotDirectory) {
     });
   }
   const summary = await validateRecoveryState(config, dataRoot);
-  if (
-    (manifest.version === SQLITE_BACKUP_VERSION) !==
-    Boolean(summary.database)
-  ) {
-    throw new RecoveryValidationError(
-      "Backup manifest version does not match its state backend",
-      { snapshotDirectory },
-    );
-  }
   if (JSON.stringify(summary) !== JSON.stringify(manifest.summary)) {
     throw new RecoveryValidationError(
       "Backup schema counts or Telegram update offset do not match its manifest",
@@ -650,7 +543,6 @@ function managedTargets(config) {
     backend.database,
     backend.databaseWal,
     backend.databaseShm,
-    backend.migrationWorkDirectory,
     config.browserProfileDir,
   ];
 }

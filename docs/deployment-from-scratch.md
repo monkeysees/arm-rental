@@ -334,6 +334,15 @@ sudo jq \
   /var/lib/rental-apartments-ops/deployments/*.json
 ```
 
+**A first installation cannot currently start.** The application opens state
+only through `state-backend.json`, and no command in this tree creates that
+selector: the JSON-to-SQLite importer that used to write it on a fresh host was
+removed with the rest of the migration machinery. Until a reviewed
+initialization path exists, a genuinely empty data volume fails startup with
+"State backend selector is absent" and the candidate is quarantined. Creating a
+selector by hand is not a supported workaround — the selector's database ID has
+to match the database it names.
+
 Expected result: the source revision and immutable candidate digest equal the
 GitHub release record, `firstInstall` is true, readiness is healthy, and a
 `crawl.succeeded` event exists. A first installation has no pre-deploy snapshot.
@@ -426,8 +435,8 @@ source-integrity check per parsed page, and no unexpected redelivery. The
 receipt contains no user or apartment identifiers.
 
 Publish a reviewed candidate that fails startup verification safely without
-state migration, Telegram side effects, credential changes, storage failure, or
-upstream interference. Record the active and failing immutable digests:
+Telegram side effects, credential changes, storage failure, or upstream
+interference. Record the active and failing immutable digests:
 
 ```sh
 export PREVIOUS_IMAGE='ghcr.io/monkeysees/arm-rental@sha256:replace'

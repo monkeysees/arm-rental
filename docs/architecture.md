@@ -32,14 +32,15 @@ automatically scaled deployment. A supervisor restarts the process, forwards
 SIGTERM for graceful shutdown, and mounts `.data` on durable local storage.
 
 `state-backend.json` is the authoritative backend selector; database-file
-presence never selects storage. The application carries no JSON application-state
-backend: it opens SQLite only when the selector is `sqlite` and its immutable
-database ID matches `application_metadata`, and refuses `json`, `migrating`, and
-an absent selector alike. Only the migration and bridge tooling, which run before
-a selector file exists, may read an absent selector as JSON, and they ask for
-that explicitly. Malformed, missing, corrupt, newer-schema, wrong-application-ID,
-and target-mismatched databases fail closed without JSON fallback or dual
-writes.
+presence never selects storage. SQLite is the only backend this release can
+open: the selector must name `sqlite` with an immutable database ID matching
+`application_metadata`. `json` is no longer a name the selector may carry, and
+an absent selector is refused by every caller rather than read as an empty
+database. `migrating` remains recognised so a selector left by an interrupted
+cutover is named as such, but no release can finish that migration; the only way
+forward is a snapshot taken after the cutover. Malformed, missing, corrupt,
+newer-schema, wrong-application-ID, and target-mismatched databases fail closed
+without fallback or dual writes.
 
 Schema version 1 is a deliberate compatibility decision: one `STRICT` database
 stores an apartment payload per row, compact ordered crawl metadata, normalized
@@ -174,15 +175,15 @@ operator to report the revision the host actually runs and refuses unless that
 matches the release `production` names. An unreadable pointer fails closed
 rather than reading as a first publication.
 
-A state-backend cutover additionally requires a protected rollback point bound
-to the running bridge. Deployment validates that binding before it stops the
-application, so an unusable protection cannot bounce the bot once per poll, and
-every refusal names both the contract the candidate declared and the one this
-release deploys. Because protection binds to whichever release was current when
-it was taken, an ordinary same-backend deploy can supersede it;
-`ops/unprotect-migration-rollback` releases the named stale point and deletes
-the snapshot it named so a correct one can be taken. It edits state only and
-never stops the application.
+No cutover remains to classify: deployment refuses any release, current or
+candidate, that does not declare the SQLite backend, and every refusal names
+both the contract the candidate declared and the one this release deploys.
+Nothing can take a protected rollback point any more.
+`ops/unprotect-migration-rollback` survives as the only way to release the one
+protection a host may still carry from the cutover, and it deletes the snapshot
+that entry named. Until it is run, retention keeps pinning the bridge image
+beside a snapshot no release can read. It edits state only and never stops the
+application.
 
 Accepted deployments update a retention index containing the current release
 and at most two rollback releases before invoking retention-aware image
@@ -376,12 +377,13 @@ metadata object are the production deployment handoff; the host never rebuilds
 from source or downloads a transient Actions artifact.
 
 Release metadata and OCI labels also declare `stateBackend`,
-`minimumStateSchema`, and `maximumStateSchema`. JSON bridge releases use backend
-`json` and schema `0`; SQLite candidates use backend `sqlite` and schema `1`.
-A compatible rollback reads the live authoritative backend/schema before
-stopping the service and rejects a target whose declared range does not include
-it. Cross-backend rollback therefore requires a matching snapshot restore
-rather than a best-effort format conversion.
+`minimumStateSchema`, and `maximumStateSchema`. `sqlite` with schema `1` or
+higher is the only valid declaration; schema `0` named the JSON state files and
+is refused. A compatible rollback reads the live authoritative backend/schema
+before stopping the service and rejects a target whose declared range does not
+include it. Rolling back to a release that predates the SQLite cutover is not
+supported: no snapshot this release can read carries the state such a release
+would need.
 
 Workflow actions are immutable commit pins. Dependabot proposes npm, base
 image, and workflow-action updates as reviewable pull requests and has no
@@ -709,8 +711,7 @@ failures cannot alter durability.
 
 `src/state.js` remains the atomic JSON primitive only for the backend selector,
 defensive migration sentinels, browser verification record, and maintenance
-history. It is also retained by the controlled legacy importer; normal SQLite
-domain mutations do not call it.
+history. Normal SQLite domain mutations do not call it.
 
 Every successful interactive verification, production browser smoke, and
 startup List.am preflight writes a versioned verification record inside the
@@ -729,7 +730,10 @@ that destination through a new connection, hashes every staged file, and
 publishes atomically. WAL/SHM files are never copied. Sunday UTC snapshots are
 also retained as weekly points. Configuration enforces at least seven daily and
 four weekly points and rejects a backup destination that overlaps application
-data. Manifest-v1 JSON snapshots remain readable only for protected rollback.
+data. Manifest-v1 snapshots described the five JSON state files and are no
+longer readable: backup, validation, and restore refuse them by name, saying the
+snapshot predates the SQLite cutover rather than reporting it as damaged. A
+snapshot taken before the cutover is therefore not a restorable backup.
 
 Restore accepts only a snapshot beneath the independently configured backup
 destination. It verifies the manifest, hashes, schemas, target identities,
@@ -1036,8 +1040,10 @@ user_version` provide forward-only schema compatibility.
 
 The five legacy JSON paths contain only incompatible `sqlite-migrated`
 sentinels after cutover. They carry backend, migration, and database identities
-without application data so an older image fails closed. The protected
-manifest-v1 snapshot is the only supported JSON rollback source.
+without application data so an older image fails closed. Nothing reads them:
+configuration secures their permissions and backup carries them so a restore
+leaves the data directory as it was found. No importer remains that could write
+them, and no snapshot predating the cutover can be restored.
 
 ## Parsing model
 

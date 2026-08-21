@@ -320,17 +320,13 @@ deployment_state_transition() {
     .schemaVersion == 2 and
     .imageReference == $image and
     (.sourceRevision | test("^[0-9a-f]{40}$")) and
-    (.stateBackend == "json" or .stateBackend == "sqlite") and
+    .stateBackend == "sqlite" and
     (.minimumStateSchema | type) == "number" and
     (.maximumStateSchema | type) == "number" and
-    .minimumStateSchema >= 0 and
+    .minimumStateSchema >= 1 and
     .maximumStateSchema >= .minimumStateSchema and
     .minimumStateSchema == (.minimumStateSchema | floor) and
-    .maximumStateSchema == (.maximumStateSchema | floor) and
-    (if .stateBackend == "json"
-     then .minimumStateSchema == 0 and .maximumStateSchema == 0
-     else .minimumStateSchema >= 1
-     end)
+    .maximumStateSchema == (.maximumStateSchema | floor)
   ' "$previous_metadata" >/dev/null || {
     deployment_verification_error "current release declares $(
       deployment_describe_release_metadata "$previous_metadata"
@@ -350,16 +346,10 @@ deployment_state_transition() {
   ' "$candidate_metadata" >/dev/null || {
     deployment_verification_error "candidate declares $(
       deployment_describe_release_metadata "$candidate_metadata"
-    ), but a cutover candidate must declare stateBackend sqlite with state schema 1 or higher"
+    ), but a candidate must declare stateBackend sqlite with state schema 1 or higher"
     return 65
   }
 
-  local previous_backend
-  previous_backend=$(jq -r .stateBackend "$previous_metadata") || return
-  if [[ $previous_backend == json ]]; then
-    printf 'json-to-sqlite\n'
-    return
-  fi
   jq -e --slurpfile previous "$previous_metadata" '
     .minimumStateSchema <= $previous[0].minimumStateSchema and
     .maximumStateSchema >= $previous[0].maximumStateSchema
@@ -368,65 +358,6 @@ deployment_state_transition() {
     return 65
   }
   printf 'sqlite-to-sqlite\n'
-}
-
-deployment_bridge_protected_snapshot() {
-  local previous_metadata=$1
-  local previous_image=$2
-  local previous_release=$3
-  local revision snapshot protected_root
-  local -a protected_snapshots=()
-  [[ -f $RENTAL_DEPLOYMENT_RETENTION_FILE &&
-    ! -L $RENTAL_DEPLOYMENT_RETENTION_FILE ]]
-  revision=$(jq -r .sourceRevision "$previous_metadata") || return
-  snapshot=$(jq -er \
-    --arg image "$previous_image" \
-    --arg revision "$revision" \
-    --arg release "$previous_release" '
-      select(
-        .schemaVersion == 2 and
-        (.protectedReleases | length) == 1 and
-        .protectedReleases[0].candidateImage == $image and
-        .protectedReleases[0].sourceRevision == $revision and
-        .protectedReleases[0].releaseDirectory == $release
-      ) |
-      .protectedReleases[0].protectedSnapshot
-    ' "$RENTAL_DEPLOYMENT_RETENTION_FILE") || {
-    printf 'Current JSON bridge release is not the protected rollback image\n' >&2
-    return 65
-  }
-  [[ $snapshot == "$RENTAL_BACKUP_ROOT"/protected/pre-sqlite-* &&
-    -d $snapshot && ! -L $snapshot ]] || {
-    printf 'Protected bridge snapshot is unavailable or unsafe\n' >&2
-    return 65
-  }
-  protected_root="$RENTAL_BACKUP_ROOT/protected"
-  shopt -s nullglob
-  protected_snapshots=("$protected_root"/pre-sqlite-*)
-  shopt -u nullglob
-  ((${#protected_snapshots[@]} == 1)) &&
-    [[ ${protected_snapshots[0]} == "$snapshot" ]] || {
-    printf 'Protected bridge snapshot set is ambiguous\n' >&2
-    return 65
-  }
-  printf '%s\n' "$snapshot"
-}
-
-deployment_migrate_json_state() {
-  local candidate_release=$1
-  local candidate_environment=$2
-  local command
-  for command in plan migrate validate; do
-    case $command in
-      plan) ops_set_step plan-state-migration ;;
-      migrate) ops_set_step migrate-state ;;
-      validate) ops_set_step validate-migrated-state ;;
-    esac
-    deployment_compose \
-      "$candidate_release" "$candidate_environment" \
-      run --rm --no-deps bot node src/state-migration-cli.js "$command" ||
-      return
-  done
 }
 
 # A refused candidate is the deployment's most common terminal state, and it
@@ -727,51 +658,12 @@ deployment_update_retention_index() {
   mv -f "$temporary" "$target"
 }
 
-# Adds one named bridge release and its pre-SQLite snapshot to the retention
-# index. Re-running with the same pair is idempotent; replacing the protected
-# rollback point requires deployment_unprotect_migration_release first.
-deployment_protect_migration_release() {
-  local evidence_file=$1
-  local protected_snapshot=$2
-  local target="$RENTAL_DEPLOYMENT_RETENTION_FILE"
-  local temporary
-  [[ -f $evidence_file && ! -L $evidence_file ]]
-  [[ -d $protected_snapshot && ! -L $protected_snapshot ]]
-  [[ $protected_snapshot == "$RENTAL_BACKUP_ROOT"/protected/pre-sqlite-* ]]
-  [[ -f $target && ! -L $target ]]
-  temporary=$(mktemp "$RENTAL_OPS_STATE_DIR/.retention.XXXXXX")
-  if ! jq --slurpfile release "$evidence_file" \
-    --arg protectedSnapshot "$protected_snapshot" '
-      (.protectedReleases // []) as $protected |
-      if ($protected | length) > 0 and
-         any($protected[];
-           .candidateImage != $release[0].candidateImage or
-           .protectedSnapshot != $protectedSnapshot)
-      then error("a different migration rollback point is already protected")
-      else
-        .schemaVersion = 2 |
-        .protectedReleases = [{
-          candidateImage: $release[0].candidateImage,
-          sourceRevision: $release[0].sourceRevision,
-          releaseDirectory: $release[0].releaseDirectory,
-          protectedSnapshot: $protectedSnapshot,
-          protectedAt: (now | todateiso8601)
-        }]
-      end
-    ' "$target" >"$temporary"; then
-    rm -- "$temporary"
-    return 65
-  fi
-  chmod 0600 "$temporary"
-  mv -f "$temporary" "$target"
-}
-
-# Releases the protected rollback point so a replacement can be taken, and
-# prints the snapshot it released. Protection is taken against whichever
-# release is current at the time, so an ordinary JSON-to-JSON deploy can move
-# current past it and leave a protection that no cutover will ever accept.
-# The caller must name the image it believes is protected: repairing that
-# mistake by clearing the entry unread would simply repeat it.
+# Releases the protected pre-SQLite rollback point and prints the snapshot it
+# released. Nothing can take a new one: this release reads state only from
+# SQLite, so a protected snapshot and the bridge image pinned beside it are
+# retired evidence, and this is the only way to stop retention pinning them.
+# The caller must name the image it believes is protected: clearing the entry
+# unread would discard the record of what was retired.
 deployment_unprotect_migration_release() {
   local expected_image=$1
   local target="$RENTAL_DEPLOYMENT_RETENTION_FILE"

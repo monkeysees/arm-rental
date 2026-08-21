@@ -12,18 +12,12 @@ export async function openApplicationState(
   { onMetric = () => {} } = {},
 ) {
   const selector = await readStateBackendSelector(config.dataDirectory);
-  if (selector.backend === "migrating") {
-    throw new StateBackendError(
-      "State migration is incomplete; resume it before application startup",
-      { backend: selector.backend },
-    );
-  }
-  // The selector still names JSON for the migration and bridge tooling, but the
-  // application no longer carries a JSON backend. Refusing here keeps a host
-  // that never migrated from starting on empty SQLite state.
+  // An interrupted cutover is the one non-SQLite selector still recognised, and
+  // no release can finish it any more; naming it keeps a host in that state from
+  // being read as a plain configuration error.
   if (selector.backend !== "sqlite") {
     throw new StateBackendError(
-      `This release stores application state in SQLite and cannot open the ${selector.backend} state backend; run the state migration first`,
+      "State migration is incomplete and cannot be resumed; restore a snapshot taken after the SQLite cutover",
       { backend: selector.backend },
     );
   }

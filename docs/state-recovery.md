@@ -17,7 +17,7 @@ and independently of `DATA_DIRECTORY`. In production it must be a separately
 managed volume or remote-mounted filesystem whose loss is independent of the
 application volume and host.
 
-Post-cutover snapshots contain a standalone mode-`0600` database produced by
+Snapshots contain a standalone mode-`0600` database produced by
 Node's SQLite backup API, the selector and defensive sentinels, a manifest-v2,
 SHA-256 hashes, identity/schema/target/count summaries, the Telegram update
 offset, and the last successful browser verification record. The backup and restore commands emit stable
@@ -26,35 +26,29 @@ The summary includes only bounded logical counts and source-integrity aggregate
 metadata; restore validation preserves the exact aggregate without exposing
 apartment or user data.
 
-### Protected pre-SQLite recovery point
+### The stranded pre-SQLite recovery point
 
-Before state migration, run the serialized bridge protection operation with a
-named accountable actor while the bridge image is current:
+A snapshot taken before the SQLite cutover carries a manifest-v1 body naming
+the five JSON state files and no `state-backend.json` beside them. **No release
+in this tree can read one.** It is not a restorable backup, and it must not be
+counted as a recovery point when judging RPO. `backup`, `backup:validate`, and
+`restore` all refuse it by name:
 
-```sh
-sudo /opt/rental-apartments/current/ops/protect-migration-rollback \
-  'Named Human'
+```
+Backup predates the SQLite cutover and cannot be restored by this release
 ```
 
-It stops the application, creates and validates a manifest-v1 JSON snapshot at
-`protected/pre-sqlite-<timestamp>`, records that snapshot plus the bridge digest
-in the deployment retention index, and returns the bridge to readiness. The
-protected directory is outside daily/weekly pruning, and image cleanup includes
-its application and metadata images in the protected set even after they age
-out of the ordinary current-plus-two index. Re-running against the same pair is
-idempotent; a different protected pair fails closed. Expected evidence includes
-`migration-protection.started`, `backup.completed`, and
-`migration-protection.completed`. Preserve this point until migration, a
-post-cutover backup, and the isolated restore acceptance gate have all passed.
+Nothing can create such a snapshot any more, and no command will migrate JSON
+state into the database. A host may still carry one protected snapshot and the
+bridge image pinned beside it in the deployment retention index, left from the
+cutover. Retention keeps both until the entry is released.
 
-### Replacing a protected rollback point
+### Releasing the stranded rollback point
 
-Protection binds to whichever release is current when it is taken. An ordinary
-same-backend deploy afterwards moves current past that release, and the cutover
-then refuses to run: the protected image is no longer the running bridge, so
-`validate-protected-bridge` fails closed. Because a different protected pair
-also fails closed, the stale point has to be released before a correct one can
-be taken.
+Releasing the entry clears it from the retention index, deletes the snapshot it
+named, and lets image cleanup retire the bridge image. **This is destructive and
+irreversible: the snapshot it deletes is the only copy of the pre-migration
+state.** Do it only as a deliberate decision to give that state up.
 
 ```sh
 sudo /opt/rental-apartments/current/ops/unprotect-migration-rollback \
@@ -63,15 +57,11 @@ sudo /opt/rental-apartments/current/ops/unprotect-migration-rollback \
     /var/lib/rental-apartments-ops/deployment-retention.json)"
 ```
 
-Naming the protected image is required: the failure this repairs is a
-protection taken against a release nobody re-read. It clears the retention
-entry and deletes the snapshot that entry named, so the protected directory
-holds no `pre-sqlite-*` directory afterwards and the protected set is
-unambiguous for the next attempt. It edits state only, so unlike taking a
-protection it never stops the application. Expected evidence includes
-`migration-unprotection.started` and `migration-unprotection.completed`. Follow
-it immediately with `protect-migration-rollback` against the running bridge,
-and confirm the new entry names the current release before deploying.
+Naming the protected image is required: clearing the entry unread would destroy
+the record of which release the retained image belonged to. It edits state only
+and never stops the application. Expected evidence includes
+`migration-unprotection.started` and `migration-unprotection.completed`. There
+is no counterpart operation: nothing can take a new protected rollback point.
 
 ## Automated daily backup
 
@@ -160,10 +150,10 @@ target bindings, per-domain logical counts, Telegram `updateOffset`, browser
 verification timestamp, and hash success. Select the newest valid recovery point from before the incident.
 Do not edit a snapshot or restore from a `.snapshot-*.tmp` directory.
 
-An image whose backend or declared schema range does not include the snapshot
-must not start against it. Restore the protected manifest-v1 JSON point before
-starting the bridge image; never point a JSON-only or older SQLite binary at the
-live version-1 database.
+An image whose declared schema range does not include the snapshot must not
+start against it. There is no supported path back to a release that predates
+the SQLite cutover: the snapshot such a release would need cannot be read, and
+starting a pre-cutover image against the live database is never correct.
 
 ## Restore procedure
 

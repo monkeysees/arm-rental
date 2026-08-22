@@ -196,7 +196,7 @@ journal_status_json() {
 # candidate is republished only as the same validated digest the container
 # status already exposes.
 deployment_block_json() {
-  local since="${1:-$DEPLOYMENT_BLOCK_WINDOW}"
+  local since="$DEPLOYMENT_BLOCK_WINDOW"
   local records
   records="$("$JOURNALCTL_BIN" \
     --no-pager \

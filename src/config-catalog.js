@@ -293,7 +293,7 @@ export const CONFIGURATION_CATALOG = Object.freeze([
     configKey: "browserProtocolTimeoutMs",
     type: "positive safe integer",
     constraints: "Must be a positive JavaScript safe integer.",
-    defaultValue: "30000",
+    defaultValue: "90000",
     purpose: "Bounds Chrome protocol commands.",
   }),
   entry({

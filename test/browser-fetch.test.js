@@ -329,6 +329,49 @@ test("browser interaction pacing does not depend on throttled page timers", asyn
   );
 });
 
+test("a stalled scroll simulation is abandoned without failing the fetch", async (t) => {
+  const config = await temporaryConfig(t, {
+    browserHeadless: false,
+    browserProtocolTimeoutMs: 300,
+  });
+  const statuses = [];
+  let resolveStalled;
+  const stalled = new Promise((resolve) => {
+    resolveStalled = resolve;
+  });
+  t.after(() => resolveStalled?.());
+  const page = browserPage({
+    // The first evaluation never settles, exactly as a stalled CDP call
+    // behaves until the protocol timeout eventually rejects it.
+    evaluate: async () => stalled,
+    content: async () => '<div id="contentr">listing</div>',
+  });
+  const fetcher = new BrowserPageFetcher(config, {
+    platform: "linux",
+    onStatus: (message) => statuses.push(message),
+    puppeteerImpl: { launch: async () => launchedBrowser(page) },
+  });
+
+  const started = Date.now();
+  const response = await fetcher.fetch("https://www.list.am/");
+  const elapsed = Date.now() - started;
+  await fetcher.close();
+
+  // The page still comes back, and the optional step gave up on a third of
+  // the protocol budget rather than consuming all of it.
+  assert.equal(await response.text(), '<div id="contentr">listing</div>');
+  assert.equal(
+    statuses.some((message) =>
+      message.includes("Browser interaction skipped: interaction budget"),
+    ),
+    true,
+  );
+  assert.ok(
+    elapsed < config.browserProtocolTimeoutMs,
+    `expected the interaction to be abandoned early, took ${elapsed} ms`,
+  );
+});
+
 test("a runtime failure is cleaned up and the next fetch launches a fresh browser", async (t) => {
   const config = await temporaryConfig(t);
   const launchOptions = [];

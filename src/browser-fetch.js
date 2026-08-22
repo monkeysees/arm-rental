@@ -245,26 +245,85 @@ async function launchHiddenMacChrome(
   );
 }
 
-async function simulateUserActions(page) {
-  const maximumScroll = await page.evaluate(() =>
-    Math.min(
-      Math.max(0, document.documentElement.scrollHeight - window.innerHeight),
-      1_600,
+// The scroll simulation is optional: a caller catches its failure and the
+// fetch still returns the page. It must not be able to spend the whole
+// protocol timeout before being abandoned, because the page.content() call
+// that actually produces the result needs its own budget, and both together
+// have to fit the deployment candidate observation window. On a host where a
+// CDP call can stall past the protocol timeout, an unbounded optional step
+// turns one stall into a failed crawl.
+const INTERACTION_BUDGET_MS = 10_000;
+
+// At most a third of the protocol budget, so a stalled optional step always
+// leaves the essential page.content() call the larger share of it.
+function interactionBudgetMs({ browserProtocolTimeoutMs }) {
+  return Math.max(
+    1,
+    Math.min(INTERACTION_BUDGET_MS, Math.floor(browserProtocolTimeoutMs / 3)),
+  );
+}
+
+async function withinInteractionBudget(operation, remainingMs) {
+  if (remainingMs <= 0) throw new Error("interaction budget exhausted");
+  const pending = operation();
+  // Only the wait is bounded; an abandoned evaluation keeps running in the
+  // page until the browser is disposed. Observe it so giving up on the wait
+  // cannot surface as an unhandled rejection.
+  pending.catch(() => {});
+  let timer;
+  try {
+    return await Promise.race([
+      pending,
+      new Promise((_resolve, reject) => {
+        timer = setTimeout(
+          () => reject(new Error("interaction budget exhausted")),
+          remainingMs,
+        );
+      }),
+    ]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+async function simulateUserActions(page, budgetMs = INTERACTION_BUDGET_MS) {
+  // The budget covers time spent waiting on the page, not the pacing between
+  // scrolls, which is deliberate and already bounded.
+  let waited = 0;
+  const bounded = async (operation) => {
+    const started = Date.now();
+    try {
+      return await withinInteractionBudget(operation, budgetMs - waited);
+    } finally {
+      waited += Date.now() - started;
+    }
+  };
+
+  const maximumScroll = await bounded(() =>
+    page.evaluate(() =>
+      Math.min(
+        Math.max(0, document.documentElement.scrollHeight - window.innerHeight),
+        1_600,
+      ),
     ),
   );
 
   for (let scrolled = 0; scrolled < maximumScroll; scrolled += 320) {
-    await page.evaluate(() => {
-      window.scrollBy({ top: 320, behavior: "instant" });
-    });
+    await bounded(() =>
+      page.evaluate(() => {
+        window.scrollBy({ top: 320, behavior: "instant" });
+      }),
+    );
     // Browser-page timers can be throttled heavily in headless mode. Keep the
     // pacing delay in Node so this optional interaction remains bounded.
     await delay(150);
   }
   if (maximumScroll > 0) {
-    await page.evaluate(() => {
-      window.scrollTo({ top: 0, behavior: "instant" });
-    });
+    await bounded(() =>
+      page.evaluate(() => {
+        window.scrollTo({ top: 0, behavior: "instant" });
+      }),
+    );
   }
 }
 
@@ -452,7 +511,7 @@ export class BrowserPageFetcher {
       }
 
       try {
-        await simulateUserActions(this.page);
+        await simulateUserActions(this.page, interactionBudgetMs(this.config));
       } catch (error) {
         await this.onStatus(`Browser interaction skipped: ${error.message}`);
       }

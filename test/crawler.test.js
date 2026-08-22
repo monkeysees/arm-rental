@@ -11,6 +11,7 @@ import { createMemoryStateAccess } from "../test-support/memory-state.js";
 const config = {
   listUrlTemplate: LIST_AM_URL_TEMPLATE,
   initialPageCount: 10,
+  addedCategoryPageCount: 2,
   initialDeliveryLimit: 10,
   apartmentsStateFile: "/state/apartments.json",
   deliveryStateFile: "/state/deliveries.json",
@@ -223,7 +224,7 @@ test("a category added to a running installation starts from its own history", a
   const fetched = [];
 
   const result = await crawlApartments(
-    { ...bothCategories, initialPageCount: 3 },
+    { ...bothCategories, initialPageCount: 3, addedCategoryPageCount: 3 },
     {
       ...state,
       fetchPage: async (url) => {
@@ -275,6 +276,72 @@ test("a category added to a running installation starts from its own history", a
   assert.deepEqual(
     result.discovered.map(({ itemId, kind }) => `${kind}:${itemId}`),
     ["apartment:11", "house:20", "house:21", "house:22"],
+  );
+});
+
+test("an added category keeps its first crawl inside the deployment window", async () => {
+  const state = memoryState({
+    apartments: {
+      version: 4,
+      type: "list-am-apartments",
+      urlTemplate: config.listUrlTemplate,
+      checkedAt: "2026-07-24T11:00:00.000Z",
+      lastCrawl: { initialRun: true, pagesParsed: 1 },
+      apartments: {
+        10: {
+          itemId: "10",
+          kind: "apartment",
+          date: "Пятница, Июль 24, 2026, 14:31",
+          firstSeenAt: "2026-07-24T10:00:00.000Z",
+          lastSeenAt: "2026-07-24T11:00:00.000Z",
+        },
+      },
+      apartmentOrder: ["10"],
+      sourceIntegrity: {
+        recentFirstPageCounts: { apartment: [1] },
+        lastSuccessfulAt: "2026-07-24T11:00:00.000Z",
+      },
+    },
+  });
+  const fetched = [];
+
+  const result = await crawlApartments(
+    { ...bothCategories, initialPageCount: 10, addedCategoryPageCount: 2 },
+    {
+      ...state,
+      fetchPage: async (url) => {
+        fetched.push(url);
+        return categoryPages({
+          apartment: [
+            datedPage(
+              ["11", "Пятница, Июль 24, 2026, 15:00"],
+              ["9", "Пятница, Июль 24, 2026, 14:00"],
+            ),
+          ],
+          house: Array.from({ length: 10 }, (_value, index) =>
+            page(String(20 + index)),
+          ),
+        })(url);
+      },
+      now: () => new Date("2026-07-24T12:00:00Z"),
+    },
+  );
+
+  // The category joining a populated installation takes the smaller budget,
+  // not the ten pages a first installation is allowed. A first crawl that
+  // cannot finish inside the candidate observation window persists nothing,
+  // so an oversized one would restart unchanged on every later attempt.
+  assert.deepEqual(
+    fetched.map((url) => new URL(url).pathname),
+    ["/ru/category/56/1", "/ru/category/1377/1", "/ru/category/1377/2"],
+  );
+  assert.equal(
+    result.sources.find(({ kind }) => kind === "house").pagesParsed,
+    2,
+  );
+  assert.deepEqual(
+    result.discovered.map(({ itemId, kind }) => `${kind}:${itemId}`),
+    ["apartment:11", "house:20", "house:21"],
   );
 });
 

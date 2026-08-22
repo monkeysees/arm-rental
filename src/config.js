@@ -243,6 +243,11 @@ export function getConfig(env = process.env, cwd = process.cwd()) {
       undefined,
       "INITIAL_PAGE_COUNT",
     ),
+    addedCategoryPageCount: positiveInteger(
+      read("ADDED_CATEGORY_PAGE_COUNT"),
+      undefined,
+      "ADDED_CATEGORY_PAGE_COUNT",
+    ),
     initialDeliveryLimit: positiveInteger(
       read("INITIAL_DELIVERY_LIMIT"),
       undefined,

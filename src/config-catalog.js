@@ -216,6 +216,14 @@ export const CONFIGURATION_CATALOG = Object.freeze([
     purpose: "Sets pages parsed per List.am category with no history.",
   }),
   entry({
+    name: "ADDED_CATEGORY_PAGE_COUNT",
+    configKey: "addedCategoryPageCount",
+    type: "positive safe integer",
+    constraints: "Must be a positive JavaScript safe integer.",
+    defaultValue: "2",
+    purpose: "Caps the first crawl of a category added to a populated install.",
+  }),
+  entry({
     name: "INITIAL_DELIVERY_LIMIT",
     configKey: "initialDeliveryLimit",
     type: "positive safe integer",

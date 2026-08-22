@@ -268,6 +268,7 @@ details.
 | `TELEGRAM_POLL_TIMEOUT_SECONDS`          | `25`                                     | Telegram long-poll duration                                    |
 | `POLL_INTERVAL_MS`                       | `60000`                                  | Delay between crawls                                           |
 | `INITIAL_PAGE_COUNT`                     | `10`                                     | Pages parsed per List.am category with no stored history       |
+| `ADDED_CATEGORY_PAGE_COUNT`              | `2`                                      | First-crawl page cap for a later-added category                |
 | `INITIAL_DELIVERY_LIMIT`                 | `100`                                    | Latest initial private/channel selection size                  |
 | `TIMEOUT_MS`                             | `30000`                                  | Browser navigation and API timeout                             |
 | `EXTERNAL_RETRY_BASE_MS`                 | `1000`                                   | Initial network/5xx retry delay                                |

@@ -266,6 +266,17 @@ export async function crawlApartments(
       (apartment) => apartment.kind === kind,
     );
     const kindInitialRun = knownOfKind.length === 0;
+    // A category added to an installation that already holds listings performs
+    // its first crawl inside an ordinary deployment, and the candidate
+    // observation window bounds how long any one crawl may take there. A full
+    // initial budget cannot finish inside it, and an unfinished crawl persists
+    // nothing, so the category would restart the same oversized first crawl on
+    // every attempt and never establish the history that makes it incremental.
+    // A first installation is observed differently and keeps the full budget.
+    const pageBudget =
+      kindInitialRun && !initialRun
+        ? config.addedCategoryPageCount
+        : config.initialPageCount;
     const lastKnownPostingDate = latestKnownPostingDate(knownOfKind);
     const pageSignatures = new Set();
     let kindPagesParsed = 0;
@@ -275,7 +286,7 @@ export async function crawlApartments(
     pageLoop: for (let page = 1; ; page += 1) {
       if (
         (kindInitialRun || lastKnownPostingDate.value === null) &&
-        page > config.initialPageCount
+        page > pageBudget
       ) {
         break;
       }

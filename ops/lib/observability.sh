@@ -14,6 +14,11 @@ DU_BIN="${DU_BIN:-du}"
 LNAV_BIN="${LNAV_BIN:-lnav}"
 
 RENTAL_CONTAINER_NAME="${RENTAL_CONTAINER_NAME:-rental-apartments-bot}"
+RENTAL_DEPLOY_UNIT="${RENTAL_DEPLOY_UNIT:-rental-deploy}"
+# Three deploy polls. Long enough that one missed or deferred poll cannot read
+# as "deployment recovered", short enough that a cleared quarantine stops the
+# alert within minutes instead of an hour.
+DEPLOYMENT_BLOCK_WINDOW="${DEPLOYMENT_BLOCK_WINDOW:-15 minutes ago}"
 READINESS_PROBE_RETRY_DELAY_SECONDS="${READINESS_PROBE_RETRY_DELAY_SECONDS:-5}"
 RENTAL_OPS_STATE_DIR="${RENTAL_OPS_STATE_DIR:-/var/lib/rental-apartments-ops}"
 RENTAL_DATA_PATH="${RENTAL_DATA_PATH:-/var/lib/docker/volumes/rental-apartments-data/_data}"
@@ -180,6 +185,48 @@ journal_status_json() {
   fi
   [[ "$kilobytes" =~ ^[0-9]+$ ]] || kilobytes=0
   "$JQ_BIN" -cn --argjson bytes "$((kilobytes * 1024))" '{diskBytes: $bytes}'
+}
+
+# Reports the candidate the deploy timer is currently refusing to install.
+#
+# A rejected digest is quarantined, but the discovery pointer goes on naming
+# it, so every later poll skips it and exits successfully. Neither the timer
+# result nor the application journal can then show that no release is reaching
+# production any more: the skip record is the only local evidence of it. The
+# candidate is republished only as the same validated digest the container
+# status already exposes.
+deployment_block_json() {
+  local since="${1:-$DEPLOYMENT_BLOCK_WINDOW}"
+  local records
+  records="$("$JOURNALCTL_BIN" \
+    --no-pager \
+    --quiet \
+    --output=json \
+    --lines=200 \
+    --since "$since" \
+    --unit="${RENTAL_DEPLOY_UNIT}.service" 2>/dev/null || true)"
+  "$JQ_BIN" -sc '
+    [
+      .[]
+      | {
+          observedAt: (((.__REALTIME_TIMESTAMP // "0") | tonumber? // 0) / 1000000),
+          record: (((.MESSAGE // "") | try fromjson catch null) // {})
+        }
+      | select((.record | type) == "object")
+      | select(.record.event == "deployment.quarantine.skipped")
+      | {
+          digest:
+            (try
+              ((.record.candidateImage // "")
+                | capture("@(?<digest>sha256:[0-9a-f]{64})$")
+                | .digest)
+             catch null),
+          observedAt: (.observedAt | todateiso8601)
+        }
+      | select(.digest != null)
+    ]
+    | last // null
+  ' <<<"$records"
 }
 
 timer_failure_reason() {
@@ -368,7 +415,7 @@ write_metrics_snapshot() {
   local target="${1:-$RENTAL_OPS_STATE_DIR/metrics-latest.json}"
   local target_directory temporary_directory temporary_file
   local application container readiness data_fs backup_fs journal timers
-  local backup maintenance snapshot
+  local backup maintenance snapshot deployment_block
 
   target_directory="$(dirname -- "$target")"
   install -d -m 0750 "$target_directory"
@@ -383,6 +430,7 @@ write_metrics_snapshot() {
   backup_fs="$(filesystem_status_json "$RENTAL_BACKUP_PATH" backup)"
   journal="$(journal_status_json)"
   timers="$(timer_status_json)"
+  deployment_block="$(deployment_block_json)"
   backup="$(optional_json_file "$RENTAL_OPS_STATE_DIR/backup-latest.json")"
   maintenance="$(optional_json_file "$RENTAL_OPS_STATE_DIR/maintenance-latest.json")"
 
@@ -394,6 +442,7 @@ write_metrics_snapshot() {
     --argjson backupFs "$backup_fs" \
     --argjson journal "$journal" \
     --argjson timers "$timers" \
+    --argjson deploymentBlock "$deployment_block" \
     --argjson backup "$backup" \
     --argjson maintenance "$maintenance" '
       def rfc3339_epoch:
@@ -415,7 +464,9 @@ write_metrics_snapshot() {
       ($container.startedAt | rfc3339_epoch) as $containerStarted
       | $application
       + {
-          deployment: ($container + {readiness: $readiness.status}),
+          deployment:
+            ($container
+              + {readiness: $readiness.status, blockedCandidate: $deploymentBlock}),
           journal: ($journal + {
             oldestApplicationRecord: $application.observations.oldestApplicationRecord
           }),

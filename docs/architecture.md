@@ -115,7 +115,10 @@ allowlisted structured unit-journal evidence and falls back to systemd result
 and exit status. The snapshot and `rentalctl timers` expose this failure reason
 for the same complete eight-timer inventory, including image cleanup and the
 reboot check, so its
-failed result participates in scheduled-job alert evaluation. Host
+failed result participates in scheduled-job alert evaluation. A deployment poll
+that skips a quarantined candidate is a successful run, so the monitor projects
+that skip separately and alerts while a rejected digest keeps the pointer from
+delivering any release. Host
 reconciliation installs `rentalctl` as a stable launcher
 that selects the verified current release and falls back to the bootstrap
 bundle only before a first release exists; operator diagnostics therefore

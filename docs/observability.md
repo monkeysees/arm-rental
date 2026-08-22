@@ -92,7 +92,8 @@ and restarts; last preflight/crawl; 1-hour and 24-hour crawl totals, ratios,
 p50/p95 duration and result counters; bounded retry and SQLite-operation
 groupings with failure, busy-timeout, changed-row, database-byte, and WAL-byte
 counts; journal and filesystem capacity; last/next/result state for all eight production
-timers, including image cleanup and the reboot check; application alerts; and the newest
+timers, including image cleanup and the reboot check; application alerts; the
+candidate the deploy timer is currently skipping as quarantined; and the newest
 backup/maintenance receipts when present. Percentiles use nearest rank. Windows
 use journal timestamps, not application-supplied timestamps. Crawl IDs,
 apartment IDs, URLs, Telegram identifiers, and errors are not grouping keys.
@@ -143,7 +144,8 @@ Telegram attempt remains retryable. This prevents a short source-integrity
 failure and recovery from disappearing between five-minute evaluations.
 
 The evaluator covers application alerts, restart loops, two consecutive
-readiness failures, exhausted/missing containers, SQLite operation failures,
+readiness failures, exhausted/missing containers, a quarantined candidate
+blocking the discovery pointer, SQLite operation failures,
 busy-timeout exhaustion, sustained transaction latency, filesystem/journal
 capacity, and failed systemd jobs. Transaction latency is evaluated per bounded
 operation name only after at least 20 observations in the one-hour window. It
@@ -186,6 +188,16 @@ so token and owner destination never enter argv or journal records.
 | `state_transaction_latency`            | transaction p95 exceeds 500 ms over at least 20 samples |
 | `state_database_busy`                  | a database busy timeout is exhausted                    |
 | `state_database_operation_failure`     | a non-busy transaction or checkpoint fails              |
+| `deployment_blocked`                   | the deploy timer keeps skipping a quarantined candidate |
+
+`deployment_blocked` exists because a rejected candidate is otherwise silent. A
+failed deployment quarantines its digest, but the discovery pointer goes on
+naming it, so every later poll skips it and exits successfully: the timer
+result reads `success` indefinitely and the rejection itself is a host record
+that never enters application alert state. The monitor therefore reads the
+deploy unit's own `deployment.quarantine.skipped` records over the last three
+poll intervals and reports the validated digest. Clearing the quarantine stops
+the skips, and the alert resolves within the same window.
 
 If Telegram delivery fails, the transition remains eligible for retry and
 `rental-monitor.service` fails without logging the response or credentials:

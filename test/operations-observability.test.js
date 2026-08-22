@@ -655,6 +655,76 @@ test("readiness failures either side of a replaced container are not consecutive
   );
 });
 
+function deployRecord(observedAt, record) {
+  return `${JSON.stringify({
+    __REALTIME_TIMESTAMP: String(Date.parse(observedAt) * 1000),
+    SYSLOG_IDENTIFIER: "rental-deploy",
+    PRIORITY: "6",
+    MESSAGE: JSON.stringify(record),
+  })}\n`;
+}
+
+test("a quarantined candidate blocking the pointer alerts until it is cleared", async (t) => {
+  const host = await fakeHost(t);
+  const digest = `sha256:${"f70af2cd".repeat(8)}`;
+
+  // A skip that names no immutable digest says nothing about which release is
+  // blocked, so it must not raise an alert of its own.
+  await writeFile(
+    host.unitJournal,
+    deployRecord("2026-07-25T11:50:00.000Z", {
+      event: "deployment.quarantine.skipped",
+      result: "success",
+      candidateImage: "ghcr.io/owner/repository:latest",
+      previousImage: null,
+    }),
+  );
+  await execute(monitor, [], { env: host.env });
+  assert.doesNotMatch(
+    await readFile(host.env.RENTAL_TEST_CURL_PAYLOADS, "utf8"),
+    /deployment_blocked/u,
+  );
+
+  // The deploy timer keeps exiting successfully while it skips the rejected
+  // digest, so this record is the only evidence that no release can land.
+  await appendFile(
+    host.unitJournal,
+    deployRecord("2026-07-25T11:55:00.000Z", {
+      event: "deployment.quarantine.skipped",
+      result: "success",
+      candidateImage: `ghcr.io/owner/repository@${digest}`,
+      previousImage: "ghcr.io/owner/repository@sha256:2c1be778",
+    }),
+  );
+  const metrics = JSON.parse(
+    await execute(monitor, [], { env: host.env }).then(() =>
+      readFile(join(host.state, "metrics-latest.json"), "utf8"),
+    ),
+  );
+  assert.deepEqual(metrics.deployment.blockedCandidate, {
+    digest,
+    observedAt: "2026-07-25T11:55:00Z",
+  });
+
+  let payloads = await readFile(host.env.RENTAL_TEST_CURL_PAYLOADS, "utf8");
+  assert.match(payloads, /alert firing: deployment_blocked/u);
+  assert.match(payloads, new RegExp(`quarantined candidate ${digest}`, "u"));
+  assert.match(payloads, /journalctl -u rental-deploy.service --since -1h/u);
+  assert.equal(
+    JSON.parse(await readFile(join(host.state, "alerts.json"), "utf8"))
+      .alerts.filter(({ name }) => name === "deployment_blocked")
+      .map(({ status, severity }) => `${status}/${severity}`)
+      .join(),
+    "firing/error",
+  );
+
+  // Clearing the quarantine stops the skips, and the alert resolves with them.
+  await writeFile(host.unitJournal, "");
+  await execute(monitor, [], { env: host.env });
+  payloads = await readFile(host.env.RENTAL_TEST_CURL_PAYLOADS, "utf8");
+  assert.match(payloads, /alert resolved: deployment_blocked/u);
+});
+
 test("scheduled-job alerts explain the latest structured failure reason", async (t) => {
   const host = await fakeHost(t);
   await writeFile(

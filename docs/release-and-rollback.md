@@ -233,7 +233,9 @@ sudo systemctl status rental-apartments.service rental-deploy.service
 Every rejected candidate gets
 `/var/lib/rental-apartments-ops/quarantine/<digest>.json`. Later timer runs exit
 successfully while the pointer resolves to that digest. A changed production
-pointer naturally selects a different key.
+pointer naturally selects a different key. Because those runs succeed, the
+timer itself never reports the block; the monitor's `deployment_blocked` alert
+does, and keeps firing until the quarantine is cleared or the pointer moves.
 
 After the fault is understood and recovery evidence is retained, a named human
 may clear exactly one quarantine entry and trigger a break-glass retry:

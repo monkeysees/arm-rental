@@ -208,6 +208,14 @@ main() {
           | alert("host_readiness_failure"; "error"; "rentalctl status";
               (($readinessFailures | tostring)
                 + " consecutive readiness probes failed"))),
+        (select($metrics.deployment.blockedCandidate != null)
+          | alert("deployment_blocked"; "error";
+              "journalctl -u rental-deploy.service --since -1h";
+              ("the discovery pointer resolves to quarantined candidate "
+                + $metrics.deployment.blockedCandidate.digest
+                + ", skipped at "
+                + $metrics.deployment.blockedCandidate.observedAt
+                + "; no release can reach production until it is cleared"))),
         (select(
             ($metrics.deployment.present | not)
             or ($metrics.deployment.running | not)

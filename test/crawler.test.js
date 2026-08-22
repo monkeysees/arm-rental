@@ -596,6 +596,95 @@ test("an updated filtered apartment is readmitted privately when it now matches"
   assert.ok(defaultDeliveries(state).notified["51"]);
 });
 
+test("a widened filter releases only the last day of source activity", async () => {
+  const state = memoryState();
+  let filters = { ...emptyFilters(), price: { min: null, max: 250_000 } };
+  const card = ([id, date, price]) => `
+      <a class="fav-item-info-container" href="/ru/item/${id}">
+        <div class="pt">Apartment ${id}</div><div class="p">${price} ֏</div>
+        <div class="at">Кентрон, 2 ком., 50 кв.м., 3/5 этаж</div>
+        <div class="d">${date}</div>
+      </a>`;
+  const listing = (...cards) =>
+    `<div id="contentr">${cards.map(card).join("")}</div>`;
+  const delivered = [];
+  const crawl = (html, at) =>
+    crawlApartments(
+      { ...config, initialPageCount: 1 },
+      {
+        ...state,
+        filters,
+        fetchPage: async () => new Response(html),
+        deliverApartment: async ({ itemId }) => delivered.push(itemId),
+        now: () => new Date(at),
+      },
+    );
+
+  const posted = {
+    2: "Вторник, Июль 21, 2026, 11:00",
+    1: "Вторник, Июль 21, 2026, 10:00",
+    3: "Пятница, Июль 24, 2026, 09:00",
+  };
+  // Three days before the filter change: 2 is delivered, 1 is rejected.
+  await crawl(
+    listing(["2", posted[2], "200000"], ["1", posted[1], "300000"]),
+    "2026-07-21T12:00:00.000Z",
+  );
+  assert.deepEqual(delivered, ["2"]);
+  assert.ok(defaultDeliveries(state).filtered["1"]);
+
+  // Two days before it, List.am reprices both beyond the current filter.
+  const repriced = await crawl(
+    listing(["2", posted[2], "300000"], ["1", posted[1], "310000"]),
+    "2026-07-22T12:00:00.000Z",
+  );
+  assert.equal(repriced.updatedCount, 2);
+  assert.deepEqual(delivered, ["2"]);
+
+  // Hours before it, 3 is discovered and rejected by the same filter.
+  await crawl(
+    listing(
+      ["3", posted[3], "320000"],
+      ["2", posted[2], "300000"],
+      ["1", posted[1], "310000"],
+    ),
+    "2026-07-24T12:00:00.000Z",
+  );
+  assert.ok(defaultDeliveries(state).filtered["3"]);
+
+  // The widened filter now admits all three. Only 3 is recent enough to send:
+  // 1 and 2 were posted and last changed by List.am days ago, so their stale
+  // updates must not turn a filter edit into a backlog delivery.
+  filters = { ...emptyFilters(), price: { min: null, max: 400_000 } };
+  const widened = await crawl(
+    listing(
+      ["3", posted[3], "320000"],
+      ["2", posted[2], "300000"],
+      ["1", posted[1], "310000"],
+    ),
+    "2026-07-24T12:05:00.000Z",
+  );
+  assert.deepEqual(delivered, ["2", "3"]);
+  assert.equal(widened.readmittedCount, 1);
+  assert.equal(defaultDeliveries(state).filtered["3"], undefined);
+  assert.ok(defaultDeliveries(state).filtered["1"]);
+
+  // A fresh List.am change releases the older rejected apartment after all.
+  const renewed = await crawl(
+    listing(["3", posted[3], "320000"], ["1", posted[1], "330000"]),
+    "2026-07-24T12:10:00.000Z",
+  );
+  assert.equal(renewed.updatedCount, 1);
+  assert.equal(renewed.readmittedCount, 1);
+  assert.deepEqual(delivered, ["2", "3", "1"]);
+  assert.ok(defaultDeliveries(state).notified["1"]);
+  // The delivered apartment carrying only a stale update stays quiet.
+  assert.equal(
+    defaultDeliveries(state).notified["2"],
+    "2026-07-21T12:00:00.000Z",
+  );
+});
+
 test("one crawl maintains independent delivery histories for multiple users", async () => {
   const state = memoryState();
   const delivered = { 42: [], 99: [] };

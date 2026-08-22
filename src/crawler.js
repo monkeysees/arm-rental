@@ -16,6 +16,10 @@ import {
 import { pageUrl } from "./target.js";
 import { postingDateSortValue } from "./posting-date.js";
 import {
+  postedWithinSourceActivityWindow,
+  withinSourceActivityWindow,
+} from "./source-activity.js";
+import {
   parseAndEvaluateRegularApartments,
   sourceIntegrityPageSummary,
 } from "./source-integrity.js";
@@ -384,6 +388,9 @@ export async function crawlApartments(
   let skippedCount = 0;
   let filteredCount = 0;
   let readmittedCount = 0;
+  // Delivery measures source activity against the instant this crawl read
+  // List.am, so every recipient in the fan-out applies the same window.
+  const sourceActivityReference = Date.parse(checkedAt);
   const privateDelivery = async () => {
     if (deliveryTargets.length === 0) return;
     const deliveryState = normalizedDeliveryState(
@@ -450,12 +457,27 @@ export async function crawlApartments(
         );
       }
 
+      // A rejected apartment starts matching only when the user edits their
+      // filters or List.am changes the card. Recent source activity is what
+      // separates the two: the ad was posted inside the window, or its data
+      // changed inside the window after the rejection. Everything older stays
+      // filtered until List.am touches it again, so a filter edit delivers the
+      // last day rather than the entire rejected history.
       const readmittedIds = apartmentOrder.filter((itemId) => {
         const filteredAt = recipient.filtered[itemId];
+        if (!filteredAt) return false;
+        const apartment = apartments[itemId];
+        if (!apartmentMatchesFilters(apartment, recipientFilters)) return false;
         return (
-          filteredAt &&
-          hasApartmentUpdateAfter(apartments[itemId], filteredAt) &&
-          apartmentMatchesFilters(apartments[itemId], recipientFilters)
+          postedWithinSourceActivityWindow(
+            apartment,
+            sourceActivityReference,
+          ) ||
+          (hasApartmentUpdateAfter(apartment, filteredAt) &&
+            withinSourceActivityWindow(
+              apartment.updatedAt,
+              sourceActivityReference,
+            ))
         );
       });
       if (readmittedIds.length > 0) {
@@ -502,8 +524,16 @@ export async function crawlApartments(
         .filter((itemId) => {
           const deliveredAt = recipient.notified[itemId];
           if (deliveredAt) {
+            // The same bound guards redelivery: a stale update that only
+            // becomes a match because the user widened a filter is history,
+            // not news. A genuine change is always observed by the crawl that
+            // records it, so it is inside the window when it matters.
             return (
               hasApartmentUpdateAfter(apartments[itemId], deliveredAt) &&
+              withinSourceActivityWindow(
+                apartments[itemId].updatedAt,
+                sourceActivityReference,
+              ) &&
               apartmentMatchesFilters(apartments[itemId], recipientFilters)
             );
           }

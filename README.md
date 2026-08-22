@@ -29,9 +29,16 @@ When no delivery history exists, all discovered apartments are stored but only
 the latest `INITIAL_DELIVERY_LIMIT` matching apartments are sent. The default
 is 100. Before monitoring starts, each user chooses whether to receive that
 initial selection or begin with new listings only. Older matching apartments
-are marked as skipped and non-matching ones as filtered. Filter changes alone
-do not release either historical group, but a later source update that makes a
-filtered apartment match is delivered.
+are marked as skipped and non-matching ones as filtered. Filter changes never
+release the skipped group.
+
+Changing a filter releases only the last day of List.am activity from the
+filtered group: a previously filtered apartment is delivered when it now
+matches and List.am either posted it or changed its data within the last 24
+hours. Anything older stays filtered until its next List.am update makes it
+match again, so widening a filter cannot deliver a backlog of historical ads.
+The same bound applies to redelivering an already sent apartment: only a
+change List.am made within that window is sent again.
 
 ## Requirements
 
@@ -145,18 +152,19 @@ conflicting selectors stop startup with an error.
 
 Channel posts reuse the private apartment message, including the original source
 price, then append Russian hashtags for region, locality, the canonical AMD
-50,000-dram price band, and rooms. Channel filter changes apply only to
-apartments not yet classified; they do not release historical listings by
-themselves. A filtered listing is admitted when a later source update makes it
-match, and an initially skipped listing is admitted if a later crawl encounters
-it again while it still matches the channel filter.
+50,000-dram price band, and rooms. The channel applies the same last-day bound
+as private delivery: a filtered listing is admitted when it matches and List.am
+either posted it or changed it within the last 24 hours, and an initially
+skipped listing is admitted when a crawl within that window encounters it again
+while it still matches. Changing the channel filters therefore posts at most the
+current day; older listings stay classified until List.am touches them again.
 
 On the first compatible run, every stored apartment is classified atomically.
 Only the latest `INITIAL_DELIVERY_LIMIT` matches are posted, oldest first.
 Changing the channel username starts a fresh classification for that channel.
 Successful channel message IDs and content hashes are saved immediately. Later
-encounters publish initially skipped matches, while changes to already
-published cards edit the saved message in place. A deleted channel message is
+encounters within the same window publish initially skipped matches, while
+changes to already published cards edit the saved message in place. A deleted channel message is
 posted again and its saved message ID is replaced.
 
 Telegram does not provide an idempotency key for `sendMessage`. There is a small

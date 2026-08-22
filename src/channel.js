@@ -9,6 +9,10 @@ import {
   regionLocationId,
 } from "./filters.js";
 import { amdPriceAmount } from "./prices.js";
+import {
+  postedWithinSourceActivityWindow,
+  withinSourceActivityWindow,
+} from "./source-activity.js";
 import { formatApartmentMessage } from "./telegram.js";
 
 const CHANNEL_STATE_VERSION = 1;
@@ -409,6 +413,9 @@ export async function publishChannelApartments(
     // The whole initial admission decision is durable before the first send.
     await stateStore.save(state);
   } else {
+    // Every re-admission in this publication measures List.am activity against
+    // the same instant.
+    const sourceActivityReference = now().getTime();
     if (state.filterFingerprint !== fingerprint) {
       onFilterFingerprintChange({
         channelId: config.telegramChannelId,
@@ -419,21 +426,37 @@ export async function publishChannelApartments(
       await stateStore.save(state);
     }
 
+    // Classification records source activity in flags that never expire, so a
+    // changed filter fingerprint would otherwise release every apartment
+    // List.am has ever touched since it was set aside. Re-admission therefore
+    // also requires that activity to be current: an encounter or update inside
+    // the window, or a card List.am posted inside it. Older history keeps its
+    // status until List.am touches it again.
     const readmitted = apartmentOrder.flatMap((itemId) => {
       const entry = state.apartments[itemId];
       const apartment = apartments[itemId];
       if (!apartmentMatchesFilters(apartment, config.channelFilters)) return [];
       if (
         entry?.status === "skipped_initial" &&
-        encounteredAfterClassification(apartment, entry)
+        encounteredAfterClassification(apartment, entry) &&
+        withinSourceActivityWindow(
+          apartment.lastSeenAt,
+          sourceActivityReference,
+        )
       ) {
         return [{ itemId, reason: "reencountered" }];
       }
+      if (entry?.status !== "filtered") return [];
       if (
-        entry?.status === "filtered" &&
-        updatedAfterClassification(apartment, entry)
+        updatedAfterClassification(apartment, entry) &&
+        withinSourceActivityWindow(apartment.updatedAt, sourceActivityReference)
       ) {
         return [{ itemId, reason: "updated_match" }];
+      }
+      if (
+        postedWithinSourceActivityWindow(apartment, sourceActivityReference)
+      ) {
+        return [{ itemId, reason: "recent_match" }];
       }
       return [];
     });

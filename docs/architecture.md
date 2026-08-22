@@ -914,12 +914,22 @@ operator procedures are indexed in
    user delivery history either the latest matching `INITIAL_DELIVERY_LIMIT`
    are selected or, when that user declined the initial selection, all
    existing matches are atomically marked `skipped_initial`. The default limit
-   is 100. A filtered apartment whose source `updatedAt` advances
-   beyond its rejection timestamp is durably re-admitted when its updated data
-   matches the user's current filters; filter changes alone do not release old
-   history. A previously delivered apartment similarly becomes pending again
-   when its source `updatedAt` is later than that user's last successful
-   notification and it still matches. Source order is reversed so selected
+   is 100. Re-admission and redelivery are bounded to the last day of List.am
+   activity, measured against the instant the crawl read the source
+   (`SOURCE_ACTIVITY_WINDOW_MS` in `src/source-activity.js`). A filtered apartment is
+   durably re-admitted when it matches the user's current filters and either
+   its displayed posting date falls inside that window, or its source
+   `updatedAt` advances beyond its rejection timestamp and also falls inside
+   it. A previously delivered apartment similarly becomes pending again when
+   its source `updatedAt` is later than that user's last successful
+   notification, lies inside the window, and it still matches. A filtered
+   apartment only starts matching because the user edited a filter or List.am
+   changed the card, so the window is what keeps a filter edit delivering the
+   current day instead of the entire rejected history; older history waits for
+   its next List.am update. Posting dates carry no time zone and are compared
+   as UTC calendar components, so the day-wide window absorbs the source's
+   offset, and cards with an unparsable date fall back to `firstSeenAt`.
+   Skipped history is never released. Source order is reversed so selected
    messages are delivered oldest first, then acknowledged one at a time. Each
    private recipient has a process-local token bucket with a fixed burst of five
    apartment messages and continuous refill at the configured per-minute rate.
@@ -936,13 +946,20 @@ operator procedures are indexed in
     the latest matching `INITIAL_DELIVERY_LIMIT` become `pending`, older matches
     become `skipped_initial`, and non-matches become `filtered`. Pending posts
     are sent oldest first. Later unseen IDs are admitted as `pending` or
-    `filtered`. A filtered apartment whose source `updatedAt` advances beyond
-    its classification time is durably re-admitted as `pending` when its new
-    data matches. An initially skipped match whose `lastSeenAt` advances beyond
-    its channel classification time is also durably re-admitted; this lets a
-    renewed historical ad publish without releasing the untouched backlog. A
-    changed filter fingerprint is logged without reclassifying history by
-    itself.
+    `filtered`. Re-admission applies the same
+    `SOURCE_ACTIVITY_WINDOW_MS` bound as private delivery, measured against the
+    publisher's own clock. A filtered apartment is durably re-admitted as
+    `pending` when its data matches and either its source `updatedAt` advances
+    beyond its classification time and lies inside the window
+    (`updated_match`), or List.am posted it inside the window
+    (`recent_match`). An initially skipped match whose `lastSeenAt` advances
+    beyond its channel classification time and lies inside the window is also
+    durably re-admitted (`reencountered`); this lets a renewed historical ad
+    publish without releasing the untouched backlog. Classification flags never
+    expire on their own, so the window is also what stops a changed filter
+    fingerprint from publishing everything List.am has touched since
+    classification: the fingerprint change is logged, and only the current day
+    of source activity is released.
 11. Published channel entries retain Telegram message IDs and SHA-256 hashes of
     the complete rendered message. A changed hash within three days of channel
     publication triggers `editMessageText`; once the post is strictly older

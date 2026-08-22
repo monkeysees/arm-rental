@@ -324,6 +324,66 @@ test("a later encounter posts an initial skip and edits an existing post in plac
   );
 });
 
+test("a stale re-encounter leaves an initial skip untouched until List.am returns", async () => {
+  const storage = memoryState();
+  const skipped = () => apartment("1", { date: "Среда, Июль 22, 2026, 11:00" });
+  const source = (lastSeenAt) =>
+    apartmentState(
+      {
+        ...apartment("2", { date: "Среда, Июль 22, 2026, 11:30" }),
+        lastSeenAt: "2026-07-22T12:00:00.000Z",
+      },
+      { ...skipped(), lastSeenAt },
+    );
+
+  await publishChannelApartments(
+    channelConfig({ initialDeliveryLimit: 1 }),
+    source("2026-07-22T12:00:00.000Z"),
+    {
+      ...storage,
+      api: { sendMessage: async () => ({ message_id: 30 }) },
+      now: () => new Date("2026-07-22T12:00:00Z"),
+    },
+  );
+  assert.equal(storage.value.apartments["1"].status, "skipped_initial");
+
+  // List.am last showed the card a minute after it was set aside, and nothing
+  // has touched it in the two days since. That expired encounter must not
+  // publish the backlog on every later crawl.
+  const sent = [];
+  const stale = await publishChannelApartments(
+    channelConfig({ initialDeliveryLimit: 1 }),
+    source("2026-07-22T12:01:00.000Z"),
+    {
+      ...storage,
+      api: {
+        sendMessage: async () => {
+          sent.push("published");
+          return { message_id: 31 };
+        },
+      },
+      now: () => new Date("2026-07-24T12:00:00Z"),
+    },
+  );
+  assert.deepEqual(sent, []);
+  assert.equal(stale.readmittedCount, 0);
+  assert.equal(storage.value.apartments["1"].status, "skipped_initial");
+
+  // A renewal List.am shows again is still published, so the bound delays the
+  // backlog instead of stranding it.
+  const renewed = await publishChannelApartments(
+    channelConfig({ initialDeliveryLimit: 1 }),
+    source("2026-07-24T11:59:00.000Z"),
+    {
+      ...storage,
+      api: { sendMessage: async () => ({ message_id: 32 }) },
+      now: () => new Date("2026-07-24T12:01:00Z"),
+    },
+  );
+  assert.equal(renewed.readmittedCount, 1);
+  assert.equal(storage.value.apartments["1"].status, "published");
+});
+
 test("partial channel sends resume pending posts without reselection or duplicates", async () => {
   const storage = memoryState();
   const source = apartmentState(apartment("2"), apartment("1"));
@@ -360,7 +420,7 @@ test("partial channel sends resume pending posts without reselection or duplicat
   assert.equal(storage.value.apartments["1"].messageId, 21);
 });
 
-test("channel filter changes affect only newly classified apartments", async () => {
+test("channel filter changes release only the last day of source activity", async () => {
   const restrictive = channelConfig({
     channelFilters: {
       ...emptyFilters(),
@@ -370,10 +430,15 @@ test("channel filter changes affect only newly classified apartments", async () 
   });
   const storage = memoryState();
   const filterChanges = [];
+  const stale = apartment("3", {
+    amountAmd: 100_000,
+    date: "Вторник, Июль 21, 2026, 10:00",
+  });
+  stale.firstSeenAt = "2026-07-21T10:00:00.000Z";
 
   await publishChannelApartments(
     restrictive,
-    apartmentState(apartment("1", { amountAmd: 100_000 })),
+    apartmentState(apartment("1", { amountAmd: 100_000 }), stale),
     {
       ...storage,
       api: {
@@ -385,13 +450,19 @@ test("channel filter changes affect only newly classified apartments", async () 
     },
   );
   assert.equal(storage.value.apartments["1"].status, "filtered");
+  assert.equal(storage.value.apartments["3"].status, "filtered");
 
+  // The widened fingerprint admits all three. Apartment 3 was posted days ago
+  // and List.am has not touched it since, so the filter change alone must not
+  // publish it.
   const sent = [];
+  const operations = [];
   await publishChannelApartments(
     channelConfig({ channelFilters: emptyFilters() }),
     apartmentState(
       apartment("2", { amountAmd: 100_000 }),
       apartment("1", { amountAmd: 100_000 }),
+      stale,
     ),
     {
       ...storage,
@@ -402,14 +473,22 @@ test("channel filter changes affect only newly classified apartments", async () 
         },
       },
       onFilterFingerprintChange: (event) => filterChanges.push(event),
+      onOperation: (event) => operations.push(event),
       now: () => new Date("2026-07-24T12:01:00Z"),
     },
   );
 
-  assert.deepEqual(sent, ["Apartment 2"]);
-  assert.equal(storage.value.apartments["1"].status, "filtered");
+  assert.deepEqual(sent, ["Apartment 1", "Apartment 2"]);
+  assert.equal(storage.value.apartments["1"].status, "published");
   assert.equal(storage.value.apartments["2"].status, "published");
+  assert.equal(storage.value.apartments["3"].status, "filtered");
   assert.equal(filterChanges.length, 1);
+  assert.deepEqual(
+    operations
+      .filter(({ operation }) => operation === "readmit")
+      .map(({ itemId, reason }) => ({ itemId, reason })),
+    [{ itemId: "1", reason: "recent_match" }],
+  );
 });
 
 test("an updated filtered apartment is durably readmitted to the channel when it now matches", async () => {

@@ -1,6 +1,7 @@
 import { setTimeout as delay } from "node:timers/promises";
 
 import { originalPrice } from "./prices.js";
+import { propertyKindOf, propertyKindTitle } from "./property-kind.js";
 import {
   ExponentialBackoff,
   isExpectedExternalFailure,
@@ -228,7 +229,8 @@ export function formatApartmentMessage(apartment) {
       : "не указана";
 
   return [
-    apartment.title || `Квартира ${apartment.itemId}`,
+    apartment.title ||
+      `${propertyKindTitle(propertyKindOf(apartment))} ${apartment.itemId}`,
     `Цена: ${price}`,
     `Местоположение: ${apartment.location || "не указано"}`,
     `Количество комнат: ${apartment.rooms ?? "не указано"}`,

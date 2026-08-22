@@ -48,14 +48,17 @@ function apartmentState(
   },
 ) {
   return {
-    version: 3,
+    version: 4,
     type: "list-am-apartments",
     urlTemplate: LIST_URL,
     checkedAt: TIME,
     lastCrawl: { initialRun: true, pagesParsed: 1 },
     apartments,
     apartmentOrder: Object.keys(apartments),
-    sourceIntegrity: { recentFirstPageCounts: [2], lastSuccessfulAt: TIME },
+    sourceIntegrity: {
+      recentFirstPageCounts: { apartment: [2] },
+      lastSuccessfulAt: TIME,
+    },
   };
 }
 
@@ -114,7 +117,7 @@ test("SQLite lifecycle creates a secured, bound schema and reopens it", (t) => {
       .prepare("SELECT version FROM schema_migrations")
       .all()
       .map(({ version }) => version),
-    [1],
+    [1, 2],
   );
   assert.equal(database.validate({ full: true }), true);
 
@@ -218,7 +221,7 @@ test("transaction helper rolls back synchronously and emits sanitized bounded me
     durationMs: metrics.at(-1).durationMs,
     databaseBytes: metrics.at(-1).databaseBytes,
     walBytes: metrics.at(-1).walBytes,
-    schemaVersion: 1,
+    schemaVersion: SQLITE_SCHEMA_VERSION,
     outcome: "failed",
     errorCode: "ERR_STATE_DATABASE_CONSTRAINT",
   });
@@ -226,6 +229,87 @@ test("transaction helper rolls back synchronously and emits sanitized bounded me
 
   assert.throws(() => database.transaction("async_forbidden", async () => {}), {
     code: "ERR_STATE_DATABASE_OPERATION",
+  });
+});
+
+/**
+ * Rewinds a database to the schema this bot shipped before it crawled houses,
+ * with rows written exactly as that release wrote them: listings and filters
+ * that never named a housing kind, and one flat first-page history.
+ */
+function seedPreHousesInstallation(directory) {
+  const database = openDatabase(directory);
+  const connection = database.connection;
+  connection
+    .prepare("INSERT INTO apartments(item_id, payload_json) VALUES (?, ?)")
+    .run(
+      "10",
+      JSON.stringify({
+        itemId: "10",
+        title: "First",
+        firstSeenAt: TIME,
+        lastSeenAt: TIME,
+      }),
+    );
+  connection
+    .prepare(
+      `INSERT INTO crawl_state(
+        singleton, checked_at, last_crawl_json, apartment_order_json, source_integrity_json
+      ) VALUES (1, ?, ?, ?, ?)`,
+    )
+    .run(
+      TIME,
+      JSON.stringify({ initialRun: true, pagesParsed: 1 }),
+      JSON.stringify(["10"]),
+      JSON.stringify({
+        recentFirstPageCounts: [20, 19],
+        lastSuccessfulAt: TIME,
+      }),
+    );
+  connection
+    .prepare(
+      `INSERT INTO telegram_users(
+        chat_id, active, send_initial_apartments, filters_json, pending_filter_input, deletion_pending_at
+      ) VALUES (42, 1, 1, ?, NULL, NULL)`,
+    )
+    .run(
+      JSON.stringify({
+        price: { min: null, max: 250_000 },
+        rooms: { min: null, max: null },
+        locations: [],
+      }),
+    );
+  connection.exec("DELETE FROM schema_migrations WHERE version = 2");
+  connection.exec("PRAGMA user_version = 1");
+  database.close({ checkpoint: false });
+}
+
+test("the housing-kind backfill converts an installation created before houses", (t) => {
+  const directory = temporaryDirectory(t);
+  seedPreHousesInstallation(directory);
+
+  const database = openDatabase(directory, { create: false });
+  t.after(() => database.close({ checkpoint: false }));
+  assert.equal(
+    database.prepare("PRAGMA user_version").get().user_version,
+    SQLITE_SCHEMA_VERSION,
+  );
+
+  const repositories = createSqliteRepositories(database, {
+    listUrlTemplate: LIST_URL,
+    channelId: CHANNEL_ID,
+  });
+  const apartments = repositories.apartments.load();
+  assert.equal(apartments.apartments["10"].kind, "apartment");
+  assert.deepEqual(apartments.sourceIntegrity, {
+    recentFirstPageCounts: { apartment: [20, 19] },
+    lastSuccessfulAt: TIME,
+  });
+  assert.deepEqual(repositories.telegram.load().users[42].filters, {
+    kinds: ["apartment"],
+    price: { min: null, max: 250_000 },
+    rooms: { min: null, max: null },
+    locations: [],
   });
 });
 

@@ -14,9 +14,11 @@ import {
   HISTORY_DECLINED_TEXT,
   historyOfferMenu,
   initialDeliveryMenu,
+  kindsMenu,
   locationsMenu,
   regionMenu,
   resetFilters,
+  toggleKind,
   togglePlace,
   toggleWholeRegion,
 } from "./filter-ui.js";
@@ -25,6 +27,7 @@ import {
   normalizeFilters,
   parseRangeInput,
 } from "./filters.js";
+import { isPropertyKind } from "./property-kind.js";
 import {
   formatApartmentMessage,
   isMainMenuCommand,
@@ -66,12 +69,27 @@ function validDeletionTimestamp(value) {
   return !Number.isNaN(parsed.valueOf()) && parsed.toISOString() === value;
 }
 
+function sameOrder(values, expected) {
+  return (
+    values.length === expected.length &&
+    values.every((value, index) => value === expected[index])
+  );
+}
+
+/**
+ * Stored filters are accepted only in the exact shape this release writes.
+ *
+ * Housing kinds arrived after the first releases, so a stored filter may still
+ * omit them; that record predates houses and means the apartments it has
+ * always meant. Anything present, though, must already be normalized.
+ */
 function compatibleFilters(filters) {
   if (!plainObject(filters)) return false;
   if (
     !plainObject(filters.price) ||
     !plainObject(filters.rooms) ||
-    !Array.isArray(filters.locations)
+    !Array.isArray(filters.locations) ||
+    (filters.kinds !== undefined && !Array.isArray(filters.kinds))
   ) {
     return false;
   }
@@ -79,7 +97,8 @@ function compatibleFilters(filters) {
   const exactKeys = (value, keys) =>
     Object.keys(value).sort().join(",") === [...keys].sort().join(",");
   return (
-    exactKeys(filters, ["price", "rooms", "locations"]) &&
+    (exactKeys(filters, ["price", "rooms", "locations"]) ||
+      exactKeys(filters, ["kinds", "price", "rooms", "locations"])) &&
     exactKeys(filters.price, ["min", "max"]) &&
     exactKeys(filters.rooms, ["min", "max"]) &&
     ["min", "max"].every(
@@ -87,10 +106,9 @@ function compatibleFilters(filters) {
         filters.price[key] === normalized.price[key] &&
         filters.rooms[key] === normalized.rooms[key],
     ) &&
-    filters.locations.length === normalized.locations.length &&
-    filters.locations.every(
-      (value, index) => value === normalized.locations[index],
-    )
+    (filters.kinds === undefined ||
+      sameOrder(filters.kinds, normalized.kinds)) &&
+    sameOrder(filters.locations, normalized.locations)
   );
 }
 
@@ -418,6 +436,31 @@ async function processFilterCallback(query, state, actions) {
       chatId,
       messageId,
       locationsMenu(current.filters),
+      actions,
+    );
+    return current;
+  }
+  if (action === "kinds") {
+    await saveAndShowFilterView(
+      current,
+      chatId,
+      messageId,
+      kindsMenu(current.filters),
+      actions,
+    );
+    return current;
+  }
+  if (action === "kind") {
+    // An unknown kind can only come from a stale keyboard; redrawing the menu
+    // shows the user what this release actually offers.
+    if (isPropertyKind(parts[2])) {
+      current = { ...current, filters: toggleKind(current.filters, parts[2]) };
+    }
+    await saveAndShowFilterView(
+      current,
+      chatId,
+      messageId,
+      kindsMenu(current.filters),
       actions,
     );
     return current;

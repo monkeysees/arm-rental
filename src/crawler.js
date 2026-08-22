@@ -13,6 +13,7 @@ import {
   normalizeApartmentPrice,
   originalPrice,
 } from "./prices.js";
+import { APARTMENT, propertyKindOf } from "./property-kind.js";
 import { pageUrl } from "./target.js";
 import { postingDateSortValue } from "./posting-date.js";
 import {
@@ -162,6 +163,29 @@ function hasApartmentUpdateAfter(apartment, timestamp) {
   );
 }
 
+/**
+ * The List.am categories this crawl reads.
+ *
+ * Configuration names them. A caller carrying only the single template this
+ * bot was built around keeps crawling exactly that one category, which is the
+ * apartment listing the template has always pointed at.
+ */
+function configuredListSources(config) {
+  if (config.listSources?.length) return config.listSources;
+  return [{ kind: APARTMENT, urlTemplate: config.listUrlTemplate }];
+}
+
+/** Keeps each category's first-page history bounded and separate. */
+function appendedFirstPageCounts(priorCounts, observedCounts) {
+  const counts = { ...priorCounts };
+  for (const [kind, parsedCount] of Object.entries(observedCounts)) {
+    counts[kind] = [...(counts[kind] || []), parsedCount].slice(
+      -SOURCE_INTEGRITY_HISTORY_LIMIT,
+    );
+  }
+  return counts;
+}
+
 export async function crawlApartments(
   config,
   {
@@ -202,12 +226,16 @@ export async function crawlApartments(
     error.code = "ERR_STATE_INCOMPATIBLE";
     throw error;
   }
+  const listSources = configuredListSources(config);
+  // A stored record written before houses existed carries no kind; it was an
+  // apartment, and saying so here keeps every later comparison total.
   const previousApartments = apartmentState
     ? Object.fromEntries(
         Object.entries(apartmentState.apartments).map(([itemId, apartment]) => [
           itemId,
           {
             ...apartment,
+            kind: propertyKindOf(apartment),
             price: normalizeApartmentPrice(apartment.price, exchangeRates),
           },
         ]),
@@ -215,88 +243,117 @@ export async function crawlApartments(
     : {};
   const previousOrder = apartmentState?.apartmentOrder || [];
   const priorFirstPageCounts =
-    apartmentState?.sourceIntegrity.recentFirstPageCounts || [];
+    apartmentState?.sourceIntegrity.recentFirstPageCounts || {};
   const initialRun = Object.keys(previousApartments).length === 0;
-  const lastKnownPostingDate = latestKnownPostingDate(previousApartments);
   const discovered = [];
   const observedKnown = new Map();
+  // Identity is global: the same List.am item is recorded once even in the
+  // improbable case that both categories list it.
   const encounteredIdSet = new Set();
   const encounteredOrder = [];
-  const pageSignatures = new Set();
-  let pagesParsed = 0;
-  let stoppedAtKnownDate = null;
-  let exhausted = false;
-  let firstPageParsedCount;
+  const encounteredPostingDates = new Map();
+  const firstPageParsedCounts = {};
   const sourceIntegrityChecks = [];
+  const sourceSummaries = [];
+  let pagesParsed = 0;
 
-  pageLoop: for (let page = 1; ; page += 1) {
-    if (
-      (initialRun || lastKnownPostingDate.value === null) &&
-      page > config.initialPageCount
-    ) {
-      break;
-    }
-
-    const html = await fetchHtml(
-      pageUrl(page, config.listUrlTemplate),
-      fetchPage,
+  // Each category is its own newest-first stream: it keeps its own date
+  // watermark, its own pagination, and its own first-run page budget, so a
+  // category added to an existing installation starts from scratch while the
+  // established one keeps crawling incrementally.
+  for (const { kind, urlTemplate } of listSources) {
+    const knownOfKind = Object.values(previousApartments).filter(
+      (apartment) => apartment.kind === kind,
     );
-    const diagnostics = parseAndEvaluateRegularApartments(html, {
-      page,
-      priorFirstPageCounts,
-    });
-    const { apartments } = diagnostics;
-    sourceIntegrityChecks.push(sourceIntegrityPageSummary(diagnostics, page));
-    if (page === 1) firstPageParsedCount = diagnostics.parsedCount;
-    pagesParsed += 1;
+    const kindInitialRun = knownOfKind.length === 0;
+    const lastKnownPostingDate = latestKnownPostingDate(knownOfKind);
+    const pageSignatures = new Set();
+    let kindPagesParsed = 0;
+    let stoppedAtKnownDate = null;
+    let exhausted = false;
 
-    if (apartments.length === 0) {
-      exhausted = true;
-      break;
-    }
-
-    const signature = apartments.map(({ itemId }) => itemId).join(",");
-    if (pageSignatures.has(signature)) {
-      exhausted = true;
-      break;
-    }
-    pageSignatures.add(signature);
-
-    for (const apartment of apartments) {
-      const postingDateValue = postingDateSortValue(apartment.date);
-      const knownApartment = Object.hasOwn(
-        previousApartments,
-        apartment.itemId,
-      );
+    pageLoop: for (let page = 1; ; page += 1) {
       if (
-        !initialRun &&
-        lastKnownPostingDate.value !== null &&
-        postingDateValue !== null &&
-        postingDateValue < lastKnownPostingDate.value
+        (kindInitialRun || lastKnownPostingDate.value === null) &&
+        page > config.initialPageCount
       ) {
-        // A renewed known ad can retain its old displayed date while moving
-        // back into the newest results. Record that encounter before applying
-        // the date watermark so delivery can re-admit an initially skipped ad.
-        if (!encounteredIdSet.has(apartment.itemId) && knownApartment) {
-          encounteredIdSet.add(apartment.itemId);
-          encounteredOrder.push(apartment.itemId);
-          observedKnown.set(apartment.itemId, apartment);
-        }
-        stoppedAtKnownDate = lastKnownPostingDate.date;
-        break pageLoop;
+        break;
       }
-      if (encounteredIdSet.has(apartment.itemId)) continue;
-      encounteredIdSet.add(apartment.itemId);
-      encounteredOrder.push(apartment.itemId);
-      if (knownApartment) {
-        observedKnown.set(apartment.itemId, apartment);
-        continue;
-      }
-      discovered.push({
-        ...apartment,
-        price: normalizeApartmentPrice(apartment.price, exchangeRates),
+
+      const html = await fetchHtml(pageUrl(page, urlTemplate), fetchPage);
+      const diagnostics = parseAndEvaluateRegularApartments(html, {
+        page,
+        kind,
+        priorFirstPageCounts: priorFirstPageCounts[kind] || [],
       });
+      const { apartments } = diagnostics;
+      sourceIntegrityChecks.push(
+        sourceIntegrityPageSummary(diagnostics, page, kind),
+      );
+      if (page === 1) firstPageParsedCounts[kind] = diagnostics.parsedCount;
+      kindPagesParsed += 1;
+      pagesParsed += 1;
+
+      if (apartments.length === 0) {
+        exhausted = true;
+        break;
+      }
+
+      const signature = apartments.map(({ itemId }) => itemId).join(",");
+      if (pageSignatures.has(signature)) {
+        exhausted = true;
+        break;
+      }
+      pageSignatures.add(signature);
+
+      for (const parsed of apartments) {
+        const apartment = { ...parsed, kind };
+        const postingDateValue = postingDateSortValue(apartment.date);
+        const knownApartment = Object.hasOwn(
+          previousApartments,
+          apartment.itemId,
+        );
+        if (
+          !kindInitialRun &&
+          lastKnownPostingDate.value !== null &&
+          postingDateValue !== null &&
+          postingDateValue < lastKnownPostingDate.value
+        ) {
+          // A renewed known ad can retain its old displayed date while moving
+          // back into the newest results. Record that encounter before applying
+          // the date watermark so delivery can re-admit an initially skipped ad.
+          if (!encounteredIdSet.has(apartment.itemId) && knownApartment) {
+            encounteredIdSet.add(apartment.itemId);
+            encounteredOrder.push(apartment.itemId);
+            encounteredPostingDates.set(apartment.itemId, postingDateValue);
+            observedKnown.set(apartment.itemId, apartment);
+          }
+          stoppedAtKnownDate = lastKnownPostingDate.date;
+          break pageLoop;
+        }
+        if (encounteredIdSet.has(apartment.itemId)) continue;
+        encounteredIdSet.add(apartment.itemId);
+        encounteredOrder.push(apartment.itemId);
+        encounteredPostingDates.set(apartment.itemId, postingDateValue);
+        if (knownApartment) {
+          observedKnown.set(apartment.itemId, apartment);
+          continue;
+        }
+        discovered.push({
+          ...apartment,
+          price: normalizeApartmentPrice(apartment.price, exchangeRates),
+        });
+      }
     }
+
+    sourceSummaries.push({
+      kind,
+      initialRun: kindInitialRun,
+      pagesParsed: kindPagesParsed,
+      lastKnownDate: lastKnownPostingDate.date,
+      stoppedAtKnownDate,
+      exhausted,
+    });
   }
 
   // All fetched pages have passed before source health recovers. This occurs
@@ -338,7 +395,26 @@ export async function crawlApartments(
       lastSeenAt: checkedAt,
     };
   }
-  const orderedIds = new Set(encounteredOrder);
+  // Each category is read newest-first, but they are read one after another,
+  // so their encounters are merged back into one newest-first sequence. Every
+  // later decision — history selection, channel publication, and the ascending
+  // delivery that reverses this order — reads it as one stream rather than as
+  // one category after another. Cards whose displayed date cannot be read keep
+  // their source order behind the dated ones.
+  const mergedEncounterOrder = encounteredOrder
+    .map((itemId, index) => ({
+      itemId,
+      index,
+      postedAt: encounteredPostingDates.get(itemId) ?? null,
+    }))
+    .sort((left, right) => {
+      if (left.postedAt === right.postedAt) return left.index - right.index;
+      if (left.postedAt === null) return 1;
+      if (right.postedAt === null) return -1;
+      return right.postedAt - left.postedAt;
+    })
+    .map(({ itemId }) => itemId);
+  const orderedIds = new Set(mergedEncounterOrder);
   const takeUnorderedId = (itemId) => {
     if (!Object.hasOwn(apartments, itemId) || orderedIds.has(itemId)) {
       return false;
@@ -349,7 +425,7 @@ export async function crawlApartments(
   const retainedOrder = previousOrder.filter(takeUnorderedId);
   const missingFromOrder = Object.keys(apartments).filter(takeUnorderedId);
   const apartmentOrder = [
-    ...encounteredOrder,
+    ...mergedEncounterOrder,
     ...retainedOrder,
     ...missingFromOrder,
   ];
@@ -364,17 +440,15 @@ export async function crawlApartments(
       pagesParsed,
       discoveredCount: discovered.length,
       updatedCount: updated.length,
-      lastKnownDate: lastKnownPostingDate.date,
-      stoppedAtKnownDate,
-      exhausted,
+      sources: sourceSummaries,
     },
     apartments,
     apartmentOrder,
     sourceIntegrity: {
-      recentFirstPageCounts: [
-        ...priorFirstPageCounts,
-        firstPageParsedCount,
-      ].slice(-SOURCE_INTEGRITY_HISTORY_LIMIT),
+      recentFirstPageCounts: appendedFirstPageCounts(
+        priorFirstPageCounts,
+        firstPageParsedCounts,
+      ),
       lastSuccessfulAt: checkedAt,
     },
   };
@@ -661,9 +735,7 @@ export async function crawlApartments(
     filteredCount,
     readmittedCount,
     totalCount: Object.keys(apartments).length,
-    lastKnownDate: lastKnownPostingDate.date,
-    stoppedAtKnownDate,
-    exhausted,
+    sources: sourceSummaries,
     sourceIntegrity: { pages: sourceIntegrityChecks },
   };
 }

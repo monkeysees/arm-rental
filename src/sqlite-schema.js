@@ -1,5 +1,5 @@
 export const SQLITE_APPLICATION_ID = 0x41524d52;
-export const SQLITE_SCHEMA_VERSION = 1;
+export const SQLITE_SCHEMA_VERSION = 2;
 
 const SCHEMA_V1 = `
   CREATE TABLE schema_migrations (
@@ -99,7 +99,40 @@ const SCHEMA_V1 = `
   ) STRICT;
 `;
 
-const MIGRATIONS = [{ version: 1, sql: SCHEMA_V1 }];
+/**
+ * Backfills the housing kind every stored record now carries.
+ *
+ * Apartments were the only category this bot crawled, so every listing already
+ * in the database is one, and every subscription filter meant apartments even
+ * though it never had to say so. Both are made explicit here rather than being
+ * inferred at read time. The crawl's first-page history splits the same way:
+ * one series per category, seeded with what was collected for apartments.
+ */
+const SCHEMA_V2 = `
+  UPDATE apartments
+    SET payload_json = json_set(payload_json, '$.kind', 'apartment')
+    WHERE json_extract(payload_json, '$.kind') IS NULL;
+
+  UPDATE telegram_users
+    SET filters_json = json_set(filters_json, '$.kinds', json_array('apartment'))
+    WHERE json_extract(filters_json, '$.kinds') IS NULL;
+
+  UPDATE crawl_state
+    SET source_integrity_json = json_set(
+      source_integrity_json,
+      '$.recentFirstPageCounts',
+      json_object(
+        'apartment',
+        json(json_extract(source_integrity_json, '$.recentFirstPageCounts'))
+      )
+    )
+    WHERE json_type(source_integrity_json, '$.recentFirstPageCounts') = 'array';
+`;
+
+const MIGRATIONS = [
+  { version: 1, sql: SCHEMA_V1 },
+  { version: 2, sql: SCHEMA_V2 },
+];
 
 function exactIsoTimestamp(value) {
   if (typeof value !== "string") return false;

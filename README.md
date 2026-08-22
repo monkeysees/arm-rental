@@ -1,29 +1,38 @@
 # Rental apartments Telegram bot
 
-A multi-user Telegram bot that discovers long-term apartment rentals from
-List.am and stores normalized apartment records locally. It can also publish
+A multi-user Telegram bot that discovers long-term apartment and house rentals
+from List.am and stores normalized listing records locally. It can also publish
 eligible apartments to a public Telegram channel and keep those posts current
 when List.am card data changes.
 
-Bot replies and apartment notification labels are in Russian. Apartment
-messages retain the price and currency shown by List.am. Internally, all prices
-are converted to Armenian drams using the latest persisted Central Bank of
-Armenia rate, so private price filters are always entered and evaluated in AMD.
+Bot replies and listing notification labels are in Russian. Listing messages
+retain the price and currency shown by List.am. Internally, all prices are
+converted to Armenian drams using the latest persisted Central Bank of Armenia
+rate, so private price filters are always entered and evaluated in AMD.
 
-It monitors:
+It monitors two List.am categories, one per housing kind:
 
 ```text
-https://www.list.am/ru/category/56/{page}?n=0&cmtype=0&crc=0&gl=2&srt=3
+apartment: https://www.list.am/ru/category/56/{page}?n=0&cmtype=0&crc=0&gl=2&srt=3
+house:     https://www.list.am/ru/category/1377/{page}?n=0&cmtype=0&crc=0&gl=2&srt=3
 ```
 
-Only **Regular Ads** are parsed; **Top Ads** are excluded. The first crawl reads
-pages 1 through 10. Every later crawl starts at page 1 and reads through the
-newest posting date already in the database, including every listing from the
-same minute. This prevents a refreshed known ad from hiding newer apartments
-that follow it.
+Every stored listing records the kind of the category it came from, and every
+subscription filter selects apartments, houses, or both. New subscriptions
+follow apartments, which is also what every subscription created before houses
+existed continues to follow; the channel publishes apartments only.
+
+Only **Regular Ads** are parsed; **Top Ads** are excluded. The categories are
+crawled one after another, each with its own pagination and its own date
+watermark. A category with no stored history reads pages 1 through 10 on its
+first crawl. Every later crawl of that category starts at page 1 and reads
+through the newest posting date already stored for it, including every listing
+from the same minute. This prevents a refreshed known ad from hiding newer
+listings that follow it.
 
 Telegram notifications and new channel posts are sent by date ascending:
-earlier apartments first, then later apartments.
+earlier listings first, then later listings. Apartments and houses are merged
+into that single order rather than being sent category by category.
 
 Private delivery makes one promise about time: a user is only ever sent
 apartments List.am posted or changed within the last 24 hours. Everything the
@@ -112,6 +121,8 @@ again.
 
 Every filter is optional:
 
+- housing kind selects **Квартиры**, **Дома**, or both. Apartments are the
+  default, and at least one kind always stays selected;
 - price accepts a closed range (`100000-250000`), an open range (`100000-` or
   `-250000`), or one exact value;
 - rooms use the same range syntax;
@@ -119,7 +130,8 @@ Every filter is optional:
   first, followed by its districts, then the other regions.
 
 Send `нет` or `/clear` while entering a price or room range to remove only
-that restriction. **Сбросить фильтры** removes all filters. A
+that restriction. **Сбросить фильтры** removes all filters and returns the
+housing kind to apartments. A
 whole-region selection matches the region name and all of its listed places;
 choosing an individual place replaces a whole-region selection for that region.
 Every change is persisted and applied immediately; there is no separate save
@@ -145,7 +157,8 @@ The channel crawler runs without any user's `/start` activation. Private
 commands, per-user filters, activation, notifications, and delivery histories remain
 separate. Leaving `TELEGRAM_CHANNEL_ID` blank preserves private-only behavior.
 
-Channel filters are configured only through the environment:
+The channel publishes apartments only; housing kind is not configurable for it.
+Its other filters are configured only through the environment:
 
 ```dotenv
 CHANNEL_FILTER_PRICE_AMD=150000-300000
@@ -209,11 +222,12 @@ The initial crawl can discover many apartments and consequently send many
 Telegram messages. Delivery state is persisted per message and Telegram rate
 limits are respected, so an interruption safely resumes the unsent portion.
 
-## Stored apartment data
+## Stored listing data
 
-`.data/state.sqlite3` stores one normalized apartment payload per row, including:
+`.data/state.sqlite3` stores one normalized listing payload per row, including:
 
 - canonical URL and List.am item ID
+- housing kind (`apartment` or `house`), from the category it was crawled from
 - title
 - canonical price rounded to whole AMD
 - original price amount and ISO currency
@@ -253,7 +267,7 @@ details.
 | `TELEGRAM_STATE_FILE`                    | `.data/telegram-bot.json`                | Post-cutover sentinel path; holds no state                     |
 | `TELEGRAM_POLL_TIMEOUT_SECONDS`          | `25`                                     | Telegram long-poll duration                                    |
 | `POLL_INTERVAL_MS`                       | `60000`                                  | Delay between crawls                                           |
-| `INITIAL_PAGE_COUNT`                     | `10`                                     | Pages parsed with an empty apartment database                  |
+| `INITIAL_PAGE_COUNT`                     | `10`                                     | Pages parsed per List.am category with no stored history       |
 | `INITIAL_DELIVERY_LIMIT`                 | `100`                                    | Latest initial private/channel selection size                  |
 | `TIMEOUT_MS`                             | `30000`                                  | Browser navigation and API timeout                             |
 | `EXTERNAL_RETRY_BASE_MS`                 | `1000`                                   | Initial network/5xx retry delay                                |

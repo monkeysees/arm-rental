@@ -91,18 +91,28 @@ async function fixture(t) {
       channelId: config.telegramChannelId,
     });
     repositories.apartments.importState({
-      version: 3,
+      version: 4,
       type: "list-am-apartments",
       urlTemplate: config.listUrlTemplate,
       checkedAt: TIME,
       lastCrawl: { initialRun: true, pagesParsed: 1 },
       apartments: {
-        100: { itemId: "100", title: "First", firstSeenAt: TIME },
-        101: { itemId: "101", title: "Second", firstSeenAt: TIME },
+        100: {
+          itemId: "100",
+          kind: "apartment",
+          title: "First",
+          firstSeenAt: TIME,
+        },
+        101: {
+          itemId: "101",
+          kind: "house",
+          title: "Second",
+          firstSeenAt: TIME,
+        },
       },
       apartmentOrder: ["100", "101"],
       sourceIntegrity: {
-        recentFirstPageCounts: [20, 19, 20],
+        recentFirstPageCounts: { apartment: [20, 19, 20] },
         lastSuccessfulAt: TIME,
       },
     });

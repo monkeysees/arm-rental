@@ -28,9 +28,10 @@ function aggregateCounts(diagnostics) {
 }
 
 /** Returns the only source-page fields permitted in logs, health, and metrics. */
-export function sourceIntegrityPageSummary(diagnostics, page) {
+export function sourceIntegrityPageSummary(diagnostics, page, kind) {
   return {
     page,
+    ...(kind ? { kind } : {}),
     ...aggregateCounts(diagnostics),
   };
 }
@@ -38,9 +39,11 @@ export function sourceIntegrityPageSummary(diagnostics, page) {
 /** Whitelists a typed failure for operational telemetry. */
 export function sourceIntegrityFailureSummary(error) {
   const details = error?.details || {};
+  const kind = error?.kind ?? details.kind;
   const summary = {
     reason: error?.reason ?? details.reason,
     page: error?.page ?? details.page,
+    ...(kind ? { kind } : {}),
   };
   for (const key of [
     "candidateCount",
@@ -114,15 +117,17 @@ function safeIntegrityContext(value) {
 }
 
 export class ListAmSourceIntegrityError extends Error {
-  constructor(reason, { page, diagnostics, integrityContext } = {}) {
+  constructor(reason, { page, kind, diagnostics, integrityContext } = {}) {
     super(`List.am source integrity check failed: ${reason}`);
     this.name = "ListAmSourceIntegrityError";
     this.code = LIST_AM_SOURCE_INTEGRITY_ERROR;
     this.reason = reason;
     this.page = page;
+    this.kind = kind;
     this.details = {
       reason,
       page,
+      ...(kind ? { kind } : {}),
       ...(diagnostics ? aggregateCounts(diagnostics) : {}),
       ...safeIntegrityContext(integrityContext),
       ...(thresholdsFor(reason) ? { thresholds: thresholdsFor(reason) } : {}),
@@ -130,9 +135,10 @@ export class ListAmSourceIntegrityError extends Error {
   }
 }
 
-function fail(reason, page, diagnostics, integrityContext) {
+function fail(reason, { page, kind }, diagnostics, integrityContext) {
   throw new ListAmSourceIntegrityError(reason, {
     page,
+    kind,
     diagnostics,
     integrityContext,
   });
@@ -141,10 +147,11 @@ function fail(reason, page, diagnostics, integrityContext) {
 /** Applies the version-controlled hard integrity rules in precedence order. */
 export function evaluateListAmSourceIntegrity(
   diagnostics,
-  { page, priorFirstPageCounts = [] },
+  { page, kind, priorFirstPageCounts = [] },
 ) {
+  const source = { page, kind };
   if (page === 1 && diagnostics.candidateCount === 0) {
-    fail(ListAmIntegrityReason.FIRST_PAGE_EMPTY, page, diagnostics);
+    fail(ListAmIntegrityReason.FIRST_PAGE_EMPTY, source, diagnostics);
   }
   if (
     diagnostics.uniqueCandidateCount > 0 &&
@@ -153,12 +160,12 @@ export function evaluateListAmSourceIntegrity(
   ) {
     fail(
       ListAmIntegrityReason.PARSE_SUCCESS_BELOW_THRESHOLD,
-      page,
+      source,
       diagnostics,
     );
   }
   if (diagnostics.rejectedCount > 0) {
-    fail(ListAmIntegrityReason.IDENTITY_REJECTION, page, diagnostics);
+    fail(ListAmIntegrityReason.IDENTITY_REJECTION, source, diagnostics);
   }
   if (
     page === 1 &&
@@ -167,7 +174,7 @@ export function evaluateListAmSourceIntegrity(
   ) {
     fail(
       ListAmIntegrityReason.TITLE_COMPLETENESS_BELOW_THRESHOLD,
-      page,
+      source,
       diagnostics,
     );
   }
@@ -178,7 +185,7 @@ export function evaluateListAmSourceIntegrity(
   ) {
     fail(
       ListAmIntegrityReason.DATE_COMPLETENESS_BELOW_THRESHOLD,
-      page,
+      source,
       diagnostics,
     );
   }
@@ -193,7 +200,7 @@ export function evaluateListAmSourceIntegrity(
         : BigInt(sorted[middle - 1]) + BigInt(sorted[middle]);
     const current = BigInt(diagnostics.parsedCount);
     if (4n * current < medianTwice && medianTwice - 2n * current >= 10n) {
-      fail(ListAmIntegrityReason.FIRST_PAGE_COUNT_DROP, page, diagnostics, {
+      fail(ListAmIntegrityReason.FIRST_PAGE_COUNT_DROP, source, diagnostics, {
         priorCount: priorFirstPageCounts.length,
         priorMedianTwice: medianTwice.toString(),
       });
@@ -205,7 +212,7 @@ export function evaluateListAmSourceIntegrity(
 /** Parses a page and maps a missing Regular Ads section to the same hard rule. */
 export function parseAndEvaluateRegularApartments(
   html,
-  { page, priorFirstPageCounts = [] },
+  { page, kind, priorFirstPageCounts = [] },
 ) {
   let diagnostics;
   try {
@@ -214,7 +221,7 @@ export function parseAndEvaluateRegularApartments(
     if (error?.code === REGULAR_SECTION_MISSING_CODE) {
       fail(
         ListAmIntegrityReason.REGULAR_SECTION_MISSING,
-        page,
+        { page, kind },
         zeroDiagnostics(),
       );
     }
@@ -222,6 +229,7 @@ export function parseAndEvaluateRegularApartments(
   }
   return evaluateListAmSourceIntegrity(diagnostics, {
     page,
+    kind,
     priorFirstPageCounts,
   });
 }

@@ -4,6 +4,7 @@ import test from "node:test";
 import {
   apartmentMatchesFilters,
   emptyFilters,
+  normalizeFilters,
   parseRangeInput,
   placeLocationId,
   regionLocationId,
@@ -49,6 +50,33 @@ test("optional ranges and multiple hierarchical locations compose", () => {
     false,
   );
   assert.equal(apartmentMatchesFilters(apartment(), emptyFilters()), true);
+});
+
+test("housing kinds default to apartments and admit only what is selected", () => {
+  const house = { ...apartment(), kind: "house" };
+  const flat = { ...apartment(), kind: "apartment" };
+  // A record stored before houses existed carries no kind and is an apartment.
+  const legacy = apartment();
+
+  assert.deepEqual(emptyFilters().kinds, ["apartment"]);
+  assert.equal(apartmentMatchesFilters(flat, emptyFilters()), true);
+  assert.equal(apartmentMatchesFilters(legacy, emptyFilters()), true);
+  assert.equal(apartmentMatchesFilters(house, emptyFilters()), false);
+
+  const houses = { ...emptyFilters(), kinds: ["house"] };
+  assert.equal(apartmentMatchesFilters(house, houses), true);
+  assert.equal(apartmentMatchesFilters(legacy, houses), false);
+
+  const both = { ...emptyFilters(), kinds: ["house", "apartment"] };
+  assert.equal(apartmentMatchesFilters(house, both), true);
+  assert.equal(apartmentMatchesFilters(flat, both), true);
+  // The catalog order is what normalization stores, whatever order it is given.
+  assert.deepEqual(normalizeFilters(both).kinds, ["apartment", "house"]);
+
+  // An unusable selection narrows back to the default instead of widening.
+  for (const kinds of [[], ["castle"], "house", undefined]) {
+    assert.deepEqual(normalizeFilters({ kinds }).kinds, ["apartment"]);
+  }
 });
 
 test("price filters compare converted AMD rather than the original amount", () => {

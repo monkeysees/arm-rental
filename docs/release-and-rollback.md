@@ -137,7 +137,8 @@ For a new digest, `ops/deploy`:
    serves — then stops the old bot and creates and validates the ordinary
    pre-deploy snapshot;
 6. starts the candidate against the unchanged named volumes. No deployment
-   migrates state: SQLite is the only backend, so there is nothing to convert;
+   converts state: SQLite is the only backend, and forward-only schema
+   migrations run inside the candidate when it first opens the database;
 7. requires healthy startup, ready Telegram and optional channel preflight, one
    `crawl.succeeded`, and final readiness after one poll interval plus five
    minutes;

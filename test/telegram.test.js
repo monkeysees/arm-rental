@@ -209,6 +209,7 @@ test("restricted access advances offsets without creating or mutating users", as
         chatId: 99,
         sendInitialApartments: false,
         filters: {
+          kinds: ["apartment"],
           price: { min: null, max: null },
           rooms: { min: null, max: null },
           locations: ["r:0"],
@@ -711,13 +712,14 @@ test("private users explicitly start and stop monitoring from the setup panel", 
     [
       "Цена, ֏",
       "Комнаты",
+      "Тип жилья",
       "Местоположение",
       "Сбросить фильтры",
       "Запустить мониторинг",
     ],
   );
   assert.equal(sent[0][2].inline_keyboard.at(-1)[0].callback_data, "m:start");
-  assert.match(edited[0][2], /Отправить уже найденные квартиры/u);
+  assert.match(edited[0][2], /Отправить уже найденные объявления/u);
   assert.match(edited[1][2], /Мониторинг: запущен/u);
   assert.equal(
     edited[1][3].inline_keyboard.at(-1)[0].text,
@@ -842,6 +844,52 @@ test("a user configures ranges and multiple locations through Telegram", async (
   assert.equal(saved.at(-1).updateOffset, 29);
 });
 
+test("a user chooses which housing kinds to follow and keeps at least one", async () => {
+  const sent = [];
+  const edited = [];
+
+  const state = await processUpdates(
+    [
+      update(20, 42, "/filters"),
+      callback(21, "f:kinds"),
+      callback(22, "f:kind:house"),
+      // Both kinds are selected now, so apartments can be dropped.
+      callback(23, "f:kind:apartment"),
+      // Houses are the last kind left; the menu refuses to clear it.
+      callback(24, "f:kind:house"),
+      callback(25, "f:kind:unknown"),
+      callback(26, "f:menu"),
+    ],
+    config,
+    initialState,
+    {
+      sendMessage: async (...args) => sent.push(args),
+      editMessage: async (...args) => edited.push(args),
+      answerCallback: async () => {},
+      saveState: async () => {},
+    },
+  );
+
+  assert.deepEqual(state.users["42"].filters.kinds, ["house"]);
+  assert.match(sent[0][1], /Тип жилья: Квартиры/u);
+  const kindsView = edited.find((entry) => entry[2].startsWith("Тип жилья"));
+  assert.deepEqual(
+    kindsView[3].inline_keyboard
+      .flat()
+      .map(({ text, callback_data }) => [text, callback_data]),
+    [
+      ["✅ Квартиры", "f:kind:apartment"],
+      ["▫️ Дома", "f:kind:house"],
+      ["← В главное меню", "f:menu"],
+    ],
+  );
+  assert.match(
+    edited.find((entry) => entry[2].includes("Выбрано: Квартиры и дома"))[2],
+    /Тип жилья/u,
+  );
+  assert.match(edited.at(-1)[2], /Тип жилья: Дома/u);
+});
+
 test("filter changes are persisted before the menu is refreshed", async () => {
   const events = [];
 
@@ -942,6 +990,7 @@ test("clear command removes only the range filter being edited", async () => {
   );
 
   assert.deepEqual(state.users[42].filters, {
+    kinds: ["apartment"],
     price: { min: null, max: null },
     rooms: { min: 2, max: 3 },
     locations: ["r:0"],
@@ -1398,7 +1447,7 @@ test("the start button wakes the monitor after /start setup", async () => {
     [42, 42],
   );
   assert.match(sent[0][1], /Мониторинг: остановлен/u);
-  assert.match(edited[0][1], /Отправить уже найденные квартиры/u);
+  assert.match(edited[0][1], /Отправить уже найденные объявления/u);
   assert.match(edited[1][1], /Мониторинг: запущен/u);
   assert.equal(sent[1][1].startsWith("Apartment 100"), true);
 });
@@ -2331,7 +2380,7 @@ test("a widened filter offers its rejected history and honours the answer", asyn
       [
         "Фильтры изменены.",
         "",
-        "Подходящих квартир за последние 24 часа: 2.",
+        "Подходящих объявлений за последние 24 часа: 2.",
         "Отправить их или ждать только новые объявления?",
       ].join("\n"),
     ],
@@ -2376,5 +2425,5 @@ test("monitoring answers decide history without a second question", async () => 
   // must not ask about the same apartments a second time.
   assert.deepEqual(offers, []);
   assert.deepEqual(answers, [[42, false]]);
-  assert.match(edited.at(-2)[2], /придут только новые объявления/u);
+  assert.match(edited.at(-2)[2], /придут только новые/u);
 });

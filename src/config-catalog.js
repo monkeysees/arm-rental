@@ -213,7 +213,7 @@ export const CONFIGURATION_CATALOG = Object.freeze([
     type: "positive safe integer",
     constraints: "Must be a positive JavaScript safe integer.",
     defaultValue: "10",
-    purpose: "Sets pages parsed when apartment state is empty.",
+    purpose: "Sets pages parsed per List.am category with no history.",
   }),
   entry({
     name: "INITIAL_DELIVERY_LIMIT",

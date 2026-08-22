@@ -18,7 +18,7 @@ import {
   readConfigurationEnvironment,
 } from "./config-catalog.js";
 import { MAX_RETRY_DELAY_MS } from "./retry.js";
-import { LIST_AM_URL_TEMPLATE } from "./target.js";
+import { LIST_AM_SOURCES, LIST_AM_URL_TEMPLATE } from "./target.js";
 import {
   getEnvironmentName,
   getHealthEndpointConfig,
@@ -237,6 +237,7 @@ export function getConfig(env = process.env, cwd = process.cwd()) {
     environmentName,
     dataDirectory,
     listUrlTemplate: LIST_AM_URL_TEMPLATE,
+    listSources: LIST_AM_SOURCES,
     initialPageCount: positiveInteger(
       read("INITIAL_PAGE_COUNT"),
       undefined,

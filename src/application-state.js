@@ -1,4 +1,5 @@
 import { openStateDatabase } from "./sqlite-database.js";
+import { SQLITE_SCHEMA_VERSION } from "./sqlite-schema.js";
 import { createSqliteRepositories } from "./sqlite-repositories.js";
 import { createSqliteStateAccess } from "./sqlite-state-access.js";
 
@@ -25,7 +26,7 @@ export async function openApplicationState(
     });
     return {
       backend: "sqlite",
-      schemaVersion: 1,
+      schemaVersion: SQLITE_SCHEMA_VERSION,
       database,
       repositories,
       stateAccess: createSqliteStateAccess(database, repositories),

@@ -1,4 +1,5 @@
 import { amdPriceAmount } from "./prices.js";
+import { normalizePropertyKinds, propertyKindOf } from "./property-kind.js";
 
 export const LOCATION_REGIONS = [
   {
@@ -135,6 +136,7 @@ const VALID_LOCATION_IDS = new Set(
 
 export function emptyFilters() {
   return {
+    kinds: normalizePropertyKinds(undefined),
     price: { min: null, max: null },
     rooms: { min: null, max: null },
     locations: [],
@@ -157,6 +159,7 @@ export function normalizeFilters(value) {
   });
 
   return {
+    kinds: normalizePropertyKinds(value?.kinds),
     price: {
       min: optionalNumber(value?.price?.min),
       max: optionalNumber(value?.price?.max),
@@ -213,6 +216,7 @@ function selectedLocationNames(locationIds) {
 
 export function apartmentMatchesFilters(apartment, rawFilters) {
   const filters = normalizeFilters(rawFilters);
+  if (!filters.kinds.includes(propertyKindOf(apartment))) return false;
   if (!matchesRange(amdPriceAmount(apartment?.price), filters.price)) {
     return false;
   }

@@ -9,6 +9,7 @@ import {
   regionLocationId,
 } from "./filters.js";
 import { amdPriceAmount } from "./prices.js";
+import { APARTMENT } from "./property-kind.js";
 import {
   postedWithinSourceActivityWindow,
   withinSourceActivityWindow,
@@ -116,6 +117,9 @@ function resolveLocationSelector(selector) {
 export function parseChannelFilters({ price, rooms, locations } = {}) {
   const filters = {
     ...emptyFilters(),
+    // The channel publishes apartments, and says so explicitly rather than
+    // inheriting whatever the default happens to be.
+    kinds: [APARTMENT],
     price: parseChannelRange(price, "price", "CHANNEL_FILTER_PRICE_AMD"),
     rooms: parseChannelRange(rooms, "rooms", "CHANNEL_FILTER_ROOMS"),
   };

@@ -1,6 +1,9 @@
 import path from "node:path";
 
-import { compatibleApartmentState } from "./apartment-state.js";
+import {
+  compatibleApartmentState,
+  migrateApartmentState,
+} from "./apartment-state.js";
 import {
   BROWSER_VERIFICATION_COMMAND,
   BrowserVerificationRequiredError,
@@ -9,6 +12,7 @@ import { compatibleBotState } from "./bot.js";
 import { compatibleChannelState } from "./channel.js";
 import { compatibleDeliveryState } from "./crawler.js";
 import { compatibleExchangeRateSnapshot } from "./exchange-rates.js";
+import { APARTMENT } from "./property-kind.js";
 import { pageUrl } from "./target.js";
 import { TelegramApi, TelegramApiError } from "./telegram.js";
 import { recordBrowserVerification } from "./browser-verification-state.js";
@@ -152,7 +156,12 @@ async function validateExistingState(config, stateAccess) {
     if (!compatible(state)) {
       throw new StateCompatibilityError(domain, "rebuilt state is malformed");
     }
-    if (domain === "apartments") apartmentState = state;
+    // The probe below measures the source against this baseline, so the
+    // state is read the way the crawl reads it: migrated to the current
+    // shape, whatever version the rows were last written in.
+    if (domain === "apartments") {
+      apartmentState = migrateApartmentState(state, config.listUrlTemplate);
+    }
   }
   return apartmentState;
 }
@@ -373,12 +382,13 @@ export async function runStartupPreflight(
         await response.text(),
         {
           page: 1,
+          kind: APARTMENT,
           priorFirstPageCounts:
-            apartmentState?.sourceIntegrity.recentFirstPageCounts,
+            apartmentState?.sourceIntegrity.recentFirstPageCounts?.[APARTMENT],
         },
       );
       await onSourceIntegrityChecked({
-        pages: [sourceIntegrityPageSummary(diagnostics, 1)],
+        pages: [sourceIntegrityPageSummary(diagnostics, 1, APARTMENT)],
       });
       await recordVerification(config, diagnostics.parsedCount);
     } catch (error) {

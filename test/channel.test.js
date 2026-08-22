@@ -96,6 +96,7 @@ test("channel environment filters support all range forms and location compositi
   assert.deepEqual(
     parseChannelFilters({ price: "150000-", rooms: "-3", locations: "all" }),
     {
+      kinds: ["apartment"],
       price: { min: 150_000, max: null },
       rooms: { min: null, max: 3 },
       locations: [],
@@ -108,6 +109,7 @@ test("channel environment filters support all range forms and location compositi
       locations: "region:Котайк,place:Кентрон",
     }),
     {
+      kinds: ["apartment"],
       price: { min: null, max: 300_000 },
       rooms: { min: 1, max: 4 },
       locations: ["r:3", "p:0:6"],

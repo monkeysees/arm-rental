@@ -22,6 +22,7 @@ import {
 } from "../src/maintenance.js";
 import { acquireSingletonLock } from "../src/singleton-lock.js";
 import { openStateDatabase } from "../src/sqlite-database.js";
+import { SQLITE_SCHEMA_VERSION } from "../src/sqlite-schema.js";
 
 const DATABASE_ID = "maintenance-database";
 
@@ -121,7 +122,7 @@ test("weekly maintenance reports state growth and cleans only reconstructible Ch
     first.stateFiles.map(({ name }) => name),
     ["sqlite", "browserVerification"],
   );
-  assert.equal(first.stateFiles[0].schemaVersion, 1);
+  assert.equal(first.stateFiles[0].schemaVersion, SQLITE_SCHEMA_VERSION);
   assert.equal(
     first.stateFiles.find(({ name }) => name === "browserVerification")
       .entryCount,
@@ -223,7 +224,7 @@ test("SQLite maintenance validates one database and reports logical counts", asy
     report.stateFiles.map(({ name }) => name),
     ["sqlite", "browserVerification"],
   );
-  assert.equal(report.stateFiles[0].schemaVersion, 1);
+  assert.equal(report.stateFiles[0].schemaVersion, SQLITE_SCHEMA_VERSION);
   assert.equal(report.stateFiles[0].telegramUsers, 0);
   assert.equal(report.stateFiles[0].bytes > 0, true);
   assert.deepEqual(

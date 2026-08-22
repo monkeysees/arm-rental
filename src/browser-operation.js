@@ -1,6 +1,7 @@
 import { acquireSingletonLock } from "./singleton-lock.js";
 import { BrowserPageFetcher } from "./browser-fetch.js";
 import { validateStartupConfig } from "./config.js";
+import { APARTMENT } from "./property-kind.js";
 import { pageUrl } from "./target.js";
 import { recordBrowserVerification } from "./browser-verification-state.js";
 import { parseAndEvaluateRegularApartments } from "./source-integrity.js";
@@ -63,7 +64,7 @@ export async function runBrowserOperation(
       }
       const diagnostics = parseAndEvaluateRegularApartments(
         await response.text(),
-        { page: attempt + 1 },
+        { page: attempt + 1, kind: APARTMENT },
       );
       regularAdsCount ??= diagnostics.parsedCount;
     }

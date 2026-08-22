@@ -6,9 +6,13 @@ The repository, checkout, and container-package identifier is `arm-rental`.
 Runtime resources retain the established `rental-apartments` prefix so existing
 production paths, systemd units, and persistent storage remain stable.
 
-The application discovers long-term apartment rentals from List.am for a
-multi-user private Telegram bot and, when configured, a public Telegram channel.
-It reads only the site's **Regular Ads** section and ignores **Top Ads**.
+The application discovers long-term apartment and house rentals from List.am for
+a multi-user private Telegram bot and, when configured, a public Telegram
+channel. It reads only the site's **Regular Ads** section and ignores **Top
+Ads**. `src/target.js` names one List.am category per housing kind — apartments
+in category 56 and houses in category 1377 — and `src/property-kind.js` owns the
+kind vocabulary those categories produce. The apartment template remains the
+installation's stored identity, so adding a category rebinds no existing state.
 Private access defaults to `public`, in which any private sender may use the
 bot; `owner` restricts controls to `TELEGRAM_OWNER_ID`, and `allowlist` requires
 at least one unique non-owner ID in `TELEGRAM_ALLOWED_USER_IDS`. The owner must
@@ -16,6 +20,10 @@ not be repeated there, is always authorized,
 and remains the exclusive server-alert recipient in every mode. The service has
 no private-user admission cap. Channel crawling and publication are independent
 of private access and activation.
+
+Every stored listing carries the kind of the category it was crawled from, and
+every private filter selects apartments, houses, or both, defaulting to
+apartments. The public channel publishes apartments only.
 
 All bot-generated Telegram replies, notification labels, channel hashtags, and
 missing-value fallbacks are in Russian. Apartment messages omit the posting
@@ -889,21 +897,33 @@ operator procedures are indexed in
    it is at least 24 hours old. A failed refresh keeps the last snapshot active
    and suppresses another attempt for one hour; concurrent refresh requests
    share one in-flight operation.
-5. `src/crawler.js` fetches List.am category pages sequentially through
-   `src/browser-fetch.js`, which requests the `ru-RU` browser locale, and parses
-   each page with `src/list-am.js`.
+5. `src/crawler.js` walks the configured List.am categories one after another,
+   fetching their pages sequentially through `src/browser-fetch.js`, which
+   requests the `ru-RU` browser locale, and parsing each page with
+   `src/list-am.js`. Every parsed card is tagged with the kind its category
+   publishes, and item identity remains global, so a listing that appeared in
+   both categories would still be stored once. Because each category is read
+   newest-first but the categories are read in turn, their encounters are
+   merged back into one newest-first order by posting date, with unreadable
+   dates keeping their source position behind the dated cards. Every later
+   decision reads that single stream.
 6. `src/prices.js` maps source currency symbols to ISO codes and converts every
    newly discovered USD, EUR, or RUB price to whole AMD before apartment state
    is committed. It also migrates version 1 apartment records on their next
    crawl. The rate audit attached to a stored apartment is not rewritten by a
    later daily exchange-rate refresh.
-7. On an empty database, pages 1 through 10 are parsed. On later crawls, the
-   newest posting date in the database is the temporal watermark. Cards are
+7. Pagination is decided per category from that category's own stored history.
+   With no listing of that kind, pages 1 through 10 are parsed. Otherwise the
+   newest posting date stored for that kind is the temporal watermark. Cards are
    read newest-first through every card sharing that minute, and parsing stops
    when an older posting date is reached. Known IDs above the watermark do not
    stop discovery. If stored dates cannot be parsed, the crawl falls back to the
    configured initial page count. Empty pages and repeated page signatures also
-   stop the crawl.
+   stop that category. A category introduced to a running installation therefore
+   performs its own first crawl while established categories continue
+   incrementally, and the per-category outcome — initial run, pages parsed,
+   watermark, stopping date, exhaustion — is reported in `sources` on both the
+   crawl result and the stored crawl metadata.
 8. Known cards encountered before or at the stopping watermark are compared
    across source title, original price, location, rooms, area, floor, URL, and
    posting date. A change replaces the source fields, preserves `firstSeenAt`,
@@ -991,7 +1011,14 @@ operator procedures are indexed in
 
 ## Filter model
 
-Private filters live per user in Telegram bot state and default to no restrictions.
+Private filters live per user in Telegram bot state and default to no
+restriction other than the housing kind, which defaults to apartments.
+Housing-kind selection is a non-empty subset of `src/property-kind.js`, stored
+in catalog order; an absent, malformed, or empty selection normalizes back to
+apartments rather than widening, so a subscription stored before houses existed
+keeps following exactly what it followed. A listing with no stored kind is an
+apartment for the same reason. The kind menu refuses to clear the last selected
+kind, and resetting filters returns the selection to apartments.
 Price and room filters each have nullable inclusive `min` and `max` bounds.
 Price input and comparison are always in AMD, using the apartment's canonical
 `amountAmd`; the private notification still renders `originalAmount` and
@@ -1014,7 +1041,8 @@ location menus where they convey state. The reset action is explicitly labeled
 as applying to filters, since it does not change monitoring state.
 
 Channel filters are parsed once from the environment and never read or mutate
-private bot state. Price and rooms use the same inclusive exact/open/closed
+private bot state. They select the apartment kind explicitly rather than
+inheriting the default. Price and rooms use the same inclusive exact/open/closed
 ranges. Location selectors resolve case-insensitive human-readable region and
 place names to the same stable IDs. Multiple locations are OR conditions;
 price, rooms, and location are AND conditions. Blank locations default to the
@@ -1040,11 +1068,16 @@ source prices without hashtags.
 Application state is one versioned `state.sqlite3` database on persistent local
 storage. `application_metadata` binds its immutable database ID to the List.am
 URL template and configured channel. `schema_migrations` plus `PRAGMA
-user_version` provide forward-only schema compatibility.
+user_version` provide forward-only schema compatibility. Schema version 2 adds
+no tables: it backfills the housing kind everything created before houses left
+implicit — `apartment` on every stored listing payload, an explicit apartment
+selection on every stored filter, and the flat first-page history reseated as
+the apartment category's own series.
 
-- `apartments` stores one complete normalized apartment JSON payload per item;
-  `crawl_state` atomically stores checked time, crawl metadata, exact item order,
-  and bounded source-integrity history. A crawl upserts changed payloads,
+- `apartments` stores one complete normalized listing JSON payload per item,
+  including its housing kind; `crawl_state` atomically stores checked time,
+  crawl metadata, exact item order, and the bounded per-kind source-integrity
+  history. A crawl upserts changed payloads,
   removes absent rows, and advances all metadata in one transaction before any
   Telegram work starts.
 - `private_recipients` and `private_delivery_decisions` store one row per
@@ -1111,7 +1144,9 @@ displayed by List.am.
 
 Every fetched page is passed through one hard source-integrity evaluator before
 the crawler considers empty pagination, a repeated page, or the posting-date
-watermark. The evaluator applies deterministic reason precedence for a missing
+watermark. Page observations and typed failures carry the category's housing
+kind, so operational surfaces attribute a source change to the category it
+happened in. The evaluator applies deterministic reason precedence for a missing
 Regular Ads section, an empty first page, parse success below 90%, rejected
 identities, and first-page title/date completeness below 90%; percentage
 boundaries use integer multiplication. Later empty pages remain valid. The
@@ -1133,18 +1168,21 @@ The local metrics snapshot groups failures only by stable reason and retains
 application firing/resolution cursors so both edges survive between monitor
 runs.
 
-The compatible apartment payload schema version 3 adds only a bounded
-`sourceIntegrity`
-aggregate: up to five non-negative first-page parsed counts and an optional
-canonical ISO timestamp for the latest successful commit. Versions 1 and 2 are
-migrated in memory with an empty history, preserving apartment records and
-ordering; malformed version-3 aggregates fail closed across crawling,
-preflight, recovery, and maintenance. After all fetched pages validate, the
-crawler appends the current first-page count, truncates oldest values beyond
-five, and persists that history and `lastSuccessfulAt` in the same transaction
-as apartment discovery. Failed observations cannot advance it. With at least
-three prior successes, a first-page count is rejected only when it is strictly
-below half the prior median and at least five below it. Odd and even medians are
+The compatible apartment payload schema version 4 carries a bounded
+`sourceIntegrity` aggregate keyed by housing kind: per kind, up to five
+non-negative first-page parsed counts, plus one optional canonical ISO timestamp
+for the latest successful commit. Each category paginates independently, so
+mixing their counts would compare unrelated series. Versions 1 and 2 are
+migrated in memory with an empty history and version 3's single flat series
+becomes the apartment series, preserving listing records and ordering in every
+case; malformed aggregates fail closed across crawling, preflight, recovery, and
+maintenance. After all fetched pages validate, the crawler appends each
+category's current first-page count to its own series, truncates oldest values
+beyond five, and persists that history and `lastSuccessfulAt` in the same
+transaction as apartment discovery. Failed observations cannot advance it. With
+at least three prior successes for that category, a first-page count is rejected
+only when it is strictly below half the prior median and at least five below
+it. Odd and even medians are
 compared with exact doubled-integer arithmetic, and count drop is the final
 hard-rule reason.
 

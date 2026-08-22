@@ -1,3 +1,8 @@
+import {
+  formatPropertyKinds,
+  propertyKindLabel,
+  PROPERTY_KINDS,
+} from "./property-kind.js";
 import { SOURCE_ACTIVITY_WINDOW_MS } from "./source-activity.js";
 import {
   emptyFilters,
@@ -20,6 +25,7 @@ export function filtersMenu(filters, active = false) {
       "Главное меню",
       "",
       `Мониторинг: ${active ? "запущен" : "остановлен"}`,
+      `Тип жилья: ${formatPropertyKinds(normalized.kinds)}`,
       `Цена (֏): ${formatRange(normalized.price)}`,
       `Комнаты: ${formatRange(normalized.rooms)}`,
       `Местоположение: ${formatLocations(normalized.locations)}`,
@@ -27,7 +33,10 @@ export function filtersMenu(filters, active = false) {
     replyMarkup: {
       inline_keyboard: [
         [button("Цена, ֏", "f:price"), button("Комнаты", "f:rooms")],
-        [button("Местоположение", "f:locations")],
+        [
+          button("Тип жилья", "f:kinds"),
+          button("Местоположение", "f:locations"),
+        ],
         [button("Сбросить фильтры", "f:reset")],
         [
           active
@@ -63,9 +72,9 @@ export function sourceActivityWindowLabel() {
 export function initialDeliveryMenu(limit = 100) {
   return {
     text: [
-      "Отправить уже найденные квартиры?",
+      "Отправить уже найденные объявления?",
       "",
-      `Перед запуском мониторинга бот может отправить подходящие квартиры за последние ${sourceActivityWindowLabel()} — не больше ${limit}. Или можно начать только с новых объявлений.`,
+      `Перед запуском мониторинга бот может отправить подходящие объявления за последние ${sourceActivityWindowLabel()} — не больше ${limit}. Или можно начать только с новых объявлений.`,
     ].join("\n"),
     replyMarkup: {
       inline_keyboard: [
@@ -81,15 +90,15 @@ export function initialDeliveryMenu(limit = 100) {
  * Offers the history a widened filter uncovered.
  *
  * Delivery never releases that backlog on its own, so this is the only way a
- * previously rejected apartment reaches the user. Declining is durable: those
- * apartments are marked skipped and are not offered again.
+ * previously rejected listing reaches the user. Declining is durable: those
+ * listings are marked skipped and are not offered again.
  */
 export function historyOfferMenu(count) {
   return {
     text: [
       "Фильтры изменены.",
       "",
-      `Подходящих квартир за последние ${sourceActivityWindowLabel()}: ${count}.`,
+      `Подходящих объявлений за последние ${sourceActivityWindowLabel()}: ${count}.`,
       "Отправить их или ждать только новые объявления?",
     ].join("\n"),
     replyMarkup: {
@@ -104,19 +113,19 @@ export function historyOfferMenu(count) {
 /** Precedes a batch that carries history, so a burst is never unexplained. */
 export function deliveryAnnouncementText(count) {
   return [
-    `Подходящих квартир за последние ${sourceActivityWindowLabel()}: ${count}.`,
+    `Подходящих объявлений за последние ${sourceActivityWindowLabel()}: ${count}.`,
     "Отправляю…",
   ].join(" ");
 }
 
 export function historyAcceptedText(count) {
   return count > 0
-    ? `Хорошо, отправлю их при следующей проверке. Квартир: ${count}.`
-    : "Отправлять нечего: подходящих квартир за это время не осталось.";
+    ? `Хорошо, отправлю их при следующей проверке. Объявлений: ${count}.`
+    : "Отправлять нечего: подходящих объявлений за это время не осталось.";
 }
 
 export const HISTORY_DECLINED_TEXT =
-  "Хорошо, эти квартиры отправлены не будут — придут только новые объявления.";
+  "Хорошо, эти объявления отправлены не будут — придут только новые.";
 
 export function deleteDataMenu() {
   return {
@@ -124,7 +133,7 @@ export function deleteDataMenu() {
       "Удалить все ваши данные?",
       "",
       "Будут удалены фильтры и история уведомлений, а мониторинг остановится.",
-      "При новой регистрации подписка будет создана заново, и потребуется снова выбрать, отправлять ли уже найденные квартиры.",
+      "При новой регистрации подписка будет создана заново, и потребуется снова выбрать, отправлять ли уже найденные объявления.",
     ].join("\n"),
     replyMarkup: {
       inline_keyboard: [
@@ -132,6 +141,49 @@ export function deleteDataMenu() {
         [button("Отмена", "d:cancel")],
       ],
     },
+  };
+}
+
+/**
+ * The housing kinds this subscription follows.
+ *
+ * At least one kind is always selected: a subscription that followed nothing
+ * would silently deliver nothing, so the menu simply refuses to clear the last
+ * remaining choice.
+ */
+export function kindsMenu(filters) {
+  const selected = new Set(normalizeFilters(filters).kinds);
+  return {
+    text: [
+      "Тип жилья",
+      "",
+      "Выберите, какие объявления отслеживать. Можно выбрать оба типа, но не меньше одного.",
+      `Выбрано: ${formatPropertyKinds([...selected])}`,
+    ].join("\n"),
+    replyMarkup: {
+      inline_keyboard: [
+        ...PROPERTY_KINDS.map((kind) => [
+          button(
+            `${selected.has(kind) ? "✅" : "▫️"} ${propertyKindLabel(kind)}`,
+            `f:kind:${kind}`,
+          ),
+        ]),
+        [button("← В главное меню", "f:menu")],
+      ],
+    },
+  };
+}
+
+/** Toggles one kind, keeping the selection non-empty. */
+export function toggleKind(filters, kind) {
+  const normalized = normalizeFilters(filters);
+  const selected = new Set(normalized.kinds);
+  if (!selected.has(kind)) selected.add(kind);
+  else if (selected.size > 1) selected.delete(kind);
+
+  return {
+    ...normalized,
+    kinds: PROPERTY_KINDS.filter((candidate) => selected.has(candidate)),
   };
 }
 

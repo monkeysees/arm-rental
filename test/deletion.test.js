@@ -351,6 +351,7 @@ test("startup recovery removes only the requested user and preserves offset and 
   assert.equal(registered.users[42].active, false);
   assert.equal(registered.users[42].sendInitialApartments, true);
   assert.deepEqual(registered.users[42].filters, {
+    kinds: ["apartment"],
     price: { min: null, max: null },
     rooms: { min: null, max: null },
     locations: [],

@@ -9,6 +9,7 @@ import {
 import { checkDiskSpace } from "./recovery.js";
 import { acquireSingletonLock } from "./singleton-lock.js";
 import { openStateDatabase, stateDatabasePaths } from "./sqlite-database.js";
+import { SQLITE_SCHEMA_VERSION } from "./sqlite-schema.js";
 import { readState, writeState } from "./state.js";
 
 export const STATE_SIZE_WARNING_BYTES = 25 * 1024 * 1024;
@@ -187,7 +188,7 @@ async function sqliteStateReport(config) {
         counts.exchangeRateSnapshots,
       ...counts,
       updateOffset,
-      schemaVersion: 1,
+      schemaVersion: SQLITE_SCHEMA_VERSION,
       status: stateSizeStatus(bytes),
     };
   } catch (error) {

@@ -8,6 +8,7 @@ import { openApplicationState } from "../src/application-state.js";
 import { getConfig } from "../src/config.js";
 import { acquireSingletonLock } from "../src/singleton-lock.js";
 import { stateDatabasePaths } from "../src/sqlite-database.js";
+import { SQLITE_SCHEMA_VERSION } from "../src/sqlite-schema.js";
 import { initializeState } from "../src/state-init.js";
 
 async function fixture(t) {
@@ -32,7 +33,7 @@ test("state initialization creates the one database a first install starts from"
     result.database,
     stateDatabasePaths(config.dataDirectory).database,
   );
-  assert.equal(result.schemaVersion, 1);
+  assert.equal(result.schemaVersion, SQLITE_SCHEMA_VERSION);
   assert.equal(result.listUrlTemplate, config.listUrlTemplate);
   assert.equal(result.channelId, config.telegramChannelId);
   assert.match(result.databaseId, /^[0-9a-f-]{36}$/u);

@@ -5,7 +5,7 @@ import { crawlApartments } from "../src/crawler.js";
 import { emptyFilters } from "../src/filters.js";
 import { PrivateDeliveryBarrier } from "../src/rate-limit.js";
 import { ListAmIntegrityReason } from "../src/source-integrity.js";
-import { LIST_AM_URL_TEMPLATE } from "../src/target.js";
+import { LIST_AM_SOURCES, LIST_AM_URL_TEMPLATE } from "../src/target.js";
 import { createMemoryStateAccess } from "../test-support/memory-state.js";
 
 const config = {
@@ -114,6 +114,170 @@ test("initial crawl parses pages 1 through 10 and stores every apartment", async
   assert.deepEqual(delivered, ["3", "2", "1", "11"]);
 });
 
+/** A configuration that reads both List.am categories, as production does. */
+const bothCategories = { ...config, listSources: LIST_AM_SOURCES };
+
+/** Serves each category its own pages, the way List.am paginates them. */
+function categoryPages(pagesByKind) {
+  return async (url) => {
+    const [, category, page] = new URL(url).pathname.match(
+      /\/category\/(\d+)\/(\d+)$/u,
+    );
+    const pages =
+      pagesByKind[category === "1377" ? "house" : "apartment"] || [];
+    return new Response(pages[Number(page) - 1] ?? '<div id="contentr"></div>');
+  };
+}
+
+test("a crawl reads both categories and delivers each kind to whoever follows it", async () => {
+  const state = memoryState();
+  const delivered = { 42: [], 77: [], 99: [] };
+
+  const result = await crawlApartments(
+    { ...bothCategories, initialPageCount: 1 },
+    {
+      ...state,
+      fetchPage: categoryPages({
+        apartment: [datedPage(["10", "Пятница, Июль 24, 2026, 14:31"])],
+        house: [
+          datedPage(
+            ["20", "Пятница, Июль 24, 2026, 14:40"],
+            ["21", "Пятница, Июль 24, 2026, 14:20"],
+          ),
+        ],
+      }),
+      privateDeliveries: [
+        // The default subscription follows apartments only.
+        {
+          recipientId: "42",
+          filters: emptyFilters(),
+          deliverApartment: async ({ itemId }) => delivered[42].push(itemId),
+        },
+        {
+          recipientId: "77",
+          filters: { ...emptyFilters(), kinds: ["house"] },
+          deliverApartment: async ({ itemId }) => delivered[77].push(itemId),
+        },
+        {
+          recipientId: "99",
+          filters: { ...emptyFilters(), kinds: ["apartment", "house"] },
+          deliverApartment: async ({ itemId }) => delivered[99].push(itemId),
+        },
+      ],
+      now: () => new Date("2026-07-24T12:00:00Z"),
+    },
+  );
+
+  assert.equal(result.discoveredCount, 3);
+  assert.deepEqual(delivered[42], ["10"]);
+  assert.deepEqual(delivered[77], ["21", "20"]);
+  // Both categories form one newest-first stream, so a subscription following
+  // both is delivered by posting date rather than category by category.
+  assert.deepEqual(delivered[99], ["21", "10", "20"]);
+
+  const stored = state.stored.apartments;
+  assert.deepEqual(
+    Object.fromEntries(
+      Object.entries(stored.apartments).map(([itemId, { kind }]) => [
+        itemId,
+        kind,
+      ]),
+    ),
+    { 10: "apartment", 20: "house", 21: "house" },
+  );
+  assert.deepEqual(stored.apartmentOrder, ["20", "10", "21"]);
+  assert.deepEqual(
+    result.sources.map(({ kind }) => kind),
+    ["apartment", "house"],
+  );
+  assert.deepEqual(stored.sourceIntegrity.recentFirstPageCounts, {
+    apartment: [1],
+    house: [2],
+  });
+});
+
+test("a category added to a running installation starts from its own history", async () => {
+  const state = memoryState({
+    apartments: {
+      version: 4,
+      type: "list-am-apartments",
+      urlTemplate: config.listUrlTemplate,
+      checkedAt: "2026-07-24T11:00:00.000Z",
+      lastCrawl: { initialRun: true, pagesParsed: 1 },
+      apartments: {
+        10: {
+          itemId: "10",
+          kind: "apartment",
+          date: "Пятница, Июль 24, 2026, 14:31",
+          firstSeenAt: "2026-07-24T10:00:00.000Z",
+          lastSeenAt: "2026-07-24T11:00:00.000Z",
+        },
+      },
+      apartmentOrder: ["10"],
+      sourceIntegrity: {
+        recentFirstPageCounts: { apartment: [1] },
+        lastSuccessfulAt: "2026-07-24T11:00:00.000Z",
+      },
+    },
+  });
+  const fetched = [];
+
+  const result = await crawlApartments(
+    { ...bothCategories, initialPageCount: 3 },
+    {
+      ...state,
+      fetchPage: async (url) => {
+        fetched.push(url);
+        return categoryPages({
+          apartment: [
+            datedPage(
+              ["11", "Пятница, Июль 24, 2026, 15:00"],
+              // Older than the apartment watermark: pagination stops here.
+              ["9", "Пятница, Июль 24, 2026, 14:00"],
+            ),
+          ],
+          house: [page("20"), page("21"), page("22")],
+        })(url);
+      },
+      now: () => new Date("2026-07-24T12:00:00Z"),
+    },
+  );
+
+  // Apartments keep their watermark; the new category runs its first crawl
+  // over the initial page budget instead of inheriting that watermark.
+  assert.deepEqual(
+    fetched.map((url) => new URL(url).pathname),
+    [
+      "/ru/category/56/1",
+      "/ru/category/1377/1",
+      "/ru/category/1377/2",
+      "/ru/category/1377/3",
+    ],
+  );
+  assert.deepEqual(result.sources, [
+    {
+      kind: "apartment",
+      initialRun: false,
+      pagesParsed: 1,
+      lastKnownDate: "Пятница, Июль 24, 2026, 14:31",
+      stoppedAtKnownDate: "Пятница, Июль 24, 2026, 14:31",
+      exhausted: false,
+    },
+    {
+      kind: "house",
+      initialRun: true,
+      pagesParsed: 3,
+      lastKnownDate: null,
+      stoppedAtKnownDate: null,
+      exhausted: false,
+    },
+  ]);
+  assert.deepEqual(
+    result.discovered.map(({ itemId, kind }) => `${kind}:${itemId}`),
+    ["apartment:11", "house:20", "house:21", "house:22"],
+  );
+});
+
 test("crawler consumes normalized apartments from page diagnostics", async () => {
   const state = memoryState();
   const result = await crawlApartments(
@@ -154,7 +318,16 @@ test("a later empty page is a valid pagination terminator", async () => {
 
   assert.equal(fetchCount, 2);
   assert.equal(result.pagesParsed, 2);
-  assert.equal(result.exhausted, true);
+  assert.deepEqual(result.sources, [
+    {
+      kind: "apartment",
+      initialRun: true,
+      pagesParsed: 2,
+      lastKnownDate: null,
+      stoppedAtKnownDate: null,
+      exhausted: true,
+    },
+  ]);
   assert.deepEqual(Object.keys(state.stored.apartments.apartments), ["700"]);
 });
 
@@ -262,9 +435,9 @@ test("successful crawls atomically retain the five newest first-page counts", as
   );
 
   const stored = state.stored.apartments;
-  assert.equal(stored.version, 3);
+  assert.equal(stored.version, 4);
   assert.deepEqual(stored.sourceIntegrity, {
-    recentFirstPageCounts: [4, 3, 2, 1, 3],
+    recentFirstPageCounts: { apartment: [4, 3, 2, 1, 3] },
     lastSuccessfulAt: "2026-07-24T12:00:00.000Z",
   });
 });
@@ -408,8 +581,14 @@ test("later crawl continues past known IDs until the latest known date", async (
   });
 
   assert.equal(fetchCount, 1);
-  assert.equal(result.lastKnownDate, "Пятница, Июль 24, 2026, 14:31");
-  assert.equal(result.stoppedAtKnownDate, "Пятница, Июль 24, 2026, 14:31");
+  assert.equal(
+    result.sources[0].lastKnownDate,
+    "Пятница, Июль 24, 2026, 14:31",
+  );
+  assert.equal(
+    result.sources[0].stoppedAtKnownDate,
+    "Пятница, Июль 24, 2026, 14:31",
+  );
   assert.deepEqual(
     result.discovered.map(({ itemId }) => itemId),
     ["101", "100", "91"],
@@ -447,8 +626,8 @@ test("a known ad encountered at the date watermark records a durable last-seen t
   assert.equal(stored.apartments["1"].lastSeenAt, "2026-07-24T12:01:00.000Z");
   assert.equal(stored.apartments["1"].updatedAt, undefined);
   assert.equal(
-    stored.lastCrawl.stoppedAtKnownDate,
-    stored.lastCrawl.lastKnownDate,
+    stored.lastCrawl.sources[0].stoppedAtKnownDate,
+    stored.lastCrawl.sources[0].lastKnownDate,
   );
 });
 
@@ -997,7 +1176,7 @@ test("crawler stores converted AMD prices and delivers the original price data",
 
   const stored = state.stored.apartments.apartments["20"];
   assert.equal(result.notifiedCount, 1);
-  assert.equal(state.stored.apartments.version, 3);
+  assert.equal(state.stored.apartments.version, 4);
   assert.deepEqual(stored.price, {
     amountAmd: 585_392,
     originalAmount: 1_600,
@@ -1061,7 +1240,7 @@ test("crawler migrates legacy foreign prices with the current persisted rate", a
   });
 
   const migrated = state.stored.apartments;
-  assert.equal(migrated.version, 3);
+  assert.equal(migrated.version, 4);
   assert.deepEqual(migrated.apartments["30"].price, {
     amountAmd: 416_430,
     originalAmount: 1_000,

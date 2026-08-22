@@ -6,6 +6,7 @@ import { join } from "node:path";
 import test from "node:test";
 
 import { createReleaseMetadata } from "../scripts/create-release-metadata.js";
+import { SQLITE_SCHEMA_VERSION } from "../src/sqlite-schema.js";
 
 const readProjectFile = (file) =>
   readFile(new URL(`../${file}`, import.meta.url), "utf8");
@@ -111,7 +112,7 @@ test("release manifest binds the deployable image to its complete inputs", async
     sourceRevision: "a".repeat(40),
     stateBackend: "sqlite",
     minimumStateSchema: 1,
-    maximumStateSchema: 1,
+    maximumStateSchema: 2,
     deployableStateBackends: ["sqlite"],
     nodeVersion: nodeVersion.trim(),
     browserVersion: "151.0.7922.137",
@@ -153,7 +154,7 @@ test("published release metadata binds the scanned registry digest and host bund
   assert.equal(metadata.schemaVersion, 2);
   assert.equal(metadata.stateBackend, "sqlite");
   assert.equal(metadata.minimumStateSchema, 1);
-  assert.equal(metadata.maximumStateSchema, 1);
+  assert.equal(metadata.maximumStateSchema, SQLITE_SCHEMA_VERSION);
   assert.equal(metadata.imageReference, imageReference);
   assert.equal(metadata.imageDigest, `sha256:${"d".repeat(64)}`);
   assert.equal(

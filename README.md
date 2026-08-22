@@ -25,20 +25,31 @@ that follow it.
 Telegram notifications and new channel posts are sent by date ascending:
 earlier apartments first, then later apartments.
 
-When no delivery history exists, all discovered apartments are stored but only
-the latest `INITIAL_DELIVERY_LIMIT` matching apartments are sent. The default
-is 100. Before monitoring starts, each user chooses whether to receive that
-initial selection or begin with new listings only. Older matching apartments
-are marked as skipped and non-matching ones as filtered. Filter changes never
-release the skipped group.
+Private delivery makes one promise about time: a user is only ever sent
+apartments List.am posted or changed within the last 24 hours. Everything the
+crawl discovers is still stored, but an older card waits for its next List.am
+update instead of arriving as news. The same bound governs redelivery, so an
+already sent apartment is sent again only for a change List.am made inside that
+window.
 
-Changing a filter releases only the last day of List.am activity from the
-filtered group: a previously filtered apartment is delivered when it now
-matches and List.am either posted it or changed its data within the last 24
-hours. Anything older stays filtered until its next List.am update makes it
-match again, so widening a filter cannot deliver a backlog of historical ads.
-The same bound applies to redelivering an already sent apartment: only a
-change List.am made within that window is sent again.
+Whenever a user starts monitoring — the first time, or again after a pause —
+the bot asks whether to send the matching apartments of the last 24 hours or to
+begin with new listings only. The answer is applied to whatever the database
+holds at the next crawl, so a pause never delivers its backlog unannounced. At
+most `INITIAL_DELIVERY_LIMIT` apartments are sent, oldest first; the default is 100. Declined apartments are marked as skipped and are never released, and
+non-matching ones are marked as filtered.
+
+Changing a filter releases nothing on its own. When a filter edit admits
+apartments that were rejected under the previous filters and are still inside
+the 24-hour window, the bot offers them the next time the user opens the main
+menu, and sends them only if the user accepts. Declining marks them skipped, so
+the same apartments are not offered again. A rejected apartment still arrives
+on its own when List.am changes its data after the rejection and inside the
+window, because that is fresh source activity rather than history.
+
+A batch that carries history — the answer to a start, a restart, or an accepted
+filter release — is preceded by a message naming how many apartments follow. A
+routine crawl delivering what it has just discovered sends the apartment alone.
 
 ## Requirements
 
@@ -152,8 +163,9 @@ conflicting selectors stop startup with an error.
 
 Channel posts reuse the private apartment message, including the original source
 price, then append Russian hashtags for region, locality, the canonical AMD
-50,000-dram price band, and rooms. The channel applies the same last-day bound
-as private delivery: a filtered listing is admitted when it matches and List.am
+50,000-dram price band, and rooms. The channel applies the same 24-hour bound
+to its own classification, and releases on it without asking anyone: a filtered
+listing is admitted when it matches and List.am
 either posted it or changed it within the last 24 hours, and an initially
 skipped listing is admitted when a crawl within that window encounters it again
 while it still matches. Changing the channel filters therefore posts at most the

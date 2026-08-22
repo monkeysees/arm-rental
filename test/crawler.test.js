@@ -596,7 +596,7 @@ test("an updated filtered apartment is readmitted privately when it now matches"
   assert.ok(defaultDeliveries(state).notified["51"]);
 });
 
-test("a widened filter releases only the last day of source activity", async () => {
+test("a widened filter releases nothing until List.am touches the card", async () => {
   const state = memoryState();
   let filters = { ...emptyFilters(), price: { min: null, max: 250_000 } };
   const card = ([id, date, price]) => `
@@ -652,9 +652,9 @@ test("a widened filter releases only the last day of source activity", async () 
   );
   assert.ok(defaultDeliveries(state).filtered["3"]);
 
-  // The widened filter now admits all three. Only 3 is recent enough to send:
-  // 1 and 2 were posted and last changed by List.am days ago, so their stale
-  // updates must not turn a filter edit into a backlog delivery.
+  // The widened filter now admits all three, and the crawl releases none of
+  // them: a filter edit is the user's own doing, so the menu asks before that
+  // history is sent. Their rejections stand until List.am touches the cards.
   filters = { ...emptyFilters(), price: { min: null, max: 400_000 } };
   const widened = await crawl(
     listing(
@@ -664,9 +664,9 @@ test("a widened filter releases only the last day of source activity", async () 
     ),
     "2026-07-24T12:05:00.000Z",
   );
-  assert.deepEqual(delivered, ["2", "3"]);
-  assert.equal(widened.readmittedCount, 1);
-  assert.equal(defaultDeliveries(state).filtered["3"], undefined);
+  assert.deepEqual(delivered, ["2"]);
+  assert.equal(widened.readmittedCount, 0);
+  assert.ok(defaultDeliveries(state).filtered["3"]);
   assert.ok(defaultDeliveries(state).filtered["1"]);
 
   // A fresh List.am change releases the older rejected apartment after all.
@@ -676,7 +676,7 @@ test("a widened filter releases only the last day of source activity", async () 
   );
   assert.equal(renewed.updatedCount, 1);
   assert.equal(renewed.readmittedCount, 1);
-  assert.deepEqual(delivered, ["2", "3", "1"]);
+  assert.deepEqual(delivered, ["2", "1"]);
   assert.ok(defaultDeliveries(state).notified["1"]);
   // The delivered apartment carrying only a stale update stays quiet.
   assert.equal(
@@ -1228,4 +1228,165 @@ test("an updated apartment is delivered again privately when it still matches fi
   assert.equal(filteredUpdate.updatedCount, 1);
   assert.equal(filteredUpdate.notifiedCount, 0);
   assert.deepEqual(delivered, ["Original title", "Updated title"]);
+});
+
+test("a monitoring answer only decides the last day of matching history", async () => {
+  const state = memoryState();
+  const delivered = [];
+  const announced = [];
+  const listing = datedPage(
+    ["9", "Пятница, Июль 24, 2026, 09:00"],
+    ["8", "Понедельник, Июль 20, 2026, 09:00"],
+  );
+
+  const result = await crawlApartments(
+    { ...config, initialPageCount: 1 },
+    {
+      ...state,
+      fetchPage: async () => new Response(listing),
+      privateDeliveries: [
+        {
+          recipientId: "42",
+          filters: emptyFilters(),
+          sendInitialApartments: true,
+          announceDelivery: async ({ count }) => announced.push(count),
+          deliverApartment: async ({ itemId }) => delivered.push(itemId),
+        },
+      ],
+      now: () => new Date("2026-07-24T12:00:00Z"),
+    },
+  );
+
+  // Accepting history buys the current day of it, not everything List.am has
+  // published, so the four-day-old match is never sent.
+  assert.deepEqual(delivered, ["9"]);
+  assert.deepEqual(announced, [1]);
+  assert.equal(result.notifiedCount, 1);
+  const recipient = state.stored.recipients["42"];
+  assert.ok(recipient.notified["9"]);
+  // Nothing was decided about the older match: a List.am update can still
+  // bring it back inside the window and deliver it as fresh activity.
+  assert.equal(recipient.skipped["8"], undefined);
+  assert.equal(recipient.filtered["8"], undefined);
+});
+
+test("a restart decides the paused backlog and announces what it sends", async () => {
+  const state = memoryState();
+  const delivered = [];
+  const announced = [];
+  const target = (sendInitialApartments) => ({
+    recipientId: "42",
+    filters: emptyFilters(),
+    sendInitialApartments,
+    announceDelivery: async ({ count }) => announced.push(count),
+    deliverApartment: async ({ itemId }) => delivered.push(itemId),
+  });
+  const crawl = (html, at, privateDeliveries) =>
+    crawlApartments(
+      { ...config, initialPageCount: 1 },
+      {
+        ...state,
+        fetchPage: async () => new Response(html),
+        ...(privateDeliveries ? { privateDeliveries } : {}),
+        now: () => new Date(at),
+      },
+    );
+
+  await crawl(page("1"), "2026-07-24T12:00:00Z", [target(true)]);
+  assert.deepEqual(delivered, ["1"]);
+  assert.deepEqual(announced, [1]);
+
+  // Monitoring is stopped: the crawl keeps running for other recipients and
+  // this user is classified by nothing.
+  await crawl(page("3", "2", "1"), "2026-07-24T12:05:00Z");
+  assert.equal(state.stored.recipients["42"].skipped["2"], undefined);
+
+  // Restarting reopens the selection gate the way the bot does when the user
+  // answers the question again. Declining leaves the backlog skipped for good.
+  await state.stateAccess.privateDeliveries.decisions.requestSelection("42");
+  const restarted = await crawl(page("3", "2", "1"), "2026-07-24T12:10:00Z", [
+    target(false),
+  ]);
+  assert.deepEqual(delivered, ["1"]);
+  assert.equal(restarted.skippedCount, 2);
+  assert.deepEqual(Object.keys(state.stored.recipients["42"].skipped).sort(), [
+    "2",
+    "3",
+  ]);
+
+  // A listing discovered after the answer is news: it arrives on its own,
+  // without a heads-up message ahead of it.
+  await crawl(page("4", "3", "2", "1"), "2026-07-24T12:15:00Z", [
+    target(false),
+  ]);
+  assert.deepEqual(delivered, ["1", "4"]);
+  assert.deepEqual(announced, [1]);
+
+  // So does a card List.am changes in the very crawl that redelivers it.
+  const bumped = datedPage(
+    ["4", "Пятница, Июль 24, 2026, 15:00"],
+    ["3", "Пятница, Июль 24, 2026, 14:31"],
+    ["2", "Пятница, Июль 24, 2026, 14:31"],
+    ["1", "Пятница, Июль 24, 2026, 14:31"],
+  );
+  const bumpedResult = await crawl(bumped, "2026-07-24T12:20:00Z", [
+    target(false),
+  ]);
+  assert.equal(bumpedResult.updatedCount, 1);
+  assert.deepEqual(delivered, ["1", "4", "4"]);
+  assert.deepEqual(announced, [1]);
+});
+
+test("a declined restart keeps what List.am changed during the pause", async () => {
+  const state = memoryState();
+  const filters = { ...emptyFilters(), price: { min: null, max: 250_000 } };
+  const listing = (price) => `
+    <div id="contentr">
+      <a class="fav-item-info-container" href="/ru/item/61">
+        <div class="pt">Apartment 61</div><div class="p">${price} ֏</div>
+        <div class="at">Кентрон, 2 ком., 50 кв.м., 3/5 этаж</div>
+        <div class="d">Пятница, Июль 24, 2026, 14:31</div>
+      </a>
+    </div>`;
+  const delivered = [];
+  const crawl = (price, at, monitoring) =>
+    crawlApartments(
+      { ...config, initialPageCount: 1 },
+      {
+        ...state,
+        fetchPage: async () => new Response(listing(price)),
+        ...(monitoring
+          ? {
+              privateDeliveries: [
+                {
+                  recipientId: "42",
+                  filters,
+                  sendInitialApartments: false,
+                  deliverApartment: async ({ itemId }) =>
+                    delivered.push(itemId),
+                },
+              ],
+            }
+          : {}),
+        now: () => new Date(at),
+      },
+    );
+
+  await crawl("300000", "2026-07-24T12:00:00Z", true);
+  assert.ok(state.stored.recipients["42"].filtered["61"]);
+
+  // While monitoring is off, List.am reprices the card into the filter. That
+  // change would release it on its own for an active user.
+  await crawl("200000", "2026-07-24T12:05:00Z");
+
+  // The restart answer decides it first, and a declined apartment stays
+  // declined: the rejection it carried must not readmit it behind the answer.
+  await state.stateAccess.privateDeliveries.decisions.requestSelection("42");
+  const restarted = await crawl("200000", "2026-07-24T12:10:00Z", true);
+
+  assert.deepEqual(delivered, []);
+  assert.equal(restarted.readmittedCount, 0);
+  assert.equal(restarted.notifiedCount, 0);
+  assert.ok(state.stored.recipients["42"].skipped["61"]);
+  assert.equal(state.stored.recipients["42"].filtered["61"], undefined);
 });

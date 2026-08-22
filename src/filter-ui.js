@@ -1,3 +1,4 @@
+import { SOURCE_ACTIVITY_WINDOW_MS } from "./source-activity.js";
 import {
   emptyFilters,
   formatLocations,
@@ -38,12 +39,33 @@ export function filtersMenu(filters, active = false) {
   };
 }
 
+/**
+ * The delivery promise every history question is phrased against.
+ *
+ * Russian counts change the noun's ending, so the hour count picks its own
+ * form: the label stays correct if the window is ever retuned.
+ */
+export function sourceActivityWindowLabel() {
+  const hours = Math.round(SOURCE_ACTIVITY_WINDOW_MS / (60 * 60 * 1000));
+  const tail = hours % 100;
+  const last = tail % 10;
+  const form =
+    tail >= 11 && tail <= 14
+      ? "часов"
+      : last === 1
+        ? "час"
+        : last >= 2 && last <= 4
+          ? "часа"
+          : "часов";
+  return `${hours} ${form}`;
+}
+
 export function initialDeliveryMenu(limit = 100) {
   return {
     text: [
       "Отправить уже найденные квартиры?",
       "",
-      `Перед запуском мониторинга бот может отправить до ${limit} последних подходящих квартир. Или можно начать только с новых объявлений.`,
+      `Перед запуском мониторинга бот может отправить подходящие квартиры за последние ${sourceActivityWindowLabel()} — не больше ${limit}. Или можно начать только с новых объявлений.`,
     ].join("\n"),
     replyMarkup: {
       inline_keyboard: [
@@ -54,6 +76,47 @@ export function initialDeliveryMenu(limit = 100) {
     },
   };
 }
+
+/**
+ * Offers the history a widened filter uncovered.
+ *
+ * Delivery never releases that backlog on its own, so this is the only way a
+ * previously rejected apartment reaches the user. Declining is durable: those
+ * apartments are marked skipped and are not offered again.
+ */
+export function historyOfferMenu(count) {
+  return {
+    text: [
+      "Фильтры изменены.",
+      "",
+      `Подходящих квартир за последние ${sourceActivityWindowLabel()}: ${count}.`,
+      "Отправить их или ждать только новые объявления?",
+    ].join("\n"),
+    replyMarkup: {
+      inline_keyboard: [
+        [button("Да, отправить", "m:history:send")],
+        [button("Нет, только новые", "m:history:skip")],
+      ],
+    },
+  };
+}
+
+/** Precedes a batch that carries history, so a burst is never unexplained. */
+export function deliveryAnnouncementText(count) {
+  return [
+    `Подходящих квартир за последние ${sourceActivityWindowLabel()}: ${count}.`,
+    "Отправляю…",
+  ].join(" ");
+}
+
+export function historyAcceptedText(count) {
+  return count > 0
+    ? `Хорошо, отправлю их при следующей проверке. Квартир: ${count}.`
+    : "Отправлять нечего: подходящих квартир за это время не осталось.";
+}
+
+export const HISTORY_DECLINED_TEXT =
+  "Хорошо, эти квартиры отправлены не будут — придут только новые объявления.";
 
 export function deleteDataMenu() {
   return {

@@ -2224,3 +2224,157 @@ test("a terminal command reply deactivates only that private user", async () => 
   assert.equal(saved.at(-1).updateOffset, 2);
   assert.equal(saved.at(-1).users["99"].active, false);
 });
+
+test("a widened filter offers its rejected history and honours the answer", async () => {
+  const controller = new AbortController();
+  const sent = [];
+  const edited = [];
+  const listUrlTemplate = "https://www.list.am/ru/category/56/{page}";
+  const apartment = (itemId, amountAmd) => ({
+    itemId,
+    title: `Apartment ${itemId}`,
+    price: { amountAmd, originalAmount: amountAmd, originalCurrency: "AMD" },
+    location: "Кентрон",
+    rooms: 2,
+    areaSqM: 50,
+    floor: "3/5",
+    date: "Пятница, Июль 24, 2026, 09:00",
+    url: `https://www.list.am/ru/item/${itemId}`,
+    firstSeenAt: "2026-07-24T09:05:00.000Z",
+    lastSeenAt: "2026-07-24T09:05:00.000Z",
+  });
+  const rejectedAt = "2026-07-24T09:05:00.000Z";
+  const stateAccess = createMemoryStateAccess({
+    listUrlTemplate,
+    apartments: {
+      version: 3,
+      type: "list-am-apartments",
+      urlTemplate: listUrlTemplate,
+      checkedAt: "2026-07-24T09:05:00.000Z",
+      apartments: {
+        7: apartment("7", 300_000),
+        6: apartment("6", 900_000),
+      },
+      apartmentOrder: ["7", "6"],
+      sourceIntegrity: { recentFirstPageCounts: [2] },
+    },
+    deliveries: {
+      42: {
+        initialSelectionApplied: true,
+        // Both were rejected by the price filter the user is about to reset.
+        filtered: { 7: rejectedAt, 6: rejectedAt },
+      },
+    },
+    telegram: {
+      version: 3,
+      type: "telegram-bot",
+      updateOffset: 0,
+      users: {
+        42: {
+          active: true,
+          chatId: 42,
+          sendInitialApartments: true,
+          filters: {
+            price: { min: null, max: 250_000 },
+            rooms: { min: null, max: null },
+            locations: [],
+          },
+          pendingFilterInput: null,
+        },
+      },
+    },
+  });
+  let updateCalls = 0;
+  const api = {
+    getUpdates: async (_offset, _timeout, signal) => {
+      updateCalls += 1;
+      if (updateCalls === 1) {
+        return [callback(1, "f:reset"), callback(2, "m:history:send")];
+      }
+      return new Promise((resolve) => {
+        signal.addEventListener("abort", () => resolve([]), { once: true });
+      });
+    },
+    sendMessage: async (chatId, text) => sent.push([chatId, text]),
+    editMessageText: async (chatId, _messageId, text) => {
+      edited.push([chatId, text]);
+      if (text.startsWith("Хорошо")) controller.abort();
+    },
+    answerCallbackQuery: async () => {},
+  };
+
+  await runTelegramBot(
+    {
+      telegramBotToken: "token",
+      telegramOwnerId: 42,
+      telegramPollTimeoutSeconds: 25,
+      timeoutMs: 1_000,
+      pollIntervalMs: 60_000,
+      listUrlTemplate,
+      initialDeliveryLimit: 100,
+    },
+    {
+      api,
+      stateAccess,
+      signal: controller.signal,
+      now: () => new Date("2026-07-24T12:00:00.000Z"),
+      crawl: async () => ({ status: "unchanged", discoveredCount: 0 }),
+    },
+  );
+
+  // Resetting the filter admits both rejected apartments, and the crawl is
+  // never the one to release them: the offer follows the refreshed main menu.
+  assert.match(edited[0][1], /Мониторинг: запущен/u);
+  assert.deepEqual(sent, [
+    [
+      42,
+      [
+        "Фильтры изменены.",
+        "",
+        "Подходящих квартир за последние 24 часа: 2.",
+        "Отправить их или ждать только новые объявления?",
+      ].join("\n"),
+    ],
+  ]);
+  assert.match(edited[1][1], /^Хорошо, отправлю их при следующей проверке/u);
+  assert.deepEqual(stateAccess.recipients["42"].filtered, {});
+  assert.deepEqual(stateAccess.recipients["42"].skipped, {});
+});
+
+test("monitoring answers decide history without a second question", async () => {
+  const selections = [];
+  const answers = [];
+  const offers = [];
+  const edited = [];
+  const state = await processUpdates(
+    [
+      callback(2, "m:start"),
+      callback(3, "m:start:initial"),
+      callback(4, "m:history:skip"),
+      callback(5, "m:stop"),
+    ],
+    config,
+    initialState,
+    {
+      sendMessage: async () => {},
+      editMessage: async (...args) => edited.push(args),
+      saveState: async () => {},
+      offerHistory: async (chatId) => offers.push(chatId),
+      applyHistoryAnswer: async (chatId, _user, accepted) => {
+        answers.push([chatId, accepted]);
+        return 2;
+      },
+      requestSelection: async (chatId) => selections.push(chatId),
+    },
+  );
+
+  assert.equal(state.users["42"].sendInitialApartments, true);
+  // Starting reopens the gate the crawl classifies the backlog through;
+  // stopping leaves it alone, because no new answer was given.
+  assert.deepEqual(selections, [42]);
+  // The start answer already covers the history, so the panel it returns to
+  // must not ask about the same apartments a second time.
+  assert.deepEqual(offers, []);
+  assert.deepEqual(answers, [[42, false]]);
+  assert.match(edited.at(-2)[2], /придут только новые объявления/u);
+});

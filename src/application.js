@@ -309,6 +309,12 @@ export async function runApplication({
           event: "telegram.metadata.synchronization_failed",
           retryDelayMs,
         }),
+      onPrivateHistoryDecision: ({ accepted, count }) =>
+        logger.info("Private history offer answered", {
+          event: "telegram.private.history.answered",
+          accepted,
+          count,
+        }),
       onPrivateMonitoringChanged: ({
         active,
         activeUserCount,

@@ -49,6 +49,9 @@ function createDeliveryDecisions(database, repository) {
       }),
     acknowledge: (recipientId, itemId, decidedAt) =>
       repository.acknowledge(recipientId, itemId, decidedAt),
+    requestSelection: (recipientId) => repository.requestSelection(recipientId),
+    declineHistory: (recipientId, skipped) =>
+      repository.declineHistory(recipientId, skipped),
   };
 }
 
@@ -147,6 +150,8 @@ export function createSqliteStateAccess(database, repositories) {
     },
     privateDeliveries: {
       load: () => repositories.privateDeliveries.loadAllDecisions(),
+      loadRecipient: (recipientId) =>
+        repositories.privateDeliveries.loadRecipient(recipientId),
       decisions: createDeliveryDecisions(
         database,
         repositories.privateDeliveries,

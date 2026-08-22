@@ -16,9 +16,10 @@ import {
 import { pageUrl } from "./target.js";
 import { postingDateSortValue } from "./posting-date.js";
 import {
-  postedWithinSourceActivityWindow,
+  withinSourceActivity,
   withinSourceActivityWindow,
 } from "./source-activity.js";
+import { selectableHistory } from "./delivery-selection.js";
 import {
   parseAndEvaluateRegularApartments,
   sourceIntegrityPageSummary,
@@ -391,6 +392,10 @@ export async function crawlApartments(
   // Delivery measures source activity against the instant this crawl read
   // List.am, so every recipient in the fan-out applies the same window.
   const sourceActivityReference = Date.parse(checkedAt);
+  // What this crawl itself saw appear or change: the news half of any batch.
+  const freshIds = new Set(
+    [...discovered, ...updated].map(({ itemId }) => itemId),
+  );
   const privateDelivery = async () => {
     if (deliveryTargets.length === 0) return;
     const deliveryState = normalizedDeliveryState(
@@ -421,63 +426,94 @@ export async function crawlApartments(
         deliveryState.recipients[recipientId],
       );
 
+      // The bot reopens this gate every time the user answers the monitoring
+      // question, so a start, a restart after a pause, and a resumed
+      // subscription all classify the history that accumulated meanwhile
+      // against the answer the user just gave.
+      let selectionApplied = false;
       if (!recipient.initialSelectionApplied && apartmentOrder.length > 0) {
         const classifiedAt = now().toISOString();
-        const matchingIds = apartmentOrder.filter((itemId) =>
-          apartmentMatchesFilters(apartments[itemId], recipientFilters),
+        const selectable = selectableHistory(
+          apartmentOrder,
+          apartments,
+          recipient,
+          recipientFilters,
+          sourceActivityReference,
         );
-        const matchingIdSet = new Set(matchingIds);
-        const initialDeliveryLimit =
+        const selectionLimit =
           target.sendInitialApartments === false
             ? 0
             : config.initialDeliveryLimit;
-        const selectedIds = new Set(matchingIds.slice(0, initialDeliveryLimit));
+        const selectedIds = new Set(selectable.slice(0, selectionLimit));
+        // An accepted match may have been rejected under the filters this user
+        // ran before the pause; clearing that rejection is what returns it to
+        // the pending set.
+        const released = [...selectedIds].filter(
+          (itemId) => recipient.filtered[itemId],
+        );
         const skipped = Object.fromEntries(
-          matchingIds
+          selectable
             .filter((itemId) => !selectedIds.has(itemId))
             .map((itemId) => [itemId, classifiedAt]),
         );
+        // Rejections keep the timestamp of the crawl that first recorded them,
+        // because that is what a later List.am update is measured against.
         const filtered = Object.fromEntries(
           apartmentOrder
-            .filter((itemId) => !matchingIdSet.has(itemId))
+            .filter(
+              (itemId) =>
+                !recipient.notified[itemId] &&
+                !recipient.skipped[itemId] &&
+                !recipient.filtered[itemId] &&
+                !apartmentMatchesFilters(apartments[itemId], recipientFilters),
+            )
             .map((itemId) => [itemId, classifiedAt]),
         );
         skippedCount += Object.keys(skipped).length;
         filteredCount += Object.keys(filtered).length;
+        readmittedCount += released.length;
+        // A decision taken now replaces the rejection an apartment carried
+        // from an earlier session: accepted ones return to the pending set,
+        // declined ones are skipped, and neither may stay filtered as well.
+        const retainedFiltered = { ...recipient.filtered, ...filtered };
+        for (const itemId of [...released, ...Object.keys(skipped)]) {
+          delete retainedFiltered[itemId];
+        }
         recipient = {
           ...recipient,
           initialSelectionApplied: true,
           skipped: { ...recipient.skipped, ...skipped },
-          filtered: { ...recipient.filtered, ...filtered },
+          filtered: retainedFiltered,
         };
+        selectionApplied = true;
         // Persist classification before sending so a restart cannot enqueue
         // historical apartments that were intentionally omitted for this user.
         await recordDecision(() =>
-          decisions.applyInitialSelection(recipientId, { skipped, filtered }),
+          decisions.applyInitialSelection(recipientId, {
+            skipped,
+            filtered,
+            released,
+          }),
         );
       }
 
       // A rejected apartment starts matching only when the user edits their
-      // filters or List.am changes the card. Recent source activity is what
-      // separates the two: the ad was posted inside the window, or its data
-      // changed inside the window after the rejection. Everything older stays
-      // filtered until List.am touches it again, so a filter edit delivers the
-      // last day rather than the entire rejected history.
+      // filters or List.am changes the card. Delivery releases the second case
+      // on its own: the card's data changed inside the window after the
+      // rejection, which is fresh source activity rather than history. A
+      // widened filter releases nothing here — the bot asks the user about
+      // that backlog through the menu instead.
       const readmittedIds = apartmentOrder.filter((itemId) => {
         const filteredAt = recipient.filtered[itemId];
         if (!filteredAt) return false;
         const apartment = apartments[itemId];
         if (!apartmentMatchesFilters(apartment, recipientFilters)) return false;
         return (
-          postedWithinSourceActivityWindow(
-            apartment,
+          hasApartmentUpdateAfter(apartment, filteredAt) &&
+          withinSourceActivityWindow(
+            apartment.updatedAt,
             sourceActivityReference,
-          ) ||
-          (hasApartmentUpdateAfter(apartment, filteredAt) &&
-            withinSourceActivityWindow(
-              apartment.updatedAt,
-              sourceActivityReference,
-            ))
+          )
         );
       });
       if (readmittedIds.length > 0) {
@@ -522,6 +558,15 @@ export async function crawlApartments(
       const pending = [...apartmentOrder]
         .reverse()
         .filter((itemId) => {
+          // One bound covers every path into the pending set: a private
+          // recipient is only ever sent what List.am posted or changed inside
+          // the source-activity window. An older card waits for its next
+          // List.am update instead of arriving as news.
+          if (
+            !withinSourceActivity(apartments[itemId], sourceActivityReference)
+          ) {
+            return false;
+          }
           const deliveredAt = recipient.notified[itemId];
           if (deliveredAt) {
             // The same bound guards redelivery: a stale update that only
@@ -541,6 +586,23 @@ export async function crawlApartments(
         })
         .map((itemId) => apartments[itemId])
         .filter(Boolean);
+
+      // A batch that carries history — everything this crawl selected for a
+      // fresh answer, or left pending by an earlier interrupted send —
+      // announces itself first, so a burst of apartments never arrives
+      // unexplained. A routine crawl delivering what it has just seen appear
+      // or change on List.am stays silent and sends the apartment alone.
+      const carriesHistory =
+        selectionApplied || pending.some(({ itemId }) => !freshIds.has(itemId));
+      if (pending.length > 0 && carriesHistory && target.announceDelivery) {
+        if (target.isAuthorized?.() === false) return;
+        try {
+          await target.announceDelivery({ count: pending.length });
+        } catch (error) {
+          if (!error.privateRecipientUnavailable) throw error;
+          return;
+        }
+      }
 
       for (const apartment of pending) {
         if (target.isAuthorized?.() === false) break;

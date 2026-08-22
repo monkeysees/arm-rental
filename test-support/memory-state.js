@@ -89,6 +89,10 @@ export function createMemoryStateAccess({
       },
     },
     privateDeliveries: {
+      loadRecipient: async (recipientId) =>
+        recipients[String(recipientId)]
+          ? structuredClone(recipients[String(recipientId)])
+          : undefined,
       load: async () => ({
         version: 2,
         type: "telegram-deliveries",
@@ -102,7 +106,7 @@ export function createMemoryStateAccess({
       decisions: {
         applyInitialSelection: async (
           recipientId,
-          { skipped = {}, filtered = {} },
+          { skipped = {}, filtered = {}, released = [] },
         ) => {
           await write("privateDeliveries", {
             recipientId,
@@ -110,8 +114,25 @@ export function createMemoryStateAccess({
           });
           const entry = recipient(recipientId);
           entry.initialSelectionApplied = true;
+          for (const itemId of released) delete entry.filtered[itemId];
+          for (const itemId of Object.keys(skipped))
+            delete entry.filtered[itemId];
           Object.assign(entry.skipped, skipped);
           Object.assign(entry.filtered, filtered);
+        },
+        requestSelection: async (recipientId) => {
+          await write("privateDeliveries", {
+            recipientId,
+            selectionRequested: true,
+          });
+          recipient(recipientId).initialSelectionApplied = false;
+        },
+        declineHistory: async (recipientId, skipped) => {
+          await write("privateDeliveries", { recipientId, declined: skipped });
+          const entry = recipient(recipientId);
+          for (const itemId of Object.keys(skipped))
+            delete entry.filtered[itemId];
+          Object.assign(entry.skipped, skipped);
         },
         classifyFiltered: async (recipientId, filtered) => {
           await write("privateDeliveries", { recipientId, filtered });

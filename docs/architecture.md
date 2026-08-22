@@ -846,12 +846,24 @@ operator procedures are indexed in
    charging the same update twice.
    These process-local controls expire after inactivity and reset on restart,
    while the service retains no admission capacity for persisted private
-   users. The start callback first asks whether to send up to
-   `INITIAL_DELIVERY_LIMIT` existing matches or monitor new listings only;
-   monitoring remains inactive until that choice is persisted. The final start
-   and stop callbacks durably toggle only that user's delivery state before
-   refreshing the panel, wake the dormant crawl loop on activation, and update
-   readiness state on either transition. `/stop` performs the same per-user
+   users. The start callback first asks whether to send the matching apartments
+   of the last day of List.am activity, at most `INITIAL_DELIVERY_LIMIT` of
+   them, or to monitor new listings only; monitoring remains inactive until
+   that choice is persisted. The question is asked at every start, not only the
+   first, because a pause leaves a backlog the answer has to decide. The final
+   start and stop callbacks durably toggle only that user's delivery state
+   before refreshing the panel, wake the dormant crawl loop on activation, and
+   update readiness state on either transition. Activation also reopens that
+   recipient's selection gate, after the answer itself is durable and before
+   the loop wakes, so the first crawl of the session classifies the backlog
+   against the answer instead of delivering it as news.
+   Every refreshed main menu then offers the rejected history a filter edit
+   uncovered: the matches inside the same window that the previous filters
+   rejected, capped by the same limit. Sending them clears those rejections for
+   the next crawl; declining marks them skipped, which delivery never releases,
+   so the offer does not return. The offer is derived from stored decisions
+   rather than from a remembered question, so an unanswered one survives a
+   restart and a satisfied one disappears on its own. `/stop` performs the same per-user
    deactivation as the stop callback and sends the refreshed main menu; it does
    not terminate the bot process. Range values are collected from that user's
    next text message. The entry prompt explains that `/cancel` abandons only
@@ -910,27 +922,34 @@ operator procedures are indexed in
    batch, or acknowledgement. Those writes still pass through a serialized,
    failure-latching chain: it orders them against user deletion, which still
    replaces delivery state as a whole, and stops recording once a write has
-   failed. On first admission, non-matches become filtered, and on an empty
-   user delivery history either the latest matching `INITIAL_DELIVERY_LIMIT`
-   are selected or, when that user declined the initial selection, all
-   existing matches are atomically marked `skipped_initial`. The default limit
-   is 100. Re-admission and redelivery are bounded to the last day of List.am
+   failed. Every delivery decision is bounded to the last day of List.am
    activity, measured against the instant the crawl read the source
-   (`SOURCE_ACTIVITY_WINDOW_MS` in `src/source-activity.js`). A filtered apartment is
-   durably re-admitted when it matches the user's current filters and either
-   its displayed posting date falls inside that window, or its source
-   `updatedAt` advances beyond its rejection timestamp and also falls inside
-   it. A previously delivered apartment similarly becomes pending again when
-   its source `updatedAt` is later than that user's last successful
-   notification, lies inside the window, and it still matches. A filtered
-   apartment only starts matching because the user edited a filter or List.am
-   changed the card, so the window is what keeps a filter edit delivering the
-   current day instead of the entire rejected history; older history waits for
-   its next List.am update. Posting dates carry no time zone and are compared
-   as UTC calendar components, so the day-wide window absorbs the source's
-   offset, and cards with an unparsable date fall back to `firstSeenAt`.
-   Skipped history is never released. Source order is reversed so selected
-   messages are delivered oldest first, then acknowledged one at a time. Each
+   (`SOURCE_ACTIVITY_WINDOW_MS` in `src/source-activity.js`): an apartment
+   enters the pending set only when List.am posted it or changed it inside that
+   window, whatever path admitted it. Posting dates carry no time zone and are
+   compared as UTC calendar components, so the day-wide window absorbs the
+   source's offset, and cards with an unparsable date fall back to
+   `firstSeenAt`.
+   With the recipient's selection gate open, the crawl classifies that window's
+   undecided matches against the user's stored answer: the newest
+   `INITIAL_DELIVERY_LIMIT` are selected, shedding any rejection they carry
+   from earlier filters, and the remainder — every match inside the window when
+   the user declined — is atomically marked `skipped`. The default limit is 100. Matches outside the window are left undecided, so a later List.am
+   update can still deliver them as fresh activity. Non-matches that carry no
+   decision yet become `filtered`, keeping the timestamp of their first
+   rejection.
+   A filtered apartment is durably re-admitted only when it matches the current
+   filters and its source `updatedAt` advances beyond its rejection timestamp
+   and lies inside the window. A widened filter releases nothing here: the bot
+   offers that backlog through the menu and clears the rejections only once the
+   user accepts. A previously delivered apartment similarly becomes pending
+   again when its source `updatedAt` is later than that user's last successful
+   notification, lies inside the window, and it still matches. Skipped history
+   is never released. Source order is reversed so selected
+   messages are delivered oldest first, then acknowledged one at a time. A
+   batch that carries anything the crawl did not discover itself, or that
+   follows a selection, is preceded by one Russian heads-up message naming its
+   size; a batch of freshly discovered listings is sent without one. Each
    private recipient has a process-local token bucket with a fixed burst of five
    apartment messages and continuous refill at the configured per-minute rate.
    Initial selections, new apartments, and updated-apartment redelivery all use

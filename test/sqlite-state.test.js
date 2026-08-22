@@ -402,6 +402,39 @@ test("admission, update, deletion, and rate failures retain their durable bounda
     undefined,
   );
 
+  // Every later monitoring answer reclassifies a recipient that already holds
+  // decisions: a declined rejection is overwritten where it stands, and an
+  // accepted one is cleared instead of colliding with its own row.
+  repositories.privateDeliveries.initializeSelection("42", {
+    filtered: { decline: TIME, accept: TIME, reject: TIME },
+  });
+  repositories.privateDeliveries.declineHistory("42", { decline: TIME });
+  assert.equal(
+    repositories.privateDeliveries.loadRecipient("42").skipped.decline,
+    TIME,
+  );
+  repositories.privateDeliveries.requestSelection("42");
+  assert.equal(
+    repositories.privateDeliveries.loadRecipient("42").initialSelectionApplied,
+    false,
+  );
+  repositories.privateDeliveries.initializeSelection("42", {
+    skipped: { reject: TIME },
+    released: ["accept"],
+  });
+  const reclassified = repositories.privateDeliveries.loadRecipient("42");
+  assert.equal(reclassified.initialSelectionApplied, true);
+  assert.deepEqual(reclassified.filtered, {});
+  assert.deepEqual(reclassified.skipped, { decline: TIME, reject: TIME });
+  assert.throws(
+    () =>
+      repositories.privateDeliveries.initializeSelection("42", {
+        skipped: { accept: TIME },
+        released: ["accept"],
+      }),
+    /cannot also be classified/u,
+  );
+
   repositories.telegram.saveUser(botUser(42));
   repositories.telegram.commitUpdate(8, {
     user: botUser(42, {

@@ -2,11 +2,17 @@ import { randomUUID } from "node:crypto";
 import { performance } from "node:perf_hooks";
 import { setTimeout as delay } from "node:timers/promises";
 
+import { migrateApartmentState } from "./apartment-state.js";
 import { publishChannelApartments } from "./channel.js";
 import { crawlApartments } from "./crawler.js";
+import { releasableHistory } from "./delivery-selection.js";
 import {
   deleteDataMenu,
+  deliveryAnnouncementText,
   filtersMenu,
+  historyAcceptedText,
+  HISTORY_DECLINED_TEXT,
+  historyOfferMenu,
   initialDeliveryMenu,
   locationsMenu,
   regionMenu,
@@ -403,6 +409,7 @@ async function processFilterCallback(query, state, actions) {
       filtersMenu(current.filters, current.active),
       actions,
     );
+    await actions.offerHistory(chatId, current);
     return current;
   }
   if (action === "locations") {
@@ -424,6 +431,7 @@ async function processFilterCallback(query, state, actions) {
       filtersMenu(current.filters, current.active),
       actions,
     );
+    await actions.offerHistory(chatId, current);
     return current;
   }
   const regionIndex = validRegionIndex(parts[2]);
@@ -495,6 +503,9 @@ export async function processUpdates(
     onDeletionPending = async () => {},
     onDeletionCancelled = async () => {},
     onDeletionCallbackError = async () => {},
+    offerHistory = async () => {},
+    applyHistoryAnswer = async () => 0,
+    requestSelection = async () => {},
     isPersistedUserAccessBypass = () => false,
     rateLimits,
     now = () => new Date(),
@@ -685,6 +696,12 @@ export async function processUpdates(
           pendingFilterInput: null,
         });
         await saveState(current);
+        // The answer is durable before the gate that consumes it reopens, so a
+        // crash between the two leaves the previous classification standing
+        // rather than releasing history against an answer nobody gave. The
+        // gate reopens before activation wakes the crawl loop, so the first
+        // crawl of this session already classifies the pause's backlog.
+        if (active) await requestSelection(chatId);
         await answerCallback(query.id);
         await showFilterView(
           chatId,
@@ -700,11 +717,34 @@ export async function processUpdates(
         }
         continue;
       }
+      if (["m:history:send", "m:history:skip"].includes(query.data)) {
+        const chatId = senderId;
+        const user = userState(current, chatId);
+        const accepted = query.data === "m:history:send";
+        // The classification write is what makes either answer durable; the
+        // reply only reports it, so it follows the write.
+        const count = await applyHistoryAnswer(chatId, user, accepted);
+        await saveState(current);
+        await answerCallback(query.id);
+        await showFilterView(
+          chatId,
+          query.message.message_id,
+          {
+            text: accepted ? historyAcceptedText(count) : HISTORY_DECLINED_TEXT,
+            // The answer is spent: dropping the keyboard leaves an answered
+            // question rather than one that can be answered twice.
+            replyMarkup: { inline_keyboard: [] },
+          },
+          { sendMessage, editMessage },
+        );
+        continue;
+      }
       if (query.data?.startsWith("f:")) {
         const chatId = senderId;
         const actions = {
           sendMessage,
           editMessage,
+          offerHistory,
           saveState: async (user) => {
             current = withUserState(current, chatId, user);
             await saveState(current);
@@ -736,6 +776,7 @@ export async function processUpdates(
       await saveState(current);
       const view = filtersMenu(user.filters, user.active);
       await sendMessage(senderId, view.text, view.replyMarkup);
+      await offerHistory(senderId, user);
       continue;
     }
 
@@ -763,6 +804,7 @@ export async function processUpdates(
       const view = filtersMenu(user.filters, user.active);
       await saveState(current);
       await sendMessage(senderId, view.text, view.replyMarkup);
+      await offerHistory(senderId, user);
       continue;
     }
 
@@ -772,6 +814,7 @@ export async function processUpdates(
       const view = filtersMenu(user.filters, user.active);
       await saveState(current);
       await sendMessage(senderId, view.text, view.replyMarkup);
+      await offerHistory(senderId, user);
       continue;
     }
 
@@ -792,6 +835,7 @@ export async function processUpdates(
       const view = filtersMenu(user.filters, user.active);
       await saveState(current);
       await sendMessage(senderId, view.text, view.replyMarkup);
+      await offerHistory(senderId, user);
       continue;
     }
 
@@ -810,6 +854,7 @@ export async function processUpdates(
         await saveState(current);
         const view = filtersMenu(user.filters, user.active);
         await sendMessage(senderId, view.text, view.replyMarkup);
+        await offerHistory(senderId, user);
       } catch (error) {
         await sendMessage(
           senderId,
@@ -843,6 +888,7 @@ export async function runTelegramBot(
     onPrivateUserDeletionCompleted = () => {},
     onPrivateMonitoringChanged = () => {},
     onPrivateUserDeactivated = () => {},
+    onPrivateHistoryDecision = () => {},
     onTelegramMetadataSynchronizationFailed = () => {},
     onTelegramMetadataSynchronized = () => {},
     onTelegramSuccess = () => {},
@@ -853,6 +899,7 @@ export async function runTelegramBot(
     exchangeRateService,
     metadataRetryIntervalMs = TELEGRAM_METADATA_RETRY_INTERVAL_MS,
     monotonicNow,
+    now = () => new Date(),
     signal,
   } = {},
 ) {
@@ -951,6 +998,74 @@ export async function runTelegramBot(
     activationWaiter?.();
     activationWaiter = undefined;
   };
+  /**
+   * The rejected history a user's current filters would release.
+   *
+   * Delivery classifies against the filters that were in force at the time, so
+   * widening one leaves matches sitting in the rejected group. The crawl never
+   * releases them on its own; the menu offers them, and this is the set behind
+   * both the offer and the answer. Stored records are read as the crawl left
+   * them: a legacy price that has not been normalized yet carries no AMD
+   * amount, so it simply does not match until the next crawl rewrites it.
+   */
+  const releasableHistoryFor = async (chatId, user) => {
+    if (!user?.active || user.deletionPendingAt) return [];
+    const recipient = await stateAccess.privateDeliveries.loadRecipient(chatId);
+    if (!recipient || Object.keys(recipient.filtered).length === 0) return [];
+    const apartmentState = migrateApartmentState(
+      await stateAccess.apartments.load(),
+      config.listUrlTemplate,
+    );
+    if (!apartmentState) return [];
+    return releasableHistory(
+      // Legacy state carries no source order; the next crawl rebuilds it, and
+      // until then there is no defensible "newest first" to offer.
+      apartmentState.apartmentOrder ?? [],
+      apartmentState.apartments,
+      recipient,
+      normalizeFilters(user.filters),
+      now().getTime(),
+    ).slice(0, config.initialDeliveryLimit);
+  };
+  /**
+   * Records the answer to a history offer against the current candidates.
+   *
+   * Accepting clears the rejection so the next crawl delivers the apartment
+   * with the rest of its batch; declining marks it skipped, which delivery
+   * never releases. Both pass through the delivery-state chain, so an answer
+   * cannot interleave with a crawl's classification or a pending deletion.
+   */
+  const applyHistoryAnswer = async (chatId, user, accepted) => {
+    const releasable = await releasableHistoryFor(chatId, user);
+    if (releasable.length === 0) return 0;
+    const recipientId = String(chatId);
+    const decisions = stateAccess.privateDeliveries.decisions;
+    await withDeliveryStateMutation(() =>
+      accepted
+        ? decisions.readmitFiltered(recipientId, releasable)
+        : decisions.declineHistory(
+            recipientId,
+            Object.fromEntries(
+              releasable.map((itemId) => [itemId, now().toISOString()]),
+            ),
+          ),
+    );
+    await onPrivateHistoryDecision({
+      accepted,
+      count: releasable.length,
+    });
+    return releasable.length;
+  };
+  /**
+   * Reopens the recipient's selection gate for the answer just persisted.
+   *
+   * The next crawl then classifies whatever accumulated while monitoring was
+   * off against that answer, instead of treating a pause's backlog as news.
+   */
+  const requestSelection = (chatId) =>
+    withDeliveryStateMutation(() =>
+      stateAccess.privateDeliveries.decisions.requestSelection(String(chatId)),
+    );
   const deactivateUnavailableUser = async (chatId, reason) => {
     const changed = await withBotStateMutation(async () => {
       if (!persistedUser(state, chatId)) return false;
@@ -986,6 +1101,36 @@ export async function runTelegramBot(
         privateRateLimits.pruneInactive();
         privateDeliveryRateLimiter.pruneInactive();
         const unavailableUsers = new Map();
+        const sendMessage = async (chatId, text, replyMarkup) => {
+          try {
+            return await api.sendMessage(chatId, text, signal, replyMarkup);
+          } catch (error) {
+            if (!error.terminal) throw error;
+            unavailableUsers.set(
+              chatId,
+              error.code || "ERR_TELEGRAM_PRIVATE_UNAVAILABLE",
+            );
+            return undefined;
+          }
+        };
+        const editMessage = async (chatId, messageId, text, replyMarkup) => {
+          try {
+            return await api.editMessageText(
+              chatId,
+              messageId,
+              text,
+              signal,
+              replyMarkup,
+            );
+          } catch (error) {
+            if (!error.terminal) throw error;
+            unavailableUsers.set(
+              chatId,
+              error.code || "ERR_TELEGRAM_PRIVATE_UNAVAILABLE",
+            );
+            return undefined;
+          }
+        };
         const updates = await api.getUpdates(
           state.updateOffset,
           config.telegramPollTimeoutSeconds,
@@ -993,36 +1138,16 @@ export async function runTelegramBot(
         );
         state = await withBotStateMutation(() =>
           processUpdates(updates, config, state, {
-            sendMessage: async (chatId, text, replyMarkup) => {
-              try {
-                return await api.sendMessage(chatId, text, signal, replyMarkup);
-              } catch (error) {
-                if (!error.terminal) throw error;
-                unavailableUsers.set(
-                  chatId,
-                  error.code || "ERR_TELEGRAM_PRIVATE_UNAVAILABLE",
-                );
-                return undefined;
-              }
+            sendMessage,
+            editMessage,
+            offerHistory: async (chatId, user) => {
+              const releasable = await releasableHistoryFor(chatId, user);
+              if (releasable.length === 0) return;
+              const view = historyOfferMenu(releasable.length);
+              await sendMessage(chatId, view.text, view.replyMarkup);
             },
-            editMessage: async (chatId, messageId, text, replyMarkup) => {
-              try {
-                return await api.editMessageText(
-                  chatId,
-                  messageId,
-                  text,
-                  signal,
-                  replyMarkup,
-                );
-              } catch (error) {
-                if (!error.terminal) throw error;
-                unavailableUsers.set(
-                  chatId,
-                  error.code || "ERR_TELEGRAM_PRIVATE_UNAVAILABLE",
-                );
-                return undefined;
-              }
-            },
+            applyHistoryAnswer,
+            requestSelection,
             answerCallback: (callbackQueryId) =>
               api.answerCallbackQuery(callbackQueryId, signal),
             saveState: persistBotState,
@@ -1052,6 +1177,7 @@ export async function runTelegramBot(
                 operation: "private-data-deletion-callback",
               }),
             rateLimits: privateRateLimits,
+            now,
           }),
         );
         if (pendingDeletionIds().length > 0) {
@@ -1151,6 +1277,45 @@ export async function runTelegramBot(
                       isPrivateUserAuthorized(config, user.chatId),
                     );
                   };
+                  const sendPrivate = async (text) => {
+                    try {
+                      await privateDeliveryRateLimiter.run(
+                        String(user.chatId),
+                        async (deliverySignal) => {
+                          if (!isAuthorized()) {
+                            const error = new Error(
+                              "Private recipient is no longer available",
+                            );
+                            error.privateRecipientUnavailable = true;
+                            throw error;
+                          }
+                          await api.sendMessage(
+                            user.chatId,
+                            text,
+                            deliverySignal,
+                          );
+                        },
+                        { signal },
+                      );
+                    } catch (error) {
+                      if (error.privateRecipientUnavailable) throw error;
+                      error.privateDeliveryFailure = true;
+                      if (error.terminal) {
+                        // A user can block the bot at any time. Remove that
+                        // private subscription without terminating monitoring
+                        // for every other user or the public channel.
+                        if (isAuthorized()) {
+                          await deactivateUnavailableUser(
+                            user.chatId,
+                            error.code || "ERR_TELEGRAM_PRIVATE_UNAVAILABLE",
+                          );
+                        }
+                        error.privateRecipientUnavailable = true;
+                        error.terminal = false;
+                      }
+                      throw error;
+                    }
+                  };
                   return {
                     recipientId: String(user.chatId),
                     filters: user.filters,
@@ -1158,45 +1323,14 @@ export async function runTelegramBot(
                     isAuthorized,
                     runDeliveryWorker: (operation) =>
                       privateDeliveryBarrier.run(user.chatId, operation),
-                    deliverApartment: async (apartment) => {
-                      try {
-                        await privateDeliveryRateLimiter.run(
-                          String(user.chatId),
-                          async (deliverySignal) => {
-                            if (!isAuthorized()) {
-                              const error = new Error(
-                                "Private recipient is no longer available",
-                              );
-                              error.privateRecipientUnavailable = true;
-                              throw error;
-                            }
-                            await api.sendMessage(
-                              user.chatId,
-                              formatApartmentMessage(apartment),
-                              deliverySignal,
-                            );
-                          },
-                          { signal },
-                        );
-                      } catch (error) {
-                        if (error.privateRecipientUnavailable) throw error;
-                        error.privateDeliveryFailure = true;
-                        if (error.terminal) {
-                          // A user can block the bot at any time. Remove that
-                          // private subscription without terminating monitoring
-                          // for every other user or the public channel.
-                          if (isAuthorized()) {
-                            await deactivateUnavailableUser(
-                              user.chatId,
-                              error.code || "ERR_TELEGRAM_PRIVATE_UNAVAILABLE",
-                            );
-                          }
-                          error.privateRecipientUnavailable = true;
-                          error.terminal = false;
-                        }
-                        throw error;
-                      }
-                    },
+                    // The heads-up that precedes a batch carrying history is a
+                    // delivery like any other: it waits behind the same
+                    // product-rate bucket and rechecks authorization, so it
+                    // cannot outrun a suspension or burst past Telegram.
+                    announceDelivery: ({ count }) =>
+                      sendPrivate(deliveryAnnouncementText(count)),
+                    deliverApartment: (apartment) =>
+                      sendPrivate(formatApartmentMessage(apartment)),
                   };
                 }),
                 deliveryStateMutation: withDeliveryStateMutation,

@@ -46,7 +46,7 @@ function listPage(...apartments) {
           <div class="dltitle"><div class="pt">Apartment ${itemId}</div></div>
           <div class="p">${priceAmd} \u058F monthly</div>
           <div class="at">Arabkir, 2 rm., 50 sq.m., 3/5 floor</div>
-          <div class="d">\u041F\u044F\u0442\u043D\u0438\u0446\u0430, \u0418\u044E\u043B\u044C 24, 2026, 14:31</div>
+          <div class="d">Вторник, Август 18, 2026, 09:00</div>
         </a>`,
     )
     .join("")}</div>`;

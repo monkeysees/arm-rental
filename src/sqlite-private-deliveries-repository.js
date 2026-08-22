@@ -11,6 +11,14 @@ function recipientId(value) {
   return nonEmptyIdentifier(value, "Private recipient ID");
 }
 
+function itemIdentifiers(value, label) {
+  if (value === undefined) return [];
+  if (!Array.isArray(value)) {
+    throw new TypeError(`${label} apartments must be an array`);
+  }
+  return value.map((itemId) => nonEmptyIdentifier(itemId, "Delivery item ID"));
+}
+
 function invalidDecisionError() {
   const error = new Error("Stored private delivery decision is invalid");
   error.code = "ERR_STATE_DATABASE_DOMAIN_INVALID";
@@ -149,17 +157,35 @@ export class SqlitePrivateDeliveriesRepository {
     );
   }
 
+  /**
+   * Applies one monitoring answer to the history this recipient carries.
+   *
+   * The bot reopens the selection gate whenever the user answers the question
+   * again, so this runs at a start, at a restart after a pause, and at a
+   * resumed subscription alike. A recipient that already carries decisions is
+   * therefore expected: accepted matches shed the rejection they picked up
+   * under the filters that ran before, and declined ones are written over
+   * whatever status they held.
+   */
   initializeSelection(
     value,
-    { skipped = {}, filtered = {} },
+    { skipped = {}, filtered = {}, released = [] },
     { transaction = true } = {},
   ) {
     const id = recipientId(value);
     const skippedEntries = entriesFromDecisions(skipped, "Skipped");
     const filteredEntries = entriesFromDecisions(filtered, "Filtered");
+    const releasedIds = itemIdentifiers(released, "Released");
     const skippedIds = new Set(skippedEntries.map(([itemId]) => itemId));
+    const decidedIds = new Set([
+      ...skippedIds,
+      ...filteredEntries.map(([itemId]) => itemId),
+    ]);
     if (filteredEntries.some(([itemId]) => skippedIds.has(itemId))) {
       throw new TypeError("Initial private delivery statuses cannot overlap");
+    }
+    if (releasedIds.some((itemId) => decidedIds.has(itemId))) {
+      throw new TypeError("A released apartment cannot also be classified");
     }
     return runRepositoryTransaction(
       this.database,
@@ -167,11 +193,56 @@ export class SqlitePrivateDeliveriesRepository {
       transaction,
       () => {
         this.upsertRecipient.run(id, 1);
+        for (const itemId of releasedIds) this.deleteFiltered.run(id, itemId);
         for (const [itemId, timestamp] of skippedEntries)
-          this.insertDecision.run(id, itemId, "skipped", timestamp);
+          this.upsertDecision.run(id, itemId, "skipped", timestamp);
         for (const [itemId, timestamp] of filteredEntries)
-          this.insertDecision.run(id, itemId, "filtered", timestamp);
-        return skippedEntries.length + filteredEntries.length;
+          this.upsertDecision.run(id, itemId, "filtered", timestamp);
+        return (
+          releasedIds.length + skippedEntries.length + filteredEntries.length
+        );
+      },
+    );
+  }
+
+  /**
+   * Reopens the selection gate so the next crawl applies a fresh answer.
+   *
+   * The answer itself lives with the bot user, and the gate lives with the
+   * delivery history it classifies; keeping them apart is what lets a restart
+   * decide the pause's backlog without a second copy of the user's choice.
+   */
+  requestSelection(value, { transaction = true } = {}) {
+    const id = recipientId(value);
+    return runRepositoryTransaction(
+      this.database,
+      "private_selection_request",
+      transaction,
+      () => {
+        this.upsertRecipient.run(id, 0);
+        return id;
+      },
+    );
+  }
+
+  /**
+   * Records history the user declined, overwriting the rejection it carried.
+   *
+   * A declined apartment is never released again, so the answer has to survive
+   * the filter edit that surfaced it.
+   */
+  declineHistory(value, decisions, { transaction = true } = {}) {
+    const id = recipientId(value);
+    const entries = entriesFromDecisions(decisions, "Skipped");
+    return runRepositoryTransaction(
+      this.database,
+      "private_delivery_decline",
+      transaction,
+      () => {
+        this.ensureRecipientStatement.run(id);
+        for (const [itemId, timestamp] of entries)
+          this.upsertDecision.run(id, itemId, "skipped", timestamp);
+        return entries.length;
       },
     );
   }

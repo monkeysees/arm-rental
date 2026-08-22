@@ -36,3 +36,18 @@ export function postedWithinSourceActivityWindow(apartment, referenceValue) {
   }
   return referenceValue - posted < SOURCE_ACTIVITY_WINDOW_MS;
 }
+
+/**
+ * Whether List.am touched the apartment inside the window.
+ *
+ * Private delivery makes one temporal promise: a recipient is only ever sent
+ * what List.am posted or changed within the last day. Both halves matter,
+ * because a renewed ad keeps an old displayed date while its data moves, and a
+ * freshly posted ad has never been updated at all.
+ */
+export function withinSourceActivity(apartment, referenceValue) {
+  return (
+    postedWithinSourceActivityWindow(apartment, referenceValue) ||
+    withinSourceActivityWindow(apartment?.updatedAt, referenceValue)
+  );
+}

@@ -735,6 +735,6 @@ test("a refused candidate names the contract it failed", async (t) => {
       error.code === 65 &&
       // Both halves of the mismatch: what arrived and what this release takes.
       error.stderr.includes("stateBackend json, state schema 0-0") &&
-      error.stderr.includes("stateBackend sqlite, state schema 1-1"),
+      error.stderr.includes("stateBackend sqlite, state schema 1 or higher"),
   );
 });

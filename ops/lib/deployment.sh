@@ -380,6 +380,10 @@ deployment_describe_release_metadata() {
     printf 'unreadable or malformed release metadata'
 }
 
+# Verifies one candidate's own contract. The schema range is checked for shape
+# only: whether a candidate covers the schema the host is actually serving is
+# deployment_state_transition's rule, and pinning an exact range here would
+# refuse every future migration until someone replaced this bundle by hand.
 deployment_verify_release() {
   local bundle_directory=$1
   local candidate=$2
@@ -393,8 +397,12 @@ deployment_verify_release() {
      .imageDigest == ($image | split("@")[1]) and
      .sourceRevision == $revision and
      .stateBackend == "sqlite" and
-     .minimumStateSchema == 1 and
-     .maximumStateSchema == 1 and
+     (.minimumStateSchema | type) == "number" and
+     (.maximumStateSchema | type) == "number" and
+     .minimumStateSchema >= 1 and
+     .maximumStateSchema >= .minimumStateSchema and
+     .minimumStateSchema == (.minimumStateSchema | floor) and
+     .maximumStateSchema == (.maximumStateSchema | floor) and
      (.packageLockSha256 | test("^[0-9a-f]{64}$")) and
      (.composeSha256 | test("^[0-9a-f]{64}$")) and
      (.operationsBundleSha256 | test("^[0-9a-f]{64}$"))' \
@@ -403,7 +411,7 @@ deployment_verify_release() {
       deployment_describe_release_metadata "$metadata"
     )"
     deployment_verification_error \
-      "this release deploys schemaVersion 2, image $candidate, revision $DEPLOYMENT_SOURCE_REVISION, stateBackend sqlite, state schema 1-1"
+      "this release deploys schemaVersion 2, image $candidate, revision $DEPLOYMENT_SOURCE_REVISION, stateBackend sqlite, state schema 1 or higher"
     return 65
   }
   compose_digest=$(

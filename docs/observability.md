@@ -189,6 +189,7 @@ so token and owner destination never enter argv or journal records.
 | `state_database_busy`                  | a database busy timeout is exhausted                    |
 | `state_database_operation_failure`     | a non-busy transaction or checkpoint fails              |
 | `deployment_blocked`                   | the deploy timer keeps skipping a quarantined candidate |
+| `deployment_failure`                   | a candidate was rejected and rolled back                |
 
 `deployment_blocked` exists because a rejected candidate is otherwise silent. A
 failed deployment quarantines its digest, but the discovery pointer goes on
@@ -198,6 +199,17 @@ that never enters application alert state. The monitor therefore reads the
 deploy unit's own `deployment.quarantine.skipped` records over the last three
 poll intervals and reports the validated digest. Clearing the quarantine stops
 the skips, and the alert resolves within the same window.
+
+`deployment_failure` covers the rejection itself, which `deployment_blocked`
+only reports once a quarantined digest is being skipped. The deploy records it
+under its own unit rather than in the container journal the application alert
+reader follows, and the timer result the failure leaves behind does not carry
+it either: a deploy runs longer than its own timer interval, so systemd already
+has the next poll queued, and that poll skips the freshly quarantined digest
+and exits successfully within seconds. Sampling the timer every five minutes
+therefore only ever observes success. The monitor reads the deploy unit alert
+records directly over the same window, reporting the rejected digest and the
+severity the deploy assigned.
 
 If Telegram delivery fails, the transition remains eligible for retry and
 `rental-monitor.service` fails without logging the response or credentials:

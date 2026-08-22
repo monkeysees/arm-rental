@@ -725,6 +725,57 @@ test("a quarantined candidate blocking the pointer alerts until it is cleared", 
   assert.match(payloads, /alert resolved: deployment_blocked/u);
 });
 
+test("a rolled-back candidate alerts even though the timer reads success", async (t) => {
+  const host = await fakeHost(t);
+  const digest = `sha256:${"f0845a6a".repeat(8)}`;
+
+  // The rollback records its own alert under the deploy unit, and the poll
+  // queued behind the overrunning deploy skips the freshly quarantined digest
+  // and exits successfully seconds later. The timer therefore reads success at
+  // every sampling, and this record is the only evidence the release failed.
+  await writeFile(
+    host.unitJournal,
+    deployRecord("2026-07-25T11:52:24.000Z", {
+      event: "alert.firing",
+      alertName: "deployment_failure",
+      alertSeverity: "critical",
+      candidateImage: `ghcr.io/owner/repository@${digest}`,
+      previousImage: "ghcr.io/owner/repository@sha256:2c1be778",
+    }),
+  );
+  const metrics = JSON.parse(
+    await execute(monitor, [], { env: host.env }).then(() =>
+      readFile(join(host.state, "metrics-latest.json"), "utf8"),
+    ),
+  );
+  assert.deepEqual(metrics.deployment.alerts, [
+    {
+      name: "deployment_failure",
+      severity: "critical",
+      digest,
+      observedAt: "2026-07-25T11:52:24Z",
+    },
+  ]);
+
+  let payloads = await readFile(host.env.RENTAL_TEST_CURL_PAYLOADS, "utf8");
+  assert.match(payloads, /alert firing: deployment_failure/u);
+  assert.match(payloads, /severity: critical/u);
+  assert.match(payloads, new RegExp(`for candidate ${digest}`, "u"));
+  assert.equal(
+    JSON.parse(await readFile(join(host.state, "alerts.json"), "utf8"))
+      .alerts.filter(({ name }) => name === "deployment_failure")
+      .map(({ status, severity }) => `${status}/${severity}`)
+      .join(),
+    "firing/critical",
+  );
+
+  // The record ages out of the window once deployments stop failing.
+  await writeFile(host.unitJournal, "");
+  await execute(monitor, [], { env: host.env });
+  payloads = await readFile(host.env.RENTAL_TEST_CURL_PAYLOADS, "utf8");
+  assert.match(payloads, /alert resolved: deployment_failure/u);
+});
+
 test("scheduled-job alerts explain the latest structured failure reason", async (t) => {
   const host = await fakeHost(t);
   await writeFile(

@@ -216,6 +216,16 @@ main() {
                 + ", skipped at "
                 + $metrics.deployment.blockedCandidate.observedAt
                 + "; no release can reach production until it is cleared"))),
+        ($metrics.deployment.alerts[]?
+          | alert(.name; .severity;
+              "journalctl -u rental-deploy.service --since -1h";
+              ("the deploy unit reported " + .name
+                + (if .digest == null
+                   then ""
+                   else " for candidate " + .digest
+                   end)
+                + " at " + .observedAt
+                + "; the timer result it left behind reads success"))),
         (select(
             ($metrics.deployment.present | not)
             or ($metrics.deployment.running | not)

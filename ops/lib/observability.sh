@@ -229,6 +229,61 @@ deployment_block_json() {
   ' <<<"$records"
 }
 
+# Reports the alerts the deploy unit raised for itself.
+#
+# A rejected candidate rolls back and records alert.firing under the deploy
+# unit, not in the container journal the application alert reader follows, so
+# nothing carries it into alert state. The timer result the failure leaves
+# behind does not carry it either: a deploy runs longer than its own timer
+# interval, so systemd already has the next poll queued, and that poll skips
+# the freshly quarantined digest and exits successfully within seconds. The
+# five-minute monitor sampling therefore only ever observes success.
+deployment_alerts_json() {
+  local since="$DEPLOYMENT_BLOCK_WINDOW"
+  local records
+  records="$("$JOURNALCTL_BIN" \
+    --no-pager \
+    --quiet \
+    --output=json \
+    --lines=200 \
+    --since "$since" \
+    --unit="${RENTAL_DEPLOY_UNIT}.service" 2>/dev/null || true)"
+  "$JQ_BIN" -sc '
+    [
+      .[]
+      | {
+          observedAt: (((.__REALTIME_TIMESTAMP // "0") | tonumber? // 0) / 1000000),
+          record: (((.MESSAGE // "") | try fromjson catch null) // {})
+        }
+      | select((.record | type) == "object")
+      | select(.record.event == "alert.firing")
+      | select((.record.alertName | type) == "string")
+      # Only alerts the deploy unit raises about deployment. An application
+      # alert reaches alert state through the container journal already, and
+      # re-reading it here would report it twice under a second source.
+      | select(.record.alertName | test("^deployment_[a-z0-9_]{1,48}$"))
+      | {
+          name: .record.alertName,
+          severity:
+            (if (.record.alertSeverity | type) == "string"
+               and (.record.alertSeverity | test("^(warning|error|critical)$"))
+             then .record.alertSeverity
+             else "error"
+             end),
+          digest:
+            (try
+              ((.record.candidateImage // "")
+                | capture("@(?<digest>sha256:[0-9a-f]{64})$")
+                | .digest)
+             catch null),
+          observedAt: (.observedAt | todateiso8601)
+        }
+    ]
+    | group_by(.name)
+    | map(last)
+  ' <<<"$records"
+}
+
 timer_failure_reason() {
   local timer="$1" last_trigger="$2" active_state="$3" last_result="$4" exit_status="$5"
   local journal="" reason=""
@@ -415,7 +470,7 @@ write_metrics_snapshot() {
   local target="${1:-$RENTAL_OPS_STATE_DIR/metrics-latest.json}"
   local target_directory temporary_directory temporary_file
   local application container readiness data_fs backup_fs journal timers
-  local backup maintenance snapshot deployment_block
+  local backup maintenance snapshot deployment_block deployment_alerts
 
   target_directory="$(dirname -- "$target")"
   install -d -m 0750 "$target_directory"
@@ -431,6 +486,7 @@ write_metrics_snapshot() {
   journal="$(journal_status_json)"
   timers="$(timer_status_json)"
   deployment_block="$(deployment_block_json)"
+  deployment_alerts="$(deployment_alerts_json)"
   backup="$(optional_json_file "$RENTAL_OPS_STATE_DIR/backup-latest.json")"
   maintenance="$(optional_json_file "$RENTAL_OPS_STATE_DIR/maintenance-latest.json")"
 
@@ -443,6 +499,7 @@ write_metrics_snapshot() {
     --argjson journal "$journal" \
     --argjson timers "$timers" \
     --argjson deploymentBlock "$deployment_block" \
+    --argjson deploymentAlerts "$deployment_alerts" \
     --argjson backup "$backup" \
     --argjson maintenance "$maintenance" '
       def rfc3339_epoch:
@@ -466,7 +523,11 @@ write_metrics_snapshot() {
       + {
           deployment:
             ($container
-              + {readiness: $readiness.status, blockedCandidate: $deploymentBlock}),
+              + {
+                  readiness: $readiness.status,
+                  blockedCandidate: $deploymentBlock,
+                  alerts: $deploymentAlerts
+                }),
           journal: ($journal + {
             oldestApplicationRecord: $application.observations.oldestApplicationRecord
           }),

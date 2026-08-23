@@ -78,6 +78,25 @@ use the same `BROWSER_PROFILE_DIR`. Chrome writes cookies and site storage
 before the verifier closes it, so verification survives service restarts and
 artifact replacement as long as the persistent volume is retained.
 
+## Image loading
+
+The crawl browser launches with `--blink-settings=imagesEnabled=false`, because
+nothing downstream reads an image element or its source. The setting suppresses
+fetching and decoding while leaving image elements and their attributes in the
+document, so the parsed HTML should be unchanged. `BROWSER_LOAD_IMAGES=true`
+restores image loading without a rebuild. The interactive verifier always loads
+images: a challenge has to be visible to be completed.
+
+Before deploying a change to this setting, run `npm run browser:smoke` on the
+production host with images enabled and again with them disabled, and require
+an identical Regular Ads count from both. A difference means List.am ties
+listing content to image loading. The same failure in production reaches
+`src/source-integrity.js`, which raises `ERR_LIST_AM_SOURCE_INTEGRITY` when
+first-page counts fall outside the expected range; a verification challenge
+instead surfaces as the absent `#contentr` element and a `browser.challenge`
+event. Both are alertable, and the rollback for both is the environment
+variable.
+
 ## Transfer a dedicated verified profile
 
 Opening the production volume on the production host is preferred. If a

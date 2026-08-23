@@ -35,6 +35,7 @@ test("interactive verification persists in the profile consumed by a restarted h
   const browserFetcherFactory = (browserConfig) => {
     launches.push({
       headless: browserConfig.browserHeadless,
+      loadImages: browserConfig.browserLoadImages === true,
       profileDirectory: browserConfig.browserProfileDir,
     });
     return {
@@ -72,10 +73,12 @@ test("interactive verification persists in the profile consumed by a restarted h
   assert.deepEqual(launches, [
     {
       headless: false,
+      loadImages: true,
       profileDirectory: "/persistent/chrome-profile",
     },
     {
       headless: true,
+      loadImages: false,
       profileDirectory: "/persistent/chrome-profile",
     },
   ]);

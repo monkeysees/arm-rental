@@ -35,8 +35,15 @@ export async function runBrowserOperation(
   try {
     const browserConfig = {
       ...config,
+      // The interactive verifier exists so a person can see and complete a
+      // List.am challenge, which the crawl's suppressed image loading would
+      // leave blank. Only this operation needs the pixels.
       ...(interactive
-        ? { browserHeadless: false, browserStartMinimized: false }
+        ? {
+            browserHeadless: false,
+            browserLoadImages: true,
+            browserStartMinimized: false,
+          }
         : {}),
     };
     browserFetcher = browserFetcherFactory(browserConfig, {

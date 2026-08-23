@@ -84,6 +84,9 @@ test("launch failure removes the isolated Chrome runtime directory", async (t) =
   assert.equal(launchOptions.dumpio, false);
   assert.equal(launchOptions.pipe, false);
   assert.ok(launchOptions.args.includes("--disk-cache-size=67108864"));
+  assert.ok(
+    launchOptions.args.includes("--blink-settings=imagesEnabled=false"),
+  );
   assert.ok(launchOptions.args.includes("--disable-breakpad"));
   assert.ok(launchOptions.args.includes("--disable-crash-reporter"));
   assert.ok(
@@ -194,6 +197,29 @@ test("background macOS launch keeps remote control on loopback", async (t) => {
   assert.ok(commands[0][1].includes("--remote-debugging-address=127.0.0.1"));
   assert.ok(commands[0][1].includes("--remote-debugging-port=49222"));
   assert.equal(commands[0][1].includes("--remote-debugging-pipe"), false);
+});
+
+test("BROWSER_LOAD_IMAGES restores image loading without a rebuild", async (t) => {
+  const config = await temporaryConfig(t, { browserLoadImages: true });
+  let launchOptions;
+  const fetcher = new BrowserPageFetcher(config, {
+    puppeteerImpl: {
+      launch: async (options) => {
+        launchOptions = options;
+        return launchedBrowser(browserPage());
+      },
+    },
+  });
+
+  await fetcher.start();
+  await fetcher.close();
+
+  assert.equal(
+    launchOptions.args.some((argument) =>
+      argument.startsWith("--blink-settings="),
+    ),
+    false,
+  );
 });
 
 test("headless launch normalizes only Chromium's headless user-agent token", async (t) => {

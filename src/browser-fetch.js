@@ -424,6 +424,15 @@ export class BrowserPageFetcher {
     const args = [
       `--disk-cache-size=${this.config.browserCacheMaxBytes || DEFAULT_DISK_CACHE_MAX_BYTES}`,
       "--disable-blink-features=AutomationControlled",
+      // Nothing downstream reads an image element or its source: the crawl
+      // wants the HTML. Suppressing the fetch and decode through Blink costs
+      // nothing at runtime, unlike aborting each request over CDP, which
+      // would add round trips to the event loop a stall already starves.
+      // Image elements and their attributes stay in the document, so the
+      // HTML page.content() returns is unchanged.
+      ...(this.config.browserLoadImages
+        ? []
+        : ["--blink-settings=imagesEnabled=false"]),
       "--disable-backgrounding-occluded-windows",
       // Browser-owned crash reporters require mutable or tracing facilities
       // outside the container contract. Application logs still report exits.

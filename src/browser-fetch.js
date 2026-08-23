@@ -30,6 +30,19 @@ const CHROME_SINGLETON_NAMES = [
 export const BROWSER_VERIFICATION_COMMAND = "npm run browser:verify";
 export const BROWSER_CHALLENGE_EVENT = "browser.challenge";
 
+// Reading the page HTML is the one CDP call a fetch cannot do without, and a
+// stalled renderer makes it hang rather than fail. Naming that stall lets the
+// caller retry against a fresh browser instead of waiting out the protocol
+// timeout, which is a dead wait: the renderer never recovers in place.
+export class BrowserContentTimeoutError extends Error {
+  constructor(budgetMs) {
+    super(`Reading the page HTML exceeded its ${budgetMs} ms budget.`);
+    this.name = "BrowserContentTimeoutError";
+    this.code = "ERR_BROWSER_CONTENT_TIMEOUT";
+    this.budgetMs = budgetMs;
+  }
+}
+
 export class BrowserVerificationRequiredError extends Error {
   constructor(
     message = `List.am requires security verification. Run ${BROWSER_VERIFICATION_COMMAND}.`,
@@ -248,7 +261,7 @@ async function launchHiddenMacChrome(
 // The scroll simulation is optional: a caller catches its failure and the
 // fetch still returns the page. It must not be able to spend the whole
 // protocol timeout before being abandoned, because the page.content() call
-// that actually produces the result needs its own budget, and both together
+// that actually produces the result holds its own budget, and both together
 // have to fit the deployment candidate observation window. On a host where a
 // CDP call can stall past the protocol timeout, an unbounded optional step
 // turns one stall into a failed crawl.
@@ -263,8 +276,35 @@ function interactionBudgetMs({ browserProtocolTimeoutMs }) {
   );
 }
 
-async function withinInteractionBudget(operation, remainingMs) {
-  if (remainingMs <= 0) throw new Error("interaction budget exhausted");
+// A healthy page read returns in a couple of seconds; a stalled one never
+// returns at all. Production timings are bimodal with nothing in between, so
+// this budget is generous against the healthy case while still cutting the
+// dead wait an order of magnitude below the protocol timeout.
+const CONTENT_BUDGET_MS = 20_000;
+
+// Twice the optional step's share and still inside the protocol timeout, so a
+// stalled renderer trips this budget rather than the CDP backstop. Keeping the
+// backstop strictly larger is what makes the failure retryable in time to
+// matter.
+function contentBudgetMs({ browserProtocolTimeoutMs }) {
+  return Math.max(
+    1,
+    Math.min(CONTENT_BUDGET_MS, Math.floor((browserProtocolTimeoutMs * 2) / 3)),
+  );
+}
+
+// Production shows the renderer stalling in two places, so both bounded waits
+// share one guard: the optional scroll simulation, whose failure the caller
+// swallows, and the page read, whose failure has to reach the retry.
+const interactionBudgetExhausted = () =>
+  new Error("interaction budget exhausted");
+
+async function withinBudget(
+  operation,
+  remainingMs,
+  createError = interactionBudgetExhausted,
+) {
+  if (remainingMs <= 0) throw createError();
   const pending = operation();
   // Only the wait is bounded; an abandoned evaluation keeps running in the
   // page until the browser is disposed. Observe it so giving up on the wait
@@ -275,10 +315,7 @@ async function withinInteractionBudget(operation, remainingMs) {
     return await Promise.race([
       pending,
       new Promise((_resolve, reject) => {
-        timer = setTimeout(
-          () => reject(new Error("interaction budget exhausted")),
-          remainingMs,
-        );
+        timer = setTimeout(() => reject(createError()), remainingMs);
       }),
     ]);
   } finally {
@@ -293,7 +330,7 @@ async function simulateUserActions(page, budgetMs = INTERACTION_BUDGET_MS) {
   const bounded = async (operation) => {
     const started = Date.now();
     try {
-      return await withinInteractionBudget(operation, budgetMs - waited);
+      return await withinBudget(operation, budgetMs - waited);
     } finally {
       waited += Date.now() - started;
     }
@@ -516,7 +553,15 @@ export class BrowserPageFetcher {
         await this.onStatus(`Browser interaction skipped: ${error.message}`);
       }
 
-      const html = await this.page.content();
+      // Unlike the scroll simulation, giving up here has to fail the fetch:
+      // there is no page to return. The caller disposes this browser and
+      // retries against a fresh one, which is what actually recovers the page.
+      const contentBudget = contentBudgetMs(this.config);
+      const html = await withinBudget(
+        () => this.page.content(),
+        contentBudget,
+        () => new BrowserContentTimeoutError(contentBudget),
+      );
       if (this.config.browserHeadless) {
         // A durable profile carries verification state across launches, while
         // a fresh process prevents renderer/compositor work from one List.am

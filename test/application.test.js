@@ -3,7 +3,10 @@ import { EventEmitter } from "node:events";
 import test from "node:test";
 
 import { runApplication } from "../src/application.js";
-import { BrowserVerificationRequiredError } from "../src/browser-fetch.js";
+import {
+  BrowserContentTimeoutError,
+  BrowserVerificationRequiredError,
+} from "../src/browser-fetch.js";
 import { HealthMonitor } from "../src/health.js";
 import {
   ListAmIntegrityReason,
@@ -166,6 +169,81 @@ test("runtime page fetch immediately retries a browser challenge once", async ()
     ],
   );
   assert.equal(monitor.readiness().ready, true);
+});
+
+test("a stalled page read is retried against a fresh browser with backoff", async () => {
+  const warnings = [];
+  const logger = {
+    info: () => {},
+    warn: (message, context) => warnings.push({ message, context }),
+    error: () => {},
+  };
+  let fetchAttempts = 0;
+
+  await runApplication({
+    // A base delay of one millisecond keeps the backoff observable without
+    // making the test wait out a production-sized one.
+    config: {
+      dataDirectory: "/data",
+      externalRetryBaseMs: 1,
+      externalRetryMaxMs: 4,
+    },
+    logger,
+    validateConfig: async () => {},
+    stateBackendFactory,
+    acquireLock: async () => ({
+      dataDirectory: "/data",
+      owner: { id: "lease", pid: 42 },
+      release: async () => {},
+    }),
+    browserFetcherFactory: () => ({
+      fetch: async () => {
+        fetchAttempts += 1;
+        // Two stalls in a row is exactly the case the second attempt used to
+        // lose the crawl to.
+        if (fetchAttempts <= 2) throw new BrowserContentTimeoutError(20_000);
+        return new Response('<div id="contentr"></div>', { status: 200 });
+      },
+      close: async () => {},
+    }),
+    exchangeRateServiceFactory: () => ({
+      currentSnapshot: () => ({ fetchedAt: "2026-07-25T09:00:00.000Z" }),
+    }),
+    preflight: async () => ({
+      status: "ready",
+      ready: true,
+      checks: {
+        storage: "passed",
+        telegram: "passed",
+        browser: "passed",
+        list_am: "passed",
+        exchange_rates: "passed",
+      },
+    }),
+    runBot: async (_config, callbacks) => {
+      const response = await callbacks.pageFetch("https://www.list.am/");
+      assert.equal(response.ok, true);
+    },
+  });
+
+  // The third attempt is the one that returns the page, so it has to exist.
+  assert.equal(fetchAttempts, 3);
+  const retries = warnings
+    .filter(({ message }) => message === "Browser page retry scheduled")
+    .map(({ context }) => context);
+  assert.deepEqual(
+    retries.map(({ attempt, reason }) => ({ attempt, reason })),
+    [
+      { attempt: 1, reason: "BROWSER_CONTENT_TIMEOUT" },
+      { attempt: 2, reason: "BROWSER_CONTENT_TIMEOUT" },
+    ],
+  );
+  // A stall is a load symptom, so relaunching Chrome waits rather than racing
+  // straight back into the spike that stalled the last one.
+  assert.ok(
+    retries.every(({ delayMs }) => delayMs > 0),
+    `expected every stall retry to back off, got ${JSON.stringify(retries)}`,
+  );
 });
 
 test("application lifecycle drives crawl and exchange-rate readiness", async () => {

@@ -13,6 +13,7 @@ import test from "node:test";
 
 import {
   BROWSER_CHALLENGE_EVENT,
+  BrowserContentTimeoutError,
   BrowserPageFetcher,
   BrowserVerificationRequiredError,
   findChromeExecutable,
@@ -370,6 +371,48 @@ test("a stalled scroll simulation is abandoned without failing the fetch", async
     elapsed < config.browserProtocolTimeoutMs,
     `expected the interaction to be abandoned early, took ${elapsed} ms`,
   );
+});
+
+test("a stalled page read fails the fetch early and disposes the browser", async (t) => {
+  const config = await temporaryConfig(t, { browserProtocolTimeoutMs: 300 });
+  let closes = 0;
+  let resolveStalled;
+  const stalled = new Promise((resolve) => {
+    resolveStalled = resolve;
+  });
+  t.after(() => resolveStalled?.());
+  const page = browserPage({
+    // No scrolling to perform, so the optional step cannot absorb any of the
+    // budget this test is measuring.
+    evaluate: async () => 0,
+    // The read never settles, exactly as a stalled renderer behaves until the
+    // protocol timeout eventually rejects it.
+    content: async () => stalled,
+  });
+  const fetcher = new BrowserPageFetcher(config, {
+    platform: "linux",
+    puppeteerImpl: {
+      launch: async () => launchedBrowser(page, () => (closes += 1)),
+    },
+  });
+
+  const started = Date.now();
+  await assert.rejects(fetcher.fetch("https://www.list.am/"), (error) => {
+    assert.ok(error instanceof BrowserContentTimeoutError);
+    assert.equal(error.name, "BrowserContentTimeoutError");
+    assert.equal(error.code, "ERR_BROWSER_CONTENT_TIMEOUT");
+    return true;
+  });
+  const elapsed = Date.now() - started;
+  await fetcher.close();
+
+  // The stall is abandoned inside the protocol budget rather than consuming
+  // it, and the unusable browser is gone so the retry starts from a fresh one.
+  assert.ok(
+    elapsed < config.browserProtocolTimeoutMs,
+    `expected the page read to be abandoned early, took ${elapsed} ms`,
+  );
+  assert.equal(closes, 1);
 });
 
 test("a runtime failure is cleaned up and the next fetch launches a fresh browser", async (t) => {

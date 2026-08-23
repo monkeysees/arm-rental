@@ -536,12 +536,19 @@ successful operation resets its backoff object. Telegram's server-supplied
 or permission errors, invalid configuration, and incompatible state escape to
 the supervisor instead of entering runtime retry loops.
 
-Runtime page fetches add one immediate retry in a fresh Chrome process before
-the crawl-level policy runs. The bounded retry accepts browser verification
-responses, Puppeteer protocol/target/connection failures, and the shared
-expected-external-failure set. A second failure escapes to the crawl loop,
-which records one failed crawl and applies its existing backoff; preflight does
-not use this runtime-only retry.
+Runtime page fetches add up to two retries in a fresh Chrome process before the
+crawl-level policy runs. The bounded retry accepts browser verification
+responses, Puppeteer protocol/target/connection failures, the bounded page-read
+timeout, and the shared expected-external-failure set. Renderer stalls are the
+dominant runtime browser failure and never recover in place, so only a fresh
+process wins the page back; because each attempt now carries its own read
+budget, a third attempt costs less than a single unbounded stall did. Stall
+retries wait a jittered exponential delay capped well below
+`EXTERNAL_RETRY_MAX_MS`, because relaunching Chrome into the load spike that
+stalled the last renderer tends to stall again. A verification challenge is not
+a load symptom and still retries immediately. A final failure escapes to the
+crawl loop, which records one failed crawl and applies its existing backoff;
+preflight does not use this runtime-only retry.
 
 Crawl completion and failure events carry a random crawl ID and elapsed
 milliseconds. Successful crawl records also expose the page, discovery,
@@ -680,6 +687,13 @@ Optional scrolling uses immediate compositor updates and short Node-side pacing
 delays around synchronous browser evaluations. Smooth-scroll animations cannot
 accumulate across navigations, and headless page-timer throttling therefore
 cannot consume the browser protocol timeout or block the following content read.
+Both bounded waits share one guard. The optional scrolling holds at most a
+third of the protocol timeout and its failure is swallowed, while the content
+read that produces the page holds a larger share and fails the fetch. Observed
+page reads are bimodal — a healthy read returns in seconds, a stalled one never
+returns — so bounding the read strictly inside the protocol timeout converts a
+dead wait for the CDP backstop into a prompt retry against a fresh browser, and
+reports it as `ERR_BROWSER_CONTENT_TIMEOUT`.
 Launch initialization, navigation, renderer, challenge, abort, and graceful
 shutdown paths close the Puppeteer browser, terminate its remaining owned child
 when necessary, and remove the runtime root. A later crawl starts a fresh

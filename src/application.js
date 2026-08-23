@@ -4,18 +4,40 @@ import { createEventLoopDelayMonitor } from "./event-loop-delay.js";
 import { validateStartupConfig } from "./config.js";
 import { runStartupPreflight, startupFailureResult } from "./preflight.js";
 import { classifyRuntimeFailure } from "./health.js";
-import { isExpectedExternalFailure, retryOperation } from "./retry.js";
+import {
+  ExponentialBackoff,
+  isExpectedExternalFailure,
+  retryOperation,
+} from "./retry.js";
 import {
   LIST_AM_SOURCE_INTEGRITY_ERROR,
   sourceIntegrityFailureSummary,
 } from "./source-integrity.js";
 
-const RETRYABLE_BROWSER_ERROR_NAMES = new Set([
-  "BrowserVerificationRequiredError",
+// The renderer stalled rather than refused. These are load symptoms, so the
+// browser they came from is already beyond saving and the host needs a moment
+// before the next one launches.
+const BROWSER_STALL_ERROR_NAMES = new Set([
+  "BrowserContentTimeoutError",
   "ConnectionClosedError",
   "ProtocolError",
   "TargetCloseError",
 ]);
+
+// Every stall, plus the challenge that a fresh browser can answer at once.
+const RETRYABLE_BROWSER_ERROR_NAMES = new Set([
+  ...BROWSER_STALL_ERROR_NAMES,
+  "BrowserVerificationRequiredError",
+]);
+
+// A stalled attempt is now bounded rather than open-ended, so backing off
+// costs a fraction of what waiting for one stall used to, and the cap keeps
+// three attempts well inside a single crawl.
+const BROWSER_RETRY_MAX_DELAY_MS = 8_000;
+
+function isBrowserStallFailure(error) {
+  return !error?.terminal && BROWSER_STALL_ERROR_NAMES.has(error?.name);
+}
 
 function isRetryableRuntimeBrowserFailure(error) {
   if (error?.terminal) return false;
@@ -32,6 +54,9 @@ function runtimeBrowserRetryReason(error) {
     error?.name === "BrowserVerificationRequiredError"
   ) {
     return "BROWSER_VERIFICATION_REQUIRED";
+  }
+  if (error?.name === "BrowserContentTimeoutError") {
+    return "BROWSER_CONTENT_TIMEOUT";
   }
   if (error?.name === "ProtocolError") return "BROWSER_PROTOCOL_FAILURE";
   if (error?.name === "TargetCloseError") return "BROWSER_TARGET_CLOSED";
@@ -180,11 +205,27 @@ export async function runApplication({
     logger.info(
       "Telegram bot is running; send /start in a private chat to configure monitoring",
     );
-    const fetchRuntimePage = (url) =>
-      retryOperation(() => browserFetcher.fetch(url), {
-        maxAttempts: 2,
+    // A stalled renderer is the dominant browser failure in production and it
+    // never recovers in place, so the page is only ever won back by abandoning
+    // the attempt and launching a fresh Chrome. Now that each attempt carries
+    // its own budget, a third one costs less than a single stall used to, and
+    // it is the attempt that most often returns the page.
+    const fetchRuntimePage = (url) => {
+      // Per fetch, so one page's stalls cannot lengthen the next page's waits.
+      const stallBackoff = new ExponentialBackoff({
+        baseDelayMs: config.externalRetryBaseMs || 1_000,
+        maxDelayMs: Math.min(
+          BROWSER_RETRY_MAX_DELAY_MS,
+          config.externalRetryMaxMs || BROWSER_RETRY_MAX_DELAY_MS,
+        ),
+      });
+      return retryOperation(() => browserFetcher.fetch(url), {
+        maxAttempts: 3,
         shouldRetry: isRetryableRuntimeBrowserFailure,
-        retryDelay: () => 0,
+        // Only a stall waits. A verification challenge is not a load symptom,
+        // and delaying it would just postpone the page.
+        retryDelay: (error) =>
+          isBrowserStallFailure(error) ? stallBackoff.nextDelay() : 0,
         signal: controller.signal,
         onRetry: ({ attempt, delayMs, error }) =>
           logger.warn("Browser page retry scheduled", {
@@ -196,6 +237,7 @@ export async function runApplication({
             reason: runtimeBrowserRetryReason(error),
           }),
       });
+    };
     await runBot(config, {
       signal: controller.signal,
       stateAccess,

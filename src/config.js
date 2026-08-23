@@ -336,6 +336,11 @@ export function getConfig(env = process.env, cwd = process.cwd()) {
       undefined,
       "BROWSER_HEADLESS",
     ),
+    browserLoadImages: boolean(
+      read("BROWSER_LOAD_IMAGES"),
+      undefined,
+      "BROWSER_LOAD_IMAGES",
+    ),
     browserChallengeTimeoutMs: positiveInteger(
       read("BROWSER_CHALLENGE_TIMEOUT_MS"),
       undefined,

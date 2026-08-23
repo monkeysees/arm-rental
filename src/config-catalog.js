@@ -281,6 +281,14 @@ export const CONFIGURATION_CATALOG = Object.freeze([
     purpose: "Controls headless Chrome operation.",
   }),
   entry({
+    name: "BROWSER_LOAD_IMAGES",
+    configKey: "browserLoadImages",
+    type: "boolean",
+    constraints: "true or false.",
+    defaultValue: "false",
+    purpose: "Lets Chrome fetch and decode page images the crawl never reads.",
+  }),
+  entry({
     name: "BROWSER_CHALLENGE_TIMEOUT_MS",
     configKey: "browserChallengeTimeoutMs",
     type: "positive safe integer",

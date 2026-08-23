@@ -42,6 +42,12 @@ export function compatibleDeliveryState(state, template) {
   );
 }
 
+/**
+ * The private-delivery store rebuilds one recipient entry per stored row, so
+ * every key is present but may be empty, and a recipient the store has never
+ * seen is absent altogether. Filling both gaps here keeps the delivery loop
+ * free of optional chaining.
+ */
 function deliveryRecipientState(state = {}) {
   return {
     notified: state.notified || {},
@@ -50,31 +56,6 @@ function deliveryRecipientState(state = {}) {
     initialSelectionApplied:
       state.initialSelectionApplied ??
       Object.keys(state.notified || {}).length > 0,
-  };
-}
-
-/**
- * The private-delivery store rebuilds one recipient entry per stored row, so
- * every key is present but may be empty. Filling the gaps here keeps the
- * delivery loop free of optional chaining, and an unrecognised shape is
- * refused rather than silently replaced with an empty history.
- */
-function normalizedDeliveryState(stored, template) {
-  if (!compatibleDeliveryState(stored, template)) {
-    const error = new Error(
-      "Private-delivery state has an incompatible schema",
-    );
-    error.code = "ERR_STATE_INCOMPATIBLE";
-    throw error;
-  }
-  return {
-    ...stored,
-    recipients: Object.fromEntries(
-      Object.entries(stored.recipients).map(([recipientId, recipient]) => [
-        recipientId,
-        deliveryRecipientState(recipient),
-      ]),
-    ),
   };
 }
 
@@ -483,10 +464,6 @@ export async function crawlApartments(
   );
   const privateDelivery = async () => {
     if (deliveryTargets.length === 0) return;
-    const deliveryState = normalizedDeliveryState(
-      await stateAccess.privateDeliveries.load(),
-      config.listUrlTemplate,
-    );
 
     // Recipient workers run concurrently while every decision passes through
     // one chain. Bounded writes can no longer overwrite a peer, but the chain
@@ -507,8 +484,15 @@ export async function crawlApartments(
       if (target.isAuthorized?.() === false) return;
       const recipientId = String(target.recipientId);
       const recipientFilters = normalizeFilters(target.filters);
+      // One recipient's own rows, read where they are about to be classified.
+      // The decision table keeps every answer this installation has ever
+      // recorded, including those naming listings List.am dropped long ago,
+      // while a crawl only ever decides against the recipients it delivers to.
+      // Reading the whole of it put an unbounded history on the event loop the
+      // browser's CDP client shares, and put a peer's rows in reach of a
+      // worker that has no business seeing them.
       let recipient = deliveryRecipientState(
-        deliveryState.recipients[recipientId],
+        await stateAccess.privateDeliveries.loadRecipient(recipientId),
       );
 
       // The bot reopens this gate every time the user answers the monitoring

@@ -1,5 +1,6 @@
 import { acquireSingletonLock } from "./singleton-lock.js";
 import { openApplicationState } from "./application-state.js";
+import { createEventLoopDelayMonitor } from "./event-loop-delay.js";
 import { validateStartupConfig } from "./config.js";
 import { runStartupPreflight, startupFailureResult } from "./preflight.js";
 import { classifyRuntimeFailure } from "./health.js";
@@ -52,6 +53,7 @@ export async function runApplication({
   validateConfig = validateStartupConfig,
   healthMonitor,
   stateBackendFactory = openApplicationState,
+  eventLoopDelayMonitorFactory = createEventLoopDelayMonitor,
 }) {
   // Configuration and persistent-storage checks must finish before acquiring
   // runtime resources or entering any long-running loop.
@@ -73,6 +75,19 @@ export async function runApplication({
       });
     }
   };
+
+  // Started before anything long-running so the record covers preflight and
+  // every crawl after it. A browser protocol timeout says only that a CDP call
+  // went unanswered; whether this process was in a position to read the answer
+  // is a separate question, and this is what answers it.
+  // Emitted at info: these records are read as a series against the crawl
+  // records sharing their timestamps, and the warning channel collapses
+  // repeats of one signature for minutes at a time, which is precisely the
+  // series a stall would erase.
+  const eventLoopDelay = eventLoopDelayMonitorFactory({
+    onMetric: ({ name: event, ...metric }) =>
+      logger.info("Event loop delayed", { event, ...metric }),
+  });
 
   try {
     await validateConfig(config);
@@ -388,6 +403,10 @@ export async function runApplication({
     }
     throw error;
   } finally {
+    // Report whatever the last, unfinished window saw before dropping it: a
+    // shutdown that follows a stall is exactly when that window matters.
+    eventLoopDelay?.sample?.();
+    eventLoopDelay?.stop?.();
     for (const [signal, handler] of signalHandlers) {
       signalEmitter.removeListener(signal, handler);
     }

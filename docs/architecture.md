@@ -940,9 +940,14 @@ operator procedures are indexed in
    each with independent `src/filters.js` admission and delivery history.
    Recipient workers run concurrently so a slow user does not delay peers or
    channel publication, while every user's worker remains sequential and
-   oldest-first. A worker persists only its own recipient's rows: one
-   bounded write per initial selection, re-admission batch, classification
-   batch, or acknowledgement. Those writes still pass through a serialized,
+   oldest-first. A worker reads and persists only its own recipient's rows:
+   its history is read where it is about to be classified, keyed by
+   `(recipient_id, item_id)`, and it commits one bounded write per initial
+   selection, re-admission batch, classification batch, or acknowledgement.
+   The decision table retains every answer the installation has recorded,
+   including those naming listings List.am has since dropped, so no crawl path
+   reads it whole: doing so would put an unbounded, ever-growing synchronous
+   read on the event loop the browser's CDP client shares. Those writes still pass through a serialized,
    failure-latching chain: it orders them against user deletion, which still
    replaces delivery state as a whole, and stops recording once a write has
    failed. Every delivery decision is bounded to the last day of List.am

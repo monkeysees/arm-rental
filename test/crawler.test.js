@@ -1636,3 +1636,56 @@ test("a declined restart keeps what List.am changed during the pause", async () 
   assert.ok(state.stored.recipients["42"].skipped["61"]);
   assert.equal(state.stored.recipients["42"].filtered["61"], undefined);
 });
+
+test("crawler reads only the delivery targets' own decision history", async () => {
+  // A peer whose history has nothing to do with this crawl. The decision table
+  // holds every answer the installation ever recorded, so a crawl that reads
+  // it whole puts an unbounded, ever-growing read on the event loop the
+  // browser's CDP client shares — and reads rows no worker is entitled to.
+  const state = memoryState({
+    deliveries: {
+      42: { initialSelectionApplied: true },
+      99: {
+        initialSelectionApplied: true,
+        notified: Object.fromEntries(
+          Array.from({ length: 500 }, (_, index) => [
+            String(index),
+            "2026-07-24T10:00:00.000Z",
+          ]),
+        ),
+      },
+    },
+  });
+  const wholeTableReads = [];
+  const recipientReads = [];
+  const stateAccess = {
+    ...state.stateAccess,
+    privateDeliveries: {
+      ...state.stateAccess.privateDeliveries,
+      load: async () => {
+        wholeTableReads.push("load");
+        return state.stateAccess.privateDeliveries.load();
+      },
+      loadRecipient: async (recipientId) => {
+        recipientReads.push(String(recipientId));
+        return state.stateAccess.privateDeliveries.loadRecipient(recipientId);
+      },
+    },
+  };
+
+  await crawlApartments(config, {
+    stateAccess,
+    fetchPage: async () => new Response(page("61")),
+    privateDeliveries: [
+      {
+        recipientId: "42",
+        filters: emptyFilters(),
+        deliverApartment: async () => {},
+      },
+    ],
+    now: () => new Date("2026-07-24T14:35:00Z"),
+  });
+
+  assert.deepEqual(wholeTableReads, []);
+  assert.deepEqual(recipientReads, ["42"]);
+});

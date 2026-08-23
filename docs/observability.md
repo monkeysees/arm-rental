@@ -120,9 +120,25 @@ ratios and percentiles.
 Primary events are `source.integrity.checked`, `source.integrity.failed`,
 `crawl.succeeded`, `crawl.failed`, `retry.scheduled`,
 `state.transaction.completed`, `state.transaction.failed`,
-`state.checkpoint.completed`, `state.checkpoint.failed`, `maintenance.report`,
-`alert.firing`, `alert.resolved`, `monitor.alert.firing`, and
-`monitor.alert.resolved`.
+`state.checkpoint.completed`, `state.checkpoint.failed`,
+`runtime.event_loop.delayed`, `maintenance.report`, `alert.firing`,
+`alert.resolved`, `monitor.alert.firing`, and `monitor.alert.resolved`.
+
+`runtime.event_loop.delayed` reports one ten-second window in which the event
+loop ran more than 250ms late, with the window's `maxMs`, `p99Ms` and `meanMs`.
+Only windows past the threshold are recorded, so the absence of a record is
+itself the ordinary case rather than missing data.
+
+Read it against the browser records that share its timestamps. The browser's
+CDP client runs on this loop, so a response that arrives while the loop is
+blocked is not read until the block ends: a long enough block reaches the
+journal as `crawl.failed` with a `ProtocolError`, or as a skipped page
+interaction, and names the browser rather than whatever was actually running.
+A `runtime.event_loop.delayed` window covering such a record identifies this
+process as the cause; a protocol timeout with no delayed window across it does
+not, and points at the browser or the host instead. The storage metrics cannot
+settle this on their own — `state.transaction.*` times only the transactions it
+wraps, which excludes every read and everything outside the storage layer.
 
 Successful crawl records include private and channel re-admission counts. A
 re-admission means that a persisted filtered decision was reopened after a

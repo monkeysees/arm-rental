@@ -26,22 +26,6 @@ import {
   sourceIntegrityPageSummary,
 } from "./source-integrity.js";
 
-export function compatibleDeliveryState(state, template) {
-  return Boolean(
-    state &&
-    [1, 2].includes(state.version) &&
-    state.type === "telegram-deliveries" &&
-    state.urlTemplate === template &&
-    (state.version === 1
-      ? state.notified &&
-        typeof state.notified === "object" &&
-        !Array.isArray(state.notified)
-      : state.recipients &&
-        typeof state.recipients === "object" &&
-        !Array.isArray(state.recipients)),
-  );
-}
-
 /**
  * The private-delivery store rebuilds one recipient entry per stored row, so
  * every key is present but may be empty, and a recipient the store has never

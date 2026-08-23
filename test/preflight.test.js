@@ -401,10 +401,23 @@ test("preflight refuses stored rows the running code cannot use", async (t) => {
       name: "a delivery decision row the repository refuses to decode",
       seed: {},
       corrupt: (stateAccess) => {
-        stateAccess.privateDeliveries.load = unreadable;
+        stateAccess.privateDeliveries.validate = unreadable;
       },
       domain: "private delivery",
       reason: /stored rows could not be read/u,
+    },
+    {
+      // The rows are readable and the store still refuses them: a decision
+      // timestamp that would not survive being decoded when the recipient it
+      // belongs to is next delivered to.
+      name: "a delivery decision timestamp the store judges malformed",
+      seed: {
+        deliveries: {
+          42: { notified: { 61: "2026-07-26T12:00:00Z" } },
+        },
+      },
+      domain: "private delivery",
+      reason: /stored rows are malformed/u,
     },
   ];
 

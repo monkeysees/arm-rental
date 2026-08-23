@@ -99,6 +99,21 @@ export function createMemoryStateAccess({
         urlTemplate: listUrlTemplate,
         recipients: structuredClone(recipients),
       }),
+      // The repository answers this from the rows without rebuilding them; the
+      // stand-in holds too few to care, but it must judge the same timestamps
+      // so a test can still refuse a malformed store.
+      validate: async () =>
+        Object.values(recipients).every((entry) =>
+          ["notified", "skipped", "filtered"].every((status) =>
+            Object.values(entry[status]).every((decidedAt) => {
+              const milliseconds = Date.parse(decidedAt);
+              return (
+                Number.isFinite(milliseconds) &&
+                new Date(milliseconds).toISOString() === decidedAt
+              );
+            }),
+          ),
+        ),
       removeRecipient: async (recipientId) => {
         await write("privateDeliveries", { removed: String(recipientId) });
         return delete recipients[String(recipientId)];

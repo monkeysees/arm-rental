@@ -622,3 +622,41 @@ test("all five domains can import in one outer transaction", (t) => {
     exchangeRateSnapshots: 1,
   });
 });
+
+test("stored decisions are judged in place, not rebuilt", (t) => {
+  const directory = temporaryDirectory(t);
+  const database = openDatabase(directory);
+  t.after(() => database.close());
+  const repositories = createSqliteRepositories(database, {
+    listUrlTemplate: LIST_URL,
+    channelId: CHANNEL_ID,
+  });
+  const { privateDeliveries } = repositories;
+
+  privateDeliveries.acknowledge("42", "61", TIME);
+  privateDeliveries.addDecisions("42", "filtered", { 62: TIME });
+  assert.equal(privateDeliveries.validate(), true);
+
+  // The answer must not depend on holding the rows: rebuilding them is what
+  // this replaces, so reading them here would defeat the point.
+  const loadAllDecisions =
+    privateDeliveries.loadAllDecisions.bind(privateDeliveries);
+  privateDeliveries.loadAllDecisions = () => {
+    throw new Error("validate must not rebuild the decision table");
+  };
+  assert.equal(privateDeliveries.validate(), true);
+  privateDeliveries.loadAllDecisions = loadAllDecisions;
+
+  // A timestamp the schema accepts — it is a non-empty string — but that
+  // `canonicalIsoTimestamp` would refuse the moment this recipient is next
+  // delivered to. Written straight to the table, the way a hand-edited or
+  // externally restored database would carry it.
+  database.connection.exec(
+    "UPDATE private_delivery_decisions SET decided_at = '2026-08-18T10:11:12Z' WHERE item_id = '62'",
+  );
+  assert.equal(privateDeliveries.validate(), false);
+  assert.throws(
+    () => privateDeliveries.loadRecipient("42"),
+    /canonical ISO timestamp/u,
+  );
+});

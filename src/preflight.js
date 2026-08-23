@@ -10,7 +10,6 @@ import {
 } from "./browser-fetch.js";
 import { compatibleBotState } from "./bot.js";
 import { compatibleChannelState } from "./channel.js";
-import { compatibleDeliveryState } from "./crawler.js";
 import { compatibleExchangeRateSnapshot } from "./exchange-rates.js";
 import { APARTMENT } from "./property-kind.js";
 import { pageUrl } from "./target.js";
@@ -91,8 +90,12 @@ function stateDomains(config, stateAccess) {
     {
       domain: "private delivery",
       store: stateAccess.privateDeliveries,
-      compatible: (state) =>
-        compatibleDeliveryState(state, config.listUrlTemplate),
+      // Checked where the rows live rather than rebuilt. This is the one
+      // domain whose size is unbounded — it retains a decision per apartment
+      // per recipient, including for listings List.am dropped long ago — and
+      // reading it whole to validate it made startup block for as long as the
+      // history happened to be.
+      check: () => stateAccess.privateDeliveries.validate(),
     },
     // Channel storage exists only while a channel is configured, so a missing
     // store is a configuration mismatch rather than an empty domain.
@@ -119,9 +122,11 @@ function stateDomains(config, stateAccess) {
 }
 
 /**
- * Refuses to start on stored state the running code cannot safely use. Reading
- * every domain up front moves that decision ahead of the first delivery, which
- * is where a lazily decoded bad row would otherwise surface. The apartment
+ * Refuses to start on stored state the running code cannot safely use.
+ * Deciding this up front moves it ahead of the first delivery, which is where
+ * a lazily decoded bad row would otherwise surface. A domain is proved either
+ * by rebuilding it and re-asserting its invariants, or — where the rows are
+ * too many to hold for the answer — by checking them in place. The apartment
  * state is returned so the List.am check can reuse the source-integrity
  * baseline it carries instead of reading those rows twice.
  */
@@ -134,12 +139,28 @@ async function validateExistingState(config, stateAccess) {
     );
   }
   let apartmentState;
-  for (const { domain, store, compatible } of stateDomains(
+  for (const { domain, store, compatible, check } of stateDomains(
     config,
     stateAccess,
   )) {
     if (!store) {
       throw new StateCompatibilityError(domain, "storage is not configured");
+    }
+    if (check) {
+      let valid;
+      try {
+        valid = await check();
+      } catch (error) {
+        throw new StateCompatibilityError(
+          domain,
+          "stored rows could not be read",
+          error,
+        );
+      }
+      if (!valid) {
+        throw new StateCompatibilityError(domain, "stored rows are malformed");
+      }
+      continue;
     }
     let state;
     try {

@@ -575,16 +575,28 @@ specified in [`docs/observability.md`](observability.md).
 until `src/preflight.js` returns `ready`. Storage validation first proves that
 the managed tree supports create, write, rename, and removal; the singleton
 lease is then acquired and remains held for the rest of preflight and runtime.
-Each stored domain — apartments, private delivery, channel delivery, exchange
-rates, and the Telegram bot — is then read once through its repository. Decoding
-the rows is what proves they are usable, and the rebuilt state is re-checked
-against the target identities its runtime consumer relies on: the List.am URL
-template, Telegram owner, channel username, and AMD rate base. Moving that read
-ahead of the first delivery is the point, because a bad row would otherwise
-surface mid-crawl. Rows that cannot be read or rebuild into malformed state
-produce `ERR_STATE_INCOMPATIBLE` naming the domain and the reason, and are never
-interpreted as empty state. A domain with no rows yet is an untouched domain,
-not a failure.
+Each stored domain — apartments, channel delivery, exchange rates, and the
+Telegram bot — is then read once through its repository. Decoding the rows is
+what proves they are usable, and the rebuilt state is re-checked against the
+target identities its runtime consumer relies on: the List.am URL template,
+Telegram owner, channel username, and AMD rate base. Moving that read ahead of
+the first delivery is the point, because a bad row would otherwise surface
+mid-crawl.
+
+Private delivery is proved without being rebuilt. It is the one domain whose
+size is unbounded — a decision per apartment per recipient, retained for
+listings List.am dropped long ago — so holding it to check it would make every
+start block for as long as the history happened to be. The schema's own
+constraints already refuse an unknown status and an unlinked recipient, which
+leaves the decision timestamp; SQLite reformats each one through its own date
+parser, and a value that does not survive that round trip is exactly the value
+the repository refuses when it next reads that recipient. The check is a
+count, so no row is materialized.
+
+Rows that cannot be read, rebuild into malformed state, or are judged malformed
+in place produce `ERR_STATE_INCOMPATIBLE` naming the domain and the reason, and
+are never interpreted as empty state. A domain with no rows yet is an untouched
+domain, not a failure.
 
 External checks use Telegram `getMe`, `getChat`, and `getChatMember` to verify
 credentials, channel reachability, and the bot's Post Messages and Edit

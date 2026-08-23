@@ -152,6 +152,7 @@ export function createSqliteStateAccess(database, repositories) {
       load: () => repositories.privateDeliveries.loadAllDecisions(),
       loadRecipient: (recipientId) =>
         repositories.privateDeliveries.loadRecipient(recipientId),
+      validate: () => repositories.privateDeliveries.validate(),
       decisions: createDeliveryDecisions(
         database,
         repositories.privateDeliveries,

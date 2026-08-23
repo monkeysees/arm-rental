@@ -86,6 +86,11 @@ export class SqlitePrivateDeliveriesRepository {
     this.deleteRecipientStatement = database.prepare(
       "DELETE FROM private_recipients WHERE recipient_id = ?",
     );
+    // Counted rather than collected: a caller asking whether the rows are
+    // usable must not be handed all of them to find out.
+    this.countInvalidDecisions =
+      database.prepare(`SELECT count(*) AS invalid FROM private_delivery_decisions
+      WHERE strftime('%Y-%m-%dT%H:%M:%fZ', decided_at) IS NOT decided_at`);
     this.clearDecisions = database.prepare(
       "DELETE FROM private_delivery_decisions",
     );
@@ -121,6 +126,21 @@ export class SqlitePrivateDeliveriesRepository {
       urlTemplate: this.listUrlTemplate,
       recipients,
     };
+  }
+
+  /**
+   * Proves the stored decisions are usable without holding them.
+   *
+   * This table keeps every answer the installation has ever recorded, so
+   * rebuilding it just to check it puts its whole size on the event loop at
+   * every start, and that size only grows. Status and recipient linkage are
+   * already refused by the schema's own constraints, which leaves the decision
+   * timestamp: SQLite reformats each one through its own date parser, and a
+   * value that does not survive that round trip is exactly the value
+   * `canonicalIsoTimestamp` refuses when a recipient is later read.
+   */
+  validate() {
+    return Number(this.countInvalidDecisions.get().invalid) === 0;
   }
 
   loadRecipient(value) {

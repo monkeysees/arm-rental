@@ -2,6 +2,8 @@ import { readFile, writeFile } from "node:fs/promises";
 
 import * as cheerio from "cheerio";
 
+import { CARD_SELECTOR } from "../src/list-am.js";
+
 const REMOVED_ELEMENTS = [
   "script",
   "style",
@@ -22,16 +24,22 @@ const REMOVED_ELEMENTS = [
 
 const STRUCTURAL_CLASSES = new Set([
   "at",
+  "category-data-list-card__destination",
   "d",
   "dl",
   "dldetail",
+  "dlf",
   "dltitle",
   "fav-item-info-container",
   "gl",
   "glheader",
   "gltitle",
   "l",
+  // Retained so a fixture keeps the banner and pagination anchors List.am
+  // places among the cards. They are what a card selector must not match.
+  "list-ads-banner-link",
   "p",
+  "pp",
   "pt",
 ]);
 const SYNTHETIC_ITEM_ID_BASE = 999_999_990_000_000;
@@ -55,6 +63,17 @@ export function sanitizeListAmFixture(html) {
       "Fixture source is missing the List.am Regular Ads section",
     );
   }
+
+  // The shape of a card decides what synthetic content stands in for it, and
+  // the source text that reveals it is discarded a few lines below.
+  const cardShapes = new Map();
+  $section.find(CARD_SELECTOR).each((_index, element) => {
+    const $card = $(element);
+    cardShapes.set(element, {
+      attributesUseInterpunct: $card.find(".at").first().text().includes("·"),
+      dateNamesADayOnly: !/\d{4}/u.test($card.find(".d").first().text()),
+    });
+  });
 
   $section.find(REMOVED_ELEMENTS).remove();
   $section
@@ -81,7 +100,7 @@ export function sanitizeListAmFixture(html) {
       if (classes) $element.attr("class", classes);
     });
 
-  const $cards = $section.find("a.fav-item-info-container, .dl a");
+  const $cards = $section.find(CARD_SELECTOR);
   if ($cards.length > 999_999) {
     throw new Error("Fixture source exceeds the reserved synthetic ID range");
   }
@@ -90,8 +109,9 @@ export function sanitizeListAmFixture(html) {
     const promoted = $card.closest("#tp").length > 0;
     const fixtureIndex = index + 1;
     $card.attr("href", `/ru/item/${SYNTHETIC_ITEM_ID_BASE + fixtureIndex}`);
+    const shape = cardShapes.get(element) || {};
     $card
-      .find(".dltitle .pt, .l, .dltitle, .pt")
+      .find(".dltitle .pt, .dltitle, .pt")
       .first()
       .text(
         promoted
@@ -105,11 +125,20 @@ export function sanitizeListAmFixture(html) {
     $card
       .find(".at")
       .first()
-      .text("Sanitized district, 2 rooms, 60 sq.m., 3/9 floor");
+      .text(
+        shape.attributesUseInterpunct
+          ? "2 ком. · 60 кв.м. · 3/9 этаж"
+          : "Sanitized district, 2 rooms, 60 sq.m., 3/9 floor",
+      );
+    $card.find(".l").first().text(`Sanitized district ${fixtureIndex}`);
     $card
       .find(".d")
       .first()
-      .text(`Friday, July 24, 2026, 14:${30 + fixtureIndex}`);
+      .text(
+        shape.dateNamesADayOnly
+          ? "Июль 24"
+          : `Friday, July 24, 2026, 14:${30 + fixtureIndex}`,
+      );
   });
 
   return `<!doctype html>\n<html><body>${$.html($section)}</body></html>\n`;

@@ -21,6 +21,26 @@
           "floor": 2
         }
       }
+    },
+    {
+      "file": "regular-page-redesign.html",
+      "sha256": "10a19ca581053d3f9696cc3a4d29506f554e80e9ccc4bd0b11bf2f164cbf1836",
+      "expectedDiagnostics": {
+        "candidateCount": 100,
+        "uniqueCandidateCount": 100,
+        "parsedCount": 100,
+        "duplicateCount": 0,
+        "rejectedCount": 0,
+        "completeness": {
+          "title": 100,
+          "date": 99,
+          "price": 100,
+          "location": 100,
+          "rooms": 100,
+          "areaSqM": 100,
+          "floor": 100
+        }
+      }
     }
   ]
 }

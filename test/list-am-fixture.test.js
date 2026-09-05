@@ -50,7 +50,10 @@ test("manifested real-shape List.am fixtures remain sanitized and parseable", as
     assert.doesNotMatch(source, forbiddenElements);
     assert.match(source, /<div id="contentr">/u);
     assert.match(source, /<div id="tp"/u);
-    assert.match(source, /class="fav-item-info-container"/u);
+    assert.match(
+      source,
+      /class="(?:category-data-list-card__destination|fav-item-info-container)"/u,
+    );
     assert.match(source, /href="\/ru\/item\/999999990\d{6}"/u);
 
     const { apartments, ...diagnostics } = parseRegularApartments(source);

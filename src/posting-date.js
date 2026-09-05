@@ -40,39 +40,124 @@ const MONTH_NUMBERS = new Map(
   ].map(([month, number]) => [month, number]),
 );
 
+/** Words List.am prints instead of a calendar day for the most recent cards. */
+const RELATIVE_DAYS_AGO = new Map([
+  ["сегодня", 0],
+  ["today", 0],
+  ["вчера", 1],
+  ["yesterday", 1],
+]);
+
+// "Пятница, Июль 24, 2026, 14:31" — the only form that names an instant.
+const DATED_INSTANT =
+  /^[^,]+,\s*([^,\s]+)\s+(\d{1,2}),\s*(\d{4}),\s*(\d{1,2}):(\d{2})$/u;
+// "Сегодня, 00:00"
+const RELATIVE_DAY = /^([^\s,]+)\s*,\s*(\d{1,2}):(\d{2})$/u;
+// "Сентябрь 04"
+const MONTH_AND_DAY = /^([^\s,]+)\s+(\d{1,2})$/u;
+
+const DAY_MS = 24 * 60 * 60 * 1000;
+/** How far ahead of the reference an inferred year may still land. */
+const FUTURE_TOLERANCE_MS = 2 * DAY_MS;
+
+function monthNumber(name) {
+  return MONTH_NUMBERS.get(name.toLocaleLowerCase("ru-RU"));
+}
+
 /**
- * Returns a stable ordering value for List.am's displayed posting date.
- * UTC is used only to compare the displayed calendar components; the source
- * value is not interpreted as an instant in UTC.
+ * The last millisecond of a displayed calendar day.
+ *
+ * A card that names only a day could have been posted at any hour of it. The
+ * end of the day is the estimate that keeps such a card inside the delivery
+ * window for as long as it might belong there: reading it as midnight would
+ * retire a card up to a day early and silently drop listings that are still
+ * current.
  */
-export function postingDateSortValue(value) {
-  const match = value?.match(
-    /^[^,]+,\s*([^,\s]+)\s+(\d{1,2}),\s*(\d{4}),\s*(\d{1,2}):(\d{2})$/u,
-  );
-  if (!match) return null;
-
-  const month = MONTH_NUMBERS.get(match[1].toLocaleLowerCase("ru-RU"));
-  if (month === undefined) return null;
-
-  const [, , dayText, yearText, hourText, minuteText] = match;
-  const [day, year, hour, minute] = [
-    dayText,
-    yearText,
-    hourText,
-    minuteText,
-  ].map(Number);
-  const sortValue = Date.UTC(year, month, day, hour, minute);
-  const parsed = new Date(sortValue);
-
+function endOfDay(year, month, day) {
+  const value = Date.UTC(year, month, day, 23, 59, 59, 999);
+  const parsed = new Date(value);
   if (
     parsed.getUTCFullYear() !== year ||
     parsed.getUTCMonth() !== month ||
-    parsed.getUTCDate() !== day ||
-    parsed.getUTCHours() !== hour ||
-    parsed.getUTCMinutes() !== minute
+    parsed.getUTCDate() !== day
   ) {
     return null;
   }
+  return value;
+}
 
-  return sortValue;
+/**
+ * The year a month and day without one belong to.
+ *
+ * List.am stopped printing the year, so a card read in January that names a
+ * December day belongs to the year before the one being read in.
+ */
+function inferYear(month, day, referenceValue) {
+  const year = new Date(referenceValue).getUTCFullYear();
+  const candidate = endOfDay(year, month, day);
+  if (candidate === null) return year;
+  return candidate - referenceValue > FUTURE_TOLERANCE_MS ? year - 1 : year;
+}
+
+/**
+ * Returns a stable ordering value for List.am's displayed posting date.
+ *
+ * UTC is used only to compare the displayed calendar components; the source
+ * value is not interpreted as an instant in UTC.
+ *
+ * List.am's redesigned cards name a calendar day rather than an instant, so
+ * every form that lacks a year resolves to day granularity even when it prints
+ * a clock time. Mixing the two precisions inside one category would order a
+ * card printed as "Сегодня, 00:00" behind same-day cards printed as a date,
+ * and the crawl's date watermark would read that as history.
+ */
+export function postingDateSortValue(value, referenceValue = Date.now()) {
+  if (typeof value !== "string") return null;
+  const text = value.trim();
+
+  const instant = text.match(DATED_INSTANT);
+  if (instant) {
+    const month = monthNumber(instant[1]);
+    if (month === undefined) return null;
+    const [, , dayText, yearText, hourText, minuteText] = instant;
+    const [day, year, hour, minute] = [
+      dayText,
+      yearText,
+      hourText,
+      minuteText,
+    ].map(Number);
+    const sortValue = Date.UTC(year, month, day, hour, minute);
+    const parsed = new Date(sortValue);
+    if (
+      parsed.getUTCFullYear() !== year ||
+      parsed.getUTCMonth() !== month ||
+      parsed.getUTCDate() !== day ||
+      parsed.getUTCHours() !== hour ||
+      parsed.getUTCMinutes() !== minute
+    ) {
+      return null;
+    }
+    return sortValue;
+  }
+
+  const relative = text.match(RELATIVE_DAY);
+  if (relative) {
+    const daysAgo = RELATIVE_DAYS_AGO.get(
+      relative[1].toLocaleLowerCase("ru-RU"),
+    );
+    const [hour, minute] = [relative[2], relative[3]].map(Number);
+    if (daysAgo === undefined || hour > 23 || minute > 59) return null;
+    const day = new Date(referenceValue - daysAgo * DAY_MS);
+    return endOfDay(day.getUTCFullYear(), day.getUTCMonth(), day.getUTCDate());
+  }
+
+  const monthDay = text.match(MONTH_AND_DAY);
+  if (monthDay) {
+    const month = monthNumber(monthDay[1]);
+    if (month === undefined) return null;
+    const day = Number(monthDay[2]);
+    return endOfDay(inferYear(month, day, referenceValue), month, day);
+  }
+
+  return null;
 }

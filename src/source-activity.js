@@ -28,9 +28,12 @@ export function withinSourceActivityWindow(timestamp, referenceValue) {
  * few hours younger or older than it is. A day-wide window absorbs that offset
  * instead of guessing the source's zone. Cards whose displayed date cannot be
  * parsed fall back to the moment this installation first saw them.
+ *
+ * The reference is passed on because a redesigned card names a calendar day
+ * without a year, and which year that is depends on when it is read.
  */
 export function postedWithinSourceActivityWindow(apartment, referenceValue) {
-  const posted = postingDateSortValue(apartment?.date);
+  const posted = postingDateSortValue(apartment?.date, referenceValue);
   if (posted === null) {
     return withinSourceActivityWindow(apartment?.firstSeenAt, referenceValue);
   }

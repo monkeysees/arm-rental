@@ -27,8 +27,11 @@ crawled one after another, each with its own pagination and its own date
 watermark. A category with no stored history reads pages 1 through 10 on its
 first crawl. Every later crawl of that category starts at page 1 and reads
 through the newest posting date already stored for it, including every listing
-from the same minute. This prevents a refreshed known ad from hiding newer
-listings that follow it.
+sharing that date. This prevents a refreshed known ad from hiding newer
+listings that follow it. List.am displays a calendar day rather than a clock
+time, so a card is placed at the end of the day it names: the 24-hour delivery
+window therefore holds a card for the remainder of its posting day plus a full
+day, rather than retiring it a fixed 24 hours after an exact posting minute.
 
 Telegram notifications and new channel posts are sent by date ascending:
 earlier listings first, then later listings. Apartments and houses are merged

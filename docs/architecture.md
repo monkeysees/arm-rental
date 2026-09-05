@@ -944,8 +944,9 @@ operator procedures are indexed in
 7. Pagination is decided per category from that category's own stored history.
    With no listing of that kind, pages 1 through 10 are parsed. Otherwise the
    newest posting date stored for that kind is the temporal watermark. Cards are
-   read newest-first through every card sharing that minute, and parsing stops
-   when an older posting date is reached. Known IDs above the watermark do not
+   read newest-first through every card sharing that watermark — every card of
+   the same day, for the day-granular dates List.am now displays — and parsing
+   stops when an older posting date is reached. Known IDs above the watermark do not
    stop discovery. If stored dates cannot be parsed, the crawl falls back to the
    configured initial page count. Empty pages and repeated page signatures also
    stop that category. A category introduced to a running installation therefore
@@ -1168,13 +1169,28 @@ rooms, area, and floor values. Crawling, startup preflight, and browser
 verification consume this diagnostic result; the legacy array helper is only a
 compatibility wrapper. Posting-date validation and crawl ordering share
 `src/posting-date.js`, preventing completeness and watermark decisions from
-interpreting dates differently. The parser initially returns source price
+interpreting dates differently. That module reads three displayed forms: a
+dated instant carrying its year, a relative day such as `Сегодня`, and a month
+and day without a year. Only the first names an instant. The other two resolve
+to the last millisecond of the day they name, because a card that states a day
+could have been posted at any hour of it, and reading the day as midnight
+would retire it from delivery up to a day early. A form without a year takes
+the year it was read in, or the year before when that would place it in the
+future. One granularity per category matters: were a card printed as
+`Сегодня, 00:00` read as an instant while same-day cards printed as a date
+were read as a day, the watermark would treat the first as history. The parser initially returns source price
 `{ amount, currency }`; `src/prices.js` turns it into the canonical and
 original-price fields before persistence. Words such as "monthly" are
-discarded. Rooms, area, and floor are extracted by position from List.am's
-comma-separated card metadata, making parsing independent of localized labels
-such as `ком.`, `кв.м.`, and `этаж`. The original posting date is retained as
-displayed by List.am.
+discarded. A candidate is an ad-card anchor, never any anchor inside the list
+container: the advertising banners and pagination List.am places among the
+cards would otherwise each read as a card whose identity cannot be resolved,
+and one such rejection stops a crawl. Rooms, area, and floor are matched by
+the label each states rather than by position, so a card that omits one — a
+house commonly publishes no area or floor — still yields the rest, and both
+the interpunct-separated attribute line of the redesigned card and the older
+comma-separated one parse. The location is read from the card's own location
+element, falling back to a leading attribute segment that names no attribute.
+The original posting date is retained as displayed by List.am.
 
 Every fetched page is passed through one hard source-integrity evaluator before
 the crawler considers empty pagination, a repeated page, or the posting-date

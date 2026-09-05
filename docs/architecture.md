@@ -70,9 +70,6 @@ only while the service is stopped. Secrets are supplied outside the application
 artifact, and readiness represents validated Telegram, browser, storage, and
 crawl operation rather than process existence alone.
 
-The current implementation evidence, outstanding deployment checks, and launch
-blockers are tracked in
-[`docs/production-readiness-status.md`](production-readiness-status.md).
 The operator control flow from reviewed source through publication, host
 reconciliation, first deployment, acceptance evidence, and later unattended
 deployment is defined in the canonical

@@ -229,7 +229,6 @@ test("operations index covers every required runbook and each canonical page is 
     "README.md",
     "docs/architecture.md",
     "docs/operational-runbooks.md",
-    "docs/production-readiness-status.md",
   ]) {
     const content = await readFile(
       new URL(`../${entrypoint}`, import.meta.url),

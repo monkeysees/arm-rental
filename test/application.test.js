@@ -91,10 +91,26 @@ test("runtime page fetch immediately retries a browser challenge once", async ()
             component: "browser",
             code: "ERR_BROWSER_VERIFICATION_REQUIRED",
             remediationCommand: "npm run browser:verify",
+            url: "https://www.list.am/ru/category/1377/1",
+            httpStatus: 403,
+            challengeSource: "edge",
           });
           throw new BrowserVerificationRequiredError();
         }
         return new Response('<div id="contentr"></div>', { status: 200 });
+      },
+      // Releasing the session is where a wedged Chrome is killed, and the
+      // clearance it failed to flush is what makes the next launch's challenge
+      // worth connecting to this. It is the per-crawl path, so a browser that
+      // will not exit loses a cookie every crawl rather than once at shutdown.
+      endSession: async () => {
+        callbacks.onEvent({
+          name: "browser.forced_exit",
+          component: "browser",
+          code: "ERR_BROWSER_FORCED_EXIT",
+          gracefulTimeoutMs: 10_000,
+          exited: true,
+        });
       },
       close: async () => {},
     }),
@@ -159,6 +175,42 @@ test("runtime page fetch immediately retries a browser challenge once", async ()
     alerts.filter(({ name }) => name === "browser_challenge"),
     [],
   );
+  // The challenge log names the page and how the challenge was recognised.
+  // Without both, a run of these cannot be attributed to one category or told
+  // apart from pages that simply failed to render.
+  assert.deepEqual(
+    warnings.find(({ message }) => message === "Browser challenge detected")
+      ?.context,
+    {
+      eventName: "browser.challenge",
+      component: "browser",
+      code: "ERR_BROWSER_VERIFICATION_REQUIRED",
+      remediationCommand: "npm run browser:verify",
+      url: "https://www.list.am/ru/category/1377/1",
+      httpStatus: 403,
+      challengeSource: "edge",
+    },
+  );
+  // A Chrome that had to be killed is reported on its own, because the
+  // clearance it failed to flush is what provokes the next challenge.
+  assert.deepEqual(
+    warnings.find(({ message }) => message === "Chrome did not exit on request")
+      ?.context,
+    {
+      eventName: "browser.forced_exit",
+      component: "browser",
+      code: "ERR_BROWSER_FORCED_EXIT",
+      gracefulTimeoutMs: 10_000,
+    },
+  );
+  // Releasing the session absorbs its own failures, so a fetcher that cannot
+  // do it would leave the tests above passing over a browser never released.
+  assert.deepEqual(
+    warnings.filter(
+      ({ message }) => message === "Browser session release failed",
+    ),
+    [],
+  );
   assert.equal(monitor.readiness().ready, true);
 });
 
@@ -195,6 +247,7 @@ test("a stalled page read is retried against a fresh browser with backoff", asyn
         if (fetchAttempts <= 2) throw new BrowserContentTimeoutError(20_000);
         return new Response('<div id="contentr"></div>', { status: 200 });
       },
+      endSession: async () => {},
       close: async () => {},
     }),
     exchangeRateServiceFactory: () => ({
@@ -234,6 +287,58 @@ test("a stalled page read is retried against a fresh browser with backoff", asyn
   assert.ok(
     retries.every(({ delayMs }) => delayMs > 0),
     `expected every stall retry to back off, got ${JSON.stringify(retries)}`,
+  );
+});
+
+test("a browser that will not release does not fail the crawl that used it", async () => {
+  const warnings = [];
+  const logger = {
+    info: () => {},
+    warn: (message, context) => warnings.push({ message, context }),
+    error: () => {},
+  };
+  let crawls = 0;
+
+  await runApplication({
+    config: { dataDirectory: "/data" },
+    logger,
+    validateConfig: async () => {},
+    stateBackendFactory,
+    acquireLock: async () => ({
+      dataDirectory: "/data",
+      owner: { id: "lease", pid: 42 },
+      release: async () => {},
+    }),
+    browserFetcherFactory: () => ({
+      fetch: async () => new Response('<div id="contentr"></div>'),
+      // A wedged Chrome can refuse to go away. Releasing it is cleanup that
+      // runs after the pages are already in hand, so its failure must be
+      // reported and then dropped: raising it here would discard a crawl that
+      // had already succeeded, and would replace the error of one that had not.
+      endSession: async () => {
+        throw new Error("Chrome profile is still locked");
+      },
+      close: async () => {},
+    }),
+    exchangeRateServiceFactory: () => ({
+      currentSnapshot: () => ({ fetchedAt: "2026-07-25T09:00:00.000Z" }),
+    }),
+    preflight: async () => ({ status: "ready", ready: true, checks: {} }),
+    runBot: async (_config, callbacks) => {
+      crawls += 1;
+      const response = await callbacks.pageFetch("https://www.list.am/");
+      assert.equal(response.ok, true);
+      await callbacks.onCrawlSettled({ crawlId: "wedged-crawl" });
+    },
+  });
+
+  assert.equal(crawls, 1);
+  // Once for preflight's own session, once for the crawl's.
+  assert.deepEqual(
+    warnings
+      .filter(({ message }) => message === "Browser session release failed")
+      .map(({ context }) => context.reason),
+    ["Chrome profile is still locked", "Chrome profile is still locked"],
   );
 });
 
@@ -281,6 +386,7 @@ test("application lifecycle drives crawl and exchange-rate readiness", async () 
       });
       return {
         fetch: async () => {},
+        endSession: async () => {},
         close: async () => {},
       };
     },

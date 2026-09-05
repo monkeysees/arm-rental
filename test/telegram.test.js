@@ -1752,6 +1752,72 @@ test("source-integrity failure uses crawl backoff and recovers", async () => {
   assert.ok(retryDelays[0] >= 800 && retryDelays[0] <= 1_000);
 });
 
+test("every crawl attempt closes its browsing session", async () => {
+  const controller = new AbortController();
+  const settled = [];
+  let crawlCalls = 0;
+  const state = {
+    version: 3,
+    type: "telegram-bot",
+    updateOffset: 0,
+    users: {
+      42: { active: true, chatId: 42 },
+    },
+  };
+  const api = {
+    getUpdates: async (_offset, _timeout, signal) =>
+      new Promise((resolve) => {
+        signal.addEventListener("abort", () => resolve([]), { once: true });
+      }),
+  };
+
+  await runTelegramBot(
+    {
+      telegramBotToken: "token",
+      telegramOwnerId: 42,
+      telegramAccessMode: "public",
+      telegramUserUpdatesPerMinute: 30,
+      telegramStateFile: "/state/bot.json",
+      telegramPollTimeoutSeconds: 25,
+      timeoutMs: 1_000,
+      pollIntervalMs: 60_000,
+      externalRetryBaseMs: 1_000,
+      externalRetryMaxMs: 60_000,
+    },
+    {
+      api,
+      signal: controller.signal,
+      telegramState: state,
+      sleep: async (_milliseconds, _value, { signal }) =>
+        signal.throwIfAborted(),
+      crawl: async () => {
+        crawlCalls += 1;
+        // A failed attempt must release its browser too: leaving one alive
+        // over the retry delay is what the per-page teardown used to prevent.
+        if (crawlCalls === 1) {
+          throw new ListAmSourceIntegrityError(
+            ListAmIntegrityReason.IDENTITY_REJECTION,
+            { page: 1 },
+          );
+        }
+        return {};
+      },
+      onError: async () => {},
+      onRetry: async () => {},
+      onCrawlSettled: async ({ crawlId }) => settled.push(crawlId),
+      onResult: () => controller.abort(),
+    },
+  );
+
+  assert.equal(crawlCalls, 2);
+  assert.equal(settled.length, 2, "the failed attempt released its browser");
+  assert.equal(
+    new Set(settled).size,
+    2,
+    "each attempt is reported under its own crawl",
+  );
+});
+
 test("exchange rates refresh without private monitoring activation", async () => {
   const controller = new AbortController();
   let refreshCalls = 0;

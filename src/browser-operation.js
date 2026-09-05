@@ -1,5 +1,8 @@
 import { acquireSingletonLock } from "./singleton-lock.js";
-import { BrowserPageFetcher } from "./browser-fetch.js";
+import {
+  BROWSER_CHALLENGE_EVENT,
+  BrowserPageFetcher,
+} from "./browser-fetch.js";
 import { validateStartupConfig } from "./config.js";
 import { APARTMENT } from "./property-kind.js";
 import { pageUrl } from "./target.js";
@@ -49,13 +52,29 @@ export async function runBrowserOperation(
     browserFetcher = browserFetcherFactory(browserConfig, {
       signal,
       onStatus: (message) => logger?.info(message),
+      // The fetcher reports more than challenges now, so the message has to
+      // follow the event rather than assume it.
       onEvent: (event) =>
-        logger?.warn("Browser challenge detected", {
-          eventName: event.name,
-          component: event.component,
-          code: event.code,
-          remediationCommand: event.remediationCommand,
-        }),
+        event.name === BROWSER_CHALLENGE_EVENT
+          ? logger?.warn("Browser challenge detected", {
+              eventName: event.name,
+              component: event.component,
+              code: event.code,
+              remediationCommand: event.remediationCommand,
+              ...(event.url === undefined ? {} : { url: event.url }),
+              ...(event.httpStatus === undefined
+                ? {}
+                : { httpStatus: event.httpStatus }),
+              ...(event.challengeSource === undefined
+                ? {}
+                : { challengeSource: event.challengeSource }),
+            })
+          : logger?.warn("Chrome did not exit on request", {
+              eventName: event.name,
+              component: event.component,
+              code: event.code,
+              gracefulTimeoutMs: event.gracefulTimeoutMs,
+            }),
     });
     const targetUrl = pageUrl(1, config.listUrlTemplate);
     const fetchCount = requireProduction ? config.initialPageCount : 1;

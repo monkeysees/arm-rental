@@ -13,10 +13,13 @@ import test from "node:test";
 
 import {
   BROWSER_CHALLENGE_EVENT,
+  BROWSER_FORCED_EXIT_EVENT,
   BrowserContentTimeoutError,
   BrowserPageFetcher,
   BrowserVerificationRequiredError,
+  PINNED_CHROME_VERSION,
   findChromeExecutable,
+  terminateChromeProcess,
 } from "../src/browser-fetch.js";
 
 async function temporaryConfig(testContext, overrides = {}) {
@@ -45,8 +48,17 @@ function browserPage(overrides = {}) {
     goto: async () => {},
     isClosed: () => false,
     setDefaultNavigationTimeout: () => {},
+    setUserAgent: async () => {},
     url: () => "https://www.list.am/",
     ...overrides,
+  };
+}
+
+function navigationResponse({ status = 200, statusText = "", headers = {} }) {
+  return {
+    status: () => status,
+    statusText: () => statusText,
+    headers: () => headers,
   };
 }
 
@@ -222,16 +234,20 @@ test("BROWSER_LOAD_IMAGES restores image loading without a rebuild", async (t) =
   );
 });
 
-test("headless launch normalizes only Chromium's headless user-agent token", async (t) => {
+test("the presented browser version does not follow a Chromium upgrade", async (t) => {
   const config = await temporaryConfig(t);
-  const assignedUserAgents = [];
+  const assigned = [];
   let launchOptions;
   const page = browserPage({
+    // A Chromium security upgrade moves what the runtime reports. Nothing the
+    // browser says about its own version may reach List.am.
     evaluate: async () =>
-      "Mozilla/5.0 Chrome-compatible HeadlessChrome/150.0.7871.181 Safari/537.36",
-    setUserAgent: async (userAgent) => assignedUserAgents.push(userAgent),
+      "Mozilla/5.0 (X11; Linux x86_64) HeadlessChrome/161.0.9001.4",
+    setUserAgent: async (userAgent, metadata) =>
+      assigned.push({ userAgent, metadata }),
   });
   const fetcher = new BrowserPageFetcher(config, {
+    platform: "linux",
     puppeteerImpl: {
       launch: async (options) => {
         launchOptions = options;
@@ -243,13 +259,90 @@ test("headless launch normalizes only Chromium's headless user-agent token", asy
   await fetcher.start();
   await fetcher.close();
 
-  assert.deepEqual(assignedUserAgents, [
-    "Mozilla/5.0 Chrome-compatible Chrome/150.0.7871.181 Safari/537.36",
-  ]);
+  assert.equal(assigned.length, 1);
+  const [{ userAgent, metadata }] = assigned;
+  assert.equal(
+    userAgent,
+    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) " +
+      `Chrome/${PINNED_CHROME_VERSION} Safari/537.36`,
+    "an upgraded runtime browser must not change the identity List.am sees",
+  );
+  assert.equal(
+    userAgent.includes("Headless"),
+    false,
+    "the headless product token must not reach List.am",
+  );
+  const major = PINNED_CHROME_VERSION.split(".")[0];
+  assert.deepEqual(
+    metadata.brands.find(({ brand }) => brand === "Chromium"),
+    { brand: "Chromium", version: major },
+    "client hints carry the version a second time and must agree",
+  );
+  assert.deepEqual(
+    metadata.fullVersionList.find(({ brand }) => brand === "Chromium"),
+    { brand: "Chromium", version: PINNED_CHROME_VERSION },
+  );
+  assert.equal(metadata.fullVersion, PINNED_CHROME_VERSION);
+  assert.equal(metadata.platform, "Linux");
+  assert.equal(metadata.mobile, false);
   assert.equal(
     launchOptions.args.includes("--start-minimized"),
     false,
     "headless Chromium must remain visible to its renderer scheduler",
+  );
+});
+
+test("the interactive verifier presents the identity the crawl will reuse", async (t) => {
+  const identities = [];
+  for (const browserHeadless of [false, true]) {
+    const config = await temporaryConfig(t, {
+      browserHeadless,
+      browserStartMinimized: false,
+    });
+    const page = browserPage({
+      setUserAgent: async (userAgent, metadata) =>
+        identities.push({ userAgent, metadata }),
+    });
+    const fetcher = new BrowserPageFetcher(config, {
+      platform: "linux",
+      puppeteerImpl: { launch: async () => launchedBrowser(page) },
+    });
+
+    await fetcher.start();
+    await fetcher.close();
+  }
+
+  assert.equal(identities.length, 2);
+  assert.deepEqual(
+    identities[0],
+    identities[1],
+    "a cookie minted headfully is only honoured for the session that minted it",
+  );
+});
+
+test("an operator can pin a browser version without rebuilding the image", async (t) => {
+  const config = await temporaryConfig(t, {
+    browserUserAgentVersion: "153.0.8000.11",
+  });
+  const assigned = [];
+  const page = browserPage({
+    setUserAgent: async (userAgent, metadata) =>
+      assigned.push({ userAgent, metadata }),
+  });
+  const fetcher = new BrowserPageFetcher(config, {
+    platform: "linux",
+    puppeteerImpl: { launch: async () => launchedBrowser(page) },
+  });
+
+  await fetcher.start();
+  await fetcher.close();
+
+  assert.match(assigned[0].userAgent, /Chrome\/153\.0\.8000\.11 Safari/u);
+  assert.equal(assigned[0].metadata.fullVersion, "153.0.8000.11");
+  assert.equal(
+    assigned[0].metadata.brands.find(({ brand }) => brand === "Chromium")
+      ?.version,
+    "153",
   );
 });
 
@@ -283,10 +376,198 @@ test("challenge detection emits an alertable event and closes Chrome", async (t)
       component: "browser",
       code: "ERR_BROWSER_VERIFICATION_REQUIRED",
       remediationCommand: "npm run browser:verify",
+      // Which category was challenged, and that nothing but the missing
+      // container said so — the navigation reported no status at all.
+      url: "https://www.list.am/ru/category/56/1",
+      challengeSource: "missing_content",
     },
   ]);
   assert.equal(closeCount, 1);
   await assertMissing(path.dirname(launchOptions.env.TMPDIR));
+});
+
+test("the edge naming a mitigation is a challenge even when the page rendered", async (t) => {
+  const config = await temporaryConfig(t);
+  const events = [];
+  // A listing container is present, so the pre-existing selector test would
+  // have called this a healthy page and returned the interstitial as listings.
+  const page = browserPage({
+    goto: async () =>
+      navigationResponse({
+        status: 403,
+        statusText: "Forbidden",
+        headers: { "cf-mitigated": "challenge", "cf-ray": "9a1b2c3d4e5f" },
+      }),
+  });
+  const fetcher = new BrowserPageFetcher(config, {
+    onEvent: async (event) => events.push(event),
+    puppeteerImpl: { launch: async () => launchedBrowser(page) },
+  });
+
+  await assert.rejects(
+    fetcher.fetch("https://www.list.am/ru/category/1377/1"),
+    BrowserVerificationRequiredError,
+  );
+
+  assert.equal(events.length, 1);
+  assert.equal(events[0].url, "https://www.list.am/ru/category/1377/1");
+  assert.equal(events[0].httpStatus, 403);
+  assert.equal(
+    events[0].challengeSource,
+    "edge",
+    "a labelled mitigation is proof, not an inference from a missing selector",
+  );
+});
+
+test("an origin failure is reported as itself rather than as a challenge", async (t) => {
+  const config = await temporaryConfig(t);
+  const events = [];
+  const page = browserPage({
+    $: async () => null,
+    goto: async () =>
+      navigationResponse({ status: 502, statusText: "Bad Gateway" }),
+  });
+  const fetcher = new BrowserPageFetcher(config, {
+    onEvent: async (event) => events.push(event),
+    puppeteerImpl: { launch: async () => launchedBrowser(page) },
+  });
+
+  const response = await fetcher.fetch("https://www.list.am/ru/category/56/1");
+
+  assert.equal(response.ok, false);
+  assert.equal(response.status, 502);
+  assert.deepEqual(
+    events,
+    [],
+    "a bad gateway must not send an operator to the verification runbook",
+  );
+});
+
+test("an interstitial served as 200 is still caught by the missing container", async (t) => {
+  const config = await temporaryConfig(t);
+  const events = [];
+  const page = browserPage({
+    $: async () => null,
+    goto: async () => navigationResponse({ status: 200 }),
+  });
+  const fetcher = new BrowserPageFetcher(config, {
+    onEvent: async (event) => events.push(event),
+    puppeteerImpl: { launch: async () => launchedBrowser(page) },
+  });
+
+  await assert.rejects(
+    fetcher.fetch("https://www.list.am/ru/category/56/1"),
+    BrowserVerificationRequiredError,
+  );
+
+  assert.equal(events[0].httpStatus, 200);
+  assert.equal(events[0].challengeSource, "missing_content");
+});
+
+test("a crawl's later pages say which page they came from", async (t) => {
+  const config = await temporaryConfig(t);
+  const navigations = [];
+  const page = browserPage({
+    goto: async (url, options) => {
+      navigations.push({ url, referer: options?.referer });
+      return navigationResponse({ status: 200 });
+    },
+  });
+  const fetcher = new BrowserPageFetcher(config, {
+    puppeteerImpl: { launch: async () => launchedBrowser(page) },
+  });
+
+  await fetcher.fetch("https://www.list.am/ru/category/56/1");
+  await fetcher.fetch("https://www.list.am/ru/category/56/2");
+  await fetcher.endSession();
+  await fetcher.fetch("https://www.list.am/ru/category/56/1");
+  await fetcher.close();
+
+  assert.deepEqual(navigations, [
+    { url: "https://www.list.am/ru/category/56/1", referer: undefined },
+    {
+      url: "https://www.list.am/ru/category/56/2",
+      referer: "https://www.list.am/ru/category/56/1",
+    },
+    // A new session has no history behind it and must not borrow the last
+    // one's, which would claim a click that never happened.
+    { url: "https://www.list.am/ru/category/56/1", referer: undefined },
+  ]);
+});
+
+test("a challenged page does not become the next page's referer", async (t) => {
+  const config = await temporaryConfig(t);
+  const navigations = [];
+  let challenged = true;
+  const page = browserPage({
+    $: async () => (challenged ? null : { id: "contentr" }),
+    goto: async (url, options) => {
+      navigations.push(options?.referer);
+      return navigationResponse({ status: 200 });
+    },
+  });
+  const fetcher = new BrowserPageFetcher(config, {
+    puppeteerImpl: { launch: async () => launchedBrowser(page) },
+  });
+
+  await assert.rejects(
+    fetcher.fetch("https://www.list.am/ru/category/56/1"),
+    BrowserVerificationRequiredError,
+  );
+  challenged = false;
+  await fetcher.fetch("https://www.list.am/ru/category/56/1");
+  await fetcher.close();
+
+  assert.deepEqual(navigations, [undefined, undefined]);
+});
+
+test("a Chrome that ignores SIGTERM is killed and reported", async () => {
+  const events = [];
+  const signals = [];
+  const wedged = {
+    exitCode: null,
+    signalCode: null,
+    kill: (signal) => {
+      signals.push(signal);
+      // Only SIGKILL ends it, which is what loses the unwritten cookie store.
+      if (signal === "SIGKILL") wedged.exitCode = 137;
+    },
+  };
+
+  await terminateChromeProcess(wedged, (event) => events.push(event), {
+    termTimeoutMs: 60,
+    killTimeoutMs: 60,
+  });
+
+  assert.deepEqual(signals, ["SIGTERM", "SIGKILL"]);
+  assert.deepEqual(events, [
+    {
+      name: BROWSER_FORCED_EXIT_EVENT,
+      severity: "warning",
+      component: "browser",
+      code: "ERR_BROWSER_FORCED_EXIT",
+      gracefulTimeoutMs: 60,
+      exited: true,
+    },
+  ]);
+});
+
+test("a Chrome that exits on SIGTERM is not reported as forced", async () => {
+  const events = [];
+  const child = {
+    exitCode: null,
+    signalCode: null,
+    kill: () => {
+      child.exitCode = 0;
+    },
+  };
+
+  await terminateChromeProcess(child, (event) => events.push(event), {
+    termTimeoutMs: 60,
+    killTimeoutMs: 60,
+  });
+
+  assert.deepEqual(events, []);
 });
 
 test("interactive challenge completion returns the verified page", async (t) => {
@@ -484,7 +765,7 @@ test("a runtime failure is cleaned up and the next fetch launches a fresh browse
   }
 });
 
-test("successful headless fetches isolate sequential pages in fresh browsers", async (t) => {
+test("the pages of one crawl share a browsing session", async (t) => {
   const config = await temporaryConfig(t);
   let launchCount = 0;
   let closeCount = 0;
@@ -501,10 +782,40 @@ test("successful headless fetches isolate sequential pages in fresh browsers", a
 
   await fetcher.fetch("https://www.list.am/ru/category/56/1");
   await fetcher.fetch("https://www.list.am/ru/category/56/2");
+  assert.equal(launchCount, 1, "a crawl's later pages continue the session");
+  assert.equal(closeCount, 0);
+
+  await fetcher.endSession();
+  assert.equal(closeCount, 1, "the crawl boundary releases the browser");
+
+  await fetcher.fetch("https://www.list.am/ru/category/56/1");
   await fetcher.close();
 
-  assert.equal(launchCount, 2);
+  assert.equal(launchCount, 2, "the next crawl starts a fresh browser");
   assert.equal(closeCount, 2);
+});
+
+test("headful interactive operation keeps its visible browser across sessions", async (t) => {
+  const config = await temporaryConfig(t, {
+    browserHeadless: false,
+    browserStartMinimized: false,
+  });
+  let closeCount = 0;
+  const fetcher = new BrowserPageFetcher(config, {
+    puppeteerImpl: {
+      launch: async () =>
+        launchedBrowser(browserPage(), () => {
+          closeCount += 1;
+        }),
+    },
+  });
+
+  await fetcher.fetch("https://www.list.am/ru/category/56/1");
+  await fetcher.endSession();
+
+  assert.equal(closeCount, 0);
+  await fetcher.close();
+  assert.equal(closeCount, 1);
 });
 
 test("cleanup terminates an owned Chrome process when protocol close fails", async (t) => {

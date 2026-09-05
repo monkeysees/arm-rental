@@ -54,7 +54,6 @@ const DELETE_CANCELLED_TEXT = "Удаление данных отменено.";
 const DELETE_COMPLETED_TEXT = "Ваши данные удалены.";
 const DELETE_CONFIRM_CALLBACK = "d:confirm";
 const DELETE_CANCEL_CALLBACK = "d:cancel";
-
 function plainObject(value) {
   return Boolean(value && typeof value === "object" && !Array.isArray(value));
 }
@@ -922,6 +921,7 @@ export async function runTelegramBot(
     sleep = delay,
     onResult = () => {},
     onError = () => {},
+    onCrawlSettled = () => {},
     onMonitoringState = () => {},
     onPrivateAccessState = () => {},
     onPrivateAccessDenied = () => {},
@@ -1456,6 +1456,14 @@ export async function runTelegramBot(
           }
           continue;
         }
+      } finally {
+        // The crawl's pages belong to one browsing session, so the browser is
+        // released here rather than after each page. Runs on every exit from
+        // the attempt, including the retry `continue` and the abort `return`,
+        // so no path leaves a browser alive across the poll interval. The
+        // handler owns its own failures: throwing here would replace whatever
+        // error the crawl was already reporting.
+        await onCrawlSettled({ crawlId });
       }
 
       try {

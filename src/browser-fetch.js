@@ -20,7 +20,20 @@ import puppeteer from "puppeteer-core";
 const executeFile = promisify(execFile);
 
 const LOOPBACK_DEBUG_ADDRESS = "127.0.0.1";
-const PROCESS_EXIT_TIMEOUT_MS = 2_000;
+// The browser version List.am sees, deliberately decoupled from the Chromium
+// the image ships. A security upgrade must not change the identity a verified
+// profile was granted under: moving 151 to 152 in the image did exactly that
+// and multiplied challenges by roughly thirty. Move this only alongside a
+// fresh `npm run browser:verify`, never as a side effect of a Chromium bump.
+export const PINNED_CHROME_VERSION = "152.0.7977.75";
+// Chrome flushes its cookie store on a clean exit, and the crawl's List.am
+// clearance lives there. Killing the process mid-flush discards a cookie that
+// was just minted, so the next launch is challenged again and mints another —
+// a loop the operator sees as a challenge every few minutes. The graceful
+// window is therefore generous relative to the milliseconds a 20 KB cookie
+// database needs; only a browser that is genuinely wedged reaches SIGKILL.
+const PROCESS_TERM_TIMEOUT_MS = 10_000;
+const PROCESS_KILL_TIMEOUT_MS = 2_000;
 const DEFAULT_DISK_CACHE_MAX_BYTES = 64 * 1024 * 1024;
 const CHROME_SINGLETON_NAMES = [
   "SingletonLock",
@@ -29,6 +42,14 @@ const CHROME_SINGLETON_NAMES = [
 ];
 export const BROWSER_VERIFICATION_COMMAND = "npm run browser:verify";
 export const BROWSER_CHALLENGE_EVENT = "browser.challenge";
+export const BROWSER_FORCED_EXIT_EVENT = "browser.forced_exit";
+
+// List.am answers a challenge through its edge provider rather than from the
+// application, so the interstitial arrives as a status the page never shows.
+// Reading it names the challenge outright instead of inferring one from a
+// missing selector, which a slow render or an origin error produces too.
+const CHALLENGE_HTTP_STATUSES = new Set([403, 429, 503]);
+const CLOUDFLARE_CHALLENGE_HEADERS = ["cf-mitigated", "cf-chl-bypass"];
 
 // Reading the page HTML is the one CDP call a fetch cannot do without, and a
 // stalled renderer makes it hang rather than fail. Naming that stall lets the
@@ -151,14 +172,40 @@ async function waitForChildExit(child, timeoutMs) {
   return !childIsRunning(child);
 }
 
-async function terminateChromeProcess(child) {
+/**
+ * Ends Chrome's own process after Puppeteer has already asked it to close.
+ *
+ * Reaching SIGKILL means the browser never finished its own shutdown, so
+ * whatever it had not yet written — the cookie store included — is lost. That
+ * is worth reporting rather than absorbing: a run of forced exits explains a
+ * run of challenges, and nothing else in the logs would connect the two.
+ *
+ * The waits are arguments so the forced path can be exercised without spending
+ * the graceful window; production always passes the module's own timeouts.
+ */
+export async function terminateChromeProcess(
+  child,
+  onEvent = () => {},
+  {
+    termTimeoutMs = PROCESS_TERM_TIMEOUT_MS,
+    killTimeoutMs = PROCESS_KILL_TIMEOUT_MS,
+  } = {},
+) {
   if (!childIsRunning(child) || typeof child.kill !== "function") return;
 
   child.kill("SIGTERM");
-  if (await waitForChildExit(child, PROCESS_EXIT_TIMEOUT_MS)) return;
+  if (await waitForChildExit(child, termTimeoutMs)) return;
 
   child.kill("SIGKILL");
-  await waitForChildExit(child, PROCESS_EXIT_TIMEOUT_MS);
+  const exited = await waitForChildExit(child, killTimeoutMs);
+  await onEvent({
+    name: BROWSER_FORCED_EXIT_EVENT,
+    severity: "warning",
+    component: "browser",
+    code: "ERR_BROWSER_FORCED_EXIT",
+    gracefulTimeoutMs: termTimeoutMs,
+    exited,
+  });
 }
 
 export async function findChromeExecutable(
@@ -364,17 +411,109 @@ async function simulateUserActions(page, budgetMs = INTERACTION_BUDGET_MS) {
   }
 }
 
-async function normalizeHeadlessUserAgent(page) {
-  const userAgent = await page.evaluate(() => navigator.userAgent);
-  if (typeof userAgent !== "string" || !userAgent.includes("HeadlessChrome/")) {
-    return;
-  }
+// Chrome's reduced user agent freezes everything except the product token, so
+// the platform strings below are the complete set a desktop Chrome reports.
+const USER_AGENT_PLATFORMS = {
+  darwin: {
+    hint: "macOS",
+    token: "Macintosh; Intel Mac OS X 10_15_7",
+    architecture: "arm",
+  },
+  win32: {
+    hint: "Windows",
+    token: "Windows NT 10.0; Win64; x64",
+    architecture: "x86",
+  },
+  linux: {
+    hint: "Linux",
+    token: "X11; Linux x86_64",
+    architecture: "x86",
+  },
+};
 
-  // Chromium's headless product token differs from the otherwise equivalent
-  // headful browser and can cause the verified production session to be
-  // challenged again. Preserve the complete runtime-derived UA and normalize
-  // only that product token.
-  await page.setUserAgent(userAgent.replace("HeadlessChrome/", "Chrome/"));
+function userAgentPlatform(platform) {
+  return USER_AGENT_PLATFORMS[platform] || USER_AGENT_PLATFORMS.linux;
+}
+
+/**
+ * Builds the `Sec-CH-UA*` metadata that belongs to a pinned browser version.
+ * Client hints carry the version a second time, so leaving them to the runtime
+ * browser would reintroduce the very mismatch the pinned token removes.
+ */
+function pinnedUserAgentMetadata(version, platform) {
+  const major = version.split(".")[0];
+  const brands = [
+    // Chromium's own GREASE entry varies between builds and is defined to be
+    // ignored, so a fixed placeholder keeps the header stable without
+    // claiming a brand the browser does not have.
+    { brand: "Not:A-Brand", version: "24" },
+    { brand: "Chromium", version: major },
+  ];
+  return {
+    brands,
+    fullVersionList: brands.map((brand) => ({
+      ...brand,
+      version: brand.brand === "Chromium" ? version : "24.0.0.0",
+    })),
+    fullVersion: version,
+    platform: userAgentPlatform(platform).hint,
+    platformVersion: "",
+    architecture: userAgentPlatform(platform).architecture,
+    bitness: "64",
+    model: "",
+    mobile: false,
+  };
+}
+
+/**
+ * Presents one identity to List.am for the life of a verified profile.
+ *
+ * A verification cookie is only honoured for the browser it was minted for, so
+ * no field that names a version may move on its own. The identity is built
+ * rather than read back from the running browser: reading it inherited the
+ * runtime version, which is the coupling being removed, and cost a page
+ * evaluation on a renderer that may already be stalling. Headless mode's
+ * `HeadlessChrome/` token disappears the same way, which is what the earlier
+ * normalization existed to do. Both modes are pinned, so the session
+ * `npm run browser:verify` mints headfully is the one the headless crawl
+ * presents.
+ */
+async function applyPinnedUserAgent(page, version, platform) {
+  const { token } = userAgentPlatform(platform);
+  await page.setUserAgent(
+    `Mozilla/5.0 (${token}) AppleWebKit/537.36 (KHTML, like Gecko) ` +
+      `Chrome/${version} Safari/537.36`,
+    pinnedUserAgentMetadata(version, platform),
+  );
+}
+
+/**
+ * Reads what a navigation actually returned, tolerating its absence.
+ *
+ * Puppeteer legitimately resolves `goto` to null — a same-document navigation
+ * returns no response — so every field here is optional and the caller must
+ * still be able to judge the page without one.
+ */
+function navigationOutcome(response) {
+  if (!response || typeof response.status !== "function") return {};
+  const headers =
+    typeof response.headers === "function" ? response.headers() || {} : {};
+  return {
+    httpStatus: response.status(),
+    statusText:
+      typeof response.statusText === "function" ? response.statusText() : "",
+    // A challenge marker is proof; its absence proves nothing, because the
+    // edge does not label every mitigation it serves.
+    edgeChallenge: CLOUDFLARE_CHALLENGE_HEADERS.some((header) =>
+      Object.hasOwn(headers, header),
+    ),
+    // A status the origin itself failed with, rather than one the edge uses to
+    // withhold the page. Treating these as challenges sent an operator to the
+    // verification runbook for what was a 404 or a bad gateway.
+    originFailure:
+      response.status() >= 400 &&
+      !CHALLENGE_HTTP_STATUSES.has(response.status()),
+  };
 }
 
 export class BrowserPageFetcher {
@@ -402,6 +541,7 @@ export class BrowserPageFetcher {
     this.runtimeDirectory = undefined;
     this.runtimeRoot = undefined;
     this.cleanupPromise = undefined;
+    this.lastNavigatedUrl = undefined;
   }
 
   async start() {
@@ -511,9 +651,11 @@ export class BrowserPageFetcher {
           get: () => undefined,
         });
       });
-      if (this.config.browserHeadless) {
-        await normalizeHeadlessUserAgent(this.page);
-      }
+      await applyPinnedUserAgent(
+        this.page,
+        this.config.browserUserAgentVersion || PINNED_CHROME_VERSION,
+        this.platform,
+      );
     } catch (error) {
       await this.dispose({ suppressCloseError: true });
       throw error;
@@ -523,9 +665,24 @@ export class BrowserPageFetcher {
   async fetch(url) {
     try {
       await this.start();
-      await this.page.goto(url, { waitUntil: "domcontentloaded" });
+      // Pages reached by clicking carry where they were clicked from. The
+      // crawl's later pages are its own earlier ones, which is only true now
+      // that a session outlives a single page.
+      const response = await this.page.goto(url, {
+        waitUntil: "domcontentloaded",
+        ...(this.lastNavigatedUrl ? { referer: this.lastNavigatedUrl } : {}),
+      });
+      const { httpStatus, statusText, edgeChallenge, originFailure } =
+        navigationOutcome(response);
+      const contentPresent = Boolean(await this.page.$("#contentr"));
+      // The edge labelling a mitigation settles it. Otherwise a page that
+      // never rendered the listing container is still treated as challenged,
+      // which is what this has always done and catches an interstitial served
+      // as 200. A status alone does not decide: List.am returns 403 for
+      // reasons that are not a challenge, and those deserve their own error.
+      const challenged = edgeChallenge || (!contentPresent && !originFailure);
 
-      if (!(await this.page.$("#contentr"))) {
+      if (challenged) {
         const verificationMessage = this.config.browserHeadless
           ? "List.am requires security verification. Run npm run browser:verify."
           : "List.am security verification is open in Chrome. Complete it there once.";
@@ -539,6 +696,14 @@ export class BrowserPageFetcher {
           component: "browser",
           code: challenge.code,
           remediationCommand: challenge.remediationCommand,
+          // Which page was challenged, and whether the edge said so or the
+          // missing container inferred it. Without the first there is no way
+          // to tell one category from the other; without the second there is
+          // no way to separate a real interstitial from a page that failed to
+          // render for some other reason.
+          url,
+          ...(httpStatus === undefined ? {} : { httpStatus }),
+          challengeSource: edgeChallenge ? "edge" : "missing_content",
         });
 
         if (this.config.browserHeadless) throw challenge;
@@ -556,6 +721,16 @@ export class BrowserPageFetcher {
         }
       }
 
+      // An origin failure is reported as itself. The page is not worth
+      // scrolling or reading, and the caller already turns a non-2xx into a
+      // crawl failure that names the status.
+      if (originFailure) {
+        return new Response("", {
+          status: httpStatus,
+          statusText: statusText || "",
+        });
+      }
+
       try {
         await simulateUserActions(this.page, interactionBudgetMs(this.config));
       } catch (error) {
@@ -571,13 +746,17 @@ export class BrowserPageFetcher {
         contentBudget,
         () => new BrowserContentTimeoutError(contentBudget),
       );
-      if (this.config.browserHeadless) {
-        // A durable profile carries verification state across launches, while
-        // a fresh process prevents renderer/compositor work from one List.am
-        // page accumulating into later crawl pages on constrained hosts.
-        await this.dispose();
-      }
-
+      // A successful page keeps the browser. Tearing it down here made every
+      // page load a brand-new session with no navigation history behind it,
+      // which is the shape List.am challenges: the profile carried the
+      // verification cookie but nothing else. Renderer and compositor state
+      // is still kept from accumulating indefinitely, one crawl at a time,
+      // by the session boundary the caller closes in `endSession`.
+      //
+      // Only a page that actually delivered its listing becomes the referer
+      // for the next one: a challenge or an origin error is not somewhere a
+      // reader would have been coming from.
+      this.lastNavigatedUrl = url;
       return new Response(html, {
         status: 200,
         headers: { "content-type": "text/html; charset=utf-8" },
@@ -586,6 +765,18 @@ export class BrowserPageFetcher {
       await this.dispose({ suppressCloseError: true });
       throw error;
     }
+  }
+
+  /**
+   * Ends the run of pages that belong together — one crawl, or the startup
+   * preflight — and releases the browser that served them. Headless callers
+   * get a fresh Chrome for the next run against the same durable profile, so
+   * renderer and compositor work cannot accumulate across the poll interval.
+   * Headful interactive operation keeps its visible browser, as it always has.
+   */
+  async endSession() {
+    if (!this.config.browserHeadless) return;
+    await this.dispose();
   }
 
   async dispose({ suppressCloseError = false } = {}) {
@@ -599,6 +790,9 @@ export class BrowserPageFetcher {
     this.page = undefined;
     this.runtimeDirectory = undefined;
     this.runtimeRoot = undefined;
+    // The next session opens with no history behind it, so it must not claim
+    // to have come from a page the previous browser read.
+    this.lastNavigatedUrl = undefined;
 
     this.cleanupPromise = (async () => {
       let closeError;
@@ -607,7 +801,7 @@ export class BrowserPageFetcher {
       } catch (error) {
         closeError = error;
       }
-      await terminateChromeProcess(browserProcess);
+      await terminateChromeProcess(browserProcess, this.onEvent);
       if (temporaryRoot) {
         await rm(temporaryRoot, { recursive: true, force: true });
       }

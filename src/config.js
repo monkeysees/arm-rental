@@ -62,6 +62,15 @@ function boolean(value, fallback, name) {
   throw new Error(`${name} must be either true or false`);
 }
 
+function chromeVersion(value, name) {
+  const candidate = value?.trim();
+  if (!candidate) return undefined;
+  if (!/^\d+(?:\.\d+){3}$/u.test(candidate)) {
+    throw new Error(`${name} must be a dotted Chrome version`);
+  }
+  return candidate;
+}
+
 function port(value, fallback, name) {
   const parsed = positiveInteger(value, fallback, name);
   if (parsed > 65_535) throw new Error(`${name} must be at most 65535`);
@@ -340,6 +349,10 @@ export function getConfig(env = process.env, cwd = process.cwd()) {
       read("BROWSER_LOAD_IMAGES"),
       undefined,
       "BROWSER_LOAD_IMAGES",
+    ),
+    browserUserAgentVersion: chromeVersion(
+      read("BROWSER_USER_AGENT_VERSION"),
+      "BROWSER_USER_AGENT_VERSION",
     ),
     browserChallengeTimeoutMs: positiveInteger(
       read("BROWSER_CHALLENGE_TIMEOUT_MS"),

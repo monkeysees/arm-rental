@@ -35,6 +35,8 @@ try {
     logger: {
       info: (message, context) =>
         console.log(JSON.stringify({ message, ...context })),
+      warn: (message, context) =>
+        console.log(JSON.stringify({ message, ...context })),
       error: (message, error) =>
         console.error(JSON.stringify({ message, error: error.message })),
     },
@@ -62,6 +64,11 @@ try {
           }
         }
         return new Response('<div id="contentr"></div>');
+      },
+      // The real fetcher releases the profile at a session boundary exactly
+      // as it does on close, so the lease these tests isolate behaves the same.
+      async endSession() {
+        await rm(chromeLockFile, { force: true });
       },
       async close() {
         await rm(chromeLockFile, { force: true });

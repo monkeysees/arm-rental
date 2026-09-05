@@ -150,10 +150,46 @@ export async function runApplication({
             component: event.component,
             code: event.code,
             remediationCommand: event.remediationCommand,
+            // Which page, and whether the edge said so or a missing listing
+            // container inferred it. `rentalctl logs` projects neither, by
+            // design; the raw journal recipe in the runbook shows both. Absent
+            // fields are omitted rather than logged as null: a navigation that
+            // returned no response has no status to report.
+            ...(event.url === undefined ? {} : { url: event.url }),
+            ...(event.httpStatus === undefined
+              ? {}
+              : { httpStatus: event.httpStatus }),
+            ...(event.challengeSource === undefined
+              ? {}
+              : { challengeSource: event.challengeSource }),
+          });
+          return;
+        }
+        // A forced exit loses whatever Chrome had not written, the List.am
+        // clearance included, so it belongs next to the challenges it causes.
+        if (event.name === "browser.forced_exit") {
+          logger.warn("Chrome did not exit on request", {
+            eventName: event.name,
+            component: event.component,
+            code: event.code,
+            gracefulTimeoutMs: event.gracefulTimeoutMs,
           });
         }
       },
     });
+    // Releasing the browser is cleanup, never a reason to fail the work that
+    // was using it, so this absorbs its own failures and reports them.
+    const endBrowserSession = async () => {
+      try {
+        await browserFetcher.endSession();
+      } catch (error) {
+        logger.warn("Browser session release failed", {
+          event: "browser.session.release_failed",
+          component: "browser",
+          reason: error.message,
+        });
+      }
+    };
     const { stateAccess } = applicationState;
     const exchangeRateService = exchangeRateServiceFactory(config, {
       stateStore: stateAccess.exchangeRates,
@@ -193,6 +229,9 @@ export async function runApplication({
         recordSourceIntegrityChecked({ ...observation, phase: "preflight" }),
       stateAccess,
     });
+    // Preflight is a page run of its own, and the first crawl is a poll
+    // interval away. Release its browser rather than idling one until then.
+    await endBrowserSession();
     logger.info("Startup preflight completed", {
       preflight: preflightResult,
     });
@@ -243,6 +282,7 @@ export async function runApplication({
       stateAccess,
       exchangeRateService,
       pageFetch: fetchRuntimePage,
+      onCrawlSettled: endBrowserSession,
       onResult: (result) => {
         healthMonitor?.recordCrawlSuccess();
         logger.info("Apartment crawl completed", {

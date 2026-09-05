@@ -285,7 +285,12 @@ export const CONFIGURATION_CATALOG = Object.freeze([
     configKey: "browserLoadImages",
     type: "boolean",
     constraints: "true or false.",
-    defaultValue: "false",
+    defaultValue: "true",
+    // Nothing downstream reads an image, so suppressing the fetch was free in
+    // parsing terms and saved bandwidth and decode time. It was not free to
+    // List.am's edge: a client that requests a listing page and none of its
+    // images does not look like the browser it claims to be. Set false to take
+    // the saving back on a host where it matters more than the challenge rate.
     purpose: "Lets Chrome fetch and decode page images the crawl never reads.",
   }),
   entry({

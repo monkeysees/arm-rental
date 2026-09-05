@@ -83,7 +83,7 @@ test("configuration uses the requested target and initial crawl defaults", () =>
   assert.equal(config.externalRetryBaseMs, 1_000);
   assert.equal(config.externalRetryMaxMs, 60_000);
   assert.equal(config.browserCacheMaxBytes, 64 * 1024 * 1024);
-  assert.equal(config.browserLoadImages, false);
+  assert.equal(config.browserLoadImages, true);
 });
 
 test("runtime and health helpers share catalog defaults and strict parsing", () => {

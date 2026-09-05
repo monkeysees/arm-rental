@@ -335,7 +335,7 @@ separate `npm ci --omit=dev`, so development-only tooling is not deployed.
 
 The Linux AMD64 production image is based on the immutable multi-platform
 digest of the official Node.js 24.18.0 Bookworm Slim image. It installs Debian
-Chromium 151.0.7922.137 and its set-user-ID sandbox helper from the Debian
+Chromium 152.0.7977.75 and its set-user-ID sandbox helper from the Debian
 snapshot dated 2026-08-13. This stays within Puppeteer Core 25.4.0's supported
 Chrome 151 milestone while avoiding the milestone's Chrome for Testing builds,
 whose Linux AMD64 browser process terminates during sandboxed X11 startup.

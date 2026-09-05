@@ -115,7 +115,7 @@ test("release manifest binds the deployable image to its complete inputs", async
     maximumStateSchema: 2,
     deployableStateBackends: ["sqlite"],
     nodeVersion: nodeVersion.trim(),
-    browserVersion: "151.0.7922.137",
+    browserVersion: "152.0.7977.75",
     packageLockSha256: createHash("sha256").update(packageLock).digest("hex"),
     imageArchive: {
       file: "production-image.tar.gz",

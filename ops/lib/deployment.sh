@@ -11,6 +11,12 @@
 : "${RENTAL_CURRENT_LINK:=/opt/rental-apartments/current}"
 : "${RENTAL_MINIMUM_FREE_KB:=1048576}"
 : "${RENTAL_DEPLOYMENT_RETENTION_FILE:=$RENTAL_OPS_STATE_DIR/deployment-retention.json}"
+: "${RENTAL_RECONCILE_STATE_FILE:=$RENTAL_OPS_STATE_DIR/reconcile.json}"
+# A dead service must be restarted, but a crash-looping one must not be
+# restarted forever: three attempts an hour is enough to ride out a transient
+# failure and few enough that a genuine crash loop reaches the alert quickly.
+: "${RENTAL_RECONCILE_MAX_ATTEMPTS:=3}"
+: "${RENTAL_RECONCILE_WINDOW_SECONDS:=3600}"
 
 deployment_validate_actor() {
   local actor=$1
@@ -93,6 +99,117 @@ deployment_emit_alert() {
       alertSeverity: "critical",
       candidateImage: $candidate,
       previousImage: $previous
+    }' |
+    systemd-cat --identifier=rental-deploy --priority=warning
+}
+
+# Reports what the production container is actually doing. The deploy timer
+# decides there is nothing to do by comparing digests, and without this it
+# cannot tell a running service from one that exited hours ago.
+deployment_container_state() {
+  local state=""
+  state=$(docker inspect \
+    --format '{{if .State.Running}}{{if .State.Health}}{{.State.Health.Status}}{{else}}running{{end}}{{else}}stopped{{end}}' \
+    "$RENTAL_CONTAINER_NAME" 2>/dev/null) || state=missing
+  printf '%s\n' "${state:-missing}"
+}
+
+# A container inside its healthcheck start period is not yet healthy, and
+# restarting it for that alone would keep it from ever finishing starting.
+deployment_service_is_live() {
+  case $(deployment_container_state) in
+    healthy | running | starting) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+# Counts only the attempts still inside the window. Pruning by time rather
+# than clearing on success is deliberate: a service that dies every twenty
+# minutes must exhaust its budget instead of being restarted indefinitely.
+deployment_reconcile_attempts() {
+  local now=$1
+  local cutoff=$((now - RENTAL_RECONCILE_WINDOW_SECONDS))
+  local count=""
+  if [[ -f $RENTAL_RECONCILE_STATE_FILE && ! -L $RENTAL_RECONCILE_STATE_FILE ]]; then
+    count=$(jq --argjson cutoff "$cutoff" '
+      [(.attempts // [])[] | select(type == "number" and . >= $cutoff)] | length
+    ' "$RENTAL_RECONCILE_STATE_FILE" 2>/dev/null) || count=""
+  fi
+  [[ $count =~ ^[0-9]+$ ]] || count=0
+  printf '%s\n' "$count"
+}
+
+deployment_record_reconcile_attempt() {
+  local now=$1
+  local cutoff=$((now - RENTAL_RECONCILE_WINDOW_SECONDS))
+  local existing='{"attempts":[]}'
+  local temporary
+  install -d -m 0750 "$RENTAL_OPS_STATE_DIR"
+  if [[ -f $RENTAL_RECONCILE_STATE_FILE && ! -L $RENTAL_RECONCILE_STATE_FILE ]]; then
+    existing=$(jq -c . "$RENTAL_RECONCILE_STATE_FILE" 2>/dev/null) ||
+      existing='{"attempts":[]}'
+  fi
+  temporary=$(mktemp "$RENTAL_OPS_STATE_DIR/.reconcile.XXXXXX")
+  if ! jq --argjson now "$now" --argjson cutoff "$cutoff" '
+    {
+      schemaVersion: 1,
+      attempts: (
+        [(.attempts // [])[] | select(type == "number" and . >= $cutoff)] + [$now]
+      )
+    }
+  ' <<<"$existing" >"$temporary"; then
+    rm -f -- "$temporary"
+    return 1
+  fi
+  chmod 0640 "$temporary"
+  mv -f -- "$temporary" "$RENTAL_RECONCILE_STATE_FILE"
+}
+
+deployment_emit_reconcile() {
+  local event=$1
+  local result=$2
+  local candidate=$3
+  local state=$4
+  local attempts=$5
+  local priority=$6
+  jq --compact-output --null-input \
+    --arg event "$event" \
+    --arg result "$result" \
+    --arg candidate "$candidate" \
+    --arg containerState "$state" \
+    --argjson reconcileAttempts "$attempts" \
+    '{
+      event: $event,
+      result: $result,
+      candidateImage: $candidate,
+      containerState: $containerState,
+      reconcileAttempts: $reconcileAttempts
+    }' |
+    systemd-cat --identifier=rental-deploy --priority="$priority"
+}
+
+# The failure this exists for was never "nobody restarted the container". It
+# was every operational surface reporting success while the bot was dead, so a
+# spent budget has to be louder than the noop it replaces. The name matches the
+# deployment_ prefix the monitor's deploy-unit alert reader accepts, which is
+# what carries it into alert state without the application being alive.
+deployment_emit_reconcile_alert() {
+  local candidate=$1
+  local state=$2
+  local attempts=$3
+  jq --compact-output --null-input \
+    --arg candidate "$candidate" \
+    --arg containerState "$state" \
+    --argjson attempts "$attempts" \
+    --argjson windowSeconds "$RENTAL_RECONCILE_WINDOW_SECONDS" \
+    '{
+      event: "alert.firing",
+      alertName: "deployment_reconcile_exhausted",
+      alertSeverity: "critical",
+      candidateImage: $candidate,
+      containerState: $containerState,
+      attempts: $attempts,
+      windowSeconds: $windowSeconds
     }' |
     systemd-cat --identifier=rental-deploy --priority=warning
 }

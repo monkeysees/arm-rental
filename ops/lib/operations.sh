@@ -102,6 +102,18 @@ ops_start_application() {
   ops_wait_ready
 }
 
+# `systemctl start` on an already-active unit does nothing, which is the wrong
+# answer for a container that is running but wedged. Restart covers both the
+# stopped and the unhealthy case.
+ops_restart_application() {
+  local restart_status=0
+  systemctl restart "$RENTAL_APP_SERVICE" || restart_status=$?
+  if ((restart_status != 0)); then
+    return "$restart_status"
+  fi
+  ops_wait_ready
+}
+
 ops_latest_snapshot() {
   local daily candidate latest="" name
   daily=$RENTAL_BACKUP_ROOT/daily

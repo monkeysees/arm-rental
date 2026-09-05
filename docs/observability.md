@@ -206,6 +206,7 @@ so token and owner destination never enter argv or journal records.
 | `state_database_operation_failure`     | a non-busy transaction or checkpoint fails              |
 | `deployment_blocked`                   | the deploy timer keeps skipping a quarantined candidate |
 | `deployment_failure`                   | a candidate was rejected and rolled back                |
+| `deployment_reconcile_exhausted`       | the restart budget for a dead service is spent          |
 
 `deployment_blocked` exists because a rejected candidate is otherwise silent. A
 failed deployment quarantines its digest, but the discovery pointer goes on
@@ -226,6 +227,23 @@ and exits successfully within seconds. Sampling the timer every five minutes
 therefore only ever observes success. The monitor reads the deploy unit alert
 records directly over the same window, reporting the rejected digest and the
 severity the deploy assigned.
+
+`deployment_reconcile_exhausted` closes the gap that turned a parser bug into a
+46-hour outage. The deploy timer compared the candidate digest to the running
+one and, when they matched, emitted `deployment.noop` with `result: "success"`
+without ever asking whether the container was up. Compose's
+`restart: "on-failure:5"` had already given up, so `rentalctl timers` reported
+`rental-deploy` green every five minutes while the bot was dead.
+
+The noop path now reconciles. A container that is `healthy`, `running`, or
+still `starting` reports noop as before; anything else is restarted and the
+attempt recorded in `reconcile.json`. The budget is three attempts per hour, so
+a crash-looping service is not restarted forever: once it is spent the deploy
+emits this alert and exits non-zero, turning the timer red. Attempts age out of
+the window rather than clearing on recovery, which is what stops a service that
+dies every twenty minutes from being restarted indefinitely. Like
+`deployment_failure`, it is recorded under the deploy unit, so it reaches alert
+state without the application being alive to report anything.
 
 If Telegram delivery fails, the transition remains eligible for retry and
 `rental-monitor.service` fails without logging the response or credentials:

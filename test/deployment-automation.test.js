@@ -738,3 +738,134 @@ test("a refused candidate names the contract it failed", async (t) => {
       error.stderr.includes("stateBackend sqlite, state schema 1 or higher"),
   );
 });
+
+test("the deploy noop path reconciles a dead service under a bounded budget", async (t) => {
+  const temporaryDirectory = await mkdtemp(join(tmpdir(), "deploy-reconcile-"));
+  t.after(() => rm(temporaryDirectory, { recursive: true, force: true }));
+  const stateDirectory = join(temporaryDirectory, "state");
+  const fakeDirectory = join(temporaryDirectory, "bin");
+  await mkdir(fakeDirectory, { recursive: true });
+  // The container state is whatever this file says, so one fake stands in for
+  // every lifecycle the reconciler has to tell apart.
+  const stateFile = join(temporaryDirectory, "container-state");
+  const docker = join(fakeDirectory, "docker");
+  await writeFile(
+    docker,
+    `#!/usr/bin/env bash
+set -eu
+if [[ $1 == inspect ]]; then
+  state=$(cat ${JSON.stringify(stateFile)})
+  [[ $state == missing ]] && exit 1
+  printf '%s\\n' "$state"
+  exit 0
+fi
+exit 9
+`,
+  );
+  await chmod(docker, 0o755);
+
+  const evaluate = async (script, ...args) => {
+    const { stdout } = await executeFile(
+      "bash",
+      [
+        "-c",
+        `
+          set -Eeuo pipefail
+          RENTAL_OPS_STATE_DIR=$1
+          RENTAL_CONTAINER_NAME=rental-apartments-bot
+          source ops/lib/common.sh
+          source ops/lib/deployment.sh
+          ${script}
+        `,
+        "deploy-reconcile-test",
+        stateDirectory,
+        ...args,
+      ],
+      {
+        cwd: new URL("..", import.meta.url),
+        env: { ...process.env, PATH: `${fakeDirectory}:${process.env.PATH}` },
+      },
+    );
+    return stdout.trim();
+  };
+
+  for (const [state, live] of [
+    ["healthy", true],
+    // Still inside the healthcheck start period: restarting it here would stop
+    // it ever finishing startup.
+    ["starting", true],
+    ["running", true],
+    ["unhealthy", false],
+    ["stopped", false],
+    ["missing", false],
+  ]) {
+    await writeFile(stateFile, state);
+    assert.equal(
+      await evaluate(
+        "if deployment_service_is_live; then printf live; else printf dead; fi",
+      ),
+      live ? "live" : "dead",
+      `a ${state} container must read as ${live ? "live" : "dead"}`,
+    );
+  }
+
+  await writeFile(stateFile, "stopped");
+  // An absent ledger is zero attempts, not a failure to read one.
+  assert.equal(await evaluate("deployment_reconcile_attempts 1000000"), "0");
+
+  assert.equal(
+    await evaluate(`
+      deployment_record_reconcile_attempt 1000000
+      deployment_record_reconcile_attempt 1000100
+      deployment_reconcile_attempts 1000200
+    `),
+    "2",
+  );
+
+  // Attempts age out of the window instead of being cleared on recovery, so a
+  // service that dies every twenty minutes still exhausts its budget.
+  assert.equal(
+    await evaluate(
+      "deployment_reconcile_attempts $((1000100 + RENTAL_RECONCILE_WINDOW_SECONDS + 1))",
+    ),
+    "0",
+  );
+
+  const ledger = JSON.parse(
+    await readFile(join(stateDirectory, "reconcile.json"), "utf8"),
+  );
+  assert.equal(ledger.schemaVersion, 1);
+  assert.deepEqual(ledger.attempts, [1000000, 1000100]);
+
+  // A corrupt ledger must not wedge the reconciler into never restarting.
+  await writeFile(join(stateDirectory, "reconcile.json"), "{not json");
+  assert.equal(await evaluate("deployment_reconcile_attempts 1000200"), "0");
+});
+
+test("deploy reconciliation is wired into the noop path and bounded by an alert", async () => {
+  const [deploy, library, operations] = await Promise.all([
+    readFile(new URL("../ops/deploy", import.meta.url), "utf8"),
+    readFile(new URL("../ops/lib/deployment.sh", import.meta.url), "utf8"),
+    readFile(new URL("../ops/lib/operations.sh", import.meta.url), "utf8"),
+  ]);
+
+  // The whole point of the change: liveness is decided before noop is emitted.
+  assert.ok(
+    deploy.indexOf("deployment_service_is_live") <
+      deploy.indexOf("deployment_emit deployment.noop"),
+    "a matching digest must prove the service is live before reporting noop",
+  );
+  assert.match(deploy, /deployment\.reconcile\.restarted/u);
+  assert.match(deploy, /deployment\.reconcile\.exhausted/u);
+  assert.match(deploy, /deployment_emit_reconcile_alert/u);
+  assert.ok(
+    deploy.indexOf("RENTAL_RECONCILE_MAX_ATTEMPTS") <
+      deploy.indexOf("ops_restart_application"),
+    "the attempt budget must be checked before anything is restarted",
+  );
+  // A wedged-but-running container is not fixed by `systemctl start`.
+  assert.match(operations, /systemctl restart "\$RENTAL_APP_SERVICE"/u);
+  // The monitor's deploy-unit reader only carries deployment_-prefixed alerts.
+  assert.match(library, /alertName: "deployment_reconcile_exhausted"/u);
+  assert.match(library, /alertSeverity: "critical"/u);
+});

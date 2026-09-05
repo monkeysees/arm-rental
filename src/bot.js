@@ -54,6 +54,30 @@ const DELETE_CANCELLED_TEXT = "Удаление данных отменено.";
 const DELETE_COMPLETED_TEXT = "Ваши данные удалены.";
 const DELETE_CONFIRM_CALLBACK = "d:confirm";
 const DELETE_CANCEL_CALLBACK = "d:cancel";
+// Waiting exactly `pollIntervalMs` between crawls makes the request pattern a
+// metronome: with a ~26 s crawl the origin sees a page load every 86 s, to the
+// second, which is a signature no human session produces. The delay bounds
+// stay operator-configured — only their spread is a code decision, the same
+// split `ExponentialBackoff` already makes between its configured delays and
+// its fixed `jitterRatio`.
+const POLL_INTERVAL_JITTER_RATIO = 0.2;
+
+/**
+ * Spreads a poll wait symmetrically around the configured interval.
+ *
+ * Symmetric rather than the downward-only jitter `ExponentialBackoff` applies:
+ * a retry may fire early, but shortening every poll would raise the crawl rate
+ * above the interval the operator asked for. Averaging back to `pollIntervalMs`
+ * keeps the configured request budget while removing its regularity.
+ */
+function jitteredPollInterval(pollIntervalMs, random) {
+  const spread = pollIntervalMs * POLL_INTERVAL_JITTER_RATIO;
+  return Math.max(
+    1,
+    Math.round(pollIntervalMs - spread + 2 * spread * random()),
+  );
+}
+
 function plainObject(value) {
   return Boolean(value && typeof value === "object" && !Array.isArray(value));
 }
@@ -941,6 +965,7 @@ export async function runTelegramBot(
     onRetry = () => {},
     exchangeRateService,
     metadataRetryIntervalMs = TELEGRAM_METADATA_RETRY_INTERVAL_MS,
+    random = Math.random,
     monotonicNow,
     now = () => new Date(),
     signal,
@@ -1267,6 +1292,11 @@ export async function runTelegramBot(
 
       if (wokeFromDormancy && lastCrawlAttemptStartedAt !== undefined) {
         const now = monotonicNow?.() ?? performance.now();
+        // Deliberately the base interval, not a jittered one. This gate is a
+        // floor that stops an activation from crawling sooner than the poll
+        // interval allows, and it fires once per human activation rather than
+        // repeatedly, so it contributes no cadence to hide. Jittering it would
+        // only make the floor it guarantees fuzzy in both directions.
         const remainingIntervalMs = Math.max(
           0,
           config.pollIntervalMs - (now - lastCrawlAttemptStartedAt),
@@ -1467,7 +1497,13 @@ export async function runTelegramBot(
       }
 
       try {
-        await sleep(config.pollIntervalMs, undefined, { signal });
+        await sleep(
+          jitteredPollInterval(config.pollIntervalMs, random),
+          undefined,
+          {
+            signal,
+          },
+        );
       } catch (error) {
         if (error.name !== "AbortError") throw error;
       }

@@ -1501,6 +1501,9 @@ test("private controls cannot interrupt the singleton crawl interval", async () 
       api,
       signal: controller.signal,
       telegramState: state,
+      // The midpoint of the jitter spread is the configured interval, so this
+      // still asserts the poll wait the operator asked for.
+      random: () => 0.5,
       sleep: async (milliseconds, _value, { signal }) => {
         sleepDelays.push(milliseconds);
         if (signal.aborted) return;
@@ -1528,6 +1531,59 @@ test("private controls cannot interrupt the singleton crawl interval", async () 
 
   assert.equal(crawlCalls, 1);
   assert.deepEqual(sleepDelays, [60_000]);
+});
+
+test("the poll wait is spread around the configured interval", async () => {
+  const observed = [];
+  for (const draw of [0, 0.5, 1]) {
+    const controller = new AbortController();
+    const state = {
+      version: 3,
+      type: "telegram-bot",
+      updateOffset: 0,
+      users: { 42: { active: true, chatId: 42 } },
+    };
+    const api = {
+      getUpdates: async (_offset, _timeout, signal) =>
+        new Promise((resolve) => {
+          signal.addEventListener("abort", () => resolve([]), { once: true });
+        }),
+    };
+
+    await runTelegramBot(
+      {
+        telegramBotToken: "token",
+        telegramOwnerId: 42,
+        telegramAccessMode: "public",
+        telegramUserUpdatesPerMinute: 30,
+        telegramStateFile: "/state/bot.json",
+        telegramPollTimeoutSeconds: 25,
+        timeoutMs: 1_000,
+        pollIntervalMs: 60_000,
+      },
+      {
+        api,
+        signal: controller.signal,
+        telegramState: state,
+        random: () => draw,
+        sleep: async (milliseconds) => {
+          observed.push(milliseconds);
+          controller.abort();
+        },
+        crawl: async () => ({}),
+        onError: async () => {},
+      },
+    );
+  }
+
+  assert.deepEqual(
+    observed,
+    [48_000, 60_000, 72_000],
+    "a poll wait spans a fifth either side of the configured interval",
+  );
+  // A crawl every 60 s on the dot is the pattern being removed; the mean has
+  // to stay put so the operator's request budget is unchanged.
+  assert.equal((observed[0] + observed[2]) / 2, 60_000);
 });
 
 test("stopping during an activation cadence wait returns to dormancy", async () => {

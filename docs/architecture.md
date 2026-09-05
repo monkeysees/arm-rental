@@ -675,16 +675,27 @@ owner is alive, it removes only Chromium's known `SingletonLock`,
 `SingletonCookie`, and `SingletonSocket` symlinks left by an interrupted
 process. A non-symlink singleton entry or a live owner fails closed, preventing
 recovery code from deleting unexpected profile data.
-After a successful headless page capture, the fetcher closes the sandboxed
-Chromium process. The next page starts a fresh process against the same durable
-profile, preserving List.am verification cookies while preventing renderer and
-compositor state from accumulating across the ten-page crawl. Headful
-interactive operation continues to reuse its visible browser.
-After startup, headless Chromium's runtime-derived user agent is preserved
-except for normalizing its `HeadlessChrome/` product token to `Chrome/`.
-List.am otherwise re-challenges the same production profile solely because the
-headless token differs from the verified headful session. The code does not
-hard-code a browser version or replace any other user-agent field.
+The pages of one crawl share one browsing session. The fetcher closes the
+sandboxed Chromium process at the session boundary — the end of a crawl, or of
+the startup preflight — and the next session starts a fresh process against the
+same durable profile. Renderer and compositor state therefore cannot accumulate
+across the poll interval, while a crawl's later pages still arrive with the
+navigation history of its earlier ones behind them. Closing after every page
+instead made each page a session of its own, which is the shape List.am
+challenges. A failed page still disposes its browser immediately: abandoning
+the process is what recovers a stall, and the retry needs a fresh one. Headful
+interactive operation continues to reuse its visible browser across sessions.
+The browser version presented to List.am is pinned in the code and is
+deliberately not the version the running Chromium reports. A verification
+cookie is only honoured for the identity it was minted under, so inheriting the
+runtime version re-challenged the profile on every Chromium security upgrade;
+moving the image from 151 to 152 did exactly that. The user agent and the
+`Sec-CH-UA` client hints are built from that single pinned version, so the two
+cannot disagree, and headless mode's `HeadlessChrome/` product token never
+appears. Both headless and headful launches present the same identity, so the
+session `npm run browser:verify` mints is the session the crawl reuses. Moving
+the pin is an operator action paired with a fresh verification, and
+`BROWSER_USER_AGENT_VERSION` overrides it without a rebuild.
 Optional scrolling uses immediate compositor updates and short Node-side pacing
 delays around synchronous browser evaluations. Smooth-scroll animations cannot
 accumulate across navigations, and headless page-timer throttling therefore
@@ -699,13 +710,48 @@ reports it as `ERR_BROWSER_CONTENT_TIMEOUT`.
 Launch initialization, navigation, renderer, challenge, abort, and graceful
 shutdown paths close the Puppeteer browser, terminate its remaining owned child
 when necessary, and remove the runtime root. A later crawl starts a fresh
-Chrome process against the unchanged durable profile.
+Chrome process against the unchanged durable profile. Chrome is given a
+generous window to exit on SIGTERM, because it flushes its cookie store on the
+way out and the List.am clearance lives there; killing it mid-flush discards a
+cookie that was just issued, so the next launch is challenged and issues
+another. Only a genuinely wedged browser reaches SIGKILL, and reaching it emits
+`browser.forced_exit` — a run of those explains a run of challenges, and
+nothing else in the logs connects the two.
+
+Within a session, a page is fetched with the previous page's URL as its
+referer. Pagination reached by clicking carries where it was clicked from, and
+a crawl's later pages are its own earlier ones; only a page that actually
+delivered its listing becomes a referer, because a challenge or an origin error
+is not somewhere a reader would have been coming from.
+
+A navigation's HTTP status is read rather than discarded. List.am answers a
+challenge through the provider in front of it, so an interstitial arrives as a
+status and a header the rendered page never shows. A response the provider
+labels a mitigation is a challenge outright; otherwise a page with no listing
+container is still treated as challenged, which catches an interstitial served
+as 200. A status alone does not decide it: statuses outside the mitigation set
+are the origin's own failure, reported as themselves so a 404 or a bad gateway
+fails the crawl by name instead of sending an operator to the verification
+runbook.
+
+Successive crawls are spaced by `POLL_INTERVAL_MS` spread a fifth either side
+at random. An exact interval makes the request pattern a metronome — with a
+crawl of roughly half a minute the origin sees a page load at a fixed period,
+to the second — which is a regularity no human session produces and a cheap
+signal for an edge to score. The spread averages back to the configured
+interval, so the request budget an operator sets is the budget the crawl
+spends. The wake-from-dormancy gate keeps the unjittered interval: it is a
+floor on how soon an activation may crawl, not a repeating cadence.
 
 Challenge detection emits the stable `browser.challenge` event with component
 `browser`, code `ERR_BROWSER_VERIFICATION_REQUIRED`, severity `warning`, and the
-operator remediation command. Startup additionally retains its distinct
-`browser_verification_required` preflight result. Local monitoring consumes
-this application event without coupling browser operation to alert delivery.
+operator remediation command. It also carries the challenged `url`, the
+navigation `httpStatus`, and a `challengeSource` of `edge` or
+`missing_content`, which say which category was challenged and whether the
+provider said so or an absent container inferred it. Startup additionally
+retains its distinct `browser_verification_required` preflight result. Local
+monitoring consumes this application event without coupling browser operation
+to alert delivery.
 
 ### Production-focused test boundary
 

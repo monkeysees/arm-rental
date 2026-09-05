@@ -57,6 +57,15 @@ reason codes, component/error code, operation/step, retry attempt, and duplicate
 suppression count. Unknown fields, identifiers, URLs, and invalid reason values
 are not projected into this operator view.
 
+That exclusion is load-bearing for one diagnosis. `browser.challenge` records
+the challenged `url`, the navigation `httpStatus`, and a `challengeSource` of
+`edge` or `missing_content`, which together say which category was challenged
+and whether the provider in front of List.am actually said so. None of the
+three reaches `rentalctl logs`; read them from the raw journal, as
+[runtime-incidents.md](runtime-incidents.md) does. `browser.forced_exit`
+reports a Chrome that had to be killed, losing the unwritten List.am clearance
+that the next launch would have reused.
+
 ```sh
 rentalctl logs --since 30m --follow
 rentalctl logs --since 24h --severity error

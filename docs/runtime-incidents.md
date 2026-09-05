@@ -19,7 +19,7 @@ docker inspect --format \
 docker exec rental-apartments-bot node -e \
   'fetch("http://127.0.0.1:8787/ready").then(async r => { console.log(await r.text()); process.exitCode=r.ok?0:1 })'
 docker compose --file compose.production.yaml logs --since 20m bot |
-  jq -Rr 'fromjson? | select(.event == "source.integrity.checked" or .event == "source.integrity.failed" or .event == "crawl.succeeded" or .event == "crawl.failed" or .event == "retry.scheduled" or .event == "browser.challenge") | [.timestamp,.event,.reason,.component,.code,.crawlId] | @tsv'
+  jq -Rr 'fromjson? | select(.event == "source.integrity.checked" or .event == "source.integrity.failed" or .event == "crawl.succeeded" or .event == "crawl.failed" or .event == "retry.scheduled" or .event == "browser.challenge" or .event == "browser.forced_exit") | [.timestamp,.event,.reason,.component,.code,.crawlId,.url,.challengeSource,.httpStatus] | @tsv'
 ```
 
 Expected healthy output is a running container, ready HTTP response, and a
@@ -40,6 +40,22 @@ reading Telegram state.
   On that alert or no later complete crawl, stop and use the
   [browser verification runbook](browser-operations.md). Expected manual
   recovery is passed headless smoke, ready preflight, then `crawl.succeeded`.
+  The event carries `url`, so a run of challenges can be attributed to one
+  category rather than the crawl as a whole, and `challengeSource`:
+  `edge` means the provider in front of List.am labelled the response a
+  mitigation, while `missing_content` means only the absent listing container
+  said so. A run of `missing_content` with a 2xx `httpStatus` is the shape a
+  render or parser problem takes, not a verification problem, and the
+  verification runbook will not fix it. `rentalctl logs` projects none of these
+  three fields — its diagnostic context is deliberately allowlisted — so read
+  them with the raw journal recipe above.
+- `browser.forced_exit`: Chrome ignored SIGTERM for its full graceful window
+  and was killed, discarding whatever it had not yet written, including the
+  List.am clearance cookie. A single event is tolerable; a run of them explains
+  a run of challenges, because each forced exit costs the clearance the next
+  launch would otherwise have reused. Investigate host load and the renderer
+  stalls reported as `ERR_BROWSER_CONTENT_TIMEOUT` rather than reaching for the
+  verification runbook.
 - `list_am`: verify host DNS/outbound HTTPS and the configured production
   target. Do not increase crawl rate, bypass a challenge, or repeatedly hammer
   List.am.

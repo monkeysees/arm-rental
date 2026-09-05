@@ -80,12 +80,17 @@ artifact replacement as long as the persistent volume is retained.
 
 ## Image loading
 
-The crawl browser launches with `--blink-settings=imagesEnabled=false`, because
-nothing downstream reads an image element or its source. The setting suppresses
-fetching and decoding while leaving image elements and their attributes in the
-document, so the parsed HTML should be unchanged. `BROWSER_LOAD_IMAGES=true`
-restores image loading without a rebuild. The interactive verifier always loads
-images: a challenge has to be visible to be completed.
+The crawl browser loads page images, as `BROWSER_LOAD_IMAGES` defaults to
+`true`. Nothing downstream reads an image element or its source, so the fetch
+buys the crawl nothing directly; it is paid for what it says about the client.
+A browser that requests a listing page and none of its images does not behave
+like the browser its user agent claims to be, and List.am's edge scores that.
+Setting `BROWSER_LOAD_IMAGES=false` launches with
+`--blink-settings=imagesEnabled=false`, which suppresses fetching and decoding
+while leaving image elements and their attributes in the document, so the
+parsed HTML is unchanged either way — take that saving back on a host where
+bandwidth and decode time matter more than the challenge rate. The interactive
+verifier always loads images: a challenge has to be visible to be completed.
 
 Before deploying a change to this setting, run `npm run browser:smoke` on the
 production host with images enabled and again with them disabled, and require

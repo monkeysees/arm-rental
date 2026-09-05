@@ -12,10 +12,23 @@ import { openStateDatabase, stateDatabasePaths } from "./sqlite-database.js";
 import { SQLITE_SCHEMA_VERSION } from "./sqlite-schema.js";
 import { readState, writeState } from "./state.js";
 
-export const STATE_SIZE_WARNING_BYTES = 25 * 1024 * 1024;
+// 25 MiB was set for a smaller installation than this one became. The database
+// holds one delivery decision per apartment per recipient - 245,932 rows for 74
+// recipients - and grew past the threshold by simply being used, so the weekly
+// alert reported the passage of time rather than a problem. Daily snapshots put
+// growth at about 1 MiB/day, which makes 256 MiB roughly seven months of
+// headroom and about 1% of the host's free disk: high enough that routine use
+// does not reach it, low enough that a tenfold change in growth is visible
+// within weeks. A red timer nobody believes is worse than no timer at all.
+export const STATE_DATABASE_WARNING_BYTES = 256 * 1024 * 1024;
 // Once the only escape hatch was migrating off JSON; now it names the point at
 // which the database itself needs an operator, not a backend change.
-export const STATE_SIZE_CRITICAL_BYTES = 50 * 1024 * 1024;
+export const STATE_DATABASE_CRITICAL_BYTES = 512 * 1024 * 1024;
+// The WAL is checkpointed on every maintenance run, so it is bounded by
+// checkpointing working rather than by how much history the database holds.
+// It keeps the original threshold: a WAL this large means checkpointing
+// stopped, and that is worth waking someone for at a far smaller size.
+export const STATE_WAL_WARNING_BYTES = 25 * 1024 * 1024;
 export const MAINTENANCE_HISTORY_FILENAME = ".maintenance-history.json";
 
 // Only reconstructible network, bytecode, shader, and GPU caches belong here.
@@ -59,25 +72,28 @@ function browserVerificationSpecification(config) {
 }
 
 export function stateSizeStatus(bytes) {
-  if (bytes >= STATE_SIZE_CRITICAL_BYTES) return "critical";
-  if (bytes >= STATE_SIZE_WARNING_BYTES) return "warning";
+  if (bytes >= STATE_DATABASE_CRITICAL_BYTES) return "critical";
+  if (bytes >= STATE_DATABASE_WARNING_BYTES) return "warning";
   return "ok";
 }
 
-function sqliteStateAlerts(stateFile) {
+/** The database and WAL are bounded by different things, so they alert at
+ * different sizes. Exported because proving that no longer means writing a
+ * quarter-gigabyte fixture. */
+export function sqliteStateAlerts(stateFile) {
   const alerts = [];
-  if (stateFile.bytes >= STATE_SIZE_WARNING_BYTES) {
+  if (stateFile.bytes >= STATE_DATABASE_WARNING_BYTES) {
     alerts.push({
       alertName: "state_database_growth",
       bytes: stateFile.bytes,
-      thresholdBytes: STATE_SIZE_WARNING_BYTES,
+      thresholdBytes: STATE_DATABASE_WARNING_BYTES,
     });
   }
-  if (stateFile.walBytes >= STATE_SIZE_WARNING_BYTES) {
+  if (stateFile.walBytes >= STATE_WAL_WARNING_BYTES) {
     alerts.push({
       alertName: "state_wal_growth",
       bytes: stateFile.walBytes,
-      thresholdBytes: STATE_SIZE_WARNING_BYTES,
+      thresholdBytes: STATE_WAL_WARNING_BYTES,
     });
   }
   return alerts;

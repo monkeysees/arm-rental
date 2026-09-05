@@ -16,8 +16,10 @@ import { getConfig } from "../src/config.js";
 import {
   MAINTENANCE_HISTORY_FILENAME,
   runMaintenance,
-  STATE_SIZE_CRITICAL_BYTES,
-  STATE_SIZE_WARNING_BYTES,
+  sqliteStateAlerts,
+  STATE_DATABASE_CRITICAL_BYTES,
+  STATE_DATABASE_WARNING_BYTES,
+  STATE_WAL_WARNING_BYTES,
   stateSizeStatus,
 } from "../src/maintenance.js";
 import { acquireSingletonLock } from "../src/singleton-lock.js";
@@ -199,13 +201,7 @@ test("SQLite maintenance validates one database and reports logical counts", asy
   database.transaction("maintenance_fixture", () => {
     database
       .prepare("INSERT INTO apartments(item_id, payload_json) VALUES (?, ?)")
-      .run(
-        "100",
-        JSON.stringify({
-          itemId: "100",
-          padding: "x".repeat(STATE_SIZE_WARNING_BYTES),
-        }),
-      );
+      .run("100", JSON.stringify({ itemId: "100" }));
   });
   database.close();
 
@@ -227,9 +223,51 @@ test("SQLite maintenance validates one database and reports logical counts", asy
   assert.equal(report.stateFiles[0].schemaVersion, SQLITE_SCHEMA_VERSION);
   assert.equal(report.stateFiles[0].telegramUsers, 0);
   assert.equal(report.stateFiles[0].bytes > 0, true);
+  // An ordinary database is the case production is actually in, and it must
+  // not alert. What each threshold means is pinned directly below.
+  assert.deepEqual(report.alerts, []);
+  assert.equal(report.stateFiles[0].status, "ok");
+});
+
+test("database and WAL growth alert at the sizes that bound each of them", () => {
   assert.deepEqual(
-    report.alerts.map(({ alertName }) => alertName),
-    ["state_database_growth"],
+    sqliteStateAlerts({
+      bytes: STATE_DATABASE_WARNING_BYTES - 1,
+      walBytes: STATE_WAL_WARNING_BYTES - 1,
+    }),
+    [],
+  );
+  assert.deepEqual(
+    sqliteStateAlerts({
+      bytes: STATE_DATABASE_WARNING_BYTES,
+      walBytes: 0,
+    }),
+    [
+      {
+        alertName: "state_database_growth",
+        bytes: STATE_DATABASE_WARNING_BYTES,
+        thresholdBytes: STATE_DATABASE_WARNING_BYTES,
+      },
+    ],
+  );
+  // The WAL is bounded by checkpointing working, not by retained history, so
+  // it still alerts far below the database threshold rather than tracking it.
+  assert.ok(STATE_WAL_WARNING_BYTES < STATE_DATABASE_WARNING_BYTES);
+  assert.deepEqual(
+    sqliteStateAlerts({ bytes: 0, walBytes: STATE_WAL_WARNING_BYTES }),
+    [
+      {
+        alertName: "state_wal_growth",
+        bytes: STATE_WAL_WARNING_BYTES,
+        thresholdBytes: STATE_WAL_WARNING_BYTES,
+      },
+    ],
+  );
+  // The installation that prompted the change: 36.8 MiB of legitimate
+  // decision history is no longer an alert.
+  assert.deepEqual(
+    sqliteStateAlerts({ bytes: 37 * 1024 * 1024, walBytes: 0 }),
+    [],
   );
 });
 
@@ -254,7 +292,7 @@ test("maintenance refuses a live service lease before reading or cleaning the pr
 });
 
 test("state size thresholds distinguish early warning from critical growth", () => {
-  assert.equal(stateSizeStatus(STATE_SIZE_WARNING_BYTES - 1), "ok");
-  assert.equal(stateSizeStatus(STATE_SIZE_WARNING_BYTES), "warning");
-  assert.equal(stateSizeStatus(STATE_SIZE_CRITICAL_BYTES), "critical");
+  assert.equal(stateSizeStatus(STATE_DATABASE_WARNING_BYTES - 1), "ok");
+  assert.equal(stateSizeStatus(STATE_DATABASE_WARNING_BYTES), "warning");
+  assert.equal(stateSizeStatus(STATE_DATABASE_CRITICAL_BYTES), "critical");
 });

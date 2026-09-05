@@ -198,7 +198,7 @@ so token and owner destination never enter argv or journal records.
 | `backup_failure`                       | snapshot operation fails                                |
 | `restore_test_failure`                 | snapshot validation or restore drill fails              |
 | `low_disk`                             | free-space threshold is crossed                         |
-| `state_database_growth`                | the SQLite database reaches 25 MiB                      |
+| `state_database_growth`                | the SQLite database reaches 256 MiB                     |
 | `state_wal_growth`                     | the SQLite WAL reaches 25 MiB                           |
 | `process_restart_loop`                 | over three starts occur in ten minutes                  |
 | `state_transaction_latency`            | transaction p95 exceeds 500 ms over at least 20 samples |

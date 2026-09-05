@@ -35,9 +35,16 @@ Telegram, or browser content and is explicitly excluded from state-size
 threshold inputs and managed-growth totals. The first run reports growth as
 `null`.
 
-Combined database/WAL size at or above 25 MiB emits
-`alertName=state_database_growth`; WAL alone at that threshold emits
-`alertName=state_wal_growth`. The command exits `2` when either threshold is
+Combined database/WAL size at or above 256 MiB emits
+`alertName=state_database_growth`; WAL alone at or above 25 MiB emits
+`alertName=state_wal_growth`. The two differ because they are bounded by
+different things. The database retains one delivery decision per apartment per
+recipient, so it grows with legitimate use and its threshold has to describe
+this installation - 25 MiB was set for a smaller one and the data outgrew it,
+which turned the weekly timer red for reporting the passage of time. The WAL is
+truncated on every maintenance run, so its size is bounded by checkpointing
+working at all; it keeps the smaller threshold because a large WAL means
+something stopped rather than that history accumulated. The command exits `2` when either threshold is
 active, `1` on command/validation failure, and `0` otherwise. Alert-free runs
 emit resolution records. These two are the only state-size alerts: the JSON
 report and its `state_file_growth` / `state_sqlite_migration` names are gone
@@ -176,8 +183,8 @@ sudo rentalctl status
 
 Do not use a generic Docker prune command.
 Do not delete the database, delivery acknowledgements, sentinels, cookies,
-browser identity, snapshots within retention, or unknown files. For 25 MiB
-state growth, record weekly trend and plan capacity. At 50 MiB, sustained
+browser identity, snapshots within retention, or unknown files. For 256 MiB
+state growth, record weekly trend and plan capacity. At 512 MiB, sustained
 transaction p95 above 500 ms, recurring busy failures, or repeated incomplete
 checkpoints, open a capacity/performance investigation and avoid ad hoc pruning.
 
@@ -187,5 +194,5 @@ verified pre-maintenance snapshot if an approved maintenance operation damages
 managed state. Escalate if free space cannot remain above 20% through the next
 crawl/backup, the backup destination is also constrained, growth is abrupt or
 unexplained, state validation/write latency fails, cache paths are symlinks or
-unexpected types, the 50 MiB threshold is reached, or the service cannot return
+unexpected types, the 512 MiB threshold is reached, or the service cannot return
 to ready.

@@ -34,10 +34,12 @@ reading Telegram state.
   fresh Chrome process; do not add another operator-forced crawl. A successful
   retry permits the complete crawl to resolve the challenge and restore
   readiness. If the fresh attempt is also challenged, the crawl fails and uses
-  its normal backoff. On repeated challenges or no later complete crawl, stop
-  and use the [browser verification runbook](browser-operations.md). Expected
-  manual recovery is passed headless smoke, ready preflight, then
-  `crawl.succeeded`.
+  its normal backoff. Isolated `browser.challenge` events that a later
+  `crawl.succeeded` clears need no action and raise no alert; the
+  `browser_challenge` alert means five crawls in a row ended still challenged.
+  On that alert or no later complete crawl, stop and use the
+  [browser verification runbook](browser-operations.md). Expected manual
+  recovery is passed headless smoke, ready preflight, then `crawl.succeeded`.
 - `list_am`: verify host DNS/outbound HTTPS and the configured production
   target. Do not increase crawl rate, bypass a challenge, or repeatedly hammer
   List.am.

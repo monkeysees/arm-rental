@@ -189,7 +189,7 @@ so token and owner destination never enter argv or journal records.
 | -------------------------------------- | ------------------------------------------------------- |
 | `readiness_failure`                    | readiness remains failed                                |
 | `host_readiness_failure`               | two consecutive host readiness probes fail              |
-| `browser_challenge`                    | List.am verification challenge                          |
+| `browser_challenge`                    | fifth crawl in a row ends still challenged              |
 | `list_am_source_integrity`             | hard List.am source-integrity failure                   |
 | `invalid_telegram_credentials`         | terminal Telegram authentication rejection              |
 | `invalid_telegram_channel_permissions` | terminal channel permission rejection                   |

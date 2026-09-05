@@ -3,6 +3,13 @@ import { createServer } from "node:http";
 const TEN_MINUTES_MS = 10 * 60 * 1_000;
 const FORTY_EIGHT_HOURS_MS = 48 * 60 * 60 * 1_000;
 const SOURCE_INTEGRITY_ERROR = "ERR_LIST_AM_SOURCE_INTEGRITY";
+// List.am challenges a single page far more often than it locks the profile
+// out, and the immediate runtime retry answers most of those inside the same
+// crawl. Alerting on sight therefore pages an operator for a condition that is
+// already gone. Only a challenge that survives the retries of this many crawls
+// in a row is worth a notification — roughly five minutes at the default poll
+// interval.
+const BROWSER_CHALLENGE_ALERT_CRAWLS = 5;
 const COMPONENT_NAMES = [
   "configuration",
   "storage",
@@ -84,12 +91,14 @@ export class HealthMonitor {
     now = () => new Date(),
     crawlStaleMs = TEN_MINUTES_MS,
     exchangeRateStaleMs = FORTY_EIGHT_HOURS_MS,
+    browserChallengeAlertCrawls = BROWSER_CHALLENGE_ALERT_CRAWLS,
     onAlert = () => {},
   }) {
     this.version = version;
     this.now = now;
     this.crawlStaleMs = crawlStaleMs;
     this.exchangeRateStaleMs = exchangeRateStaleMs;
+    this.browserChallengeAlertCrawls = browserChallengeAlertCrawls;
     this.onAlert = onAlert;
     this.activeAlerts = new Set();
     this.startedAt = timestamp(now);
@@ -108,6 +117,12 @@ export class HealthMonitor {
     this.exchangeRates = {
       required: false,
       fetchedAt: null,
+    };
+    this.browserChallenge = {
+      // A challenge was seen by the crawl currently in flight.
+      duringCrawl: false,
+      // Crawls in a row that ended without clearing the challenge.
+      consecutiveCrawls: 0,
     };
     this.privateAccess = {
       accessMode: "public",
@@ -185,6 +200,13 @@ export class HealthMonitor {
         this.#setAlert("invalid_telegram_channel_permissions", true);
       }
       if (result.status === "browser_verification_required") {
+        // Preflight has no crawl behind it to answer the challenge, so a
+        // startup challenge is terminal and alerts on sight rather than
+        // waiting for a streak of crawls that will never run.
+        this.browserChallenge = {
+          duringCrawl: false,
+          consecutiveCrawls: this.browserChallengeAlertCrawls,
+        };
         this.#setAlert("browser_challenge", true, {
           reason: "BROWSER_VERIFICATION_REQUIRED",
         });
@@ -243,6 +265,7 @@ export class HealthMonitor {
     // the source again, so an earlier transient challenge is no longer a
     // current readiness failure.
     this.#setComponent("browser", "ok", undefined, completedAt);
+    this.browserChallenge = { duringCrawl: false, consecutiveCrawls: 0 };
     this.#setAlert("browser_challenge", false, {
       reason: "BROWSER_VERIFICATION_REQUIRED",
     });
@@ -263,19 +286,20 @@ export class HealthMonitor {
     }
     if (kind === "browser_challenge") {
       this.recordBrowserChallenge(failedAt);
-      return;
+    } else {
+      this.#setComponent(
+        COMPONENT_NAMES.includes(kind) ? kind : "list_am",
+        "failed",
+        safeCode(code, "ERR_CRAWL"),
+        failedAt,
+      );
+      if (code === SOURCE_INTEGRITY_ERROR) {
+        this.#setAlert("list_am_source_integrity", true, {
+          reason: "LIST_AM_SOURCE_INTEGRITY",
+        });
+      }
     }
-    this.#setComponent(
-      COMPONENT_NAMES.includes(kind) ? kind : "list_am",
-      "failed",
-      safeCode(code, "ERR_CRAWL"),
-      failedAt,
-    );
-    if (code === SOURCE_INTEGRITY_ERROR) {
-      this.#setAlert("list_am_source_integrity", true, {
-        reason: "LIST_AM_SOURCE_INTEGRITY",
-      });
-    }
+    this.#settleBrowserChallenge();
   }
 
   recordSourceIntegritySuccess(at = this.now()) {
@@ -286,6 +310,10 @@ export class HealthMonitor {
     });
   }
 
+  // The component reports the challenge at once, because readiness is a
+  // point-in-time judgement, but the alert waits for the crawl to end: only
+  // then is it known whether the retry answered the challenge. Repeated
+  // challenges inside one crawl count once, so the streak measures crawls.
   recordBrowserChallenge(at = timestamp(this.now)) {
     this.#setComponent(
       "browser",
@@ -293,9 +321,7 @@ export class HealthMonitor {
       "ERR_BROWSER_VERIFICATION_REQUIRED",
       at,
     );
-    this.#setAlert("browser_challenge", true, {
-      reason: "BROWSER_VERIFICATION_REQUIRED",
-    });
+    this.browserChallenge.duringCrawl = true;
   }
 
   recordComponentSuccess(name) {
@@ -456,6 +482,21 @@ export class HealthMonitor {
       reasons: uniqueReasons,
       warnings,
     };
+  }
+
+  #settleBrowserChallenge() {
+    if (!this.browserChallenge.duringCrawl) return;
+    this.browserChallenge.duringCrawl = false;
+    this.browserChallenge.consecutiveCrawls += 1;
+    if (
+      this.browserChallenge.consecutiveCrawls < this.browserChallengeAlertCrawls
+    ) {
+      return;
+    }
+    this.#setAlert("browser_challenge", true, {
+      reason: "BROWSER_VERIFICATION_REQUIRED",
+      consecutiveCrawls: this.browserChallenge.consecutiveCrawls,
+    });
   }
 
   #monitoringRequired() {

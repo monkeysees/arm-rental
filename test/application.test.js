@@ -153,20 +153,11 @@ test("runtime page fetch immediately retries a browser challenge once", async ()
       reason: "BROWSER_VERIFICATION_REQUIRED",
     },
   );
+  // A challenge the retry answered inside the same crawl is List.am asking
+  // once, not an outage, so it never reaches the owner's phone.
   assert.deepEqual(
     alerts.filter(({ name }) => name === "browser_challenge"),
-    [
-      {
-        name: "browser_challenge",
-        status: "firing",
-        reason: "BROWSER_VERIFICATION_REQUIRED",
-      },
-      {
-        name: "browser_challenge",
-        status: "resolved",
-        reason: "BROWSER_VERIFICATION_REQUIRED",
-      },
-    ],
+    [],
   );
   assert.equal(monitor.readiness().ready, true);
 });

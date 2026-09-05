@@ -28,10 +28,17 @@ successful crawl resets the failure counter and freshness clock.
 A List.am security challenge is a distinct `challenge` browser status with
 reason `BROWSER_VERIFICATION_REQUIRED`. Runtime fetching immediately retries
 the challenged page once in a fresh Chrome process. If that retry permits the
-complete crawl to succeed, the crawl clears the component and emits the
-matching alert resolution because it proves that the browser can fetch and
-validate the source again. A startup/preflight challenge cannot recover this
-way because the runtime-only retry and crawling have not begun; follow
+complete crawl to succeed, the crawl clears the component because it proves
+that the browser can fetch and validate the source again. The component and
+readiness reason appear as soon as the challenge is seen, but the
+`browser_challenge` alert does not: it waits until five crawls in a row have
+ended without clearing the challenge, roughly five minutes at the default poll
+interval. List.am challenges a single page far more often than it locks the
+profile out, and a challenge the next crawl answers is not an operator's
+problem. Repeated challenges inside one crawl count once, so the threshold
+measures crawls rather than page fetches. A startup/preflight challenge cannot
+recover this way because the runtime-only retry and crawling have not begun, so
+it alerts on sight; follow
 [`browser-operations.md`](browser-operations.md) before restarting the service.
 Other stable component statuses distinguish List.am transport/parsing, CBA,
 Telegram, storage, browser startup, and configuration failures without copying

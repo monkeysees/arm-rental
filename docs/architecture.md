@@ -560,8 +560,13 @@ There is no public metrics surface.
 `HealthMonitor` emits edge-triggered firing/resolved events for readiness,
 browser challenge, invalid Telegram access, five crawl failures, and stale
 rates. A complete, integrity-valid runtime crawl clears an earlier browser
-challenge and emits its resolution; a preflight challenge remains terminal to
-startup and requires the browser-verification workflow. Recovery commands emit
+challenge and emits its resolution. The browser-challenge alert is
+sustained rather than edge-triggered on the first sighting: the component and
+readiness reason change at once, but the alert waits for five consecutive
+crawls to end still challenged, so the far more common challenge that the
+runtime retry answers inside one crawl never reaches the owner. A preflight
+challenge remains terminal to startup, alerts on sight because no crawl can
+clear it, and requires the browser-verification workflow. Recovery commands emit
 backup, restore-test, and low-disk firing events. Docker sends application
 records to bounded persistent journald storage. The short-lived `ops/monitor`
 systemd job derives restart-loop and other host-level alerts from bounded

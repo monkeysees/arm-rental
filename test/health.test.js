@@ -441,6 +441,107 @@ test("health transitions emit each production alert once until resolved", () => 
   );
 });
 
+test("a browser challenge alerts only once it survives five crawls in a row", () => {
+  const alerts = [];
+  const currentTime = new Date("2026-07-25T10:00:00.000Z");
+  const monitor = new HealthMonitor({
+    version: "1.0.0",
+    now: () => currentTime,
+    onAlert: (alert) => alerts.push(alert),
+  });
+  monitor.setPreflight(readyPreflight);
+  monitor.recordExchangeRateSnapshot(snapshot(currentTime.toISOString()));
+  monitor.setMonitoringState({ active: true, channelConfigured: false });
+  monitor.recordCrawlSuccess();
+  const firings = () =>
+    alerts.filter(
+      ({ name, status }) => name === "browser_challenge" && status === "firing",
+    );
+
+  // Four challenged crawls in a row stay silent, and so does the fetch-level
+  // challenge that the retry answers before the crawl completes.
+  for (let attempt = 0; attempt < 4; attempt += 1) {
+    monitor.recordCrawlFailure(
+      "browser_challenge",
+      "ERR_BROWSER_VERIFICATION_REQUIRED",
+    );
+  }
+  monitor.recordBrowserChallenge();
+  monitor.recordCrawlSuccess();
+  assert.deepEqual(firings(), []);
+
+  // A challenge seen several times inside one crawl is still one crawl, so the
+  // streak counts crawls rather than page fetches.
+  for (let attempt = 0; attempt < 4; attempt += 1) {
+    monitor.recordBrowserChallenge();
+    monitor.recordBrowserChallenge();
+    monitor.recordCrawlFailure("list_am", "ERR_LIST_AM");
+  }
+  assert.deepEqual(firings(), []);
+
+  monitor.recordCrawlFailure(
+    "browser_challenge",
+    "ERR_BROWSER_VERIFICATION_REQUIRED",
+  );
+  assert.deepEqual(firings(), [
+    {
+      name: "browser_challenge",
+      status: "firing",
+      reason: "BROWSER_VERIFICATION_REQUIRED",
+      consecutiveCrawls: 5,
+    },
+  ]);
+
+  // The complete crawl clears the streak, so the next challenge starts over.
+  monitor.recordCrawlSuccess();
+  monitor.recordCrawlFailure(
+    "browser_challenge",
+    "ERR_BROWSER_VERIFICATION_REQUIRED",
+  );
+  assert.equal(firings().length, 1);
+  assert.deepEqual(
+    alerts.filter(({ name }) => name === "browser_challenge").at(-1),
+    {
+      name: "browser_challenge",
+      status: "resolved",
+      reason: "BROWSER_VERIFICATION_REQUIRED",
+    },
+  );
+});
+
+test("a preflight challenge alerts on sight because no crawl can clear it", () => {
+  const alerts = [];
+  const monitor = new HealthMonitor({
+    version: "1.0.0",
+    now: () => new Date("2026-07-25T10:00:00.000Z"),
+    onAlert: (alert) => alerts.push(alert),
+  });
+  monitor.setPreflight({
+    status: "browser_verification_required",
+    ready: false,
+    checks: {
+      ...readyPreflight.checks,
+      browser: "browser_verification_required",
+    },
+    failure: {
+      component: "browser",
+      code: "ERR_BROWSER_VERIFICATION_REQUIRED",
+    },
+  });
+
+  assert.deepEqual(
+    alerts.filter(({ name }) => name === "browser_challenge"),
+    [
+      {
+        name: "browser_challenge",
+        status: "firing",
+        reason: "BROWSER_VERIFICATION_REQUIRED",
+      },
+    ],
+  );
+  assert.equal(monitor.readiness().components.browser.status, "challenge");
+});
+
 test("source integrity fails readiness immediately and resolves on a valid observation", () => {
   const alerts = [];
   const now = () => new Date("2026-07-25T10:00:00.000Z");
@@ -526,20 +627,11 @@ test("readiness reports challenges and exchange-rate availability without leakin
   const recovered = monitor.readiness();
   assert.equal(recovered.ready, true);
   assert.equal(recovered.components.browser.status, "ok");
+  // Readiness reports the challenge while it lasts, but a single challenged
+  // crawl is below the alert threshold and stays off the owner's phone.
   assert.deepEqual(
     alerts.filter(({ name }) => name === "browser_challenge"),
-    [
-      {
-        name: "browser_challenge",
-        status: "firing",
-        reason: "BROWSER_VERIFICATION_REQUIRED",
-      },
-      {
-        name: "browser_challenge",
-        status: "resolved",
-        reason: "BROWSER_VERIFICATION_REQUIRED",
-      },
-    ],
+    [],
   );
 
   currentTime = new Date("2026-07-27T10:00:00.001Z");

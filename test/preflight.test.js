@@ -33,7 +33,7 @@ function regularAdsHtml(count) {
     { length: count },
     (_value, index) => `
       <a class="fav-item-info-container" href="/item/${200 + index}">
-        <div class="l">Apartment ${index}</div>
+        <div class="dltitle"><div class="pt">Apartment ${index}</div></div>
         <div class="d">Friday, July 24, 2026, 14:31</div>
       </a>`,
   ).join("")}</div>`;
@@ -194,7 +194,7 @@ test("preflight records parsed unique apartments rather than raw candidates", as
   const diagnosticHtml = `
     <div id="contentr">
       <a class="fav-item-info-container" href="/ru/item/200">
-        <div class="l">Apartment</div>
+        <div class="dltitle"><div class="pt">Apartment</div></div>
         <div class="d">Friday, July 24, 2026, 14:31</div>
       </a>
       <a class="fav-item-info-container" href="/item/200">Duplicate</a>

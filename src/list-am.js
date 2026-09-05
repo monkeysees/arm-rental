@@ -8,6 +8,25 @@ const ITEM_PATH = /^\/(?:[a-z]{2}\/)?item\/(\d+)\/?$/u;
 const PRICE_NUMBER = /\d[\d\s.,]*/u;
 const CURRENCIES = ["֏", "$", "€", "₽", "£", "AMD", "USD", "EUR", "RUB", "GBP"];
 
+/**
+ * The anchors List.am wraps a whole ad card in. The redesigned list publishes
+ * the first class; the second is the shape the categories carried before it.
+ */
+export const CARD_SELECTOR =
+  "a.category-data-list-card__destination, a.fav-item-info-container";
+
+const ROOMS_ATTRIBUTE = /(\d+)\s*(?:ком|room)/iu;
+const AREA_ATTRIBUTE = /([\d.,]+)\s*(?:кв|sq)/iu;
+const FLOOR_ATTRIBUTE = /(\d+)\s*\/\s*(\d+)/u;
+
+function attributeLike(value) {
+  return (
+    ROOMS_ATTRIBUTE.test(value) ||
+    AREA_ATTRIBUTE.test(value) ||
+    FLOOR_ATTRIBUTE.test(value)
+  );
+}
+
 function normalizeText(value = "") {
   return value.replace(/\s+/gu, " ").trim();
 }
@@ -35,17 +54,25 @@ export function parsePrice(value) {
   };
 }
 
+/**
+ * Reads a card's attribute line, which names some of rooms, area, and floor.
+ *
+ * The redesigned card separates attributes with "·" and states no location;
+ * the older shape is comma separated and leads with one. Each attribute is
+ * therefore matched by what it says rather than by its position, so a card
+ * that omits one — houses routinely publish no area or floor — still yields
+ * the rest.
+ */
 export function parseDetails(value) {
   const text = normalizeText(value);
-  const [location = "", roomsText = "", areaText = "", floorText = ""] = text
-    .split(",")
-    .map((part) => part.trim());
-  const rooms = roomsText.match(/\d+/u)?.[0];
-  const area = areaText.match(/[\d.,]+/u)?.[0];
-  const floor = floorText.match(/(\d+)\s*\/\s*(\d+)/u);
+  const rooms = text.match(ROOMS_ATTRIBUTE)?.[1];
+  const area = text.match(AREA_ATTRIBUTE)?.[1];
+  const floor = text.match(FLOOR_ATTRIBUTE);
+  const [leading = ""] = text.split(/[,·]/u);
 
   return {
-    location: location.trim(),
+    // A leading segment that is itself an attribute is never a location.
+    location: attributeLike(leading) ? "" : leading.trim(),
     rooms: rooms ? Number(rooms) : null,
     areaSqM: numericValue(area),
     floor: floor ? `${floor[1]}/${floor[2]}` : null,
@@ -62,11 +89,11 @@ function regularCards($) {
 
   const outsideTopAds = (_index, element) =>
     $(element).closest("#tp").length === 0;
-  const $primary = $section
-    .find("a.fav-item-info-container")
-    .filter(outsideTopAds);
-  if ($primary.length > 0) return $primary;
-  return $section.find(".dl a").filter(outsideTopAds);
+  // Only an ad card counts as a candidate. Selecting every anchor in the list
+  // container instead would sweep in pagination and the advertising banners
+  // List.am places between the cards, and each of those reads as a card whose
+  // identity cannot be resolved — the shape that stops a crawl outright.
+  return $section.find(CARD_SELECTOR).filter(outsideTopAds);
 }
 
 function canonicalItemId(href) {
@@ -135,15 +162,19 @@ export function parseRegularApartments(html) {
     }
 
     const details = parseDetails($card.find(".at").first().text());
+    // The redesigned card publishes the location in its own element and keeps
+    // the attribute line for rooms, area, and floor alone.
+    const location = normalizeText($card.find(".l").first().text());
     ids.add(id);
     apartments.push({
       url: `https://www.list.am/ru/item/${id}`,
       itemId: id,
       title: normalizeText(
-        $card.find(".dltitle .pt, .l, .dltitle, .pt").first().text(),
+        $card.find(".dltitle .pt, .dltitle, .pt").first().text(),
       ),
       price: parsePrice($card.find(".p").first().text()),
       ...details,
+      ...(location ? { location } : {}),
       date: normalizeText($card.find(".d").first().text()) || null,
     });
   });

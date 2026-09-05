@@ -42,6 +42,59 @@ test("extractRegularApartments reads normalized fields from Regular Ads only", (
   ]);
 });
 
+test("redesigned cards carry the location apart from the attribute line", () => {
+  const html = `
+    <div id="contentr">
+      <div class="dl">
+        <a class="category-data-list-card__destination" href="/ru/item/300?ld_src=2">
+          <div class="dltitle"><div class="pt">1-комн. квартира в Аване</div></div>
+          <div class="at category-data-list-card__metadata">1 ком. · 47 кв.м. · 3/9 этаж</div>
+          <div class="p"><span>180,000<span>֏</span></span><span>в месяц</span></div>
+          <div class="l category-data-list-card__metadata">Аван</div>
+          <div class="d category-data-list-card__date">Сентябрь 04</div>
+        </a>
+      </div>
+    </div>`;
+
+  assert.deepEqual(extractRegularApartments(html), [
+    {
+      url: "https://www.list.am/ru/item/300",
+      itemId: "300",
+      title: "1-комн. квартира в Аване",
+      price: { amount: 180_000, currency: "֏" },
+      location: "Аван",
+      rooms: 1,
+      areaSqM: 47,
+      floor: "3/9",
+      date: "Сентябрь 04",
+    },
+  ]);
+});
+
+test("attribute lines are read by what they name, not by position", () => {
+  // The redesigned line states no location and omits what an ad leaves out;
+  // houses routinely publish rooms without an area or a floor.
+  assert.deepEqual(parseDetails("1 ком. · 47 кв.м. · 3/9 этаж"), {
+    location: "",
+    rooms: 1,
+    areaSqM: 47,
+    floor: "3/9",
+  });
+  assert.deepEqual(parseDetails("3 ком."), {
+    location: "",
+    rooms: 3,
+    areaSqM: null,
+    floor: null,
+  });
+  // The comma-separated shape still leads with a location.
+  assert.deepEqual(parseDetails("Кентрон, 4 ком., 97 кв.м., 9/11 этаж"), {
+    location: "Кентрон",
+    rooms: 4,
+    areaSqM: 97,
+    floor: "9/11",
+  });
+});
+
 test("parsing helpers tolerate other currencies and missing card details", () => {
   assert.deepEqual(parsePrice("$1,800 monthly"), {
     amount: 1_800,
@@ -126,30 +179,46 @@ test("diagnostics count candidates, identities, duplicates, and normalized compl
   assert.equal(JSON.stringify(diagnostics).includes("example.com"), false);
 });
 
-test("legacy .dl anchors are fallback candidates only without primary cards", () => {
-  const withPrimary = parseRegularApartments(`
+test("only ad cards are candidates, whichever card shape the list publishes", () => {
+  // Pagination and the advertising banners List.am places between the cards
+  // live in the same list container as the cards themselves. Counting them as
+  // candidates makes each one an unresolvable identity, and a single such
+  // rejection fails the whole crawl.
+  const diagnostics = parseRegularApartments(`
     <div id="contentr">
-      <a class="fav-item-info-container" href="/item/10">Primary</a>
-      <div class="dl"><a href="/item/11">Fallback</a></div>
+      <div id="tp">
+        <a class="category-data-list-card__destination" href="/item/9">Top</a>
+      </div>
+      <div class="dl">
+        <a class="category-data-list-card__destination" href="/ru/item/11">
+          <div class="l">Кентрон</div>
+        </a>
+        <a class="fav-item-info-container" href="/ru/item/12">Older shape</a>
+        <a class="list-ads-banner-link" href="https://sponsor.example/x">Ad</a>
+        <div class="dlf">
+          <span class="pp"><a href="/category/56/2">2</a></span>
+        </div>
+      </div>
     </div>`);
-  assert.equal(withPrimary.candidateCount, 1);
-  assert.deepEqual(
-    withPrimary.apartments.map(({ itemId }) => itemId),
-    ["10"],
-  );
 
-  const fallbackOnly = parseRegularApartments(`
-    <div id="contentr">
-      <div id="tp"><div class="dl"><a href="/item/9">Top</a></div></div>
-      <div class="dl"><a href="/item/11">Fallback</a></div>
-      <div class="dl"><a>Malformed fallback</a></div>
-    </div>`);
-  assert.equal(fallbackOnly.candidateCount, 2);
-  assert.equal(fallbackOnly.rejectedCount, 1);
+  assert.equal(diagnostics.candidateCount, 2);
+  assert.equal(diagnostics.rejectedCount, 0);
   assert.deepEqual(
-    fallbackOnly.apartments.map(({ itemId }) => itemId),
-    ["11"],
+    diagnostics.apartments.map(({ itemId }) => itemId),
+    ["11", "12"],
   );
+});
+
+test("a card whose identity cannot be resolved is still counted as rejected", () => {
+  const diagnostics = parseRegularApartments(`
+    <div id="contentr">
+      <a class="category-data-list-card__destination" href="/ru/item/11">Ok</a>
+      <a class="category-data-list-card__destination">Identityless</a>
+      <a class="category-data-list-card__destination" href="/profile/7">Other</a>
+    </div>`);
+
+  assert.equal(diagnostics.candidateCount, 3);
+  assert.equal(diagnostics.rejectedCount, 2);
 });
 
 test("an empty Regular Ads container has complete zero diagnostics", () => {

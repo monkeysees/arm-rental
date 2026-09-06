@@ -114,6 +114,9 @@ after installation instead of the bootstrap-time copy. Published release
 directories remain root-owned and non-writable by the operator while
 inheriting the releases root's `rental-deploy` group with group read/traverse
 access, allowing the launcher to execute that pinned command and its libraries.
+Each same-version deployment poll repairs the active release before recording
+a no-op, which also closes upgrades from bootstrap bundles that predate this
+permission contract.
 
 Review the sanitized receipt without exposing the environment file:
 

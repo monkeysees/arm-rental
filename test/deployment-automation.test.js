@@ -961,6 +961,11 @@ test("deploy reconciliation is wired into the noop path and bounded by an alert"
 
   // The whole point of the change: liveness is decided before noop is emitted.
   assert.ok(
+    deploy.indexOf("deployment_set_release_permissions") <
+      deploy.indexOf("deployment_service_is_live"),
+    "a matching digest must repair active release access before reporting noop",
+  );
+  assert.ok(
     deploy.indexOf("deployment_service_is_live") <
       deploy.indexOf("deployment_emit deployment.noop"),
     "a matching digest must prove the service is live before reporting noop",

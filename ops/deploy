@@ -118,6 +118,14 @@ DEPLOYMENT_CANDIDATE=$(deployment_resolve_discovery "$repository")
 if [[ -f $RENTAL_IMAGE_ENV_FILE ]]; then
   DEPLOYMENT_PREVIOUS=$(ops_read_image_reference)
   if [[ $DEPLOYMENT_CANDIDATE == "$DEPLOYMENT_PREVIOUS" ]]; then
+    # A release may have been staged by an older deploy runner that did not
+    # grant the operator group read/traverse access. The active release owns
+    # this poll, so repair that upgrade boundary before returning a healthy
+    # no-op and making the current rentalctl reachable without root.
+    [[ -L $RENTAL_CURRENT_LINK ]]
+    DEPLOYMENT_CURRENT_RELEASE=$(readlink -f "$RENTAL_CURRENT_LINK")
+    [[ $DEPLOYMENT_CURRENT_RELEASE == "$RENTAL_RELEASES_ROOT"/* ]]
+    deployment_set_release_permissions "$DEPLOYMENT_CURRENT_RELEASE"
     # Matching digests mean there is nothing to install, not that anything is
     # running. Emitting noop without asking is what let an exited container and
     # a spent Compose restart budget coexist with a green timer for 46 hours.

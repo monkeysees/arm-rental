@@ -56,6 +56,33 @@ const RELATIVE_DAY = /^([^\s,]+)\s*,\s*(\d{1,2}):(\d{2})$/u;
 // "Сентябрь 04"
 const MONTH_AND_DAY = /^([^\s,]+)\s+(\d{1,2})$/u;
 
+/** The weekday names List.am leads a fully dated card with. */
+const WEEKDAY_NAMES = [
+  "Воскресенье",
+  "Понедельник",
+  "Вторник",
+  "Среда",
+  "Четверг",
+  "Пятница",
+  "Суббота",
+];
+
+/** The nominative month names List.am prints on a card that names a day. */
+const MONTH_NAMES = [
+  "Январь",
+  "Февраль",
+  "Март",
+  "Апрель",
+  "Май",
+  "Июнь",
+  "Июль",
+  "Август",
+  "Сентябрь",
+  "Октябрь",
+  "Ноябрь",
+  "Декабрь",
+];
+
 const DAY_MS = 24 * 60 * 60 * 1000;
 /** How far ahead of the reference an inferred year may still land. */
 const FUTURE_TOLERANCE_MS = 2 * DAY_MS;
@@ -160,4 +187,37 @@ export function postingDateSortValue(value, referenceValue = Date.now()) {
   }
 
   return null;
+}
+
+/**
+ * Renders an instant in the dated form List.am prints with a year and a clock.
+ *
+ * Some redesigned cards carry no date at all, and the crawl supplies one for
+ * them. This is the one displayed form that names an instant, so a supplied
+ * date keeps the minute it was taken rather than collapsing to a whole day.
+ *
+ * That precision is why a supplied date must never be compared against the
+ * crawl's date watermark: printed same-day cards resolve to the end of their
+ * day, so any instant within today is below them and the watermark would read
+ * a card the crawl has only just seen as history. The crawler excludes cards
+ * the source left undated from that comparison for exactly this reason.
+ *
+ * The components are rendered in UTC, so a stamp taken late in the UTC evening
+ * names the day before the one List.am's own clock is on. That is deliberate:
+ * this module reads every printed component as UTC too, and rendering the
+ * source's zone here would make the string parse back four hours ahead of the
+ * instant it was taken. The offset is absorbed the way `source-activity.js`
+ * absorbs it, by a window a whole day wide, rather than by guessing the zone.
+ */
+export function formatPostingDate(value = Date.now()) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return null;
+  const day = String(date.getUTCDate()).padStart(2, "0");
+  const hours = String(date.getUTCHours()).padStart(2, "0");
+  const minutes = String(date.getUTCMinutes()).padStart(2, "0");
+  return (
+    `${WEEKDAY_NAMES[date.getUTCDay()]}, ` +
+    `${MONTH_NAMES[date.getUTCMonth()]} ${day}, ` +
+    `${date.getUTCFullYear()}, ${hours}:${minutes}`
+  );
 }

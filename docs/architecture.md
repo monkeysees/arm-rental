@@ -1238,7 +1238,17 @@ house commonly publishes no area or floor — still yields the rest, and both
 the interpunct-separated attribute line of the redesigned card and the older
 comma-separated one parse. The location is read from the card's own location
 element, falling back to a leading attribute segment that names no attribute.
-The original posting date is retained as displayed by List.am.
+The original posting date is retained as displayed by List.am. Some redesigned
+cards carry no date element at all, and a card without a readable date counts
+as posted at the moment it was parsed: `formatPostingDate` stamps the crawl's
+own timestamp in the fully dated form, the one displayed shape that names an
+instant rather than a whole day. The stamp is taken once. Because the date is a
+source field, a card that is already stored keeps the date it was stored with,
+which is what stops an undated card from reading as changed on every crawl and
+being delivered again each pass. A supplied date is also kept out of the date
+watermark comparison: it names a minute, printed same-day cards resolve to the
+end of their day, and weighing the two together would read a card the crawl has
+just seen for the first time as history and abandon the rest of its page.
 
 Every fetched page is passed through one hard source-integrity evaluator before
 the crawler considers empty pagination, a repeated page, or the posting-date

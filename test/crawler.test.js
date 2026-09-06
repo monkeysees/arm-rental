@@ -38,6 +38,23 @@ function datedPage(...apartments) {
     </div>`;
 }
 
+/** The redesigned card shape List.am publishes with no posting date at all. */
+function undatedPage(...ids) {
+  return `
+    <div id="contentr">
+      ${ids
+        .map(
+          (id) => `
+            <a class="fav-item-info-container" href="/ru/item/${id}">
+              <div class="dltitle"><div class="pt">Apartment ${id}</div></div>
+              <div class="p">${id},000 ֏ monthly</div>
+              <div class="at">Arabkir, 2 rm., 50 sq.m., 3/5 floor</div>
+            </a>`,
+        )
+        .join("")}
+    </div>`;
+}
+
 function memoryState(options = {}) {
   const access = createMemoryStateAccess({
     listUrlTemplate: config.listUrlTemplate,
@@ -1688,4 +1705,84 @@ test("crawler reads only the delivery targets' own decision history", async () =
 
   assert.deepEqual(wholeTableReads, []);
   assert.deepEqual(recipientReads, ["42"]);
+});
+
+test("a card without a posting date is dated by the crawl and delivered", async () => {
+  const state = memoryState();
+  const delivered = [];
+
+  const result = await crawlApartments(
+    { ...config, initialPageCount: 1 },
+    {
+      ...state,
+      fetchPage: async () => new Response(undatedPage("1")),
+      deliverApartment: async ({ itemId }) => delivered.push(itemId),
+      now: () => new Date("2026-09-05T22:15:00Z"),
+    },
+  );
+
+  assert.equal(result.discoveredCount, 1);
+  assert.deepEqual(delivered, ["1"]);
+  assert.equal(
+    state.stored.apartments.apartments["1"].date,
+    "Суббота, Сентябрь 05, 2026, 22:15",
+    "the crawl dates an undated card with its own timestamp",
+  );
+});
+
+test("a date the crawl supplied is kept, so the card never reads as changed", async () => {
+  const state = memoryState();
+  const delivered = [];
+  const crawl = (isoNow) =>
+    crawlApartments(
+      { ...config, initialPageCount: 1 },
+      {
+        ...state,
+        fetchPage: async () => new Response(undatedPage("1")),
+        deliverApartment: async ({ itemId }) => delivered.push(itemId),
+        now: () => new Date(isoNow),
+      },
+    );
+
+  await crawl("2026-09-05T22:15:00Z");
+  // The next crawl runs on a later calendar day: restamping would move the
+  // date, report the card as changed, and deliver it again on every pass.
+  const second = await crawl("2026-09-06T09:00:00Z");
+
+  assert.equal(second.updatedCount, 0);
+  assert.deepEqual(delivered, ["1"]);
+  assert.equal(
+    state.stored.apartments.apartments["1"].date,
+    "Суббота, Сентябрь 05, 2026, 22:15",
+  );
+});
+
+test("an undated card is discovered behind same-day cards the source dated", async () => {
+  const state = memoryState();
+  const delivered = [];
+  const crawl = (html, isoNow) =>
+    crawlApartments(
+      { ...config, initialPageCount: 1 },
+      {
+        ...state,
+        fetchPage: async () => new Response(html),
+        deliverApartment: async ({ itemId }) => delivered.push(itemId),
+        now: () => new Date(isoNow),
+      },
+    );
+
+  // The watermark is now the end of 5 September, because that is where a card
+  // printed with today's date resolves to.
+  await crawl(datedPage(["1", "Сегодня, 18:57"]), "2026-09-05T19:00:00Z");
+  assert.deepEqual(delivered, ["1"]);
+
+  // A supplied date names 22:15, which is below that watermark. Weighing it
+  // there would read the card as history and abandon the page behind it.
+  const second = await crawl(
+    `${undatedPage("2")}${datedPage(["3", "Сегодня, 17:00"])}`,
+    "2026-09-05T22:15:00Z",
+  );
+
+  assert.equal(second.discoveredCount, 1);
+  assert.deepEqual(delivered, ["1", "2"]);
 });

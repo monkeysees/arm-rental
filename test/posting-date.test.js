@@ -1,7 +1,10 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { postingDateSortValue } from "../src/posting-date.js";
+import {
+  formatPostingDate,
+  postingDateSortValue,
+} from "../src/posting-date.js";
 import { postedWithinSourceActivityWindow } from "../src/source-activity.js";
 
 test("posting dates produce locale-independent calendar ordering values", () => {
@@ -104,4 +107,37 @@ test("source activity falls back to first-seen time for unusable posting dates",
   );
   // A record carrying neither a usable date nor a first-seen time is history.
   assert.equal(postedWithinSourceActivityWindow(undefined, reference), false);
+});
+
+test("a supplied posting date names the instant it was taken", () => {
+  const reference = Date.parse("2026-09-05T22:15:00.000Z");
+
+  assert.equal(
+    formatPostingDate(reference),
+    "Суббота, Сентябрь 05, 2026, 22:15",
+  );
+  // The supplied form is the one displayed shape that keeps a clock time, so it
+  // round-trips to the minute rather than to the end of its day.
+  assert.equal(
+    postingDateSortValue(formatPostingDate(reference), reference),
+    reference,
+  );
+
+  // Reading it later cannot move it: unlike a relative day, it names its year.
+  assert.equal(
+    postingDateSortValue(
+      formatPostingDate(reference),
+      Date.parse("2027-03-01T09:00:00.000Z"),
+    ),
+    reference,
+  );
+
+  // A printed same-day card still resolves to the end of its day, which is why
+  // the crawler must not weigh a supplied date against the date watermark.
+  assert.ok(
+    postingDateSortValue(formatPostingDate(reference), reference) <
+      postingDateSortValue("Сегодня, 18:57", reference),
+  );
+
+  assert.equal(formatPostingDate(Number.NaN), null);
 });

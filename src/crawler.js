@@ -15,7 +15,7 @@ import {
 } from "./prices.js";
 import { APARTMENT, propertyKindOf } from "./property-kind.js";
 import { pageUrl } from "./target.js";
-import { postingDateSortValue } from "./posting-date.js";
+import { formatPostingDate, postingDateSortValue } from "./posting-date.js";
 import {
   withinSourceActivity,
   withinSourceActivityWindow,
@@ -118,6 +118,21 @@ function sourceDataChanged(previous, observed) {
   );
 }
 
+/**
+ * The posting date a card carries, or the one the crawl supplies for it.
+ *
+ * List.am omits the date entirely on some redesigned cards, and an ad without
+ * one counts as posted when it was first parsed. The stamp is taken once: date
+ * is a source field, so restamping it on every pass would report the ad as
+ * changed every crawl and redeliver it forever. Every later crawl therefore
+ * reuses whatever readable date the ad is already stored with.
+ */
+function resolvePostingDate(parsed, previousApartments, crawlDate) {
+  if (postingDateSortValue(parsed.date) !== null) return parsed.date;
+  const stored = previousApartments[parsed.itemId]?.date;
+  return postingDateSortValue(stored) !== null ? stored : crawlDate;
+}
+
 function hasApartmentUpdateAfter(apartment, timestamp) {
   const updatedAt = Date.parse(apartment?.updatedAt);
   const timestampValue = Date.parse(timestamp);
@@ -210,6 +225,9 @@ export async function crawlApartments(
   const priorFirstPageCounts =
     apartmentState?.sourceIntegrity.recentFirstPageCounts || {};
   const initialRun = Object.keys(previousApartments).length === 0;
+  // Taken once, so every card this crawl has to date for itself is dated
+  // identically no matter how long the crawl's pagination runs.
+  const crawlPostingDate = formatPostingDate(now().getTime());
   const discovered = [];
   const observedKnown = new Map();
   // Identity is global: the same List.am item is recorded once even in the
@@ -283,7 +301,21 @@ export async function crawlApartments(
       pageSignatures.add(signature);
 
       for (const parsed of apartments) {
-        const apartment = { ...parsed, kind };
+        // Only a date the source printed can say the crawl has reached history.
+        // A date the crawl supplied names the minute it was taken, which always
+        // falls below the end-of-day value a printed same-day card resolves to,
+        // so admitting it here would retire a card first seen seconds ago and
+        // abandon the rest of the page behind it.
+        const sourceDated = postingDateSortValue(parsed.date) !== null;
+        const apartment = {
+          ...parsed,
+          kind,
+          date: resolvePostingDate(
+            parsed,
+            previousApartments,
+            crawlPostingDate,
+          ),
+        };
         const postingDateValue = postingDateSortValue(apartment.date);
         const knownApartment = Object.hasOwn(
           previousApartments,
@@ -291,6 +323,7 @@ export async function crawlApartments(
         );
         if (
           !kindInitialRun &&
+          sourceDated &&
           lastKnownPostingDate.value !== null &&
           postingDateValue !== null &&
           postingDateValue < lastKnownPostingDate.value
@@ -375,8 +408,9 @@ export async function crawlApartments(
   // so their encounters are merged back into one newest-first sequence. Every
   // later decision — history selection, channel publication, and the ascending
   // delivery that reverses this order — reads it as one stream rather than as
-  // one category after another. Cards whose displayed date cannot be read keep
-  // their source order behind the dated ones.
+  // one category after another. A card the source dated and a card the crawl
+  // dated for itself both carry a value here; the null branch remains for a
+  // date no reading can produce, and keeps such a card behind the dated ones.
   const mergedEncounterOrder = encounteredOrder
     .map((itemId, index) => ({
       itemId,

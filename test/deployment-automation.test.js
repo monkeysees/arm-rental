@@ -6,6 +6,7 @@ import {
   mkdtemp,
   readFile,
   rm,
+  stat,
   symlink,
   writeFile,
 } from "node:fs/promises";
@@ -159,6 +160,115 @@ test("deployment accepts the exact operations archive and rejects broader infra"
     (error) =>
       error.code === 65 &&
       error.stderr.includes("Operations bundle contains an unexpected path"),
+  );
+});
+
+test("published releases expose current rentalctl to the operator group without write access", async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "deploy-release-mode-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const releases = join(root, "releases");
+  const bundle = join(root, "bundle");
+  const archiveRoot = join(root, "archive");
+  const metadata = join(bundle, "release-metadata.json");
+  await Promise.all([
+    mkdir(releases, { recursive: true, mode: 0o750 }),
+    mkdir(bundle, { recursive: true }),
+    mkdir(join(archiveRoot, "ops", "lib"), { recursive: true }),
+    mkdir(join(archiveRoot, "infra", "systemd"), { recursive: true }),
+  ]);
+  await Promise.all([
+    writeFile(join(bundle, "compose.production.yaml"), "services: {}\n"),
+    writeFile(join(bundle, "package-lock.json"), "{}\n"),
+    writeFile(metadata, "{}\n"),
+    writeFile(join(archiveRoot, "ops", "rentalctl"), "#!/bin/sh\n", {
+      mode: 0o755,
+    }),
+    writeFile(
+      join(archiveRoot, "ops", "lib", "observability.sh"),
+      "# library\n",
+    ),
+    writeFile(
+      join(archiveRoot, "infra", "systemd", "unit.service"),
+      "[Unit]\n",
+    ),
+  ]);
+  await executeFile("tar", [
+    "--create",
+    `--file=${join(bundle, "operations.tar")}`,
+    "--directory",
+    archiveRoot,
+    "ops",
+    "infra",
+  ]);
+
+  const candidate = digest("d");
+  const revision = "e".repeat(40);
+  const script = `
+    set -Eeuo pipefail
+    RENTAL_RELEASES_ROOT=$1
+    RENTAL_OPS_STATE_DIR=$2
+    source ops/lib/deployment.sh
+    deployment_verify_release() { return 0; }
+    deployment_validate_operations_archive() { return 0; }
+    deployment_fetch_release "$3" "$4" "$5" "$6"
+  `;
+  const release = (
+    await executeFile(
+      "bash",
+      [
+        "-c",
+        script,
+        "deploy-release-mode-test",
+        releases,
+        root,
+        candidate,
+        revision,
+        metadata,
+        bundle,
+      ],
+      { cwd: new URL("..", import.meta.url) },
+    )
+  ).stdout.trim();
+  const [releaseDetails, rootDetails, rentalctlDetails, libraryDetails] =
+    await Promise.all([
+      stat(release),
+      stat(releases),
+      stat(join(release, "ops", "rentalctl")),
+      stat(join(release, "ops", "lib", "observability.sh")),
+    ]);
+  assert.equal(releaseDetails.mode & 0o777, 0o750);
+  assert.equal(releaseDetails.gid, rootDetails.gid);
+  assert.equal(rentalctlDetails.mode & 0o777, 0o750);
+  assert.equal(libraryDetails.mode & 0o777, 0o640);
+
+  await Promise.all([
+    chmod(release, 0o700),
+    chmod(join(release, "ops", "rentalctl"), 0o700),
+    chmod(join(release, "ops", "lib", "observability.sh"), 0o600),
+  ]);
+  await executeFile(
+    "bash",
+    [
+      "-c",
+      script,
+      "deploy-release-mode-test",
+      releases,
+      root,
+      candidate,
+      revision,
+      metadata,
+      bundle,
+    ],
+    { cwd: new URL("..", import.meta.url) },
+  );
+  assert.equal((await stat(release)).mode & 0o777, 0o750);
+  assert.equal(
+    (await stat(join(release, "ops", "rentalctl"))).mode & 0o777,
+    0o750,
+  );
+  assert.equal(
+    (await stat(join(release, "ops", "lib", "observability.sh"))).mode & 0o777,
+    0o640,
   );
 });
 

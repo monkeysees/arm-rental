@@ -53,10 +53,11 @@ with the backend they measured. A report's per-file `status` reads `ok`,
 not a backend change.
 
 Runtime `state.transaction.*` and `state.checkpoint.*` records contain only a
-stable operation, rows changed, database/WAL bytes, outcome, schema version, and
-duration. The log collector calculates p50/p95 per operation and counts failed
-and busy transactions. Telemetry failures cannot fail or roll back a durable
-transaction.
+stable operation, rows changed, database/WAL bytes, outcome, schema version,
+duration, mapped error code, and SQLite's bounded numeric extended result code
+when the runtime supplies one. The log collector calculates p50/p95 per
+operation and counts failed and busy transactions and native result codes.
+Telemetry failures cannot fail or roll back a durable transaction.
 
 `rental-maintenance.timer` runs every Sunday at 04:00 UTC with
 `Persistent=true`. Its `ops/maintain` wrapper acquires the shared operations

@@ -190,6 +190,14 @@ main() {
          source: "host"};
       def was_firing($name):
         any($previous.alerts[]?; .name == $name and .status == "firing");
+      def sqlite_result_summary:
+        (.sqliteResultCodes // []) as $codes
+        | if ($codes | length) == 0
+          then ""
+          else (" (SQLite result codes: "
+            + ($codes | map((.code | tostring) + "=" + (.count | tostring)) | join(", "))
+            + ")")
+          end;
       [
         ($metrics.applicationAlerts[]?
           | select(.status == "firing")
@@ -261,7 +269,8 @@ main() {
             | alert("state_database_busy"; "error";
                 "rentalctl metrics --since 1h";
                 ("database busy failure count for " + .operation + " is "
-                  + (.busyFailureCount | tostring)))
+                  + (.busyFailureCount | tostring)
+                  + sqlite_result_summary))
             end),
         ([$metrics.windows["1h"].databaseOperations[]?
           | . + {
@@ -274,7 +283,8 @@ main() {
             | alert("state_database_operation_failure"; "error";
                 "rentalctl metrics --since 1h";
                 ("database operation failure count for " + .operation
-                  + " is " + (.nonBusyFailureCount | tostring)))
+                  + " is " + (.nonBusyFailureCount | tostring)
+                  + sqlite_result_summary))
             end),
         ($metrics.filesystems[]?
           | . as $filesystem

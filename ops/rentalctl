@@ -101,6 +101,9 @@ logs_command() {
         def safe_count:
           if type == "number" and . >= 0 and . <= 1000000
           then . else null end;
+        def safe_sqlite_result_code:
+          if type == "number" and . >= 0 and . <= 65535 and floor == .
+          then . else null end;
         def diagnostic_context:
           . as $record
           | ([
@@ -119,9 +122,16 @@ logs_command() {
               component: ($record.component | safe_name),
               code:
                 (($record.code
+                  // $record.errorCode
                   // ($record.error
                     | if type == "object" then .code else null end))
                  | safe_code),
+              sqliteResultCode:
+                (($record.sqliteResultCode
+                  // ($record.error
+                    | if type == "object"
+                      then .sqliteResultCode else null end))
+                 | safe_sqlite_result_code),
               operation: ($record.operation | safe_name),
               step: ($record.step | safe_name),
               attempt: ($record.attempt | safe_count),
@@ -170,10 +180,20 @@ status_command() {
   "$JQ_BIN" -e . "$snapshot" >/dev/null ||
     observability_die "metrics snapshot is invalid JSON"
 
-  local readiness status
+  local readiness monitor_alerts status alert_state
   readiness="$(probe_readiness_json)"
-  status="$("$JQ_BIN" -c --argjson readiness "$readiness" \
-    '. + {freshReadiness: $readiness}' "$snapshot")"
+  alert_state="$RENTAL_OPS_STATE_DIR/alerts.json"
+  if [[ -r "$alert_state" ]] && "$JQ_BIN" -e . "$alert_state" >/dev/null 2>&1; then
+    monitor_alerts="$("$JQ_BIN" -c \
+      '[.alerts[]? | select(.status == "firing")]' "$alert_state")"
+  else
+    monitor_alerts='[]'
+  fi
+  status="$("$JQ_BIN" -c \
+    --argjson readiness "$readiness" \
+    --argjson monitorAlerts "$monitor_alerts" \
+    '. + {freshReadiness: $readiness, monitorAlerts: $monitorAlerts}' \
+    "$snapshot")"
   if [[ "$json" == true ]]; then
     "$JQ_BIN" . <<<"$status"
     return
@@ -187,7 +207,7 @@ status_command() {
       ["container", (.deployment.health // "missing")],
       ["readiness", (.freshReadiness.status // "not_ready")],
       ["last crawl", (.observations.lastSuccessfulCrawl // "never")],
-      ["firing alerts", ([.applicationAlerts[]? | select(.status == "firing")] | length | tostring)]
+      ["firing alerts", (.monitorAlerts | length | tostring)]
     ]
     | .[] | @tsv
   ' <<<"$status" | column -t -s $'\t'

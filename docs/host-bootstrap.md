@@ -110,7 +110,10 @@ root-only secret and an approved immutable image record exist. The stable
 for the first release and the verified current release thereafter. The stable
 `/usr/local/bin/rentalctl` operator command follows the same boundary, so
 status, metrics, logs, and timer inventory always come from the active release
-after installation instead of the bootstrap-time copy.
+after installation instead of the bootstrap-time copy. Published release
+directories remain root-owned and non-writable by the operator while
+inheriting the releases root's `rental-deploy` group with group read/traverse
+access, allowing the launcher to execute that pinned command and its libraries.
 
 Review the sanitized receipt without exposing the environment file:
 

@@ -337,6 +337,15 @@ deployment_discard_staging_release() {
   rm -rf -- "$directory"
 }
 
+deployment_set_release_permissions() {
+  local directory=$1
+  [[ $directory == "$RENTAL_RELEASES_ROOT"/* ]] || return 65
+  [[ -d $directory && ! -L $directory ]] || return 65
+  chgrp -R --no-dereference \
+    --reference="$RENTAL_RELEASES_ROOT" "$directory" || return
+  chmod -R g+rX,g-w,o-rwx "$directory"
+}
+
 deployment_validate_operations_archive() {
   local archive=$1
   local entry invalid_entry=0
@@ -377,6 +386,7 @@ deployment_fetch_release() {
       printf 'Existing release directory is incomplete\n' >&2
       return 65
     }
+    deployment_set_release_permissions "$final" || return 65
     printf '%s\n' "$final"
     return 0
   fi
@@ -419,6 +429,15 @@ deployment_fetch_release() {
     deployment_discard_staging_release "$temporary"
     return 65
   fi
+  # Releases stay root-owned and immutable to the operator, but their active
+  # rentalctl implementation and sourced libraries must be traversable and
+  # readable by the same group that owns the releases root. Preserve owner
+  # execute bits from the verified archive while granting only matching group
+  # access and removing all access for other users.
+  deployment_set_release_permissions "$temporary" || {
+    deployment_discard_staging_release "$temporary"
+    return 65
+  }
   mv -T "$temporary" "$final" || {
     deployment_discard_staging_release "$temporary"
     return 65

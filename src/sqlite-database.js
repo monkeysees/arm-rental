@@ -53,31 +53,35 @@ function emitMetric(observer, metric) {
 
 function mappedDatabaseError(error, operation) {
   if (error instanceof StateDatabaseError) return error;
-  const sqliteCode = String(error?.code || "");
-  const primaryResultCode = Number.isInteger(error?.errcode)
-    ? error.errcode & 0xff
+  const runtimeCode = String(error?.code || "");
+  const sqliteResultCode = Number.isInteger(error?.errcode)
+    ? error.errcode
     : undefined;
+  const primaryResultCode =
+    sqliteResultCode === undefined ? undefined : sqliteResultCode & 0xff;
   const code =
-    sqliteCode.startsWith("SQLITE_BUSY") || primaryResultCode === 5
+    runtimeCode.startsWith("SQLITE_BUSY") || primaryResultCode === 5
       ? "ERR_STATE_DATABASE_BUSY"
-      : sqliteCode.startsWith("SQLITE_CONSTRAINT") || primaryResultCode === 19
+      : runtimeCode.startsWith("SQLITE_CONSTRAINT") || primaryResultCode === 19
         ? "ERR_STATE_DATABASE_CONSTRAINT"
         : "ERR_STATE_DATABASE_OPERATION";
   return new StateDatabaseError(
     `State database ${operation} failed`,
     code,
-    sqliteCode,
+    sqliteResultCode,
   );
 }
 
 export const STATE_DATABASE_ABSENT = "ERR_STATE_DATABASE_ABSENT";
 
 export class StateDatabaseError extends Error {
-  constructor(message, code, sqliteCode) {
+  constructor(message, code, sqliteResultCode) {
     super(message);
     this.name = "StateDatabaseError";
     this.code = code;
-    if (sqliteCode) this.sqliteCode = sqliteCode;
+    if (Number.isInteger(sqliteResultCode)) {
+      this.sqliteResultCode = sqliteResultCode;
+    }
   }
 }
 
@@ -120,6 +124,7 @@ export class StateDatabase {
     );
     let outcome = "failed";
     let errorCode;
+    let sqliteResultCode;
     try {
       this.connection.exec("BEGIN IMMEDIATE");
       const result = callback();
@@ -139,6 +144,7 @@ export class StateDatabase {
       }
       const mapped = mappedDatabaseError(error, "transaction");
       errorCode = mapped.code;
+      sqliteResultCode = mapped.sqliteResultCode;
       throw mapped;
     } finally {
       emitMetric(this.onMetric, {
@@ -162,6 +168,7 @@ export class StateDatabase {
         schemaVersion: SQLITE_SCHEMA_VERSION,
         outcome,
         ...(errorCode ? { errorCode } : {}),
+        ...(Number.isInteger(sqliteResultCode) ? { sqliteResultCode } : {}),
       });
     }
   }
@@ -210,6 +217,8 @@ export class StateDatabase {
     }
     const startedAt = this.monotonicNow();
     let outcome = "failed";
+    let errorCode;
+    let sqliteResultCode;
     try {
       const result = this.connection
         .prepare(`PRAGMA wal_checkpoint(${mode})`)
@@ -222,6 +231,11 @@ export class StateDatabase {
       }
       outcome = "completed";
       return result;
+    } catch (error) {
+      const mapped = mappedDatabaseError(error, "checkpoint");
+      errorCode = mapped.code;
+      sqliteResultCode = mapped.sqliteResultCode;
+      throw mapped;
     } finally {
       emitMetric(this.onMetric, {
         name: `state.checkpoint.${outcome}`,
@@ -232,6 +246,8 @@ export class StateDatabase {
         walBytes: fileBytes(`${this.filename}-wal`),
         schemaVersion: SQLITE_SCHEMA_VERSION,
         outcome,
+        ...(errorCode ? { errorCode } : {}),
+        ...(Number.isInteger(sqliteResultCode) ? { sqliteResultCode } : {}),
       });
     }
   }

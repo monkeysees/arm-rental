@@ -224,6 +224,7 @@ test("transaction helper rolls back synchronously and emits sanitized bounded me
     schemaVersion: SQLITE_SCHEMA_VERSION,
     outcome: "failed",
     errorCode: "ERR_STATE_DATABASE_CONSTRAINT",
+    sqliteResultCode: 275,
   });
   assert.equal(JSON.stringify(metrics).includes("private-id"), false);
 

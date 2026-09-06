@@ -53,6 +53,9 @@ function serializeError(error) {
   return {
     name: error?.name,
     code: error?.code,
+    ...(Number.isInteger(error?.sqliteResultCode)
+      ? { sqliteResultCode: error.sqliteResultCode }
+      : {}),
     message: error?.message || String(error),
     stack: error?.stack,
   };

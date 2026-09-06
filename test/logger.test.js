@@ -56,6 +56,7 @@ test("structured error logging redacts secrets in messages and stacks", () => {
   const error = new Error(
     `Telegram request failed at https://api.telegram.org/bot${token}/sendMessage`,
   );
+  error.sqliteResultCode = 10;
 
   logger.error("Telegram failure", error, {
     Authorization: `Bearer ${token}`,
@@ -64,6 +65,7 @@ test("structured error logging redacts secrets in messages and stacks", () => {
   assert.doesNotMatch(records[0], new RegExp(token, "u"));
   const record = JSON.parse(records[0]);
   assert.equal(record.Authorization, "[REDACTED]");
+  assert.equal(record.error.sqliteResultCode, 10);
   assert.match(record.error.message, /\[REDACTED\]/u);
   assert.match(record.error.stack, /\[REDACTED\]/u);
 });

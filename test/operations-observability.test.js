@@ -65,6 +65,7 @@ function databaseOperationRecords({
   event = "state.transaction.completed",
   operation = "private_delivery_acknowledge",
   errorCode,
+  sqliteResultCode,
 }) {
   const startedAt = Date.parse("2026-07-25T11:30:00.000Z");
   return Array.from({ length: count }, (_value, index) =>
@@ -77,6 +78,7 @@ function databaseOperationRecords({
       databaseBytes: 12_582_912,
       walBytes: 37_080,
       ...(errorCode ? { errorCode } : {}),
+      ...(Number.isInteger(sqliteResultCode) ? { sqliteResultCode } : {}),
     }),
   ).join("");
 }
@@ -261,6 +263,16 @@ test("rentalctl preserves malformed logs and aggregates bounded journal metrics"
   );
   assert.doesNotMatch(alertLogs.stdout, /unsafe reason|must-not-appear/u);
 
+  const databaseLogs = await execute(
+    rentalctl,
+    ["logs", "--since", "30m", "--event", "state.transaction.failed"],
+    { env: host.env },
+  );
+  assert.match(
+    databaseLogs.stdout,
+    /"code":"ERR_STATE_DATABASE_BUSY","sqliteResultCode":5/u,
+  );
+
   const { stdout } = await execute(
     rentalctl,
     ["metrics", "--since", "1h", "--json"],
@@ -290,6 +302,7 @@ test("rentalctl preserves malformed logs and aggregates bounded journal metrics"
       count: 2,
       failureCount: 1,
       busyFailureCount: 1,
+      sqliteResultCodes: [{ code: 5, count: 1 }],
       rowsChanged: 1,
       durationMs: { p50: 3, p95: 9 },
       databaseBytes: 12_582_912,
@@ -334,6 +347,15 @@ test("monitor sends only firing and resolved transitions and keeps redacted fall
     alertState.alerts.map(({ name }) => name),
     ["state_database_busy"],
   );
+  const statusJson = JSON.parse(
+    (await execute(rentalctl, ["status", "--json"], { env: host.env })).stdout,
+  );
+  assert.deepEqual(
+    statusJson.monitorAlerts.map(({ name }) => name),
+    ["state_database_busy"],
+  );
+  const status = await execute(rentalctl, ["status"], { env: host.env });
+  assert.match(status.stdout, /firing alerts\s+1/u);
   await execute(monitor, [], { env: host.env });
   assert.equal(
     (await readFile(host.env.RENTAL_TEST_CURL_CALLS, "utf8")).trim().split("\n")
@@ -432,12 +454,14 @@ test("database busy exhaustion and other operation failures alert separately", a
       event: "state.transaction.failed",
       operation: "private_delivery_acknowledge",
       errorCode: "ERR_STATE_DATABASE_BUSY",
+      sqliteResultCode: 5,
     }) +
       databaseOperationRecords({
         count: 1,
         durationMs: 8,
         event: "state.checkpoint.failed",
         operation: "checkpoint",
+        sqliteResultCode: 10,
       }),
   );
   await execute(monitor, [], { env: host.env });
@@ -451,12 +475,12 @@ test("database busy exhaustion and other operation failures alert separately", a
   ]);
   assert.equal(
     state.alerts.find(({ name }) => name === "state_database_busy")?.reason,
-    "database busy failure count for private_delivery_acknowledge is 2",
+    "database busy failure count for private_delivery_acknowledge is 2 (SQLite result codes: 5=2)",
   );
   assert.equal(
     state.alerts.find(({ name }) => name === "state_database_operation_failure")
       ?.reason,
-    "database operation failure count for checkpoint is 1",
+    "database operation failure count for checkpoint is 1 (SQLite result codes: 10=1)",
   );
 });
 

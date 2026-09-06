@@ -53,9 +53,10 @@ extracts JSON `MESSAGE`, and preserves malformed records under
 The normal view emits five tab-separated fields: journal timestamp, severity,
 event, message, and optional diagnostic context as compact JSON. Diagnostic
 context is deliberately allowlisted and bounded to alert name/status, stable
-reason codes, component/error code, operation/step, retry attempt, and duplicate
-suppression count. Unknown fields, identifiers, URLs, and invalid reason values
-are not projected into this operator view.
+reason codes, component/error code, SQLite's numeric extended result code,
+operation/step, retry attempt, and duplicate suppression count. Unknown fields,
+identifiers, URLs, and invalid reason values are not projected into this
+operator view.
 
 That exclusion is load-bearing for one diagnosis. `browser.challenge` records
 the challenged `url`, the navigation `httpStatus`, and a `challengeSource` of
@@ -99,8 +100,9 @@ to read those snapshots without exposing root-only deployment state.
 The stable snapshot covers image/revision, container health, readiness, uptime
 and restarts; last preflight/crawl; 1-hour and 24-hour crawl totals, ratios,
 p50/p95 duration and result counters; bounded retry and SQLite-operation
-groupings with failure, busy-timeout, changed-row, database-byte, and WAL-byte
-counts; journal and filesystem capacity; last/next/result state for all eight production
+groupings with failure, busy-timeout, numeric SQLite-result-code, changed-row,
+database-byte, and WAL-byte counts; journal and filesystem capacity;
+last/next/result state for all eight production
 timers, including image cleanup and the reboot check; application alerts; the
 candidate the deploy timer is currently skipping as quarantined; and the newest
 backup/maintenance receipts when present. Percentiles use nearest rank. Windows
@@ -121,8 +123,11 @@ rentalctl metrics --since 7d --json
 rentalctl timers
 ```
 
-`status` reads the atomic snapshot and performs a fresh readiness probe.
-`metrics` recalculates from retained journal records. This is recalculable
+`status` reads the atomic snapshot and performs a fresh readiness probe. It
+also reads the monitor's atomic alert state, so its human firing count and the
+JSON `monitorAlerts` array include database, capacity, deployment, and timer
+alerts as well as application alerts evaluated by the monitor. `metrics`
+recalculates from retained journal records. This is recalculable
 history, not a time-series database; empty windows have zero counts and null
 ratios and percentiles.
 

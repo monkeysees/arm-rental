@@ -87,6 +87,10 @@ def grouped_database_operations($records):
         operation: ((.record.operation // "unknown") | safe_group_key),
         failed: (.record.event | endswith(".failed")),
         busy: (.record.errorCode == "ERR_STATE_DATABASE_BUSY"),
+        sqliteResultCode:
+          (.record.sqliteResultCode
+           | if type == "number" and . >= 0 and . <= 65535 and floor == .
+             then . else null end),
         rowsChanged: ((.record.rowsChanged | tonumber?) // 0),
         durationMs: ((.record.durationMs | tonumber?) // 0),
         databaseBytes: ((.record.databaseBytes | tonumber?) // 0),
@@ -100,6 +104,13 @@ def grouped_database_operations($records):
       count: length,
       failureCount: (map(select(.failed)) | length),
       busyFailureCount: (map(select(.busy)) | length),
+      sqliteResultCodes:
+        ([.[]
+          | select(.failed and .sqliteResultCode != null)
+          | .sqliteResultCode]
+         | sort
+         | group_by(.)
+         | map({code: .[0], count: length})),
       rowsChanged: (map(.rowsChanged) | add // 0),
       durationMs: {
         p50: percentile(map(.durationMs); 0.50),

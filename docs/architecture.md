@@ -1245,9 +1245,12 @@ the crawler considers empty pagination, a repeated page, or the posting-date
 watermark. Page observations and typed failures carry the category's housing
 kind, so operational surfaces attribute a source change to the category it
 happened in. The evaluator applies deterministic reason precedence for a missing
-Regular Ads section, an empty first page, parse success below 90%, rejected
-identities, and first-page title/date completeness below 90%; percentage
-boundaries use integer multiplication. Later empty pages remain valid. The
+Regular Ads section, an empty first page, parse success below 100%, rejected
+identities, and first-page title completeness below 100%; percentage
+boundaries use integer multiplication. A missing posting date is not one of
+these rules: the crawler supplies a date for such a card rather than rejecting
+the page, so date completeness is reported as telemetry only. Later empty
+pages remain valid. The
 crawler performs this validation while its discoveries are still in memory, so
 an invalid page cannot write apartment or delivery state or invoke private or
 channel delivery. Startup preflight and browser verification use the same

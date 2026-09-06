@@ -4,7 +4,7 @@ import {
 } from "./list-am.js";
 
 export const LIST_AM_SOURCE_INTEGRITY_ERROR = "ERR_LIST_AM_SOURCE_INTEGRITY";
-export const LIST_AM_COMPLETENESS_PERCENT = 90;
+export const LIST_AM_COMPLETENESS_PERCENT = 100;
 
 export const ListAmIntegrityReason = Object.freeze({
   REGULAR_SECTION_MISSING: "REGULAR_SECTION_MISSING",
@@ -12,7 +12,6 @@ export const ListAmIntegrityReason = Object.freeze({
   PARSE_SUCCESS_BELOW_THRESHOLD: "PARSE_SUCCESS_BELOW_THRESHOLD",
   IDENTITY_REJECTION: "IDENTITY_REJECTION",
   TITLE_COMPLETENESS_BELOW_THRESHOLD: "TITLE_COMPLETENESS_BELOW_THRESHOLD",
-  DATE_COMPLETENESS_BELOW_THRESHOLD: "DATE_COMPLETENESS_BELOW_THRESHOLD",
   FIRST_PAGE_COUNT_DROP: "FIRST_PAGE_COUNT_DROP",
 });
 
@@ -88,9 +87,6 @@ function thresholdsFor(reason) {
   }
   if (reason === ListAmIntegrityReason.TITLE_COMPLETENESS_BELOW_THRESHOLD) {
     return { minimumTitleCompletenessPercent: LIST_AM_COMPLETENESS_PERCENT };
-  }
-  if (reason === ListAmIntegrityReason.DATE_COMPLETENESS_BELOW_THRESHOLD) {
-    return { minimumDateCompletenessPercent: LIST_AM_COMPLETENESS_PERCENT };
   }
   if (reason === ListAmIntegrityReason.FIRST_PAGE_COUNT_DROP) {
     return {
@@ -174,17 +170,6 @@ export function evaluateListAmSourceIntegrity(
   ) {
     fail(
       ListAmIntegrityReason.TITLE_COMPLETENESS_BELOW_THRESHOLD,
-      source,
-      diagnostics,
-    );
-  }
-  if (
-    page === 1 &&
-    diagnostics.completeness.date * 100 <
-      diagnostics.parsedCount * LIST_AM_COMPLETENESS_PERCENT
-  ) {
-    fail(
-      ListAmIntegrityReason.DATE_COMPLETENESS_BELOW_THRESHOLD,
       source,
       diagnostics,
     );

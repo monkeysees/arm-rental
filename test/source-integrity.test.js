@@ -40,11 +40,10 @@ function integrityError(operation) {
   return captured;
 }
 
-test("integrity percentage rules use exact integer 90 percent boundaries", () => {
+test("integrity percentage rules admit only complete pages", () => {
   for (const [parsedCount, expectedReason] of [
-    [91, null],
-    [90, null],
-    [89, ListAmIntegrityReason.PARSE_SUCCESS_BELOW_THRESHOLD],
+    [100, null],
+    [99, ListAmIntegrityReason.PARSE_SUCCESS_BELOW_THRESHOLD],
   ]) {
     const observed = diagnostics({
       candidateCount: 100,
@@ -69,12 +68,10 @@ test("integrity percentage rules use exact integer 90 percent boundaries", () =>
 
   for (const [field, reason] of [
     ["title", ListAmIntegrityReason.TITLE_COMPLETENESS_BELOW_THRESHOLD],
-    ["date", ListAmIntegrityReason.DATE_COMPLETENESS_BELOW_THRESHOLD],
   ]) {
     for (const [completeCount, fails] of [
-      [91, false],
-      [90, false],
-      [89, true],
+      [100, false],
+      [99, true],
     ]) {
       const completeness = { title: 100, date: 100, [field]: completeCount };
       const observed = diagnostics({
@@ -97,6 +94,21 @@ test("integrity percentage rules use exact integer 90 percent boundaries", () =>
         );
       }
     }
+  }
+});
+
+test("a page missing posting dates is not a source-integrity failure", () => {
+  for (const date of [0, 50, 99]) {
+    const observed = diagnostics({
+      candidateCount: 100,
+      uniqueCandidateCount: 100,
+      parsedCount: 100,
+      completeness: { title: 100, date },
+    });
+    assert.equal(
+      evaluateListAmSourceIntegrity(observed, { page: 1 }),
+      observed,
+    );
   }
 });
 

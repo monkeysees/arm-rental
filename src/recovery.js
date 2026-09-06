@@ -157,8 +157,12 @@ function openRecoveryDatabase(config, root) {
   }
 }
 
-export async function validateRecoveryState(config, root) {
-  const database = openRecoveryDatabase(config, root);
+export async function validateRecoveryState(
+  config,
+  root,
+  { databaseRoot = root } = {},
+) {
+  const database = openRecoveryDatabase(config, databaseRoot);
   try {
     database.validate({ full: true });
     const metadata = database
@@ -475,6 +479,41 @@ export async function createSnapshot(
   }
 }
 
+/**
+ * SQLite cannot open a WAL database without creating its `-wal` and `-shm`
+ * sidecars beside the file, so a snapshot cannot be read in place on the
+ * read-only backup mount the restore drill and the documented break-glass
+ * restore both use. Staging the database into the writable data directory
+ * makes validation behave the same on either mount, and stops validation from
+ * writing into a recovery point that is meant to be immutable.
+ */
+async function withStagedDatabase(config, dataRoot, run) {
+  const stage = path.join(
+    config.dataDirectory,
+    `.validate-stage-${randomUUID()}`,
+  );
+  await mkdir(stage, { recursive: true, mode: 0o700 });
+  await chmod(stage, 0o700);
+  try {
+    const source = stateDatabasePaths(dataRoot);
+    const staged = stateDatabasePaths(stage);
+    // A checkpointed snapshot carries no sidecars. One taken mid-write does,
+    // and the staged copy has to see the same committed state as the original.
+    for (const [from, to] of [
+      [source.database, staged.database],
+      [source.databaseWal, staged.databaseWal],
+      [source.databaseShm, staged.databaseShm],
+    ]) {
+      if (!(await exists(from))) continue;
+      await cp(from, to, { errorOnExist: true, force: false });
+      await chmod(to, 0o600);
+    }
+    return await run(stage);
+  } finally {
+    await rm(stage, { recursive: true, force: true });
+  }
+}
+
 export async function validateSnapshot(config, snapshotDirectory) {
   const manifest = await optionalState(
     path.join(snapshotDirectory, "manifest.json"),
@@ -512,7 +551,9 @@ export async function validateSnapshot(config, snapshotDirectory) {
       snapshotDirectory,
     });
   }
-  const summary = await validateRecoveryState(config, dataRoot);
+  const summary = await withStagedDatabase(config, dataRoot, (databaseRoot) =>
+    validateRecoveryState(config, dataRoot, { databaseRoot }),
+  );
   if (JSON.stringify(summary) !== JSON.stringify(manifest.summary)) {
     throw new RecoveryValidationError(
       "Backup schema counts or Telegram update offset do not match its manifest",

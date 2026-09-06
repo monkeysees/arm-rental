@@ -87,8 +87,11 @@ ops_require_absolute_path "RENTAL_RESTORE_TMP_ROOT" "$RENTAL_RESTORE_TMP_ROOT"
 
 ops_set_step locate-snapshot
 snapshot=$(ops_latest_snapshot)
-ops_set_step validate-snapshot
-ops_validate_snapshot "$snapshot"
+# No separate validation pass here. The restore below validates the same
+# snapshot seconds later, and running validate first through the production
+# compose service resolved the restore_test_failure alert before the drill had
+# actually tested anything - on 2026-09-06 that reported a healthy recovery
+# point while the isolated restore was failing.
 ops_set_step resolve-runtime-inputs
 container_snapshot=$(ops_snapshot_container_path "$snapshot")
 image=$(ops_read_image_reference)

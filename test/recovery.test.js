@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import {
+  chmod,
   cp,
   lstat,
   mkdtemp,
@@ -188,6 +189,41 @@ test("an intact snapshot restores every state and the verified browser profile",
       .updateOffset,
     815,
   );
+});
+
+test("a snapshot restores from a read-only backup mount without being written to", async (t) => {
+  const { config, backupDirectory } = await fixture(t);
+  const backup = await createSnapshot(config, {
+    now: () => new Date("2026-07-26T03:15:00.000Z"),
+  });
+  const dataRoot = path.join(backup.snapshot, "data");
+
+  // The drill and the break-glass restore both mount the backup read-only, so
+  // neither may create the WAL sidecars SQLite needs to open a database in
+  // place. Denying writes here reproduces that mount without one.
+  await chmod(dataRoot, 0o500);
+  try {
+    assert.equal(
+      (await validateSnapshot(config, backup.snapshot)).summary.database
+        .updateOffset,
+      815,
+    );
+    const restored = await restoreSnapshot(config, backup.snapshot, {
+      backupDirectory,
+    });
+    assert.equal(restored.summary.database.apartments, 2);
+
+    // The recovery point is still exactly what was published: validating it
+    // left no sidecars behind.
+    assert.deepEqual(
+      (await readdir(dataRoot)).filter((entry) =>
+        entry.startsWith("state.sqlite3"),
+      ),
+      ["state.sqlite3"],
+    );
+  } finally {
+    await chmod(dataRoot, 0o700);
+  }
 });
 
 test("backup rejects incompatible source state and validation detects damaged snapshots", async (t) => {

@@ -136,7 +136,8 @@ It exits `2` and emits `storage.low_disk` when available blocks fall below 20%
 ## Safe snapshot checks
 
 List recovery points without modifying them. The scheduled monthly check always
-selects the newest published daily snapshot and validates it before restore:
+selects the newest published daily snapshot and validates it as part of the
+restore:
 
 ```sh
 find "$BACKUP_DIRECTORY/daily" "$BACKUP_DIRECTORY/weekly" \
@@ -178,10 +179,11 @@ drill. Open an incident, disable the deploy timer, acquire
 that starts `rental-apartments.service` before stopping it. Use the exact
 current image to run `node src/recovery-cli.js validate <snapshot>` and then
 `node src/recovery-cli.js restore <snapshot>`. Keep the backup mount read-only
-until the selected point has passed validation. Do not run either command
-against the live service or outside the shared lock. If restore fails and the
-application cannot pass preflight, cancel the restart in the trap and preserve
-the automatic restore rollback directory for diagnosis.
+throughout: validation stages the snapshot's database inside `DATA_DIRECTORY`
+rather than opening it in place, so no step writes to a recovery point. Do not
+run either command against the live service or outside the shared lock. If
+restore fails and the application cannot pass preflight, cancel the restart in
+the trap and preserve the automatic restore rollback directory for diagnosis.
 
 Do not start polling after `restore` alone. The structural verification record
 proves which profile was captured; `browser:smoke` is the required live check
@@ -212,11 +214,14 @@ window remains at-least-once.
 ## Drill, rollback, and escalation
 
 `rental-restore-drill.timer` runs on the first Sunday of every month at 05:00
-UTC. `ops/restore-drill` validates the newest point, creates a uniquely named
+UTC. `ops/restore-drill` selects the newest point, creates a uniquely named
 and labeled bind-backed Docker volume, and restores into that isolated data
 directory with `--network none`, a noncredential Telegram token, and polling
-and delivery explicitly disabled. It never attaches the production bot or data
-volume. Cleanup checks the exact container name, volume name, run ID, labels,
+and delivery explicitly disabled. The restore validates the snapshot before
+installing it, so the drill holds a single validation pass whose outcome is the
+drill's own: no earlier pass can report a healthy recovery point that the
+restore then rejects. It never attaches the production bot or data volume.
+Cleanup checks the exact container name, volume name, run ID, labels,
 directory, and marker before removing anything. A mismatched resource is
 preserved and fails the unit. Duration over one hour also fails the unit so the
 monitor opens the RTO alert without the drill itself invoking Telegram.

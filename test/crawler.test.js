@@ -1707,6 +1707,33 @@ test("crawler reads only the delivery targets' own decision history", async () =
   assert.deepEqual(recipientReads, ["42"]);
 });
 
+test("recipient fan-out lets queued I/O run between recipient histories", async () => {
+  const state = memoryState();
+  const order = [];
+  const loadRecipient = state.stateAccess.privateDeliveries.loadRecipient;
+  state.stateAccess.privateDeliveries.loadRecipient = async (id) => {
+    order.push(`read:${id}`);
+    setImmediate(() => order.push(`io:${id}`));
+    return loadRecipient(id);
+  };
+  await crawlApartments(
+    { ...config, initialPageCount: 1 },
+    {
+      ...state,
+      fetchPage: async () => new Response(page("61")),
+      privateDeliveries: ["1", "2", "3"].map((recipientId) => ({
+        recipientId,
+        filters: emptyFilters(),
+        deliverApartment: async () => {},
+      })),
+      now: () => new Date("2026-07-24T14:35:00Z"),
+    },
+  );
+  assert.ok(order.indexOf("io:1") >= 0);
+  assert.ok(order.indexOf("io:1") < order.indexOf("read:2"));
+  assert.ok(order.indexOf("io:2") < order.indexOf("read:3"));
+});
+
 test("a card without a posting date is dated by the crawl and delivered", async () => {
   const state = memoryState();
   const delivered = [];

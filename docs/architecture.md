@@ -86,6 +86,12 @@ from returning.
 
 ### Local observability
 
+Readiness exposes its raw reasons separately from `alertReasons`, which applies
+the runtime browser-challenge grace policy. The host's JSON probe projects only
+those bounded code arrays and the status; transport errors and timeouts receive
+stable probe codes. Host failure streaks count only alertable results, preserving
+raw HTTP readiness while avoiding a second alert path around the grace period.
+
 Container stdout and stderr flow through Docker's journald driver into
 persistent, bounded host journal storage. A short-lived monitor derives an
 atomic metrics snapshot and alert-transition state from bounded journal
@@ -1157,6 +1163,11 @@ never changes private apartment messages, which continue to show original
 source prices without hashtags.
 
 ## Persistence
+
+Private crawl fan-out evaluates source freshness once per listing and checks
+for a recent source update before matching a rejected listing against a user's
+filters. Recipient workers start across event-loop turns, keeping health and
+browser I/O serviceable while their network deliveries remain concurrent.
 
 Application state is one versioned `state.sqlite3` database on persistent local
 storage. `application_metadata` binds its immutable database ID to the List.am

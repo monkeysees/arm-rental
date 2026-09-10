@@ -69,16 +69,33 @@ probe_readiness_json() {
   # A single attempt also reads as not ready whenever a crawl happens to
   # saturate the event loop, so a genuinely healthy process is retried once
   # before the result counts against it.
-  local status="not_ready" attempt
+  local status="not_ready" attempt summary="" candidate
   for attempt in 1 2; do
-    if "$DOCKER_BIN" exec "$RENTAL_CONTAINER_NAME" \
-      node src/health-check.js --ready >/dev/null 2>&1; then
-      status="ready"
-      break
+    status="not_ready"
+    candidate="$("$DOCKER_BIN" exec "$RENTAL_CONTAINER_NAME" \
+      node src/health-check.js --ready --json 2>/dev/null)" || true
+    if [[ -n "$candidate" ]] && "$JQ_BIN" -e '
+      def codes: type == "array" and length <= 8 and all(.[]; type == "string" and test("^[A-Z][A-Z0-9_]{0,79}$"));
+      (.status == "ready" or .status == "not_ready")
+      and (.reasons | codes) and (.alertReasons | codes)
+      and (.status == (if (.reasons | length) == 0 then "ready" else "not_ready" end))
+      and (.reasons as $reasons | all(.alertReasons[]; . as $reason | $reasons | index($reason) != null))
+      and (.alertReasons as $alerts | all(.reasons[]; . == "BROWSER_VERIFICATION_REQUIRED" or (. as $reason | $alerts | index($reason) != null)))
+    ' <<<"$candidate" >/dev/null 2>&1; then
+      summary="$("$JQ_BIN" -c '{status, reasons, alertReasons}' <<<"$candidate")"
+      status="$("$JQ_BIN" -r .status <<<"$summary")"
+    else
+      summary=""
     fi
+    [[ "$status" == "ready" ]] && break
     [[ $attempt -eq 1 ]] && sleep "$READINESS_PROBE_RETRY_DELAY_SECONDS"
   done
-  "$JQ_BIN" -cn --arg status "$status" '{status: $status}'
+  if [[ -n "$summary" ]]; then
+    printf '%s\n' "$summary"
+  else
+    "$JQ_BIN" -cn --arg status "$status" \
+      '{status: $status, reasons: (if $status == "ready" then [] else ["READINESS_PROBE_FAILED"] end)} | . + {alertReasons: .reasons}'
+  fi
 }
 
 container_status_json() {
@@ -525,6 +542,8 @@ write_metrics_snapshot() {
             ($container
               + {
                   readiness: $readiness.status,
+                  readinessReasons: $readiness.reasons,
+                  readinessAlertReasons: $readiness.alertReasons,
                   blockedCandidate: $deploymentBlock,
                   alerts: $deploymentAlerts
                 }),

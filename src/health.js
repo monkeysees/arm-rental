@@ -445,16 +445,16 @@ export class HealthMonitor {
     }
 
     const uniqueReasons = [...new Set(reasons)];
+    const alertReasons = uniqueReasons.filter(
+      (reason) =>
+        reason !== "BROWSER_VERIFICATION_REQUIRED" ||
+        this.preflight.status !== "ready" ||
+        this.browserChallenge.consecutiveCrawls >=
+          this.browserChallengeAlertCrawls,
+    );
     if (this.preflight.status !== "pending") {
       // A readiness probe must not turn a retryable challenge into an alert
       // before the dedicated challenge threshold. Other failures still alert.
-      const alertReasons = uniqueReasons.filter(
-        (reason) =>
-          reason !== "BROWSER_VERIFICATION_REQUIRED" ||
-          this.preflight.status !== "ready" ||
-          this.browserChallenge.consecutiveCrawls >=
-            this.browserChallengeAlertCrawls,
-      );
       this.#setAlert("readiness_failure", alertReasons.length > 0, {
         reasons: alertReasons,
       });
@@ -489,6 +489,7 @@ export class HealthMonitor {
       privateAccess: { ...this.privateAccess },
       components,
       reasons: uniqueReasons,
+      alertReasons,
       warnings,
     };
   }

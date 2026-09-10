@@ -206,6 +206,7 @@ status_command() {
       ["revision", (.deployment.sourceRevision // "unknown")],
       ["container", (.deployment.health // "missing")],
       ["readiness", (.freshReadiness.status // "not_ready")],
+      ["readiness reasons", ((.freshReadiness.reasons // []) | if length == 0 then "none" else join(", ") end)],
       ["last crawl", (.observations.lastSuccessfulCrawl // "never")],
       ["firing alerts", (.monitorAlerts | length | tostring)]
     ]

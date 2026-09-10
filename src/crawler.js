@@ -1,3 +1,4 @@
+import { setImmediate as yieldToEventLoop } from "node:timers/promises";
 import {
   APARTMENT_STATE_VERSION,
   migrateApartmentState,
@@ -476,6 +477,11 @@ export async function crawlApartments(
   // Delivery measures source activity against the instant this crawl read
   // List.am, so every recipient in the fan-out applies the same window.
   const sourceActivityReference = Date.parse(checkedAt);
+  const activeSourceIds = new Set(
+    apartmentOrder.filter((itemId) =>
+      withinSourceActivity(apartments[itemId], sourceActivityReference),
+    ),
+  );
   // What this crawl itself saw appear or change: the news half of any batch.
   const freshIds = new Set(
     [...discovered, ...updated].map(({ itemId }) => itemId),
@@ -594,13 +600,13 @@ export async function crawlApartments(
         const filteredAt = recipient.filtered[itemId];
         if (!filteredAt) return false;
         const apartment = apartments[itemId];
-        if (!apartmentMatchesFilters(apartment, recipientFilters)) return false;
         return (
           hasApartmentUpdateAfter(apartment, filteredAt) &&
           withinSourceActivityWindow(
             apartment.updatedAt,
             sourceActivityReference,
-          )
+          ) &&
+          apartmentMatchesFilters(apartment, recipientFilters)
         );
       });
       if (readmittedIds.length > 0) {
@@ -649,9 +655,7 @@ export async function crawlApartments(
           // recipient is only ever sent what List.am posted or changed inside
           // the source-activity window. An older card waits for its next
           // List.am update instead of arriving as news.
-          if (
-            !withinSourceActivity(apartments[itemId], sourceActivityReference)
-          ) {
+          if (!activeSourceIds.has(itemId)) {
             return false;
           }
           const deliveredAt = recipient.notified[itemId];
@@ -711,13 +715,18 @@ export async function crawlApartments(
       }
     };
 
-    const outcomes = await Promise.allSettled(
-      deliveryTargets.map((target) =>
-        target.runDeliveryWorker
-          ? target.runDeliveryWorker(() => deliverRecipient(target))
-          : deliverRecipient(target),
-      ),
-    );
+    const workers = [];
+    const startWorker = async (target) =>
+      target.runDeliveryWorker
+        ? target.runDeliveryWorker(() => deliverRecipient(target))
+        : deliverRecipient(target);
+    for (const target of deliveryTargets) {
+      // Promise continuations alone starve health and browser I/O during fan-out.
+      // Stagger worker starts across event-loop turns while sends stay concurrent.
+      await yieldToEventLoop();
+      workers.push(Promise.allSettled([startWorker(target)]));
+    }
+    const outcomes = (await Promise.all(workers)).flat();
     const failed = outcomes.find(({ status }) => status === "rejected");
     if (failed) throw failed.reason;
   };

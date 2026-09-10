@@ -133,9 +133,19 @@ Scheduled monitoring uses the `--ready` form. Passing neither flag probes
 can crawl, so a running but unready application would report as ready and no
 readiness alert would fire.
 
-Monitoring should alert on HTTP 503 and route the returned reason/component
-code to the matching runbook. It should never copy environment variables,
-state files, or browser diagnostics into probe output.
+The response also includes `alertReasons`: the readiness reasons that have
+passed the application's alert grace policy. Host monitoring counts a failed
+probe only when this array is nonempty. A challenge inside its grace period
+still reports HTTP 503 and `BROWSER_VERIFICATION_REQUIRED` in `reasons`, while
+staleness, exhausted crawl failures, and startup failures remain alertable.
+`node src/health-check.js --ready --json` prints only status and these two
+bounded code arrays, preserving a nonzero exit for an unready response. It
+distinguishes `READINESS_PROBE_TIMEOUT`, `READINESS_PROBE_FAILED`, and
+`READINESS_RESPONSE_INVALID` from an application-reported readiness failure.
+
+Monitoring routes alertable failures to the matching reason/component runbook.
+It must never copy environment variables, state files, or browser diagnostics
+into probe output.
 
 ## Deployment validation
 

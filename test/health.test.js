@@ -16,6 +16,7 @@ import {
   isApplicationCommand,
   probeLiveness,
   probeReadiness,
+  probeReadinessSummary,
   superviseLiveness,
 } from "../src/health-check.js";
 
@@ -352,6 +353,82 @@ test("liveness probe accepts only a responsive success status", async (t) => {
   );
 });
 
+test("readiness summaries distinguish challenge grace, invalid responses, and timeouts", async (t) => {
+  let body = {
+    ready: false,
+    reasons: ["BROWSER_VERIFICATION_REQUIRED"],
+    alertReasons: [],
+    privateAccess: { secret: "must not appear" },
+  };
+  let respond = true;
+  const server = createServer((_request, response) => {
+    if (!respond) return;
+    response.writeHead(503);
+    response.end(JSON.stringify(body));
+  });
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  t.after(() => server.close());
+  const options = {
+    host: "127.0.0.1",
+    port: server.address().port,
+    timeoutMs: 2000,
+  };
+  assert.deepEqual(await probeReadinessSummary(options), {
+    status: "not_ready",
+    reasons: ["BROWSER_VERIFICATION_REQUIRED"],
+    alertReasons: [],
+  });
+  const child = spawn(
+    process.execPath,
+    [
+      new URL("../src/health-check.js", import.meta.url).pathname,
+      "--ready",
+      "--json",
+    ],
+    {
+      env: {
+        ...process.env,
+        HEALTH_HOST: options.host,
+        HEALTH_PORT: String(options.port),
+      },
+    },
+  );
+  let output = "";
+  child.stdout.on("data", (chunk) => {
+    output += chunk;
+  });
+  const [exitCode] = await once(child, "close");
+  assert.equal(exitCode, 1);
+  assert.deepEqual(JSON.parse(output), await probeReadinessSummary(options));
+  assert.doesNotMatch(output, /secret|privateAccess/u);
+  body = { ...body, reasons: ["CRAWL_STALE"], alertReasons: ["CRAWL_STALE"] };
+  assert.deepEqual((await probeReadinessSummary(options)).alertReasons, [
+    "CRAWL_STALE",
+  ]);
+  body.alertReasons = [];
+  assert.deepEqual((await probeReadinessSummary(options)).reasons, [
+    "READINESS_RESPONSE_INVALID",
+  ]);
+  body = {
+    ready: false,
+    reasons: ["CRAWL_STALE"],
+    alertReasons: ["CRAWL_STALE"],
+    padding: "x".repeat(20_000),
+  };
+  assert.deepEqual((await probeReadinessSummary(options)).reasons, [
+    "READINESS_RESPONSE_INVALID",
+  ]);
+  body = { ready: false, reasons: ["secret value"] };
+  assert.deepEqual((await probeReadinessSummary(options)).reasons, [
+    "READINESS_RESPONSE_INVALID",
+  ]);
+  respond = false;
+  assert.deepEqual(
+    (await probeReadinessSummary({ ...options, timeoutMs: 10 })).reasons,
+    ["READINESS_PROBE_TIMEOUT"],
+  );
+});
+
 test("liveness probe rejects malformed canonical health configuration", async () => {
   await assert.rejects(
     probeLiveness({ env: { HEALTH_PORT: "invalid" } }),
@@ -467,6 +544,7 @@ test("a browser challenge alerts only once it survives five crawls in a row", ()
     );
   }
   monitor.recordBrowserChallenge();
+  assert.deepEqual(monitor.readiness().alertReasons, []);
   monitor.recordCrawlSuccess();
   assert.deepEqual(firings(), []);
 
@@ -541,7 +619,10 @@ test("readiness probes do not bypass the runtime challenge alert threshold", () 
   }
   assert.deepEqual(alerts, []);
   monitor.recordCrawlFailure("browser_challenge");
-  monitor.readiness();
+  assert.deepEqual(monitor.readiness().alertReasons, [
+    "BROWSER_VERIFICATION_REQUIRED",
+    "CRAWL_FAILURE_THRESHOLD",
+  ]);
   assert.deepEqual(
     alerts.find(({ name }) => name === "readiness_failure")?.reasons,
     ["BROWSER_VERIFICATION_REQUIRED", "CRAWL_FAILURE_THRESHOLD"],

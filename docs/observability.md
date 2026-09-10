@@ -124,7 +124,12 @@ rentalctl timers
 ```
 
 `status` reads the atomic snapshot and performs a fresh readiness probe. It
-also reads the monitor's atomic alert state, so its human firing count and the
+shows the fresh readiness reason codes in both human and JSON output. The
+snapshot retains `readinessReasons` and `readinessAlertReasons` so the host
+monitor honors the application's runtime challenge grace period. Probe
+timeouts, invalid responses, and transport failures remain alertable and
+appear as distinct stable codes in host readiness notifications.
+It also reads the monitor's atomic alert state, so its human firing count and the
 JSON `monitorAlerts` array include database, capacity, deployment, and timer
 alerts as well as application alerts evaluated by the monitor. `metrics`
 recalculates from retained journal records. This is recalculable
@@ -202,7 +207,7 @@ so token and owner destination never enter argv or journal records.
 | Alert name                             | Trigger                                                 |
 | -------------------------------------- | ------------------------------------------------------- |
 | `readiness_failure`                    | readiness fails, with runtime challenge grace           |
-| `host_readiness_failure`               | two consecutive host readiness probes fail              |
+| `host_readiness_failure`               | two consecutive alertable host readiness probes fail    |
 | `browser_challenge`                    | fifth crawl in a row ends still challenged              |
 | `list_am_source_integrity`             | hard List.am source-integrity failure                   |
 | `invalid_telegram_credentials`         | terminal Telegram authentication rejection              |

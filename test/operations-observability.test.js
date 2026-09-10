@@ -120,7 +120,16 @@ esac
   await executable(
     join(bin, "docker"),
     `#!/bin/sh
-if [ "$1" = "exec" ]; then exit "$(cat "$RENTAL_TEST_READINESS_EXIT")"; fi
+if [ "$1" = "exec" ]; then
+  if [ -n "$RENTAL_TEST_READINESS_JSON" ]; then
+    cat "$RENTAL_TEST_READINESS_JSON"
+  elif [ "$(cat "$RENTAL_TEST_READINESS_EXIT")" = "0" ]; then
+    printf '%s\\n' '{"status":"ready","reasons":[],"alertReasons":[]}'
+  else
+    printf '%s\\n' '{"status":"not_ready","reasons":["READINESS_PROBE_FAILED"],"alertReasons":["READINESS_PROBE_FAILED"]}'
+  fi
+  exit "$(cat "$RENTAL_TEST_READINESS_EXIT")"
+fi
 if [ "$1" = "inspect" ]; then
   printf '%s\\n' '[{"Image":"sha256:abc","Config":{"Labels":{"org.opencontainers.image.revision":"${"a".repeat(40)}"}},"State":{"Running":true,"StartedAt":"'"$(cat "$RENTAL_TEST_CONTAINER_STARTED")"'","Health":{"Status":"healthy"}},"RestartCount":0}]'
   exit 0
@@ -640,6 +649,53 @@ test("the host readiness alert resolves alongside an application alert of its ow
   assert.equal(
     alertState.alerts.find(({ name }) => name === "host_readiness_failure"),
     undefined,
+  );
+});
+
+test("host monitoring preserves challenge grace without hiding stale crawling", async (t) => {
+  const host = await fakeHost(t);
+  const response = join(host.root, "readiness.json");
+  host.env.RENTAL_TEST_READINESS_JSON = response;
+  await writeFile(host.readinessExit, "1\n");
+  await writeFile(
+    response,
+    JSON.stringify({
+      status: "not_ready",
+      reasons: ["BROWSER_VERIFICATION_REQUIRED"],
+      alertReasons: [],
+    }),
+  );
+  for (let i = 0; i < 4; i += 1) await execute(monitor, [], { env: host.env });
+  let state = JSON.parse(
+    await readFile(join(host.state, "alerts.json"), "utf8"),
+  );
+  assert.equal(state.readinessFailureCount, 0);
+  assert.equal(
+    state.alerts.some(({ name }) => name === "host_readiness_failure"),
+    false,
+  );
+  const status = JSON.parse(
+    (await execute(rentalctl, ["status", "--json"], { env: host.env })).stdout,
+  );
+  assert.equal(status.freshReadiness.status, "not_ready");
+  assert.deepEqual(status.freshReadiness.reasons, [
+    "BROWSER_VERIFICATION_REQUIRED",
+  ]);
+
+  await writeFile(
+    response,
+    JSON.stringify({
+      status: "not_ready",
+      reasons: ["BROWSER_VERIFICATION_REQUIRED", "CRAWL_STALE"],
+      alertReasons: ["CRAWL_STALE"],
+    }),
+  );
+  for (let i = 0; i < 2; i += 1) await execute(monitor, [], { env: host.env });
+  state = JSON.parse(await readFile(join(host.state, "alerts.json"), "utf8"));
+  assert.equal(state.readinessFailureCount, 2);
+  assert.match(
+    state.alerts.find(({ name }) => name === "host_readiness_failure").reason,
+    /CRAWL_STALE/u,
   );
 });
 

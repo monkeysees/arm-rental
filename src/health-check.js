@@ -38,6 +38,61 @@ export async function probeReadiness(options = {}) {
   return probeEndpoint("/ready", options);
 }
 
+export async function probeReadinessSummary(options = {}) {
+  try {
+    return await probeEndpoint("/ready", { ...options, summary: true });
+  } catch (error) {
+    const reason =
+      error.code === "READINESS_PROBE_TIMEOUT"
+        ? error.code
+        : error.code === "READINESS_RESPONSE_INVALID"
+          ? error.code
+          : "READINESS_PROBE_FAILED";
+    return { status: "not_ready", reasons: [reason], alertReasons: [reason] };
+  }
+}
+
+function readinessSummary(response, body) {
+  const invalid = () => {
+    const error = new Error("Invalid readiness response");
+    error.code = "READINESS_RESPONSE_INVALID";
+    return error;
+  };
+  let value;
+  try {
+    value = JSON.parse(body);
+  } catch {
+    throw invalid();
+  }
+  const validReasons = (reasons) =>
+    Array.isArray(reasons) &&
+    reasons.length <= 8 &&
+    reasons.every(
+      (reason) =>
+        typeof reason === "string" && /^[A-Z][A-Z0-9_]{0,79}$/u.test(reason),
+    );
+  if (
+    !value ||
+    typeof value.ready !== "boolean" ||
+    !validReasons(value.reasons) ||
+    !validReasons(value.alertReasons) ||
+    !value.alertReasons.every((reason) => value.reasons.includes(reason)) ||
+    !value.reasons.every(
+      (reason) =>
+        reason === "BROWSER_VERIFICATION_REQUIRED" ||
+        value.alertReasons.includes(reason),
+    ) ||
+    value.ready !== (value.reasons.length === 0) ||
+    response.statusCode !== (value.ready ? 200 : 503)
+  )
+    throw invalid();
+  return {
+    status: value.ready ? "ready" : "not_ready",
+    reasons: value.reasons,
+    alertReasons: value.alertReasons,
+  };
+}
+
 function probeEndpoint(endpointPath, options = {}) {
   const endpoint = getHealthEndpointConfig(options.env);
   const host = options.host ?? endpoint.host;
@@ -59,6 +114,29 @@ function probeEndpoint(endpointPath, options = {}) {
         timeout: timeoutMs,
       },
       (response) => {
+        if (options.summary) {
+          let body = "";
+          response.setEncoding("utf8");
+          response.on("data", (chunk) => {
+            body += chunk;
+            if (body.length > 16_384) {
+              const error = new Error("Readiness response exceeds its bound");
+              error.code = "READINESS_RESPONSE_INVALID";
+              reject(error);
+              response.destroy();
+              probe.destroy();
+            }
+          });
+          response.once("error", reject);
+          response.once("end", () => {
+            try {
+              resolve(readinessSummary(response, body));
+            } catch (error) {
+              reject(error);
+            }
+          });
+          return;
+        }
         response.resume();
         if (response.statusCode === 200) resolve();
         else
@@ -70,7 +148,9 @@ function probeEndpoint(endpointPath, options = {}) {
       },
     );
     probe.once("timeout", () => {
-      probe.destroy(new Error(`Probe of ${endpointPath} timed out`));
+      const error = new Error(`Probe of ${endpointPath} timed out`);
+      error.code = "READINESS_PROBE_TIMEOUT";
+      probe.destroy(error);
     });
     probe.once("error", reject);
     probe.end();
@@ -209,6 +289,12 @@ async function main() {
   // on readiness would loop the container through failures a restart cannot
   // fix, so the two never share the recovery path.
   const readinessMode = process.argv.includes("--ready");
+  if (readinessMode && process.argv.includes("--json")) {
+    const summary = await probeReadinessSummary();
+    process.stdout.write(`${JSON.stringify(summary)}\n`);
+    if (summary.status !== "ready") process.exitCode = 1;
+    return;
+  }
   // Only the supervised healthcheck keeps the failure run. An operator probing
   // by hand must neither arm the termination path nor reset one that is
   // already counting towards it.

@@ -509,6 +509,65 @@ test("a browser challenge alerts only once it survives five crawls in a row", ()
   );
 });
 
+test("readiness probes do not bypass the runtime challenge alert threshold", () => {
+  const alerts = [];
+  let currentTime = new Date("2026-07-25T10:00:00.000Z");
+  const monitor = new HealthMonitor({
+    version: "1.0.0",
+    now: () => currentTime,
+    onAlert: (alert) => alerts.push(alert),
+  });
+  monitor.setPreflight(readyPreflight);
+  monitor.recordExchangeRateSnapshot(snapshot(currentTime.toISOString()));
+  monitor.setMonitoringState({ active: true, channelConfigured: false });
+  monitor.recordCrawlSuccess();
+
+  monitor.recordBrowserChallenge();
+  assert.deepEqual(monitor.readiness().reasons, [
+    "BROWSER_VERIFICATION_REQUIRED",
+  ]);
+  currentTime = new Date("2026-07-25T10:00:09.000Z");
+  monitor.recordCrawlSuccess();
+  assert.equal(monitor.readiness().ready, true);
+  assert.deepEqual(
+    alerts,
+    [],
+    "a nine-second challenge must send neither edge",
+  );
+
+  for (let attempt = 0; attempt < 4; attempt += 1) {
+    monitor.recordCrawlFailure("browser_challenge");
+    assert.equal(monitor.readiness().ready, false);
+  }
+  assert.deepEqual(alerts, []);
+  monitor.recordCrawlFailure("browser_challenge");
+  monitor.readiness();
+  assert.deepEqual(
+    alerts.find(({ name }) => name === "readiness_failure")?.reasons,
+    ["BROWSER_VERIFICATION_REQUIRED", "CRAWL_FAILURE_THRESHOLD"],
+  );
+
+  monitor.recordCrawlSuccess();
+  monitor.readiness();
+  assert.deepEqual(
+    alerts
+      .filter(({ name }) => name === "readiness_failure")
+      .map(({ status }) => status),
+    ["firing", "resolved"],
+  );
+  alerts.length = 0;
+  monitor.recordBrowserChallenge();
+  currentTime = new Date("2026-07-25T10:10:09.000Z");
+  monitor.readiness();
+  assert.deepEqual(alerts, [
+    {
+      name: "readiness_failure",
+      status: "firing",
+      reasons: ["CRAWL_STALE"],
+    },
+  ]);
+});
+
 test("a preflight challenge alerts on sight because no crawl can clear it", () => {
   const alerts = [];
   const monitor = new HealthMonitor({

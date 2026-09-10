@@ -446,8 +446,17 @@ export class HealthMonitor {
 
     const uniqueReasons = [...new Set(reasons)];
     if (this.preflight.status !== "pending") {
-      this.#setAlert("readiness_failure", uniqueReasons.length > 0, {
-        reasons: uniqueReasons,
+      // A readiness probe must not turn a retryable challenge into an alert
+      // before the dedicated challenge threshold. Other failures still alert.
+      const alertReasons = uniqueReasons.filter(
+        (reason) =>
+          reason !== "BROWSER_VERIFICATION_REQUIRED" ||
+          this.preflight.status !== "ready" ||
+          this.browserChallenge.consecutiveCrawls >=
+            this.browserChallengeAlertCrawls,
+      );
+      this.#setAlert("readiness_failure", alertReasons.length > 0, {
+        reasons: alertReasons,
       });
     }
     this.#setAlert(

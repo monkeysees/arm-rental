@@ -201,7 +201,7 @@ so token and owner destination never enter argv or journal records.
 
 | Alert name                             | Trigger                                                 |
 | -------------------------------------- | ------------------------------------------------------- |
-| `readiness_failure`                    | readiness remains failed                                |
+| `readiness_failure`                    | readiness fails, with runtime challenge grace           |
 | `host_readiness_failure`               | two consecutive host readiness probes fail              |
 | `browser_challenge`                    | fifth crawl in a row ends still challenged              |
 | `list_am_source_integrity`             | hard List.am source-integrity failure                   |

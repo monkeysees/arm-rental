@@ -35,7 +35,12 @@ readiness reason appear as soon as the challenge is seen, but the
 ended without clearing the challenge, roughly five minutes at the default poll
 interval. List.am challenges a single page far more often than it locks the
 profile out, and a challenge the next crawl answers is not an operator's
-problem. Repeated challenges inside one crawl count once, so the threshold
+problem. The generic `readiness_failure` alert applies the same threshold to
+the browser-verification reason, so a readiness probe cannot bypass this delay.
+The HTTP readiness response still reports the challenge immediately. Other
+alert reasons remain active, including ten-minute crawl staleness and five
+consecutive crawl failures, even while a browser challenge is being retried.
+Repeated challenges inside one crawl count once, so the threshold
 measures crawls rather than page fetches. A startup/preflight challenge cannot
 recover this way because the runtime-only retry and crawling have not begun, so
 it alerts on sight; follow

@@ -296,6 +296,14 @@ ten minutes old with fewer than five consecutive failures. A success resets
 both failure and age gates. Browser verification has its own immediately
 visible challenge state.
 
+Readiness responses and alert eligibility are separate: a runtime browser
+challenge makes the endpoint non-ready immediately, but both `browser_challenge`
+and the browser reason in `readiness_failure` wait for five crawls ending still
+challenged. This prevents a host readiness probe from bypassing the retry grace
+period and emitting firing/resolved notifications for a seconds-long challenge.
+Other readiness reasons retain their existing gates; preflight challenges alert
+immediately because runtime recovery has not started.
+
 The current CBA snapshot timestamp is included without its quote contents. A
 snapshot older than 48 hours is a warning; no usable snapshot makes readiness
 false whenever the active crawl path requires currency conversion. Component

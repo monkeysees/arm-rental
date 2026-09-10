@@ -98,6 +98,9 @@ synchronization does not block polling or apartment monitoring. If it fails, the
 failure is logged and retried hourly until the first successful synchronization;
 the metadata loop then exits for the lifetime of that process.
 
+The welcome text and short profile description include the contact @monkeysees
+and the channel «Жилье в Ереване от собственников» (@yerevan_rental).
+
 Private access defaults to `public`, so any Telegram user can send `/start` or
 `/menu` to the bot in a private chat. Set `TELEGRAM_ACCESS_MODE=owner` to permit only
 `TELEGRAM_OWNER_ID`, or use `allowlist` to permit the owner plus at least one

@@ -111,6 +111,7 @@ test("launch failure removes the isolated Chrome runtime directory", async (t) =
     ),
   );
   assert.equal(launchOptions.env.HOME, launchOptions.env.TMPDIR);
+  assert.equal(launchOptions.env.SQLITE_TMPDIR, launchOptions.env.TMPDIR);
   assert.equal(
     launchOptions.env.XDG_CACHE_HOME,
     path.join(launchOptions.env.TMPDIR, "cache"),

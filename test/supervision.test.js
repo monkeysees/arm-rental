@@ -38,7 +38,15 @@ test("production supervision prevents overlapping replicas and bounds restarts",
     deployment,
     /healthcheck:[\s\S]*?interval: 30s[\s\S]*?timeout: 5s[\s\S]*?start_period: 60s[\s\S]*?retries: 2/u,
   );
-  assert.match(deployment, /tmpfs:[\s\S]*?- \/tmp:size=\d+,mode=1777/u);
+  assert.match(deployment, /SQLITE_TMPDIR: \/sqlite-tmp/u);
+  assert.match(
+    deployment,
+    /tmpfs:[\s\S]*?- \/tmp:size=134217728,mode=1777,nosuid,nodev,noexec/u,
+  );
+  assert.match(
+    deployment,
+    /tmpfs:[\s\S]*?- \/sqlite-tmp:size=134217728,mode=0700,uid=1000,gid=1000,nosuid,nodev,noexec/u,
+  );
   assert.doesNotMatch(deployment, /^\s+ports:/mu);
 
   const dockerfile = await readProjectFile("Dockerfile");

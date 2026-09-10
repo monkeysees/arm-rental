@@ -624,6 +624,9 @@ export class BrowserPageFetcher {
               // them in the launch-scoped tmpfs.
               HOME: runtime.directory,
               TMPDIR: runtime.directory,
+              // Chrome also uses SQLite; keep its scratch files off the
+              // application's dedicated SQLite mount.
+              SQLITE_TMPDIR: runtime.directory,
               XDG_CACHE_HOME: path.join(runtime.directory, "cache"),
               XDG_CONFIG_HOME: path.join(runtime.directory, "config"),
               XDG_RUNTIME_DIR: runtime.directory,

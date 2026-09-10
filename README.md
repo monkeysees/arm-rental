@@ -434,8 +434,12 @@ Telegram token shapes, Telegram Bot API URLs, and authorization-like values,
 but redaction is not a substitute for keeping secrets out of inputs.
 
 Compose makes the image filesystem read-only. The durable `/app/.data` volume
-is the only persistent writable location; `/tmp` and `/dev/shm` are bounded
-128 MiB and 256 MiB in-memory filesystems. The service publishes no ports.
+is the only persistent application-state location. Chrome's `/tmp` and the
+application's `/sqlite-tmp` each have a separate 128 MiB in-memory filesystem;
+`/dev/shm` retains its 256 MiB limit. `SQLITE_TMPDIR` directs application SQLite
+scratch files to `/sqlite-tmp`, while Chrome's own SQLite scratch files stay
+under its launch directory in `/tmp`. The database and WAL remain in
+`/app/.data`. The service publishes no ports.
 Chrome runs with its normal sandbox, and its control channel is not externally
 routable. Do not disable the Chrome sandbox, publish a Chrome debugging port,
 or mount a developer `.data` tree into production.

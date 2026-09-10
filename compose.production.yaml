@@ -24,6 +24,7 @@ services:
       CHROME_EXECUTABLE_PATH: /usr/bin/chromium
       HEALTH_HOST: 127.0.0.1
       HEALTH_PORT: "8787"
+      SQLITE_TMPDIR: /sqlite-tmp
     volumes:
       - rental-apartments-data:/app/.data
       # Recovery points are on a separately provisioned volume. Compose cannot
@@ -31,6 +32,7 @@ services:
       - rental-apartments-backups:/app-backups
     tmpfs:
       - /tmp:size=134217728,mode=1777,nosuid,nodev,noexec
+      - /sqlite-tmp:size=134217728,mode=0700,uid=1000,gid=1000,nosuid,nodev,noexec
       - /dev/shm:size=268435456,mode=1777,nosuid,nodev,noexec
     restart: "on-failure:5"
     # journald owns persistent, compressed, size-bounded retention on the host.

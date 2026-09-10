@@ -464,9 +464,14 @@ and browser, leaving no package manager in the production filesystem.
 The final process runs as the official Node image's dedicated, unprivileged
 `node` account. The production Compose definition repeats that user boundary
 and makes the image root filesystem read-only. Its only application-persistent
-writable path is `/app/.data`; `/tmp` and `/dev/shm` are explicit in-memory
-filesystems capped at 128 MiB and 256 MiB respectively, with device, set-user-ID,
-and executable-file behavior disabled. The service publishes no inbound ports.
+writable path is `/app/.data`. Chrome's `/tmp` and application SQLite's
+`/sqlite-tmp` are separate in-memory filesystems, each capped at 128 MiB;
+`/dev/shm` is capped at 256 MiB. All three disable device, set-user-ID, and
+executable-file behavior. The SQLite mount is mode `0700`, owned by the
+container's `node` account (UID/GID 1000). Compose sets `SQLITE_TMPDIR` before
+Node starts, directing disposable SQLite working files away from Chrome's
+temporary-space budget. The database and WAL remain on the persistent data
+volume. The service publishes no inbound ports.
 
 Chrome retains its Linux sandbox. The pinned `chrome-sandbox` helper is owned by
 root with its required mode in the image, while Chrome itself is launched by
@@ -662,7 +667,9 @@ profile-only transfer fallback are documented in
 Each Chrome launch uses a profile-keyed, mode-`0700` runtime root beneath the
 bounded system temporary directory. Startup clears stale resources left by a
 prior failed browser/service run. HOME, XDG configuration/cache, and the XDG
-runtime path all resolve beneath this tmpfs-backed launch directory, so Chrome
+runtime path all resolve beneath this tmpfs-backed launch directory. Chrome's
+child environment also overrides `SQLITE_TMPDIR` to this directory so its own
+SQLite use cannot consume the application's separate scratch mount. Chrome
 never needs to write to the immutable image home. Browser-owned Breakpad and
 crash-reporter subprocesses are disabled because they require additional
 mutable or tracing facilities; application-owned structured logging records

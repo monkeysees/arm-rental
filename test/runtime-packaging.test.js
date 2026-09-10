@@ -43,7 +43,7 @@ test("production packaging installs locked dependencies and a patched browser in
     /^ARG CHROME_VERSION=(?<version>[0-9.]+)$/mu,
   )?.groups?.version;
 
-  assert.equal(chromeVersion, "152.0.7977.75");
+  assert.equal(chromeVersion, "152.0.7977.82");
   assert.equal(
     chromeVersion.split(".")[0],
     PUPPETEER_REVISIONS.chrome.split(".")[0],
@@ -70,11 +70,11 @@ test("production packaging installs locked dependencies and a patched browser in
   assert.match(workflow, /sed 's\/\[\[:space:\]\]\*\$\/\//u);
   assert.match(
     workflow,
-    /Chromium 152\.0\.7977\.75 built on Debian GNU\/Linux 12 \(bookworm\)/u,
+    /Chromium 152\.0\.7977\.82 built on Debian GNU\/Linux 12 \(bookworm\)/u,
   );
   assert.match(
     publishWorkflow,
-    /org\.opencontainers\.image\.chrome\.version[\s\S]*?152\.0\.7977\.75/u,
+    /org\.opencontainers\.image\.chrome\.version[\s\S]*?152\.0\.7977\.82/u,
   );
   assert.match(workflow, /run: npm ci/u);
   assert.match(workflow, /run: npm run check/u);

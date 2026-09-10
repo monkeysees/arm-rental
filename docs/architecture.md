@@ -340,10 +340,10 @@ separate `npm ci --omit=dev`, so development-only tooling is not deployed.
 
 The Linux AMD64 production image is based on the immutable multi-platform
 digest of the official Node.js 24.18.0 Bookworm Slim image. It installs Debian
-Chromium 152.0.7977.75 and its set-user-ID sandbox helper from the Debian
-snapshot dated 2026-08-13. This stays within Puppeteer Core 25.4.0's supported
-Chrome 151 milestone while avoiding the milestone's Chrome for Testing builds,
-whose Linux AMD64 browser process terminates during sandboxed X11 startup.
+Chromium 152.0.7977.82 and its set-user-ID sandbox helper from the Debian
+snapshot dated 2026-09-05. This stays within Puppeteer Core 25.10.0's supported
+Chrome 152 milestone. Debian's browser packages preserve the sandboxed X11
+startup used by the production browser smoke test.
 Installing the exact browser package and its libraries from one snapshot makes
 them part of the image build rather than undocumented host state. OCI image
 labels expose the exact Node and browser versions for deployment inventory and

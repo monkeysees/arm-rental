@@ -235,7 +235,7 @@ test("BROWSER_LOAD_IMAGES restores image loading without a rebuild", async (t) =
   );
 });
 
-test("the user agent and client hints follow the installed Chromium version", async (t) => {
+test("the reduced user agent and full-version hints follow installed Chromium", async (t) => {
   const config = await temporaryConfig(t);
   const assigned = [];
   let launchOptions;
@@ -261,8 +261,8 @@ test("the user agent and client hints follow the installed Chromium version", as
   assert.equal(
     userAgent,
     "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) " +
-      "Chrome/161.0.9001.4 Safari/537.36",
-    "an upgraded runtime browser must present its installed version",
+      "Chrome/161.0.0.0 Safari/537.36",
+    "desktop Chrome reduces the user-agent version while hints retain the build",
   );
   assert.equal(
     userAgent.includes("Headless"),
@@ -282,6 +282,11 @@ test("the user agent and client hints follow the installed Chromium version", as
   assert.equal(metadata.fullVersion, "161.0.9001.4");
   assert.equal(metadata.platform, "Linux");
   assert.equal(metadata.mobile, false);
+  assert.ok(
+    launchOptions.args.includes(
+      "--disable-blink-features=AutomationControlled",
+    ),
+  );
   assert.equal(
     launchOptions.args.includes("--start-minimized"),
     false,
@@ -334,13 +339,28 @@ test("a stale browser identity override cannot mask the installed version", asyn
   await fetcher.start();
   await fetcher.close();
 
-  assert.match(assigned[0].userAgent, /Chrome\/161\.0\.9001\.4 Safari/u);
+  assert.match(assigned[0].userAgent, /Chrome\/161\.0\.0\.0 Safari/u);
   assert.equal(assigned[0].metadata.fullVersion, "161.0.9001.4");
   assert.equal(
     assigned[0].metadata.brands.find(({ brand }) => brand === "Chromium")
       ?.version,
     "161",
   );
+});
+
+test("browser startup leaves navigator properties native", async (t) => {
+  const config = await temporaryConfig(t);
+  const page = browserPage({
+    evaluateOnNewDocument: async () => {
+      assert.fail("startup must not inject navigator property overrides");
+    },
+  });
+  const fetcher = new BrowserPageFetcher(config, {
+    platform: "linux",
+    puppeteerImpl: { launch: async () => launchedBrowser(page) },
+  });
+  await fetcher.start();
+  await fetcher.close();
 });
 
 test("an invalid installed browser version closes Chrome before navigation", async (t) => {

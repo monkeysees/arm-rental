@@ -188,6 +188,6 @@ test("production browser launch keeps the sandbox and restricts debugging to loo
   assert.equal(
     assignedUserAgent,
     "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) " +
-      "Chrome/150.0.7871.181 Safari/537.36",
+      "Chrome/150.0.0.0 Safari/537.36",
   );
 });

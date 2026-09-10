@@ -78,6 +78,15 @@ use the same `BROWSER_PROFILE_DIR`. Chrome writes cookies and site storage
 before the verifier closes it, so verification survives service restarts and
 artifact replacement as long as the persistent volume is retained.
 
+## Browser identity
+
+The browser uses ordinary desktop Chrome's reduced user-agent version
+(`Chrome/<major>.0.0.0`) and retains the installed full version in client hints.
+Headful verification and headless crawling use the same identity. Navigator
+properties remain native rather than being replaced with page JavaScript
+getters. These consistency checks do not guarantee acceptance by List.am;
+compare challenge rates after release to measure their effect.
+
 ## Image loading
 
 The crawl browser loads page images, as `BROWSER_LOAD_IMAGES` defaults to

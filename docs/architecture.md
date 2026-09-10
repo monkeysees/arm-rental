@@ -707,11 +707,14 @@ challenges. A failed page still disposes its browser immediately: abandoning
 the process is what recovers a stall, and the retry needs a fresh one. Headful
 interactive operation continues to reuse its visible browser across sessions.
 The browser version presented to List.am is read from the running Chromium
-process. The user agent and `Sec-CH-UA` client hints use that same full version,
-so browser upgrades are reflected in both. Headless mode's `HeadlessChrome/`
+process. The user agent uses Chrome's reduced `<major>.0.0.0` form, while
+high-entropy client hints retain the installed full build version. Browser
+upgrades are therefore reflected in both. Headless mode's `HeadlessChrome/`
 product token is normalized to `Chrome/`. Headless and headful launches of the
 same installed browser present the same version. There is no separate identity
-pin or environment override.
+pin or environment override. The existing native Blink automation setting
+handles `navigator.webdriver`; startup does not install an own-property
+JavaScript getter on `navigator`.
 Optional scrolling uses immediate compositor updates and short Node-side pacing
 delays around synchronous browser evaluations. Smooth-scroll animations cannot
 accumulate across navigations, and headless page-timer throttling therefore

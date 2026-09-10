@@ -129,6 +129,14 @@ try {
     const response = await fetcher.fetch(target);
     assert.equal(response.status, 200);
     assert.match(await response.text(), new RegExp(marker, "u"));
+    const identity = await fetcher.page.evaluate(() => ({
+      userAgent: navigator.userAgent,
+      webdriver: navigator.webdriver,
+      ownWebdriver: Object.hasOwn(navigator, "webdriver"),
+    }));
+    assert.match(identity.userAgent, /Chrome\/\d+\.0\.0\.0 Safari\//u);
+    assert.equal(identity.webdriver, false);
+    assert.equal(identity.ownWebdriver, false);
   }
   process.stdout.write(`${marker}=passed\n`);
 } finally {

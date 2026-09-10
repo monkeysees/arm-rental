@@ -455,12 +455,13 @@ function userAgentMetadata(version, platform) {
   };
 }
 
-// Normalize the headless product token while retaining the installed version.
+// Desktop Chrome reduces the UA version; full build details belong in hints.
 async function applyUserAgent(page, version, platform) {
   const { token } = userAgentPlatform(platform);
+  const major = version.split(".")[0];
   await page.setUserAgent(
     `Mozilla/5.0 (${token}) AppleWebKit/537.36 (KHTML, like Gecko) ` +
-      `Chrome/${version} Safari/537.36`,
+      `Chrome/${major}.0.0.0 Safari/537.36`,
     userAgentMetadata(version, platform),
   );
 }
@@ -626,12 +627,6 @@ export class BrowserPageFetcher {
       }
 
       this.page.setDefaultNavigationTimeout(this.config.timeoutMs);
-      await this.page.evaluateOnNewDocument(() => {
-        Object.defineProperty(navigator, "webdriver", {
-          configurable: true,
-          get: () => undefined,
-        });
-      });
       const browserVersion = await this.browser.version();
       const version = browserVersion.match(
         /^(?:HeadlessChrome|Chrome|Chromium)\/(\d+(?:\.\d+){3})$/u,

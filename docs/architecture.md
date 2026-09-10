@@ -700,17 +700,12 @@ instead made each page a session of its own, which is the shape List.am
 challenges. A failed page still disposes its browser immediately: abandoning
 the process is what recovers a stall, and the retry needs a fresh one. Headful
 interactive operation continues to reuse its visible browser across sessions.
-The browser version presented to List.am is pinned in the code and is
-deliberately not the version the running Chromium reports. A verification
-cookie is only honoured for the identity it was minted under, so inheriting the
-runtime version re-challenged the profile on every Chromium security upgrade;
-moving the image from 151 to 152 did exactly that. The user agent and the
-`Sec-CH-UA` client hints are built from that single pinned version, so the two
-cannot disagree, and headless mode's `HeadlessChrome/` product token never
-appears. Both headless and headful launches present the same identity, so the
-session `npm run browser:verify` mints is the session the crawl reuses. Moving
-the pin is an operator action paired with a fresh verification, and
-`BROWSER_USER_AGENT_VERSION` overrides it without a rebuild.
+The browser version presented to List.am is read from the running Chromium
+process. The user agent and `Sec-CH-UA` client hints use that same full version,
+so browser upgrades are reflected in both. Headless mode's `HeadlessChrome/`
+product token is normalized to `Chrome/`. Headless and headful launches of the
+same installed browser present the same version. There is no separate identity
+pin or environment override.
 Optional scrolling uses immediate compositor updates and short Node-side pacing
 delays around synchronous browser evaluations. Smooth-scroll animations cannot
 accumulate across navigations, and headless page-timer throttling therefore

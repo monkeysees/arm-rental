@@ -17,7 +17,6 @@ import {
   BrowserContentTimeoutError,
   BrowserPageFetcher,
   BrowserVerificationRequiredError,
-  PINNED_CHROME_VERSION,
   findChromeExecutable,
   terminateChromeProcess,
 } from "../src/browser-fetch.js";
@@ -67,6 +66,7 @@ function launchedBrowser(page, onClose = () => {}) {
     close: async () => onClose(),
     connected: true,
     pages: async () => [page],
+    version: async () => "HeadlessChrome/161.0.9001.4",
     process: () => undefined,
   };
 }
@@ -235,15 +235,11 @@ test("BROWSER_LOAD_IMAGES restores image loading without a rebuild", async (t) =
   );
 });
 
-test("the presented browser version does not follow a Chromium upgrade", async (t) => {
+test("the user agent and client hints follow the installed Chromium version", async (t) => {
   const config = await temporaryConfig(t);
   const assigned = [];
   let launchOptions;
   const page = browserPage({
-    // A Chromium security upgrade moves what the runtime reports. Nothing the
-    // browser says about its own version may reach List.am.
-    evaluate: async () =>
-      "Mozilla/5.0 (X11; Linux x86_64) HeadlessChrome/161.0.9001.4",
     setUserAgent: async (userAgent, metadata) =>
       assigned.push({ userAgent, metadata }),
   });
@@ -265,15 +261,15 @@ test("the presented browser version does not follow a Chromium upgrade", async (
   assert.equal(
     userAgent,
     "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) " +
-      `Chrome/${PINNED_CHROME_VERSION} Safari/537.36`,
-    "an upgraded runtime browser must not change the identity List.am sees",
+      "Chrome/161.0.9001.4 Safari/537.36",
+    "an upgraded runtime browser must present its installed version",
   );
   assert.equal(
     userAgent.includes("Headless"),
     false,
     "the headless product token must not reach List.am",
   );
-  const major = PINNED_CHROME_VERSION.split(".")[0];
+  const major = "161.0.9001.4".split(".")[0];
   assert.deepEqual(
     metadata.brands.find(({ brand }) => brand === "Chromium"),
     { brand: "Chromium", version: major },
@@ -281,9 +277,9 @@ test("the presented browser version does not follow a Chromium upgrade", async (
   );
   assert.deepEqual(
     metadata.fullVersionList.find(({ brand }) => brand === "Chromium"),
-    { brand: "Chromium", version: PINNED_CHROME_VERSION },
+    { brand: "Chromium", version: "161.0.9001.4" },
   );
-  assert.equal(metadata.fullVersion, PINNED_CHROME_VERSION);
+  assert.equal(metadata.fullVersion, "161.0.9001.4");
   assert.equal(metadata.platform, "Linux");
   assert.equal(metadata.mobile, false);
   assert.equal(
@@ -321,7 +317,7 @@ test("the interactive verifier presents the identity the crawl will reuse", asyn
   );
 });
 
-test("an operator can pin a browser version without rebuilding the image", async (t) => {
+test("a stale browser identity override cannot mask the installed version", async (t) => {
   const config = await temporaryConfig(t, {
     browserUserAgentVersion: "153.0.8000.11",
   });
@@ -338,13 +334,34 @@ test("an operator can pin a browser version without rebuilding the image", async
   await fetcher.start();
   await fetcher.close();
 
-  assert.match(assigned[0].userAgent, /Chrome\/153\.0\.8000\.11 Safari/u);
-  assert.equal(assigned[0].metadata.fullVersion, "153.0.8000.11");
+  assert.match(assigned[0].userAgent, /Chrome\/161\.0\.9001\.4 Safari/u);
+  assert.equal(assigned[0].metadata.fullVersion, "161.0.9001.4");
   assert.equal(
     assigned[0].metadata.brands.find(({ brand }) => brand === "Chromium")
       ?.version,
-    "153",
+    "161",
   );
+});
+
+test("an invalid installed browser version closes Chrome before navigation", async (t) => {
+  const config = await temporaryConfig(t);
+  let closes = 0;
+  let assignments = 0;
+  const browser = launchedBrowser(
+    browserPage({ setUserAgent: async () => (assignments += 1) }),
+    () => (closes += 1),
+  );
+  browser.version = async () => "Chrome/unknown";
+  const fetcher = new BrowserPageFetcher(config, {
+    puppeteerImpl: { launch: async () => browser },
+  });
+
+  await assert.rejects(
+    fetcher.start(),
+    /did not report a full Chromium version/u,
+  );
+  assert.equal(closes, 1);
+  assert.equal(assignments, 0);
 });
 
 test("challenge detection emits an alertable event and closes Chrome", async (t) => {
@@ -838,6 +855,7 @@ test("cleanup terminates an owned Chrome process when protocol close fails", asy
     },
     connected: true,
     pages: async () => [browserPage()],
+    version: async () => "Chrome/161.0.9001.4",
     process: () => child,
   };
   const fetcher = new BrowserPageFetcher(config, {

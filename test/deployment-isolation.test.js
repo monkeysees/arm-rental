@@ -4,10 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 
-import {
-  BrowserPageFetcher,
-  PINNED_CHROME_VERSION,
-} from "../src/browser-fetch.js";
+import { BrowserPageFetcher } from "../src/browser-fetch.js";
 
 const readProjectFile = (file) =>
   readFile(new URL(`../${file}`, import.meta.url), "utf8");
@@ -153,6 +150,7 @@ test("production browser launch keeps the sandbox and restricts debugging to loo
     close: async () => {},
     connected: true,
     pages: async () => [page],
+    version: async () => "Chrome/150.0.7871.181",
   };
   const fetcher = new BrowserPageFetcher(
     {
@@ -190,6 +188,6 @@ test("production browser launch keeps the sandbox and restricts debugging to loo
   assert.equal(
     assignedUserAgent,
     "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) " +
-      `Chrome/${PINNED_CHROME_VERSION} Safari/537.36`,
+      "Chrome/150.0.7871.181 Safari/537.36",
   );
 });

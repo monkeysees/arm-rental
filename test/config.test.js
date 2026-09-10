@@ -305,29 +305,6 @@ test("configuration rejects invalid owner and page values", () => {
   assert.throws(() => pageUrl(0), /positive integer/);
 });
 
-test("a pinned browser version is either a full version or absent", () => {
-  assert.equal(
-    getConfig({ ...requiredEnvironment, BROWSER_USER_AGENT_VERSION: "" })
-      .browserUserAgentVersion,
-    undefined,
-    "an unset pin falls back to the identity the code owns",
-  );
-  assert.equal(
-    getConfig({
-      ...requiredEnvironment,
-      BROWSER_USER_AGENT_VERSION: " 153.0.8000.11 ",
-    }).browserUserAgentVersion,
-    "153.0.8000.11",
-  );
-  // A major-only value would leave the client hints claiming a build the user
-  // agent never names, which is the disagreement the pin exists to prevent.
-  assert.throws(
-    () =>
-      getConfig({ ...requiredEnvironment, BROWSER_USER_AGENT_VERSION: "153" }),
-    /BROWSER_USER_AGENT_VERSION must be a dotted Chrome version/u,
-  );
-});
-
 test("configuration rejects unsupported modes, unsafe paths, and collisions", () => {
   assert.throws(
     () =>

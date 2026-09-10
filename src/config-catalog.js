@@ -294,16 +294,6 @@ export const CONFIGURATION_CATALOG = Object.freeze([
     purpose: "Lets Chrome fetch and decode page images the crawl never reads.",
   }),
   entry({
-    name: "BROWSER_USER_AGENT_VERSION",
-    configKey: "browserUserAgentVersion",
-    type: "Chrome version",
-    constraints: "Must be a dotted Chrome version such as 152.0.7977.75.",
-    defaultValue: undefined,
-    defaultDescription: "the pinned browser identity",
-    purpose:
-      "Overrides the browser version presented to List.am in the user agent and client hints.",
-  }),
-  entry({
     name: "BROWSER_CHALLENGE_TIMEOUT_MS",
     configKey: "browserChallengeTimeoutMs",
     type: "positive safe integer",

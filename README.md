@@ -283,7 +283,6 @@ details.
 | `BROWSER_PROFILE_DIR`                    | `.data/chrome-profile`                   | Persistent Chrome profile                                      |
 | `BROWSER_HEADLESS`                       | `false`                                  | Run Chrome headlessly                                          |
 | `BROWSER_LOAD_IMAGES`                    | `true`                                   | Fetch and decode page images                                   |
-| `BROWSER_USER_AGENT_VERSION`             | the pinned browser identity              | Browser version shown to List.am                               |
 | `BROWSER_CHALLENGE_TIMEOUT_MS`           | `120000`                                 | Verification wait duration                                     |
 | `BROWSER_PROTOCOL_TIMEOUT_MS`            | `90000`                                  | Chrome command timeout                                         |
 | `BROWSER_CACHE_MAX_BYTES`                | `67108864`                               | Chrome HTTP disk-cache cap in bytes                            |

@@ -20,12 +20,6 @@ import puppeteer from "puppeteer-core";
 const executeFile = promisify(execFile);
 
 const LOOPBACK_DEBUG_ADDRESS = "127.0.0.1";
-// The browser version List.am sees, deliberately decoupled from the Chromium
-// the image ships. A security upgrade must not change the identity a verified
-// profile was granted under: moving 151 to 152 in the image did exactly that
-// and multiplied challenges by roughly thirty. Move this only alongside a
-// fresh `npm run browser:verify`, never as a side effect of a Chromium bump.
-export const PINNED_CHROME_VERSION = "152.0.7977.75";
 // Chrome flushes its cookie store on a clean exit, and the crawl's List.am
 // clearance lives there. Killing the process mid-flush discards a cookie that
 // was just minted, so the next launch is challenged again and mints another —
@@ -435,12 +429,8 @@ function userAgentPlatform(platform) {
   return USER_AGENT_PLATFORMS[platform] || USER_AGENT_PLATFORMS.linux;
 }
 
-/**
- * Builds the `Sec-CH-UA*` metadata that belongs to a pinned browser version.
- * Client hints carry the version a second time, so leaving them to the runtime
- * browser would reintroduce the very mismatch the pinned token removes.
- */
-function pinnedUserAgentMetadata(version, platform) {
+// Keep client hints and the user agent on the same installed browser version.
+function userAgentMetadata(version, platform) {
   const major = version.split(".")[0];
   const brands = [
     // Chromium's own GREASE entry varies between builds and is defined to be
@@ -465,25 +455,13 @@ function pinnedUserAgentMetadata(version, platform) {
   };
 }
 
-/**
- * Presents one identity to List.am for the life of a verified profile.
- *
- * A verification cookie is only honoured for the browser it was minted for, so
- * no field that names a version may move on its own. The identity is built
- * rather than read back from the running browser: reading it inherited the
- * runtime version, which is the coupling being removed, and cost a page
- * evaluation on a renderer that may already be stalling. Headless mode's
- * `HeadlessChrome/` token disappears the same way, which is what the earlier
- * normalization existed to do. Both modes are pinned, so the session
- * `npm run browser:verify` mints headfully is the one the headless crawl
- * presents.
- */
-async function applyPinnedUserAgent(page, version, platform) {
+// Normalize the headless product token while retaining the installed version.
+async function applyUserAgent(page, version, platform) {
   const { token } = userAgentPlatform(platform);
   await page.setUserAgent(
     `Mozilla/5.0 (${token}) AppleWebKit/537.36 (KHTML, like Gecko) ` +
       `Chrome/${version} Safari/537.36`,
-    pinnedUserAgentMetadata(version, platform),
+    userAgentMetadata(version, platform),
   );
 }
 
@@ -654,11 +632,16 @@ export class BrowserPageFetcher {
           get: () => undefined,
         });
       });
-      await applyPinnedUserAgent(
-        this.page,
-        this.config.browserUserAgentVersion || PINNED_CHROME_VERSION,
-        this.platform,
-      );
+      const browserVersion = await this.browser.version();
+      const version = browserVersion.match(
+        /^(?:HeadlessChrome|Chrome|Chromium)\/(\d+(?:\.\d+){3})$/u,
+      )?.[1];
+      if (!version) {
+        throw new Error(
+          "Installed browser did not report a full Chromium version",
+        );
+      }
+      await applyUserAgent(this.page, version, this.platform);
     } catch (error) {
       await this.dispose({ suppressCloseError: true });
       throw error;

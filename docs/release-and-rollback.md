@@ -22,7 +22,7 @@ they cannot falsely report that a requested mutation completed.
 
 `publish-production.yml` runs only after a successful `Required CI` push to
 `main`. It checks out that workflow's exact commit, rebuilds the same pinned
-production inputs, verifies the Node, Chrome, source-revision, and package-lock
+production inputs, verifies the Node, curl-impersonate, source-revision, and package-lock
 OCI labels, and runs the blocking Trivy scan before logging in or pushing.
 GitHub Actions concurrency serializes publication and does not cancel an
 in-progress publisher.
@@ -42,6 +42,38 @@ publishes a metadata image tagged `metadata-<full-git-revision>`. Its
 The publisher copies the metadata back out and compares it byte-for-byte before
 advancing `production`. Therefore a failed quality gate, provenance check,
 scan, candidate push, or metadata push cannot change host discovery.
+
+### First upgrade to the HTTP transport
+
+The preceding release's deployer requires `SYS_ADMIN` in candidate Compose.
+The HTTP release drops all capabilities and enables `no-new-privileges`, so
+that older deployer rejects it before stopping the running application. The
+normal timer has already verified and staged the release bundle at this point;
+it cannot complete this one transition automatically.
+
+After publication, let the normal deployer stage the candidate. Confirm its
+journal failed at Compose validation, with the application still ready, and
+obtain the exact revision and digest from the successful publication record.
+Run the new staged deployer once, using those values (replace both examples):
+
+```sh
+revision=FULL_40_CHARACTER_SOURCE_REVISION
+digest=FULL_64_CHARACTER_IMAGE_DIGEST_WITHOUT_SHA256_PREFIX
+[[ "$revision" =~ ^[0-9a-f]{40}$ && "$digest" =~ ^[0-9a-f]{64}$ ]]
+release="/var/lib/rental-apartments/releases/${revision}-${digest:0:16}"
+sudo jq --exit-status --arg revision "$revision" --arg digest "sha256:$digest" \
+  '.sourceRevision == $revision and .imageDigest == $digest' \
+  "$release/release-metadata.json"
+sudo "$release/ops/deploy" --actor operator:http-transport-upgrade
+```
+
+Use only the root-owned bundle staged and verified by the regular deployer;
+do not invoke an arbitrary downloaded script or repoint `current` manually.
+The new deployer repeats candidate validation, takes the normal snapshot, and
+performs the existing stop-first deployment and rollback checks. Once it
+succeeds, the stable launcher uses the new current release and subsequent
+updates are unattended again. If it fails, retain the receipt and follow the
+rollback procedure below.
 
 ### State backend transitions
 

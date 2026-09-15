@@ -351,7 +351,7 @@ test("deployment observation rejects an unready candidate before the observation
   );
 });
 
-test("first deployment creates a Compose-owned volume and permits only its browser profile", async (t) => {
+test("first deployment creates a Compose-owned volume and permits only its source cookie file", async (t) => {
   const temporaryDirectory = await mkdtemp(
     join(tmpdir(), "deploy-data-volume-"),
   );
@@ -413,11 +413,7 @@ exit 9
     /volume create --driver local --label com\.docker\.compose\.project=rental-apartments --label com\.docker\.compose\.volume=rental-apartments-data rental-apartments-data/u,
   );
 
-  await executeFile("mkdir", [join(mountpoint, "chrome-profile")]);
-  await writeFile(
-    join(mountpoint, "chrome-profile", "Cookies"),
-    "browser identity\n",
-  );
+  await writeFile(join(mountpoint, "list-am-cookies.txt"), "source identity\n");
   await executeFile(
     "bash",
     ["-c", script, "deployment-data-volume-test", temporaryDirectory],
@@ -434,16 +430,16 @@ exit 9
     (error) =>
       error.code === 65 &&
       error.stderr.includes(
-        "First deployment requires empty or browser-profile-only application storage",
+        "First deployment requires empty or source-cookie-only application storage",
       ),
   );
 
   await rm(join(mountpoint, "unexpected-state"));
-  await rm(join(mountpoint, "chrome-profile"), {
+  await rm(join(mountpoint, "list-am-cookies.txt"), {
     recursive: true,
     force: true,
   });
-  await symlink("elsewhere", join(mountpoint, "chrome-profile"), "dir");
+  await symlink("elsewhere", join(mountpoint, "list-am-cookies.txt"), "file");
   await assert.rejects(
     executeFile(
       "bash",
@@ -453,7 +449,7 @@ exit 9
     (error) =>
       error.code === 65 &&
       error.stderr.includes(
-        "First deployment requires empty or browser-profile-only application storage",
+        "First deployment requires empty or source-cookie-only application storage",
       ),
   );
 });

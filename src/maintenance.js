@@ -1,11 +1,6 @@
-import { randomUUID } from "node:crypto";
-import { lstat, readdir, rename, rm } from "node:fs/promises";
+import { lstat } from "node:fs/promises";
 import path from "node:path";
 
-import {
-  browserVerificationStateFile,
-  compatibleBrowserVerification,
-} from "./browser-verification-state.js";
 import { checkDiskSpace } from "./recovery.js";
 import { acquireSingletonLock } from "./singleton-lock.js";
 import { openStateDatabase, stateDatabasePaths } from "./sqlite-database.js";
@@ -31,22 +26,6 @@ export const STATE_DATABASE_CRITICAL_BYTES = 512 * 1024 * 1024;
 export const STATE_WAL_WARNING_BYTES = 25 * 1024 * 1024;
 export const MAINTENANCE_HISTORY_FILENAME = ".maintenance-history.json";
 
-// Only reconstructible network, bytecode, shader, and GPU caches belong here.
-// Cookies, Local Storage, IndexedDB, and Service Worker storage are deliberate
-// omissions because they may contain browser-verification state.
-export const CHROME_CACHE_PATHS = [
-  "Cache",
-  "Code Cache",
-  "GPUCache",
-  "Default/Cache",
-  "Default/Code Cache",
-  "Default/GPUCache",
-  "DawnCache",
-  "GrShaderCache",
-  "GraphiteDawnCache",
-  "ShaderCache",
-];
-
 export class MaintenanceValidationError extends Error {
   constructor(message, details = {}) {
     super(message);
@@ -54,21 +33,6 @@ export class MaintenanceValidationError extends Error {
     this.code = "ERR_MAINTENANCE_VALIDATION";
     this.details = details;
   }
-}
-
-// The only state file maintenance still reads: the browser verification record
-// lives beside the profile it describes, not in the database.
-function browserVerificationSpecification(config) {
-  return {
-    name: "browserVerification",
-    filename: browserVerificationStateFile(config),
-    compatible: (state) =>
-      compatibleBrowserVerification(state, config.listUrlTemplate),
-    counts: (state) => ({
-      entryCount: 1,
-      verifiedAt: state.verifiedAt,
-    }),
-  };
 }
 
 export function stateSizeStatus(bytes) {
@@ -97,60 +61,6 @@ export function sqliteStateAlerts(stateFile) {
     });
   }
   return alerts;
-}
-
-async function stateFileReport(specification) {
-  let details;
-  try {
-    details = await lstat(specification.filename);
-  } catch (error) {
-    if (error.code === "ENOENT") {
-      return {
-        name: specification.name,
-        stateFile: path.basename(specification.filename),
-        present: false,
-        bytes: 0,
-        entryCount: 0,
-        status: "ok",
-      };
-    }
-    throw error;
-  }
-  if (!details.isFile() || details.isSymbolicLink()) {
-    throw new MaintenanceValidationError(
-      `Managed state is not a safe regular file: ${specification.filename}`,
-      { filename: specification.filename },
-    );
-  }
-
-  let state;
-  try {
-    state = await readState(specification.filename);
-  } catch (error) {
-    throw new MaintenanceValidationError(
-      `Managed state is unreadable: ${specification.filename}`,
-      { filename: specification.filename, cause: error.message },
-    );
-  }
-  if (!specification.compatible(state)) {
-    throw new MaintenanceValidationError(
-      `Managed state has an incompatible schema: ${specification.name}`,
-      {
-        filename: specification.filename,
-        type: state?.type,
-        version: state?.version,
-      },
-    );
-  }
-
-  return {
-    name: specification.name,
-    stateFile: path.basename(specification.filename),
-    present: true,
-    bytes: details.size,
-    ...specification.counts(state),
-    status: stateSizeStatus(details.size),
-  };
 }
 
 async function regularFileBytes(filename) {
@@ -218,66 +128,6 @@ async function sqliteStateReport(config) {
   }
 }
 
-async function treeSize(root) {
-  let details;
-  try {
-    details = await lstat(root);
-  } catch (error) {
-    if (error.code === "ENOENT") return 0;
-    throw error;
-  }
-  if (details.isSymbolicLink() || !details.isDirectory()) {
-    throw new MaintenanceValidationError(
-      `Browser profile is not a safe directory: ${root}`,
-      { profileDirectory: root },
-    );
-  }
-
-  let bytes = 0;
-  const entries = await readdir(root, { withFileTypes: true });
-  for (const entry of entries) {
-    const filename = path.join(root, entry.name);
-    if (entry.isDirectory()) bytes += await treeSize(filename);
-    else if (entry.isFile()) bytes += (await lstat(filename)).size;
-    // Chrome's singleton links and sockets do not contribute file content.
-  }
-  return bytes;
-}
-
-async function cleanupChromeCaches(profileDirectory, dataDirectory) {
-  const cleanedPaths = [];
-  let removedBytes = 0;
-
-  for (const relative of CHROME_CACHE_PATHS) {
-    const target = path.join(profileDirectory, relative);
-    let details;
-    try {
-      details = await lstat(target);
-    } catch (error) {
-      if (error.code === "ENOENT") continue;
-      throw error;
-    }
-    if (!details.isDirectory() || details.isSymbolicLink()) {
-      throw new MaintenanceValidationError(
-        `Chrome cache path is not a safe directory: ${target}`,
-        { cachePath: target },
-      );
-    }
-
-    const bytes = await treeSize(target);
-    const quarantine = path.join(
-      dataDirectory,
-      `.maintenance-cache-${randomUUID()}`,
-    );
-    await rename(target, quarantine);
-    await rm(quarantine, { recursive: true, force: true });
-    removedBytes += bytes;
-    cleanedPaths.push(relative);
-  }
-
-  return { cleanedPaths, removedBytes };
-}
-
 async function previousHistory(filename) {
   try {
     let details;
@@ -320,7 +170,7 @@ async function previousHistory(filename) {
 
 /**
  * Runs the stop-the-service weekly maintenance boundary. Acquiring the same
- * singleton lease as the application makes profile cleanup and all samples
+ * singleton lease as the application makes checkpointing and all samples
  * point-in-time consistent.
  */
 export async function runMaintenance(
@@ -340,23 +190,13 @@ export async function runMaintenance(
       MAINTENANCE_HISTORY_FILENAME,
     );
     const previous = await previousHistory(historyFilename);
-    const profileBytesBeforeCleanup = await treeSize(config.browserProfileDir);
-    const stateFiles = await Promise.all([
-      sqliteStateReport(config),
-      stateFileReport(browserVerificationSpecification(config)),
-    ]);
-    const cacheCleanup = await cleanupChromeCaches(
-      config.browserProfileDir,
-      config.dataDirectory,
-    );
-    const profileBytes = await treeSize(config.browserProfileDir);
+    const stateFiles = [await sqliteStateReport(config)];
+    const cookieBytes = await regularFileBytes(config.listAmCookieFile);
     const stateBytes = stateFiles.reduce(
-      (total, stateFile) => total + stateFile.bytes,
+      (total, file) => total + file.bytes,
       0,
     );
-    const profileEmbeddedStateBytes =
-      stateFiles.find(({ name }) => name === "browserVerification")?.bytes || 0;
-    const managedBytes = stateBytes - profileEmbeddedStateBytes + profileBytes;
+    const managedBytes = stateBytes + cookieBytes;
     const disk = await diskCheck(config.dataDirectory, {
       warningThreshold: config.diskFreeWarningFraction,
     });
@@ -379,16 +219,10 @@ export async function runMaintenance(
       version: 1,
       sampledAt: sampledAt.toISOString(),
       stateFiles,
-      browserProfile: {
-        bytes: profileBytes,
-        bytesBeforeCleanup: profileBytesBeforeCleanup,
-        cacheBytesRemoved: cacheCleanup.removedBytes,
-        cleanedCachePaths: cacheCleanup.cleanedPaths,
-      },
+      httpSession: { bytes: cookieBytes },
       managedStorage: {
         bytes: managedBytes,
         stateBytes,
-        profileEmbeddedStateBytes,
         growth,
       },
       disk,

@@ -366,8 +366,10 @@ test("restore drill is networkless, disables Telegram, and removes only exactly 
   assert.match(log, /NODE_ENV=production/u);
   assert.match(log, /DATA_DIRECTORY=\/app\/\.data/u);
   assert.match(log, /BACKUP_DIRECTORY=\/app-backups/u);
-  assert.match(log, /BROWSER_HEADLESS=true/u);
-  assert.match(log, /CHROME_EXECUTABLE_PATH=\/usr\/bin\/chromium/u);
+  assert.match(
+    log,
+    /CURL_IMPERSONATE_PATH=\/usr\/local\/bin\/curl-impersonate/u,
+  );
   assert.match(log, /HEALTH_HOST=127\.0\.0\.1/u);
   assert.match(log, /HEALTH_PORT=8787/u);
   assert.match(log, /TELEGRAM_BOT_TOKEN=restore-drill-disabled/u);

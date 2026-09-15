@@ -79,8 +79,7 @@ function readinessSummary(response, body) {
     !value.alertReasons.every((reason) => value.reasons.includes(reason)) ||
     !value.reasons.every(
       (reason) =>
-        reason === "BROWSER_VERIFICATION_REQUIRED" ||
-        value.alertReasons.includes(reason),
+        reason === "LIST_AM_CHALLENGE" || value.alertReasons.includes(reason),
     ) ||
     value.ready !== (value.reasons.length === 0) ||
     response.statusCode !== (value.ready ? 200 : 503)

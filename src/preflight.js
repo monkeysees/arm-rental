@@ -4,17 +4,14 @@ import {
   compatibleApartmentState,
   migrateApartmentState,
 } from "./apartment-state.js";
-import {
-  BROWSER_VERIFICATION_COMMAND,
-  BrowserVerificationRequiredError,
-} from "./browser-fetch.js";
+import { ListAmChallengeError } from "./list-am-http.js";
 import { compatibleBotState } from "./bot.js";
 import { compatibleChannelState } from "./channel.js";
 import { compatibleExchangeRateSnapshot } from "./exchange-rates.js";
 import { APARTMENT } from "./property-kind.js";
 import { pageUrl } from "./target.js";
+import { retryAfterMilliseconds } from "./retry.js";
 import { TelegramApi, TelegramApiError } from "./telegram.js";
-import { recordBrowserVerification } from "./browser-verification-state.js";
 import {
   LIST_AM_SOURCE_INTEGRITY_ERROR,
   parseAndEvaluateRegularApartments,
@@ -27,7 +24,7 @@ const CHECK_NAMES = [
   "singleton",
   "telegram",
   "channel",
-  "browser",
+  "source_transport",
   "list_am",
   "exchange_rates",
 ];
@@ -53,6 +50,10 @@ export class PreflightError extends Error {
     this.status = status;
     this.details = details;
     this.remediationCommand = remediationCommand;
+    this.httpStatus = cause?.httpStatus;
+    if (Number.isSafeInteger(cause?.retryAfterMs) && cause.retryAfterMs >= 0) {
+      this.retryAfterMs = cause.retryAfterMs;
+    }
   }
 }
 
@@ -288,8 +289,7 @@ function emptyResult() {
 }
 
 function failureResult(result, error) {
-  const status =
-    error.status === "browser_verification_required" ? error.status : "failed";
+  const status = error.status === "source_challenge" ? error.status : "failed";
   return {
     ...result,
     status,
@@ -330,11 +330,10 @@ export async function runStartupPreflight(
   {
     storageValidated = false,
     singletonLock,
-    browserFetcher,
+    sourceFetcher,
     exchangeRateService,
     api,
     stateAccess,
-    recordVerification = recordBrowserVerification,
     onSourceIntegrityChecked = () => {},
     onRetry = () => {},
     signal,
@@ -380,24 +379,33 @@ export async function runStartupPreflight(
     result.checks.channel = await validateChannel(config, api, bot, signal);
 
     try {
-      await browserFetcher.start();
+      await sourceFetcher.start();
     } catch (error) {
       throw new PreflightError(
-        "browser",
-        "Chrome could not start with the persistent profile.",
-        { cause: error, code: "ERR_PREFLIGHT_BROWSER" },
+        "source_transport",
+        "The pinned List.am HTTP transport could not start.",
+        {
+          cause: error,
+          code: "ERR_PREFLIGHT_SOURCE_TRANSPORT",
+          terminal: true,
+        },
       );
     }
-    result.checks.browser = "passed";
+    result.checks.source_transport = "passed";
 
     try {
-      const response = await browserFetcher.fetch(
+      const response = await sourceFetcher.fetch(
         pageUrl(1, config.listUrlTemplate),
       );
       if (!response?.ok) {
-        throw new Error(
+        const error = new Error(
           `List.am returned HTTP ${response?.status || "unknown"}`,
         );
+        error.httpStatus = response?.status;
+        error.retryAfterMs = retryAfterMilliseconds(
+          response?.headers?.get("retry-after"),
+        );
+        throw error;
       }
       const diagnostics = parseAndEvaluateRegularApartments(
         await response.text(),
@@ -411,21 +419,18 @@ export async function runStartupPreflight(
       await onSourceIntegrityChecked({
         pages: [sourceIntegrityPageSummary(diagnostics, 1, APARTMENT)],
       });
-      await recordVerification(config, diagnostics.parsedCount);
     } catch (error) {
       if (
-        error instanceof BrowserVerificationRequiredError ||
-        error?.code === "ERR_BROWSER_VERIFICATION_REQUIRED"
+        error instanceof ListAmChallengeError ||
+        error?.code === "ERR_LIST_AM_CHALLENGE"
       ) {
         throw new PreflightError(
           "list_am",
-          "List.am browser verification is required.",
+          "List.am challenged the HTTP session. Back off and inspect source access.",
           {
             cause: error,
-            code: "ERR_BROWSER_VERIFICATION_REQUIRED",
-            status: "browser_verification_required",
-            remediationCommand:
-              error.remediationCommand || BROWSER_VERIFICATION_COMMAND,
+            code: "ERR_LIST_AM_CHALLENGE",
+            status: "source_challenge",
           },
         );
       }

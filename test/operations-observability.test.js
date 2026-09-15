@@ -28,7 +28,7 @@ async function executable(filename, contents) {
 function alertRecord(
   observedAt,
   event = "alert.firing",
-  alertName = "browser_challenge",
+  alertName = "list_am_challenge",
   details = {},
 ) {
   const alertDetails =
@@ -44,7 +44,7 @@ function alertRecord(
       alertName,
       alertSeverity: "warn",
       ...alertDetails,
-      message: "Browser verification state changed",
+      message: "List.am challenge state changed",
     }),
   })}\n`;
 }
@@ -243,9 +243,9 @@ test("rentalctl preserves malformed logs and aggregates bounded journal metrics"
         event: "alert.firing",
         alertName: "readiness_failure",
         status: "firing",
-        reasons: ["BROWSER_VERIFICATION_REQUIRED", "unsafe reason"],
-        component: "browser",
-        code: "ERR_BROWSER_VERIFICATION_REQUIRED",
+        reasons: ["LIST_AM_CHALLENGE", "unsafe reason"],
+        component: "list_am",
+        code: "ERR_LIST_AM_CHALLENGE",
         ownerId: "must-not-appear",
         message: "Production alert firing",
       }),
@@ -268,7 +268,7 @@ test("rentalctl preserves malformed logs and aggregates bounded journal metrics"
   );
   assert.match(
     alertLogs.stdout,
-    /Production alert firing\t\{"alertName":"readiness_failure","status":"firing","reasons":\["BROWSER_VERIFICATION_REQUIRED"\],"component":"browser","code":"ERR_BROWSER_VERIFICATION_REQUIRED"\}/u,
+    /Production alert firing\t\{"alertName":"readiness_failure","status":"firing","reasons":\["LIST_AM_CHALLENGE"\],"component":"list_am","code":"ERR_LIST_AM_CHALLENGE"\}/u,
   );
   assert.doesNotMatch(alertLogs.stdout, /unsafe reason|must-not-appear/u);
 
@@ -587,11 +587,7 @@ test("monitor includes validated readiness reasons in alert notifications", asyn
       "alert.firing",
       "readiness_failure",
       {
-        reasons: [
-          "CRAWL_STALE",
-          "BROWSER_VERIFICATION_REQUIRED",
-          "unsafe reason",
-        ],
+        reasons: ["CRAWL_STALE", "LIST_AM_CHALLENGE", "unsafe reason"],
       },
     ),
   );
@@ -599,14 +595,14 @@ test("monitor includes validated readiness reasons in alert notifications", asyn
   await execute(monitor, [], { env: host.env });
 
   const payloads = await readFile(host.env.RENTAL_TEST_CURL_PAYLOADS, "utf8");
-  assert.match(payloads, /reason: BROWSER_VERIFICATION_REQUIRED, CRAWL_STALE/u);
+  assert.match(payloads, /reason: CRAWL_STALE, LIST_AM_CHALLENGE/u);
   assert.doesNotMatch(payloads, /unsafe reason/u);
   const alertState = JSON.parse(
     await readFile(join(host.state, "alerts.json"), "utf8"),
   );
   assert.equal(
     alertState.alerts.find(({ name }) => name === "readiness_failure")?.reason,
-    "BROWSER_VERIFICATION_REQUIRED, CRAWL_STALE",
+    "CRAWL_STALE, LIST_AM_CHALLENGE",
   );
 });
 
@@ -661,7 +657,7 @@ test("host monitoring preserves challenge grace without hiding stale crawling", 
     response,
     JSON.stringify({
       status: "not_ready",
-      reasons: ["BROWSER_VERIFICATION_REQUIRED"],
+      reasons: ["LIST_AM_CHALLENGE"],
       alertReasons: [],
     }),
   );
@@ -678,15 +674,13 @@ test("host monitoring preserves challenge grace without hiding stale crawling", 
     (await execute(rentalctl, ["status", "--json"], { env: host.env })).stdout,
   );
   assert.equal(status.freshReadiness.status, "not_ready");
-  assert.deepEqual(status.freshReadiness.reasons, [
-    "BROWSER_VERIFICATION_REQUIRED",
-  ]);
+  assert.deepEqual(status.freshReadiness.reasons, ["LIST_AM_CHALLENGE"]);
 
   await writeFile(
     response,
     JSON.stringify({
       status: "not_ready",
-      reasons: ["BROWSER_VERIFICATION_REQUIRED", "CRAWL_STALE"],
+      reasons: ["LIST_AM_CHALLENGE", "CRAWL_STALE"],
       alertReasons: ["CRAWL_STALE"],
     }),
   );
@@ -970,7 +964,7 @@ test("monitor ignores application alerts from an earlier container lifecycle", a
   );
   assert.deepEqual(
     metrics.applicationAlerts.map(({ name, status }) => ({ name, status })),
-    [{ name: "browser_challenge", status: "firing" }],
+    [{ name: "list_am_challenge", status: "firing" }],
   );
 });
 

@@ -22,6 +22,7 @@ import {
   withinSourceActivityWindow,
 } from "./source-activity.js";
 import { selectableHistory } from "./delivery-selection.js";
+import { retryAfterMilliseconds } from "./retry.js";
 import {
   parseAndEvaluateRegularApartments,
   sourceIntegrityPageSummary,
@@ -69,6 +70,9 @@ async function fetchHtml(url, fetchPage) {
       `List.am returned HTTP ${response.status} ${response.statusText}`,
     );
     error.httpStatus = response.status;
+    error.retryAfterMs = retryAfterMilliseconds(
+      response.headers?.get("retry-after"),
+    );
     throw error;
   }
   return response.text();
@@ -721,7 +725,7 @@ export async function crawlApartments(
         ? target.runDeliveryWorker(() => deliverRecipient(target))
         : deliverRecipient(target);
     for (const target of deliveryTargets) {
-      // Promise continuations alone starve health and browser I/O during fan-out.
+      // Promise continuations alone starve health and source I/O during fan-out.
       // Stagger worker starts across event-loop turns while sends stay concurrent.
       await yieldToEventLoop();
       workers.push(Promise.allSettled([startWorker(target)]));

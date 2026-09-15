@@ -76,18 +76,15 @@ jobs:
           SOURCE_REVISION: ${{ github.sha }}
         run: |
           PACKAGE_LOCK_SHA256="$(sha256sum package-lock.json | cut -d ' ' -f 1)"
-          CHROME_RUNTIME_VERSION="$(docker run --rm --entrypoint /usr/bin/chromium rental-apartments-bot:ci --version |
-            sed 's/[[:space:]]*$//')"
           test "$(docker image inspect --format '{{ index .Config.Labels "org.opencontainers.image.revision" }}' rental-apartments-bot:ci)" = "$SOURCE_REVISION"
           test "$(docker image inspect --format '{{ index .Config.Labels "org.opencontainers.image.node.version" }}' rental-apartments-bot:ci)" = "24.18.0"
-          test "$(docker image inspect --format '{{ index .Config.Labels "org.opencontainers.image.chrome.version" }}' rental-apartments-bot:ci)" = "152.0.7977.82"
+          test "$(docker image inspect --format '{{ index .Config.Labels "org.opencontainers.image.curl-impersonate.version" }}' rental-apartments-bot:ci)" = "2.2.2"
           test "$(docker image inspect --format '{{ index .Config.Labels "org.opencontainers.image.package-lock.sha256" }}' rental-apartments-bot:ci)" = "$PACKAGE_LOCK_SHA256"
           test "$(docker run --rm --entrypoint node rental-apartments-bot:ci --version)" = "v24.18.0"
-          printf '%s\n' "$CHROME_RUNTIME_VERSION"
-          test "$CHROME_RUNTIME_VERSION" = "Chromium 152.0.7977.82 built on Debian GNU/Linux 12 (bookworm)"
+          docker run --rm --entrypoint /usr/local/bin/curl-impersonate rental-apartments-bot:ci --version | grep -F 'curl 8.21.0-IMPERSONATE'
 
-      - name: Smoke-test production browser modes
-        run: scripts/smoke-production-browser-image rental-apartments-bot:ci
+      - name: Smoke-test production HTTP transport
+        run: scripts/smoke-production-http-image rental-apartments-bot:ci
 
       - name: Scan OS and application dependencies
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # 0.36.0

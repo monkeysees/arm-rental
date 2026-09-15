@@ -25,7 +25,9 @@ function positiveDelay(value, name) {
 
 export function isExpectedExternalFailure(error) {
   if (error?.terminal) return false;
-  if (error?.code === "ERR_BROWSER_VERIFICATION_REQUIRED") return true;
+  if (error?.code === "ERR_LIST_AM_CHALLENGE") return true;
+  if (error?.code === "ERR_LIST_AM_TRANSPORT") return true;
+  if (error?.httpStatus === 429) return true;
   if (error?.code === "ERR_LIST_AM_SOURCE_INTEGRITY") return true;
   if (
     Number.isSafeInteger(error?.httpStatus) &&
@@ -39,6 +41,16 @@ export function isExpectedExternalFailure(error) {
     error?.name === "TimeoutError" ||
     error?.name === "TypeError"
   );
+}
+
+export function retryAfterMilliseconds(value, now = Date.now()) {
+  if (!value?.trim()) return undefined;
+  const milliseconds = /^\d+$/u.test(value.trim())
+    ? Number(value) * 1000
+    : Date.parse(value) - now;
+  return Number.isSafeInteger(milliseconds) && milliseconds >= 0
+    ? milliseconds
+    : undefined;
 }
 
 export class ExponentialBackoff {

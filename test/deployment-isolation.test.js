@@ -1,10 +1,6 @@
 import assert from "node:assert/strict";
-import { mkdtemp, readdir, readFile, rm } from "node:fs/promises";
-import os from "node:os";
-import path from "node:path";
+import { readdir, readFile } from "node:fs/promises";
 import test from "node:test";
-
-import { BrowserPageFetcher } from "../src/browser-fetch.js";
 
 const readProjectFile = (file) =>
   readFile(new URL(`../${file}`, import.meta.url), "utf8");
@@ -42,23 +38,16 @@ test("production container has a non-root immutable runtime with bounded writabl
   ]);
 
   assert.match(dockerfile, /^USER node$/mu);
-  assert.match(
-    dockerfile,
-    /chromium-sandbox[\s\S]*?\/usr\/lib\/chromium\/chrome-sandbox[\s\S]*?root:root:4755/u,
-  );
   assert.doesNotMatch(dockerfile, /^COPY\s+\.\s/u);
   assert.doesNotMatch(dockerfile, /--env-file/u);
   assert.match(deployment, /^\s+user: "node"$/mu);
-  assert.match(deployment, /^\s+cap_add:\n\s+- SYS_ADMIN$/mu);
+  assert.match(deployment, /^\s+cap_drop:\n\s+- ALL$/mu);
+  assert.match(deployment, /no-new-privileges:true/u);
   assert.match(deployment, /^\s+read_only: true$/mu);
   assert.match(deployment, /^\s+- rental-apartments-data:\/app\/\.data$/mu);
   assert.match(
     deployment,
     /^\s+- \/tmp:size=134217728,mode=1777,nosuid,nodev,noexec$/mu,
-  );
-  assert.match(
-    deployment,
-    /^\s+- \/dev\/shm:size=268435456,mode=1777,nosuid,nodev,noexec$/mu,
   );
   assert.doesNotMatch(deployment, /^\s+ports:/mu);
   assert.match(deployment, /^\s+driver: journald$/mu);
@@ -82,7 +71,7 @@ test("production observability is local, bounded, and operator accessible", asyn
   for (const alertName of [
     "process_restart_loop",
     "readiness_failure",
-    "browser_challenge",
+    "list_am_challenge",
     "invalid_telegram_credentials",
     "invalid_telegram_channel_permissions",
     "five_consecutive_crawl_failures",
@@ -125,69 +114,4 @@ test("removed deployment-environment paths cannot return unnoticed", async () =>
       `${file} must describe the production-only deployment model`,
     );
   }
-});
-
-test("production browser launch keeps the sandbox and restricts debugging to loopback", async (t) => {
-  const persistentDirectory = await mkdtemp(
-    path.join(os.tmpdir(), "rental-deployment-isolation-"),
-  );
-  t.after(() => rm(persistentDirectory, { recursive: true, force: true }));
-  let launchOptions;
-  let assignedUserAgent;
-  const page = {
-    close: async () => {},
-    evaluate: async () =>
-      "Mozilla/5.0 HeadlessChrome/150.0.7871.181 Safari/537.36",
-    evaluateOnNewDocument: async () => {},
-    isClosed: () => false,
-    setDefaultNavigationTimeout: () => {},
-    setUserAgent: async (userAgent) => {
-      assignedUserAgent = userAgent;
-    },
-    url: () => "about:blank",
-  };
-  const browser = {
-    close: async () => {},
-    connected: true,
-    pages: async () => [page],
-    version: async () => "Chrome/150.0.7871.181",
-  };
-  const fetcher = new BrowserPageFetcher(
-    {
-      browserHeadless: true,
-      browserProfileDir: path.join(persistentDirectory, "chrome-profile"),
-      browserProtocolTimeoutMs: 30_000,
-      browserStartMinimized: true,
-      chromeExecutablePath: process.execPath,
-      timeoutMs: 30_000,
-    },
-    {
-      puppeteerImpl: {
-        launch: async (options) => {
-          launchOptions = options;
-          return browser;
-        },
-      },
-    },
-  );
-
-  await fetcher.start();
-
-  assert.equal(launchOptions.headless, true);
-  assert.equal(launchOptions.pipe, true);
-  assert.ok(
-    launchOptions.args.every(
-      (argument) => !argument.startsWith("--remote-debugging-"),
-    ),
-    "production leaves the remote-debugging pipe under Puppeteer control",
-  );
-  assert.ok(
-    launchOptions.args.every((argument) => argument !== "--no-sandbox"),
-    "Chrome's sandbox must not be disabled",
-  );
-  assert.equal(
-    assignedUserAgent,
-    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) " +
-      "Chrome/150.0.0.0 Safari/537.36",
-  );
 });

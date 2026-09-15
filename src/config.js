@@ -25,6 +25,9 @@ import {
 } from "./environment-config.js";
 
 const RESERVED_DATA_PATHS = new Set([
+  "state.sqlite3",
+  "state.sqlite3-wal",
+  "state.sqlite3-shm",
   ".maintenance-history.json",
   ".singleton.json",
   ".singleton.sock",
@@ -52,19 +55,6 @@ function percentage(value, fallback, name) {
   if (!Number.isFinite(parsed) || parsed <= 0 || parsed >= 100) {
     throw new Error(`${name} must be greater than 0 and less than 100`);
   }
-  return parsed;
-}
-
-function boolean(value, fallback, name) {
-  if (value === undefined || value === "") return fallback;
-  if (value === "true") return true;
-  if (value === "false") return false;
-  throw new Error(`${name} must be either true or false`);
-}
-
-function port(value, fallback, name) {
-  const parsed = positiveInteger(value, fallback, name);
-  if (parsed > 65_535) throw new Error(`${name} must be at most 65535`);
   return parsed;
 }
 
@@ -166,7 +156,7 @@ function validatePersistentPaths(config) {
     ["CHANNEL_DELIVERY_STATE_FILE", config.channelDeliveryStateFile],
     ["EXCHANGE_RATES_STATE_FILE", config.exchangeRatesStateFile],
     ["TELEGRAM_STATE_FILE", config.telegramStateFile],
-    ["BROWSER_PROFILE_DIR", config.browserProfileDir],
+    ["LIST_AM_COOKIE_FILE", config.listAmCookieFile],
   ]);
   const usedPaths = new Map();
 
@@ -216,11 +206,8 @@ function validateProductionConfig(env, config) {
     requireValue(env[name], name);
   }
 
-  if (!path.isAbsolute(config.chromeExecutablePath)) {
-    throw new Error("CHROME_EXECUTABLE_PATH must be absolute in production");
-  }
-  if (!config.browserHeadless) {
-    throw new Error("BROWSER_HEADLESS must be true in production");
+  if (!path.isAbsolute(config.curlImpersonatePath)) {
+    throw new Error("CURL_IMPERSONATE_PATH must be absolute in production");
   }
 }
 
@@ -326,40 +313,10 @@ export function getConfig(env = process.env, cwd = process.cwd()) {
       undefined,
       "EXTERNAL_RETRY_MAX_MS",
     ),
-    chromeExecutablePath: read("CHROME_EXECUTABLE_PATH")?.trim() || undefined,
-    browserProfileDir: path.resolve(
+    curlImpersonatePath: read("CURL_IMPERSONATE_PATH").trim(),
+    listAmCookieFile: path.resolve(
       cwd,
-      read("BROWSER_PROFILE_DIR", dataContext),
-    ),
-    browserHeadless: boolean(
-      read("BROWSER_HEADLESS"),
-      undefined,
-      "BROWSER_HEADLESS",
-    ),
-    browserLoadImages: boolean(
-      read("BROWSER_LOAD_IMAGES"),
-      undefined,
-      "BROWSER_LOAD_IMAGES",
-    ),
-    browserChallengeTimeoutMs: positiveInteger(
-      read("BROWSER_CHALLENGE_TIMEOUT_MS"),
-      undefined,
-      "BROWSER_CHALLENGE_TIMEOUT_MS",
-    ),
-    browserProtocolTimeoutMs: positiveInteger(
-      read("BROWSER_PROTOCOL_TIMEOUT_MS"),
-      undefined,
-      "BROWSER_PROTOCOL_TIMEOUT_MS",
-    ),
-    browserCacheMaxBytes: positiveInteger(
-      read("BROWSER_CACHE_MAX_BYTES"),
-      undefined,
-      "BROWSER_CACHE_MAX_BYTES",
-    ),
-    browserDebugPort: port(
-      read("BROWSER_DEBUG_PORT"),
-      undefined,
-      "BROWSER_DEBUG_PORT",
+      read("LIST_AM_COOKIE_FILE", dataContext),
     ),
     backupDirectory: read("BACKUP_DIRECTORY")?.trim()
       ? path.resolve(cwd, read("BACKUP_DIRECTORY"))
@@ -457,10 +414,10 @@ export async function validateStartupConfig(config) {
     config.channelDeliveryStateFile,
     config.exchangeRatesStateFile,
     config.telegramStateFile,
+    config.listAmCookieFile,
   ];
   const stateDirectories = new Set([
     config.dataDirectory,
-    config.browserProfileDir,
     ...stateFiles.map((filename) => path.dirname(filename)),
   ]);
 

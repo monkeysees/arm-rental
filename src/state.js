@@ -1,8 +1,8 @@
 /**
  * The atomic, fsynced, 0600 read/write primitive for the small control files
  * that sit beside the state database: the backend selector, the singleton
- * lease, maintenance history, backup manifests, and the browser verification
- * record. Application state itself lives in SQLite and never comes through
+ * lease, maintenance history, backup manifests, and operational
+ * records. Application state itself lives in SQLite and never comes through
  * here, so a write is a handful of bytes and a failed one rolls itself back.
  */
 import { link, mkdir, open, readFile, rename, rm } from "node:fs/promises";

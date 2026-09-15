@@ -6,7 +6,7 @@ import path from "node:path";
 import test from "node:test";
 
 import { runApplication } from "../src/application.js";
-import { BrowserVerificationRequiredError } from "../src/browser-fetch.js";
+import { ListAmChallengeError } from "../src/list-am-http.js";
 import { getConfig } from "../src/config.js";
 import { crawlApartments } from "../src/crawler.js";
 import {
@@ -78,14 +78,14 @@ function singletonLock(config, events = []) {
   };
 }
 
-function browser(events = []) {
+function source(events = []) {
   return {
-    start: async () => events.push("browser:start"),
+    start: async () => events.push("source:start"),
     fetch: async () => {
       events.push("list:fetch");
       return new Response(REGULAR_ADS_HTML);
     },
-    close: async () => events.push("browser:close"),
+    close: async () => events.push("source:close"),
   };
 }
 
@@ -151,7 +151,7 @@ test("preflight validates every state target and all external boundaries before 
   const result = await runStartupPreflight(config, {
     storageValidated: true,
     singletonLock: singletonLock(config),
-    browserFetcher: browser(events),
+    sourceFetcher: source(events),
     exchangeRateService: {
       getSnapshot: async () => {
         events.push("rates:getSnapshot");
@@ -172,7 +172,7 @@ test("preflight validates every state target and all external boundaries before 
       singleton: "passed",
       telegram: "passed",
       channel: "passed",
-      browser: "passed",
+      source_transport: "passed",
       list_am: "passed",
       exchange_rates: "passed",
     },
@@ -181,7 +181,7 @@ test("preflight validates every state target and all external boundaries before 
     "telegram:getMe",
     "telegram:getChat",
     "telegram:getChatMember",
-    "browser:start",
+    "source:start",
     "list:fetch",
     "rates:getSnapshot",
   ]);
@@ -189,7 +189,6 @@ test("preflight validates every state target and all external boundaries before 
 
 test("preflight records parsed unique apartments rather than raw candidates", async (t) => {
   const config = await temporaryConfig(t);
-  const verificationCounts = [];
   const integrityChecks = [];
   const diagnosticHtml = `
     <div id="contentr">
@@ -203,7 +202,7 @@ test("preflight records parsed unique apartments rather than raw candidates", as
   const result = await runStartupPreflight(config, {
     storageValidated: true,
     singletonLock: singletonLock(config),
-    browserFetcher: {
+    sourceFetcher: {
       start: async () => {},
       fetch: async () => new Response(diagnosticHtml),
     },
@@ -212,12 +211,9 @@ test("preflight records parsed unique apartments rather than raw candidates", as
     stateAccess: storedState(config),
     onSourceIntegrityChecked: async (observation) =>
       integrityChecks.push(observation),
-    recordVerification: async (_config, count) =>
-      verificationCounts.push(count),
   });
 
   assert.equal(result.status, "ready");
-  assert.deepEqual(verificationCounts, [1]);
   assert.equal(integrityChecks[0].pages[0].parsedCount, 1);
   assert.equal(JSON.stringify(integrityChecks).includes("apartments"), false);
 });
@@ -230,22 +226,19 @@ test("preflight and runtime report the same integrity reason without writes", as
         <div class="d">Friday, July 24, 2026, 14:31</div>
       </a>
     </div>`;
-  const verificationCounts = [];
   let preflightError;
 
   await assert.rejects(
     runStartupPreflight(config, {
       storageValidated: true,
       singletonLock: singletonLock(config),
-      browserFetcher: {
+      sourceFetcher: {
         start: async () => {},
         fetch: async () => new Response(missingTitleHtml),
       },
       exchangeRateService: { getSnapshot: async () => ratesSnapshot() },
       api: telegramApi(),
       stateAccess: storedState(config),
-      recordVerification: async (_config, count) =>
-        verificationCounts.push(count),
     }),
     (error) => {
       preflightError = error;
@@ -274,11 +267,10 @@ test("preflight and runtime report the same integrity reason without writes", as
   );
 
   assert.equal(preflightError.details.reason, runtimeError.reason);
-  assert.deepEqual(verificationCounts, []);
   assert.deepEqual(runtimeState.writes, []);
 });
 
-test("preflight applies the persisted count baseline before verification", async (t) => {
+test("preflight applies the persisted count baseline before readiness", async (t) => {
   const config = await temporaryConfig(t);
   const baseline = storedState(config, {
     apartments: {
@@ -293,28 +285,23 @@ test("preflight applies the persisted count baseline before verification", async
       },
     },
   });
-  const verificationCounts = [];
 
   await assert.rejects(
     runStartupPreflight(config, {
       storageValidated: true,
       singletonLock: singletonLock(config),
-      browserFetcher: {
+      sourceFetcher: {
         start: async () => {},
         fetch: async () => new Response(regularAdsHtml(9)),
       },
       exchangeRateService: { getSnapshot: async () => ratesSnapshot() },
       api: telegramApi(),
       stateAccess: baseline,
-      recordVerification: async (_config, count) =>
-        verificationCounts.push(count),
     }),
     (error) =>
       error.code === "ERR_LIST_AM_SOURCE_INTEGRITY" &&
       error.details.reason === ListAmIntegrityReason.FIRST_PAGE_COUNT_DROP,
   );
-
-  assert.deepEqual(verificationCounts, []);
 });
 
 test("preflight refuses stored rows the running code cannot use", async (t) => {
@@ -474,13 +461,13 @@ test("invalid credentials and missing channel permissions are terminal", async (
   const config = await temporaryConfig(t, {
     TELEGRAM_CHANNEL_ID: "@rentals",
   });
-  let browserStarted = false;
+  let sourceStarted = false;
 
   await assert.rejects(
     runStartupPreflight(config, {
       storageValidated: true,
       singletonLock: singletonLock(config),
-      browserFetcher: browser(),
+      sourceFetcher: source(),
       exchangeRateService: { getSnapshot: async () => ratesSnapshot() },
       stateAccess: storedState(config),
       api: telegramApi([], {
@@ -504,10 +491,10 @@ test("invalid credentials and missing channel permissions are terminal", async (
     runStartupPreflight(config, {
       storageValidated: true,
       singletonLock: singletonLock(config),
-      browserFetcher: {
-        ...browser(),
+      sourceFetcher: {
+        ...source(),
         start: async () => {
-          browserStarted = true;
+          sourceStarted = true;
         },
       },
       exchangeRateService: { getSnapshot: async () => ratesSnapshot() },
@@ -526,19 +513,19 @@ test("invalid credentials and missing channel permissions are terminal", async (
       return true;
     },
   );
-  assert.equal(browserStarted, false);
+  assert.equal(sourceStarted, false);
 });
 
-test("browser verification is a distinct non-ready result with remediation", async (t) => {
+test("HTTP challenge is a distinct non-ready result", async (t) => {
   const config = await temporaryConfig(t);
   await assert.rejects(
     runStartupPreflight(config, {
       storageValidated: true,
       singletonLock: singletonLock(config),
-      browserFetcher: {
+      sourceFetcher: {
         start: async () => {},
         fetch: async () => {
-          throw new BrowserVerificationRequiredError();
+          throw new ListAmChallengeError(403, "edge");
         },
       },
       exchangeRateService: { getSnapshot: async () => ratesSnapshot() },
@@ -546,21 +533,11 @@ test("browser verification is a distinct non-ready result with remediation", asy
       api: telegramApi(),
     }),
     (error) => {
-      assert.equal(error.code, "ERR_BROWSER_VERIFICATION_REQUIRED");
+      assert.equal(error.code, "ERR_LIST_AM_CHALLENGE");
       assert.equal(error.terminal, false);
-      assert.equal(
-        error.preflightResult.status,
-        "browser_verification_required",
-      );
-      assert.equal(
-        error.preflightResult.remediationCommand,
-        "npm run browser:verify",
-      );
-      assert.equal(error.preflightResult.checks.browser, "passed");
-      assert.equal(
-        error.preflightResult.checks.list_am,
-        "browser_verification_required",
-      );
+      assert.equal(error.preflightResult.status, "source_challenge");
+      assert.equal(error.preflightResult.checks.source_transport, "passed");
+      assert.equal(error.preflightResult.checks.list_am, "source_challenge");
       return true;
     },
   );
@@ -570,24 +547,26 @@ test("application logs one safe preflight result and never enters loops on chall
   const config = await temporaryConfig(t);
   const events = [];
   const records = [];
-  let browserOptions;
-  const fakeBrowser = {
+  let sourceOptions;
+  const fakeSource = {
     start: async () => {},
     fetch: async () => {
-      await browserOptions.onEvent({
-        name: "browser.challenge",
-        component: "browser",
-        code: "ERR_BROWSER_VERIFICATION_REQUIRED",
-        remediationCommand: "npm run browser:verify",
+      await sourceOptions.onEvent({
+        name: "list_am.challenge",
+        component: "list_am",
+        code: "ERR_LIST_AM_CHALLENGE",
+        httpStatus: 403,
+        challengeSource: "edge",
       });
-      throw new BrowserVerificationRequiredError();
+      throw new ListAmChallengeError(403, "edge");
     },
-    close: async () => events.push("browser:close"),
+    close: async () => events.push("source:close"),
   };
 
   await assert.rejects(
     runApplication({
       config,
+      sleep: async (milliseconds) => events.push(`cooldown:${milliseconds}`),
       signalEmitter: new EventEmitter(),
       logger: {
         info: (message, context) => records.push({ message, context }),
@@ -597,9 +576,9 @@ test("application logs one safe preflight result and never enters loops on chall
       },
       validateConfig: async () => events.push("storage"),
       acquireLock: async () => singletonLock(config, events),
-      browserFetcherFactory: (_browserConfig, options) => {
-        browserOptions = options;
-        return fakeBrowser;
+      sourceFetcherFactory: (_sourceConfig, options) => {
+        sourceOptions = options;
+        return fakeSource;
       },
       exchangeRateServiceFactory: () => ({
         getSnapshot: async () => ratesSnapshot(),
@@ -615,7 +594,7 @@ test("application logs one safe preflight result and never enters loops on chall
         }),
       runBot: async () => events.push("bot"),
     }),
-    /browser verification/iu,
+    /challenged the HTTP session/iu,
   );
 
   const preflightRecords = records.filter(
@@ -624,30 +603,89 @@ test("application logs one safe preflight result and never enters loops on chall
   assert.equal(preflightRecords.length, 1);
   assert.equal(
     preflightRecords[0].context.preflight.status,
-    "browser_verification_required",
+    "source_challenge",
   );
   assert.equal(
     JSON.stringify(preflightRecords[0]).includes(config.telegramBotToken),
     false,
   );
   const challengeRecords = records.filter(
-    ({ message }) => message === "Browser challenge detected",
+    ({ message }) => message === "List.am challenge detected",
   );
   assert.deepEqual(challengeRecords, [
     {
-      message: "Browser challenge detected",
+      message: "List.am challenge detected",
       context: {
-        eventName: "browser.challenge",
-        component: "browser",
-        code: "ERR_BROWSER_VERIFICATION_REQUIRED",
-        remediationCommand: "npm run browser:verify",
+        event: "list_am.challenge",
+        component: "list_am",
+        code: "ERR_LIST_AM_CHALLENGE",
+        httpStatus: 403,
+        challengeSource: "edge",
       },
     },
   ]);
   assert.deepEqual(events, [
     "storage",
-    "browser:close",
+    "cooldown:60000",
+    "source:close",
     "state:close",
     "lock:release",
   ]);
+});
+
+test("missing native transport is terminal before any source request", async (t) => {
+  const config = await temporaryConfig(t);
+  let fetches = 0;
+  await assert.rejects(
+    runStartupPreflight(config, {
+      storageValidated: true,
+      singletonLock: singletonLock(config),
+      sourceFetcher: {
+        start: async () => {
+          throw new Error("executable missing");
+        },
+        fetch: async () => {
+          fetches += 1;
+        },
+      },
+      exchangeRateService: { getSnapshot: async () => ratesSnapshot() },
+      stateAccess: storedState(config),
+      api: telegramApi(),
+    }),
+    (error) => {
+      assert.equal(error.code, "ERR_PREFLIGHT_SOURCE_TRANSPORT");
+      assert.equal(error.terminal, true);
+      assert.equal(error.preflightResult.checks.source_transport, "failed");
+      return true;
+    },
+  );
+  assert.equal(fetches, 0);
+});
+
+test("preflight preserves HTTP rate-limit cooldown without exposing response content", async (t) => {
+  const config = await temporaryConfig(t);
+  await assert.rejects(
+    runStartupPreflight(config, {
+      storageValidated: true,
+      singletonLock: singletonLock(config),
+      sourceFetcher: {
+        start: async () => {},
+        fetch: async () =>
+          new Response("PRIVATE RESPONSE", {
+            status: 429,
+            headers: { "retry-after": "120" },
+          }),
+      },
+      exchangeRateService: { getSnapshot: async () => ratesSnapshot() },
+      stateAccess: storedState(config),
+      api: telegramApi(),
+    }),
+    (error) => {
+      assert.equal(error.httpStatus, 429);
+      assert.equal(error.retryAfterMs, 120_000);
+      assert.equal(error.terminal, false);
+      assert.doesNotMatch(JSON.stringify(error), /PRIVATE RESPONSE/u);
+      return true;
+    },
+  );
 });

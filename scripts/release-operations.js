@@ -589,7 +589,7 @@ async function executeRelease(contract) {
     const evidence = await waitForEvidence(contract, startedAt);
     return writeEvidence(contract, runtime, evidence, startedAt);
   } catch (error) {
-    // Candidate preflight may update the Chrome profile or a rate snapshot.
+    // Candidate preflight may update the HTTP cookie jar or a rate snapshot.
     // Restoring the already-verified snapshot makes failed rollout state exact.
     await recoverPrevious(contract);
     throw new Error(

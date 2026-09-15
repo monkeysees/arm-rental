@@ -41,12 +41,12 @@ and package-lock digest build arguments. The Docker build verifies those
 arguments before installing only production dependencies. npm and Corepack are
 then removed because the application runs directly with Node and does not need
 package-management tooling in production. The job verifies the pinned Node and
-Chrome executables and all image labels. Trivy 0.69.3 scans both OS packages and
+curl-impersonate executables and all image labels. Trivy 0.69.3 scans both OS packages and
 application libraries and fails on every high or critical finding for which a
 fix is available. Findings that Debian marks `affected`, `fix_deferred`, or
 `will_not_fix` without publishing a fixed package remain visible to security
 review but do not permanently block unrelated releases that cannot remediate
-them. The source revision, runtime versions, and lock digest remain available
+them. The HTTP binary archive is pinned by SHA256 for Linux AMD64 and ARM64, with redistribution licenses retained. The offline image smoke verifies the Safari profile and cookie persistence under the production restrictions. The source revision, runtime versions, and lock digest remain available
 as OCI labels for verification. Once these gates complete, the runner discards
 the candidate image. The job intentionally does not use `docker save` or
 `actions/upload-artifact`: no downstream workflow or host consumes that

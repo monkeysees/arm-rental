@@ -608,7 +608,9 @@ deployment_validate_compose() {
         $bot.labels["com.rental-apartments.environment"] == "production" and
         $bot.environment.NODE_ENV == "production" and
         $bot.read_only == true and
-        $bot.cap_add == ["SYS_ADMIN"] and
+        (($bot.cap_add // []) | length == 0) and
+        $bot.cap_drop == ["ALL"] and
+        ($bot.security_opt | index("no-new-privileges:true") != null) and
         $bot.deploy.replicas == 1 and
         $bot.deploy.update_config.order == "stop-first" and
         (($bot.ports // []) | length == 0) and
@@ -618,7 +620,7 @@ deployment_validate_compose() {
 }
 
 deployment_validate_first_install_storage() {
-  local identity mountpoint profile unexpected
+  local identity mountpoint cookie_file unexpected
   if ! docker volume inspect rental-apartments-data >/dev/null 2>&1; then
     docker volume create \
       --driver local \
@@ -642,19 +644,18 @@ deployment_validate_first_install_storage() {
   ops_require_absolute_path "data volume mountpoint" "$mountpoint"
   [[ -d $mountpoint && ! -L $mountpoint ]]
 
-  # A failed first candidate can legitimately leave the dedicated Chrome
-  # identity behind for operator verification. No application state is allowed
-  # until a release has passed the complete first-install gate.
+  # A failed first candidate can leave its source cookies behind. No application
+  # state is allowed until a release passes the complete first-install gate.
   if [[ -z $(find "$mountpoint" -mindepth 1 -maxdepth 1 -print -quit) ]]; then
     return
   fi
-  profile="$mountpoint/chrome-profile"
+  cookie_file="$mountpoint/list-am-cookies.txt"
   unexpected=$(
     find "$mountpoint" \
-      -mindepth 1 -maxdepth 1 ! -name chrome-profile -print -quit
+      -mindepth 1 -maxdepth 1 ! -name list-am-cookies.txt -print -quit
   )
-  [[ -z $unexpected && -d $profile && ! -L $profile ]] || {
-    printf 'First deployment requires empty or browser-profile-only application storage\n' >&2
+  [[ -z $unexpected && -f $cookie_file && ! -L $cookie_file ]] || {
+    printf 'First deployment requires empty or source-cookie-only application storage\n' >&2
     return 65
   }
 }
@@ -662,7 +663,7 @@ deployment_validate_first_install_storage() {
 # A first installation creates its own empty database before launching the
 # candidate, so a rejected candidate has to leave the volume as it found it.
 # Without this the storage gate above refuses every later attempt, including the
-# browser-verification retry it deliberately allows for.
+# source-access retry it deliberately allows for.
 deployment_clear_first_install_state() {
   local mountpoint
   mountpoint=$(

@@ -1,0 +1,45 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+if (($# != 1)); then
+  printf 'Usage: %s IMAGE\n' "${0##*/}" >&2
+  exit 64
+fi
+image="$1"
+docker run --rm --interactive --init \
+  --user node --read-only --cap-drop ALL --security-opt no-new-privileges \
+  --network none \
+  --tmpfs /app/.data:rw,size=16777216,mode=0700,uid=1000,gid=1000,nosuid,nodev,noexec \
+  --tmpfs /tmp:rw,size=16777216,mode=1777,nosuid,nodev,noexec \
+  "$image" node --input-type=module <<'NODE'
+import assert from "node:assert/strict";
+import { execFile } from "node:child_process";
+import { createServer } from "node:http";
+import { existsSync } from "node:fs";
+import { promisify } from "node:util";
+const execute = promisify(execFile);
+assert.equal(process.getuid(), 1000);
+for (const filename of ["/usr/bin/chromium", "/usr/bin/google-chrome", "/app/node_modules/puppeteer-core"]) {
+  assert.equal(existsSync(filename), false, `${filename} must not ship in the HTTP image`);
+}
+const server = createServer((request, response) => {
+  assert.match(request.headers["user-agent"], /Version\/26\.0\.1.*Safari/u);
+  if (request.url === "/second") assert.equal(request.headers.cookie, "smoke=retained");
+  response.setHeader("Set-Cookie", "smoke=retained; Path=/");
+  response.end("production-http-smoke");
+});
+await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+try {
+  for (const route of ["first", "second"]) {
+    const { stdout } = await execute(process.env.CURL_IMPERSONATE_PATH, [
+      "--impersonate", "safari2601", "--silent", "--show-error", "--fail",
+      "--max-time", "10", "--cookie", "/app/.data/smoke-cookies.txt",
+      "--cookie-jar", "/app/.data/smoke-cookies.txt",
+      `http://127.0.0.1:${server.address().port}/${route}`,
+    ], { timeout: 15_000 });
+    assert.equal(stdout, "production-http-smoke");
+  }
+} finally {
+  await new Promise((resolve) => server.close(resolve));
+}
+process.stdout.write("Production HTTP transport and cookie persistence passed\n");
+NODE

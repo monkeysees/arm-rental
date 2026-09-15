@@ -1,16 +1,15 @@
-import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 
 import { runApplication } from "../src/application.js";
 import { createMemoryStateAccess } from "./memory-state.js";
 
 const dataDirectory = path.resolve(process.argv[2]);
-const browserProfileDir = path.join(dataDirectory, "chrome-profile");
-const chromeLockFile = path.join(browserProfileDir, "SingletonLock");
+const listAmCookieFile = path.join(dataDirectory, "list-am-cookies.txt");
 const deliveryStateFile = path.join(dataDirectory, "fixture-deliveries.json");
 const baseConfig = {
   dataDirectory,
-  browserProfileDir,
+  listAmCookieFile,
   apartmentsStateFile: path.join(dataDirectory, "apartments.json"),
   deliveryStateFile,
   channelDeliveryStateFile: path.join(dataDirectory, "channel.json"),
@@ -40,38 +39,13 @@ try {
       error: (message, error) =>
         console.error(JSON.stringify({ message, error: error.message })),
     },
-    browserFetcherFactory: () => ({
+    sourceFetcherFactory: () => ({
       async fetch() {
-        await mkdir(browserProfileDir, { recursive: true });
-        for (;;) {
-          try {
-            await writeFile(chromeLockFile, String(process.pid), {
-              flag: "wx",
-            });
-            break;
-          } catch (error) {
-            if (error.code !== "EEXIST") throw error;
-            const profileOwner = Number(await readFile(chromeLockFile, "utf8"));
-            try {
-              process.kill(profileOwner, 0);
-              throw new Error("Chrome profile is still locked", {
-                cause: error,
-              });
-            } catch (ownerError) {
-              if (ownerError.code !== "ESRCH") throw ownerError;
-              await rm(chromeLockFile, { force: true });
-            }
-          }
-        }
+        await writeFile(listAmCookieFile, "session-cookie", { mode: 0o600 });
         return new Response('<div id="contentr"></div>');
       },
-      // The real fetcher releases the profile at a session boundary exactly
-      // as it does on close, so the lease these tests isolate behaves the same.
-      async endSession() {
-        await rm(chromeLockFile, { force: true });
-      },
       async close() {
-        await rm(chromeLockFile, { force: true });
+        console.log("SOURCE_CLOSED");
       },
     }),
     exchangeRateServiceFactory: () => ({}),

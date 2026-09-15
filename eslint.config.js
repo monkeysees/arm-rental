@@ -19,12 +19,4 @@ export default [
       "no-console": "off",
     },
   },
-  {
-    files: ["src/browser-fetch.js"],
-    languageOptions: {
-      globals: {
-        ...globals.browser,
-      },
-    },
-  },
 ];

@@ -66,7 +66,7 @@ routine crawl delivering what it has just discovered sends the apartment alone.
 ## Requirements
 
 - Node.js 24.18.0 (use `.nvmrc` locally)
-- Google Chrome or Chromium for local development
+- Linux with the pinned curl-impersonate executable (installed below)
 - A Telegram bot token and the numeric Telegram user ID of its owner. The owner
   receives server alerts and is always authorized for private controls.
 
@@ -74,6 +74,7 @@ routine crawl delivering what it has just discovered sends the apartment alone.
 
 ```sh
 npm install
+sudo scripts/install-curl-impersonate /usr/local
 cp .env.example .env
 ```
 
@@ -215,14 +216,11 @@ crawling waits rather than persisting a foreign-currency listing without an AMD
 price. CBA quote dates may remain unchanged across non-business days; both the
 effective date and the time the bot fetched the snapshot are retained.
 
-If List.am requests security verification, stop the bot and run:
-
-```sh
-npm run browser:verify
-```
-
-Complete the verification in Chrome, then restart the bot. The verified browser
-profile is stored in `.data/chrome-profile`.
+List.am pages use curl-impersonate with the pinned Safari `safari2601` profile,
+a private persisted cookie jar, and two-second spacing between requests.
+Challenges stop the crawl and apply backoff; there is no JavaScript execution.
+See [source operations](docs/source-operations.md) for the stopped-service
+`npm run source:smoke` check and recovery procedure.
 
 The initial crawl can discover many apartments and consequently send many
 Telegram messages. Delivery state is persisted per message and Telegram rate
@@ -265,7 +263,7 @@ details.
 | `CHANNEL_FILTER_PRICE_AMD`               | blank                                    | Optional channel AMD price range                               |
 | `CHANNEL_FILTER_ROOMS`                   | blank                                    | Optional channel room-count range                              |
 | `CHANNEL_FILTER_LOCATIONS`               | `region:Ереван`                          | Comma-separated channel location selectors                     |
-| `DATA_DIRECTORY`                         | `.data`                                  | Persistent state, profile, and singleton lease                 |
+| `DATA_DIRECTORY`                         | `.data`                                  | Persistent state, HTTP cookies, and singleton lease            |
 | `APARTMENTS_STATE_FILE`                  | `.data/apartments.json`                  | Post-cutover sentinel path; holds no state                     |
 | `DELIVERY_STATE_FILE`                    | `.data/telegram-deliveries.json`         | Post-cutover sentinel path; holds no state                     |
 | `CHANNEL_DELIVERY_STATE_FILE`            | `.data/telegram-channel-deliveries.json` | Post-cutover sentinel path; holds no state                     |
@@ -276,17 +274,11 @@ details.
 | `INITIAL_PAGE_COUNT`                     | `10`                                     | Pages parsed per List.am category with no stored history       |
 | `ADDED_CATEGORY_PAGE_COUNT`              | `2`                                      | First-crawl page cap for a later-added category                |
 | `INITIAL_DELIVERY_LIMIT`                 | `100`                                    | Latest initial private/channel selection size                  |
-| `TIMEOUT_MS`                             | `30000`                                  | Browser navigation and API timeout                             |
+| `TIMEOUT_MS`                             | `30000`                                  | HTTP and API request timeout                                   |
 | `EXTERNAL_RETRY_BASE_MS`                 | `1000`                                   | Initial network/5xx retry delay                                |
 | `EXTERNAL_RETRY_MAX_MS`                  | `60000`                                  | Retry cap; cannot exceed five minutes                          |
-| `CHROME_EXECUTABLE_PATH`                 | auto-detected                            | Chrome/Chromium executable                                     |
-| `BROWSER_PROFILE_DIR`                    | `.data/chrome-profile`                   | Persistent Chrome profile                                      |
-| `BROWSER_HEADLESS`                       | `false`                                  | Run Chrome headlessly                                          |
-| `BROWSER_LOAD_IMAGES`                    | `true`                                   | Fetch and decode page images                                   |
-| `BROWSER_CHALLENGE_TIMEOUT_MS`           | `120000`                                 | Verification wait duration                                     |
-| `BROWSER_PROTOCOL_TIMEOUT_MS`            | `90000`                                  | Chrome command timeout                                         |
-| `BROWSER_CACHE_MAX_BYTES`                | `67108864`                               | Chrome HTTP disk-cache cap in bytes                            |
-| `BROWSER_DEBUG_PORT`                     | `49222`                                  | Local background-Chrome control port                           |
+| `CURL_IMPERSONATE_PATH`                  | `/usr/local/bin/curl-impersonate`        | List.am curl-impersonate executable                            |
+| `LIST_AM_COOKIE_FILE`                    | `.data/list-am-cookies.txt`              | Private, disposable List.am session cookies                    |
 | `BACKUP_DIRECTORY`                       | blank                                    | Independent snapshot destination                               |
 | `BACKUP_DAILY_RETENTION`                 | `7`                                      | Daily recovery points to retain (minimum 7)                    |
 | `BACKUP_WEEKLY_RETENTION`                | `4`                                      | Weekly recovery points to retain (minimum 4)                   |
@@ -316,7 +308,7 @@ deploy/rollback details and the complete operational index are documented in
 [docs/release-and-rollback.md](docs/release-and-rollback.md) and
 [docs/operational-runbooks.md](docs/operational-runbooks.md).
 
-Weekly state growth reporting, lease-safe Chrome cache maintenance, and the
+Weekly state growth reporting and the
 no-deletion retention policy are documented in
 [docs/state-maintenance.md](docs/state-maintenance.md).
 
@@ -343,11 +335,9 @@ npm run check:production-contract
 
 ## Production image
 
-The production image pins Node.js 24.18.0 and Debian Chromium 152.0.7977.82
-from Puppeteer's supported Chrome 152 milestone. It installs the browser,
-sandbox helper, and libraries from a dated Debian snapshot and application
-packages with
-`npm ci --omit=dev`; a host only needs a Linux AMD64 OCI runtime.
+The production image pins Node.js 24.18.0 and checksum-verified
+curl-impersonate 2.2.2. Application dependencies are installed with
+`npm ci --omit=dev`; the host needs a Linux AMD64 OCI runtime.
 
 Build and inspect the deployment versions:
 
@@ -358,19 +348,17 @@ docker image inspect --format '{{json .Config.Labels}}' \
   rental-apartments-bot:local
 docker run --rm --entrypoint node rental-apartments-bot:local --version
 docker run --rm \
-  --entrypoint /usr/bin/chromium \
+  --entrypoint /usr/local/bin/curl-impersonate \
   rental-apartments-bot:local --version
 ```
 
-The image sets production Chrome to headless mode and stores its profile under
-`/app/.data`. Supply the required environment and mount `/app/.data` on durable
-storage when the service is deployed. No Node, npm package, Chrome, or browser
-library installation is required on the host.
+Mount `/app/.data` on durable storage and supply the production environment.
+The image contains the HTTP executable and needs no runtime downloads.
 
 Production startup is fail-closed. `NODE_ENV=production` requires an explicit
-absolute `DATA_DIRECTORY`, `BROWSER_HEADLESS=true`, and an absolute
-`CHROME_EXECUTABLE_PATH`. Managed state and the Chrome profile must resolve
-below `DATA_DIRECTORY`; symlink redirection outside that tree is rejected.
+absolute `DATA_DIRECTORY` and `CURL_IMPERSONATE_PATH`. Managed state and the
+cookie jar must resolve below `DATA_DIRECTORY`; symlink redirection is rejected.
+
 Startup creates or verifies the data tree, proves it is writable, restricts
 directories to mode `0700`, and requires the SQLite database to be a safe
 regular mode-`0600` file before Telegram polling or crawling starts. The
@@ -380,35 +368,19 @@ database is never created by startup; a first installation creates it once with
 Before either long-running loop starts, preflight validates the installed
 database identity/schema/pragmas/target and domain invariants, proves
 the singleton lease is held, authenticates the bot with Telegram, checks
-optional channel posting/editing permissions, launches the persistent Chrome
-profile, parses the List.am Regular Ads container, and obtains usable CBA rates.
+optional channel posting/editing permissions, verifies curl-impersonate,
+parses the List.am Regular Ads container, and obtains usable CBA rates.
 Unsupported or target-mismatched state fails closed without changing the
 database. Startup emits one secret-free structured preflight result; only
 `status: "ready"` starts the bot.
 
-List.am challenges report the distinct non-ready
-`browser_verification_required` status and remediation command:
+List.am challenges report the non-ready `source_challenge` status. Stop the
+service before running `npm run source:smoke`, which acquires its singleton
+lease and validates both source categories. See
+[source operations](docs/source-operations.md) and
+[startup preflight remediation](docs/startup-preflight.md).
 
-```sh
-npm run browser:verify
-```
-
-Stop the service and run the command against the same persistent Chrome profile
-on a secure interactive host. Before restart, confirm the configured target and
-persisted verification with the production-headless smoke command:
-
-```sh
-npm run browser:smoke
-```
-
-Both commands acquire the service singleton lease and refuse to open the
-profile while the service is running. See
-[production browser operations](docs/browser-operations.md) for the secure
-interactive and profile-transfer workflows, and
-[startup preflight remediation](docs/startup-preflight.md) for credential,
-permission, state, storage, browser, List.am, and CBA failures.
-
-Local environment files, `.data` (including developer Chrome profiles),
+Local environment files, `.data` (including HTTP cookies),
 dependencies, coverage, Git metadata, logs, and development caches are excluded
 from the container build context. The image runs as the unprivileged `node`
 account and does not read `.env` at runtime; `.env.production` is consumed only
@@ -432,16 +404,11 @@ or diagnostic command. Structured application logging defensively redacts
 Telegram token shapes, Telegram Bot API URLs, and authorization-like values,
 but redaction is not a substitute for keeping secrets out of inputs.
 
-Compose makes the image filesystem read-only. The durable `/app/.data` volume
-is the only persistent application-state location. Chrome's `/tmp` and the
-application's `/sqlite-tmp` each have a separate 128 MiB in-memory filesystem;
-`/dev/shm` retains its 256 MiB limit. `SQLITE_TMPDIR` directs application SQLite
-scratch files to `/sqlite-tmp`, while Chrome's own SQLite scratch files stay
-under its launch directory in `/tmp`. The database and WAL remain in
-`/app/.data`. The service publishes no ports.
-Chrome runs with its normal sandbox, and its control channel is not externally
-routable. Do not disable the Chrome sandbox, publish a Chrome debugging port,
-or mount a developer `.data` tree into production.
+Compose makes the image filesystem read-only, drops all capabilities, and
+enables `no-new-privileges`. Durable `/app/.data` holds application state;
+`/tmp` and `/sqlite-tmp` are separate 128 MiB in-memory filesystems.
+`SQLITE_TMPDIR` directs SQLite scratch files to `/sqlite-tmp`; its database
+and WAL remain in `/app/.data`. The service publishes no ports.
 
 The loopback-only health service exposes `/live` for process/event-loop
 liveness and `/ready` (also `/health`) for startup and crawl readiness. The
@@ -465,7 +432,7 @@ docker inspect --format '{{json .HostConfig.Tmpfs}}' rental-apartments-bot
 The fixed container name prevents scaling, and updates and rollbacks stop the
 old process before starting its replacement. Unexpected failures restart at
 most five times. Planned stops send SIGTERM and allow 45 seconds for polling,
-state writes, and Chrome to close:
+state writes, and active HTTP subprocesses to finish cleanup:
 
 ```sh
 docker compose --file compose.production.yaml stop

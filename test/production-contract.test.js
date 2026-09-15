@@ -50,6 +50,8 @@ cat <<'EOF'
       "labels": {"com.rental-apartments.environment": "production"},
       "environment": {"NODE_ENV": "production"},
       "read_only": true,
+      "cap_drop": ["ALL"],
+      "security_opt": ["no-new-privileges:true"],
       "deploy": {
         "replicas": 1,
         "update_config": {"order": "stop-first"}

@@ -113,6 +113,9 @@ jq -e '
   .services.bot.labels["com.rental-apartments.environment"] == "production" and
   .services.bot.environment.NODE_ENV == "production" and
   .services.bot.read_only == true and
+  ((.services.bot.cap_add // []) | length == 0) and
+  .services.bot.cap_drop == ["ALL"] and
+  (.services.bot.security_opt | index("no-new-privileges:true") != null) and
   .services.bot.deploy.replicas == 1 and
   .services.bot.deploy.update_config.order == "stop-first" and
   ((.services.bot.ports // []) | length == 0) and

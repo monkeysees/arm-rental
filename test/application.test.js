@@ -4,9 +4,9 @@ import test from "node:test";
 
 import { runApplication } from "../src/application.js";
 import {
-  BrowserContentTimeoutError,
-  BrowserVerificationRequiredError,
-} from "../src/browser-fetch.js";
+  ListAmChallengeError,
+  ListAmTransportError,
+} from "../src/list-am-http.js";
 import { HealthMonitor } from "../src/health.js";
 import {
   ListAmIntegrityReason,
@@ -37,8 +37,8 @@ test("configuration validation fails before locks, resources, or loops start", a
       acquireLock: async () => {
         calls.push("lock");
       },
-      browserFetcherFactory: () => {
-        calls.push("browser");
+      sourceFetcherFactory: () => {
+        calls.push("source");
       },
       exchangeRateServiceFactory: () => {
         calls.push("exchange-rates");
@@ -53,299 +53,109 @@ test("configuration validation fails before locks, resources, or loops start", a
   assert.deepEqual(calls, ["validate"]);
 });
 
-test("runtime page fetch backs off before retrying a browser challenge", async () => {
-  const alerts = [];
-  const monitor = new HealthMonitor({
-    version: "1.0.0",
-    now: () => new Date("2026-07-25T10:00:00.000Z"),
-    onAlert: (alert) => alerts.push(alert),
-  });
-  const warnings = [];
-  const logger = {
-    info: () => {},
-    warn: (message, context) => warnings.push({ message, context }),
-    error: () => {},
-  };
-  const exchangeSnapshot = {
-    fetchedAt: "2026-07-25T09:00:00.000Z",
-  };
-  let fetchAttempts = 0;
-
-  await runApplication({
-    config: { dataDirectory: "/data", externalRetryBaseMs: 1 },
-    logger,
-    healthMonitor: monitor,
-    validateConfig: async () => {},
-    stateBackendFactory,
-    acquireLock: async () => ({
-      dataDirectory: "/data",
-      owner: { id: "lease", pid: 42 },
-      release: async () => {},
-    }),
-    browserFetcherFactory: (_config, callbacks) => ({
-      fetch: async () => {
-        fetchAttempts += 1;
-        if (fetchAttempts <= 2) {
-          callbacks.onEvent({
-            name: "browser.challenge",
-            component: "browser",
-            code: "ERR_BROWSER_VERIFICATION_REQUIRED",
-            remediationCommand: "npm run browser:verify",
-            url: "https://www.list.am/ru/category/1377/1",
+test("page challenges and transport failures reach the crawl loop without immediate retries", async () => {
+  for (const error of [
+    new ListAmChallengeError(403, "edge"),
+    new ListAmTransportError("request timed out"),
+  ]) {
+    let fetchAttempts = 0;
+    const events = [];
+    const warnings = [];
+    await runApplication({
+      config: { dataDirectory: "/data" },
+      logger: {
+        info: () => {},
+        warn: (message, context) => warnings.push({ message, context }),
+        error: () => {},
+      },
+      validateConfig: async () => {},
+      stateBackendFactory,
+      acquireLock: async () => ({
+        dataDirectory: "/data",
+        owner: { pid: 42 },
+        release: async () => events.push("released"),
+      }),
+      sourceFetcherFactory: (_config, callbacks) => ({
+        fetch: async () => {
+          fetchAttempts += 1;
+          if (error.code === "ERR_LIST_AM_CHALLENGE")
+            callbacks.onEvent({
+              name: "list_am.challenge",
+              component: "list_am",
+              code: error.code,
+              httpStatus: 403,
+              challengeSource: "edge",
+            });
+          throw error;
+        },
+        close: async () => events.push("closed"),
+      }),
+      exchangeRateServiceFactory: () => ({}),
+      preflight: async () => ({ status: "ready", ready: true, checks: {} }),
+      runBot: async (_config, callbacks) => {
+        await assert.rejects(
+          callbacks.pageFetch("https://www.list.am/"),
+          (actual) => actual === error,
+        );
+        assert.equal(fetchAttempts, 1);
+      },
+    });
+    assert.deepEqual(events, ["closed", "released"]);
+    assert.equal(
+      warnings.some(({ context }) => context.event === "retry.scheduled"),
+      false,
+    );
+    if (error.code === "ERR_LIST_AM_CHALLENGE")
+      assert.deepEqual(warnings, [
+        {
+          message: "List.am challenge detected",
+          context: {
+            event: "list_am.challenge",
+            component: "list_am",
+            code: error.code,
             httpStatus: 403,
             challengeSource: "edge",
-          });
-          throw new BrowserVerificationRequiredError();
-        }
-        return new Response('<div id="contentr"></div>', { status: 200 });
-      },
-      // Releasing the session is where a wedged Chrome is killed, and the
-      // clearance it failed to flush is what makes the next launch's challenge
-      // worth connecting to this. It is the per-crawl path, so a browser that
-      // will not exit loses a cookie every crawl rather than once at shutdown.
-      endSession: async () => {
-        callbacks.onEvent({
-          name: "browser.forced_exit",
-          component: "browser",
-          code: "ERR_BROWSER_FORCED_EXIT",
-          gracefulTimeoutMs: 10_000,
-          exited: true,
-        });
-      },
-      close: async () => {},
-    }),
-    exchangeRateServiceFactory: () => ({
-      currentSnapshot: () => exchangeSnapshot,
-    }),
-    preflight: async () => ({
-      status: "ready",
-      ready: true,
-      checks: {
-        storage: "passed",
-        telegram: "passed",
-        browser: "passed",
-        list_am: "passed",
-        exchange_rates: "passed",
-      },
-    }),
-    runBot: async (_config, callbacks) => {
-      callbacks.onMonitoringState({
-        active: true,
-        channelConfigured: false,
-      });
-      const response = await callbacks.pageFetch("https://www.list.am/");
-      assert.equal(response.ok, true);
-      callbacks.onResult({
-        crawlId: "safe-crawl",
-        durationMs: 1,
-        status: "unchanged",
-        pagesParsed: 1,
-        discoveredCount: 0,
-        updatedCount: 0,
-        notifiedCount: 0,
-        skippedCount: 0,
-        filteredCount: 0,
-        totalCount: 0,
-        channel: {
-          sentCount: 0,
-          editedCount: 0,
-          filteredCount: 0,
-          skippedCount: 0,
+          },
         },
-      });
-    },
-  });
-
-  assert.equal(fetchAttempts, 3);
-  assert.deepEqual(
-    warnings
-      .filter(({ message }) => message === "Browser page retry scheduled")
-      .map(({ context }) => context.delayMs),
-    [1, 2],
-  );
-  assert.deepEqual(
-    warnings.find(({ message }) => message === "Browser page retry scheduled")
-      ?.context,
-    {
-      event: "retry.scheduled",
-      component: "browser",
-      operation: "fetch_page",
-      attempt: 1,
-      delayMs: 1,
-      reason: "BROWSER_VERIFICATION_REQUIRED",
-    },
-  );
-  // A challenge the retry answered inside the same crawl is List.am asking
-  // once, not an outage, so it never reaches the owner's phone.
-  assert.deepEqual(
-    alerts.filter(({ name }) => name === "browser_challenge"),
-    [],
-  );
-  // The challenge log names the page and how the challenge was recognised.
-  // Without both, a run of these cannot be attributed to one category or told
-  // apart from pages that simply failed to render.
-  assert.deepEqual(
-    warnings.find(({ message }) => message === "Browser challenge detected")
-      ?.context,
-    {
-      eventName: "browser.challenge",
-      component: "browser",
-      code: "ERR_BROWSER_VERIFICATION_REQUIRED",
-      remediationCommand: "npm run browser:verify",
-      url: "https://www.list.am/ru/category/1377/1",
-      httpStatus: 403,
-      challengeSource: "edge",
-    },
-  );
-  // A Chrome that had to be killed is reported on its own, because the
-  // clearance it failed to flush is what provokes the next challenge.
-  assert.deepEqual(
-    warnings.find(({ message }) => message === "Chrome did not exit on request")
-      ?.context,
-    {
-      eventName: "browser.forced_exit",
-      component: "browser",
-      code: "ERR_BROWSER_FORCED_EXIT",
-      gracefulTimeoutMs: 10_000,
-    },
-  );
-  // Releasing the session absorbs its own failures, so a fetcher that cannot
-  // do it would leave the tests above passing over a browser never released.
-  assert.deepEqual(
-    warnings.filter(
-      ({ message }) => message === "Browser session release failed",
-    ),
-    [],
-  );
-  assert.equal(monitor.readiness().ready, true);
+      ]);
+  }
 });
 
-test("a stalled page read is retried against a fresh browser with backoff", async () => {
-  const warnings = [];
-  const logger = {
-    info: () => {},
-    warn: (message, context) => warnings.push({ message, context }),
-    error: () => {},
-  };
-  let fetchAttempts = 0;
-
-  await runApplication({
-    // A base delay of one millisecond keeps the backoff observable without
-    // making the test wait out a production-sized one.
-    config: {
-      dataDirectory: "/data",
-      externalRetryBaseMs: 1,
-      externalRetryMaxMs: 4,
-    },
-    logger,
-    validateConfig: async () => {},
-    stateBackendFactory,
-    acquireLock: async () => ({
-      dataDirectory: "/data",
-      owner: { id: "lease", pid: 42 },
-      release: async () => {},
+test("transport shutdown failure still closes state and releases the lease", async () => {
+  const events = [];
+  const failure = new Error("transport shutdown failed");
+  await assert.rejects(
+    runApplication({
+      config: { dataDirectory: "/data" },
+      logger: { info: () => {}, warn: () => {}, error: () => {} },
+      validateConfig: async () => {},
+      stateBackendFactory: () => ({
+        ...stateBackendFactory(),
+        close: () => events.push("state:closed"),
+      }),
+      acquireLock: async () => ({
+        dataDirectory: "/data",
+        owner: { pid: 42 },
+        release: async () => events.push("lease:released"),
+      }),
+      sourceFetcherFactory: () => ({
+        close: async () => {
+          events.push("source:close");
+          throw failure;
+        },
+      }),
+      exchangeRateServiceFactory: () => ({}),
+      preflight: async () => ({ status: "ready", ready: true, checks: {} }),
+      runBot: async () => events.push("bot"),
     }),
-    browserFetcherFactory: () => ({
-      fetch: async () => {
-        fetchAttempts += 1;
-        // Two stalls in a row is exactly the case the second attempt used to
-        // lose the crawl to.
-        if (fetchAttempts <= 2) throw new BrowserContentTimeoutError(20_000);
-        return new Response('<div id="contentr"></div>', { status: 200 });
-      },
-      endSession: async () => {},
-      close: async () => {},
-    }),
-    exchangeRateServiceFactory: () => ({
-      currentSnapshot: () => ({ fetchedAt: "2026-07-25T09:00:00.000Z" }),
-    }),
-    preflight: async () => ({
-      status: "ready",
-      ready: true,
-      checks: {
-        storage: "passed",
-        telegram: "passed",
-        browser: "passed",
-        list_am: "passed",
-        exchange_rates: "passed",
-      },
-    }),
-    runBot: async (_config, callbacks) => {
-      const response = await callbacks.pageFetch("https://www.list.am/");
-      assert.equal(response.ok, true);
-    },
-  });
-
-  // The third attempt is the one that returns the page, so it has to exist.
-  assert.equal(fetchAttempts, 3);
-  const retries = warnings
-    .filter(({ message }) => message === "Browser page retry scheduled")
-    .map(({ context }) => context);
-  assert.deepEqual(
-    retries.map(({ attempt, reason }) => ({ attempt, reason })),
-    [
-      { attempt: 1, reason: "BROWSER_CONTENT_TIMEOUT" },
-      { attempt: 2, reason: "BROWSER_CONTENT_TIMEOUT" },
-    ],
+    (error) => error === failure,
   );
-  // A stall is a load symptom, so relaunching Chrome waits rather than racing
-  // straight back into the spike that stalled the last one.
-  assert.ok(
-    retries.every(({ delayMs }) => delayMs > 0),
-    `expected every stall retry to back off, got ${JSON.stringify(retries)}`,
-  );
-});
-
-test("a browser that will not release does not fail the crawl that used it", async () => {
-  const warnings = [];
-  const logger = {
-    info: () => {},
-    warn: (message, context) => warnings.push({ message, context }),
-    error: () => {},
-  };
-  let crawls = 0;
-
-  await runApplication({
-    config: { dataDirectory: "/data" },
-    logger,
-    validateConfig: async () => {},
-    stateBackendFactory,
-    acquireLock: async () => ({
-      dataDirectory: "/data",
-      owner: { id: "lease", pid: 42 },
-      release: async () => {},
-    }),
-    browserFetcherFactory: () => ({
-      fetch: async () => new Response('<div id="contentr"></div>'),
-      // A wedged Chrome can refuse to go away. Releasing it is cleanup that
-      // runs after the pages are already in hand, so its failure must be
-      // reported and then dropped: raising it here would discard a crawl that
-      // had already succeeded, and would replace the error of one that had not.
-      endSession: async () => {
-        throw new Error("Chrome profile is still locked");
-      },
-      close: async () => {},
-    }),
-    exchangeRateServiceFactory: () => ({
-      currentSnapshot: () => ({ fetchedAt: "2026-07-25T09:00:00.000Z" }),
-    }),
-    preflight: async () => ({ status: "ready", ready: true, checks: {} }),
-    runBot: async (_config, callbacks) => {
-      crawls += 1;
-      const response = await callbacks.pageFetch("https://www.list.am/");
-      assert.equal(response.ok, true);
-      await callbacks.onCrawlSettled({ crawlId: "wedged-crawl" });
-    },
-  });
-
-  assert.equal(crawls, 1);
-  // Once for preflight's own session, once for the crawl's.
-  assert.deepEqual(
-    warnings
-      .filter(({ message }) => message === "Browser session release failed")
-      .map(({ context }) => context.reason),
-    ["Chrome profile is still locked", "Chrome profile is still locked"],
-  );
+  assert.deepEqual(events, [
+    "bot",
+    "source:close",
+    "state:closed",
+    "lease:released",
+  ]);
 });
 
 test("application lifecycle drives crawl and exchange-rate readiness", async () => {
@@ -382,17 +192,14 @@ test("application lifecycle drives crawl and exchange-rate readiness", async () 
       owner: { pid: 42 },
       release: async () => {},
     }),
-    browserFetcherFactory: (_config, callbacks) => {
-      callbacks.onStatus("Browser is starting");
+    sourceFetcherFactory: (_config, callbacks) => {
       callbacks.onEvent({
-        name: "browser.challenge",
-        component: "browser",
-        code: "ERR_BROWSER_VERIFICATION_REQUIRED",
-        remediationCommand: "npm run browser:verify",
+        name: "list_am.challenge",
+        component: "list_am",
+        code: "ERR_LIST_AM_CHALLENGE",
       });
       return {
         fetch: async () => {},
-        endSession: async () => {},
         close: async () => {},
       };
     },
@@ -436,7 +243,7 @@ test("application lifecycle drives crawl and exchange-rate readiness", async () 
         checks: {
           storage: "passed",
           telegram: "passed",
-          browser: "passed",
+          source_transport: "passed",
           list_am: "passed",
           exchange_rates: "passed",
         },
@@ -543,7 +350,7 @@ test("application lifecycle drives crawl and exchange-rate readiness", async () 
       );
       callbacks.onError(
         Object.assign(new Error("challenge"), {
-          code: "ERR_BROWSER_VERIFICATION_REQUIRED",
+          code: "ERR_LIST_AM_CHALLENGE",
         }),
       );
       callbacks.onTelegramSuccess();
@@ -723,4 +530,113 @@ test("application lifecycle drives crawl and exchange-rate readiness", async () 
       channelReadmittedCount: 0,
     },
   );
+});
+
+test("startup source failures publish readiness before cooling down for supervisor retry", async () => {
+  for (const scenario of [
+    {
+      component: "list_am",
+      terminal: false,
+      retryAfterMs: undefined,
+      expected: 60_000,
+    },
+    {
+      component: "list_am",
+      terminal: false,
+      retryAfterMs: 120_000,
+      expected: 120_000,
+    },
+    { component: "source_transport", terminal: true, expected: undefined },
+    { component: "telegram", terminal: true, expected: undefined },
+    { component: "state", terminal: true, expected: undefined },
+  ]) {
+    const events = [];
+    const failure = Object.assign(new Error("startup failed"), {
+      retryAfterMs: scenario.retryAfterMs,
+      preflightResult: {
+        ready: false,
+        status: "failed",
+        terminal: scenario.terminal,
+        failure: { component: scenario.component },
+      },
+    });
+    await assert.rejects(
+      runApplication({
+        config: { dataDirectory: "/data" },
+        logger: { info: () => {}, warn: () => {}, error: () => {} },
+        healthMonitor: {
+          setConfigurationValid: () => {},
+          setPreflight: () => events.push("not-ready"),
+        },
+        validateConfig: async () => {},
+        stateBackendFactory,
+        acquireLock: async () => ({
+          dataDirectory: "/data",
+          owner: { pid: 42 },
+          release: async () => events.push("released"),
+        }),
+        sourceFetcherFactory: () => ({
+          close: async () => events.push("closed"),
+        }),
+        exchangeRateServiceFactory: () => ({}),
+        preflight: async () => {
+          throw failure;
+        },
+        sleep: async (milliseconds) => events.push(milliseconds),
+        runBot: async () => assert.fail("polling must not start"),
+      }),
+      (error) => error === failure,
+    );
+    assert.deepEqual(events, [
+      "not-ready",
+      ...(scenario.expected === undefined ? [] : [scenario.expected]),
+      "closed",
+      "released",
+    ]);
+  }
+});
+
+test("SIGTERM interrupts startup cooldown and still releases resources", async () => {
+  const signalEmitter = new EventEmitter();
+  const events = [];
+  const failure = Object.assign(new Error("challenge"), {
+    preflightResult: {
+      ready: false,
+      status: "source_challenge",
+      terminal: false,
+      failure: { component: "list_am" },
+    },
+  });
+  await assert.rejects(
+    runApplication({
+      config: { dataDirectory: "/data", pollIntervalMs: 75_000 },
+      signalEmitter,
+      logger: { info: () => {}, warn: () => {}, error: () => {} },
+      validateConfig: async () => {},
+      stateBackendFactory,
+      acquireLock: async () => ({
+        dataDirectory: "/data",
+        owner: { pid: 42 },
+        release: async () => events.push("released"),
+      }),
+      sourceFetcherFactory: () => ({
+        close: async () => events.push("closed"),
+      }),
+      exchangeRateServiceFactory: () => ({}),
+      preflight: async () => {
+        throw failure;
+      },
+      sleep: async (milliseconds, _value, { signal }) => {
+        assert.equal(milliseconds, 75_000);
+        assert.equal(signal.aborted, false);
+        signalEmitter.emit("SIGTERM");
+        assert.equal(signal.aborted, true);
+        throw new DOMException("aborted", "AbortError");
+      },
+      runBot: async () => assert.fail("polling must not start"),
+    }),
+    (error) => error === failure,
+  );
+  assert.deepEqual(events, ["closed", "released"]);
+  assert.equal(signalEmitter.listenerCount("SIGTERM"), 0);
 });

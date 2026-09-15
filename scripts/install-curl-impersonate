@@ -1,0 +1,29 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+
+# Install only the verified executable and its redistribution licenses.
+script_directory="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=scripts/curl-impersonate-version
+source "$script_directory/curl-impersonate-version"
+prefix="${1:-/usr/local}"
+architecture="${2:-$(uname -m)}"
+[[ "$#" -le 2 && "$prefix" == /* ]] || {
+  printf 'Usage: %s [ABSOLUTE_PREFIX] [amd64|arm64]\n' "${0##*/}" >&2
+  exit 64
+}
+case "$architecture" in
+  amd64|x86_64) target=x86_64-linux-gnu; checksum="$CURL_IMPERSONATE_AMD64_SHA256" ;;
+  arm64|aarch64) target=aarch64-linux-gnu; checksum="$CURL_IMPERSONATE_ARM64_SHA256" ;;
+  *) printf 'Unsupported Linux architecture: %s\n' "$architecture" >&2; exit 65 ;;
+esac
+[[ "$(uname -s)" == Linux ]] || { printf 'Linux is required\n' >&2; exit 65; }
+temporary_directory="$(mktemp -d)"
+trap 'rm -rf -- "$temporary_directory"' EXIT
+curl --fail --silent --show-error --location --proto '=https' --tlsv1.2 \
+  "https://github.com/lexiforest/curl-impersonate/releases/download/v${CURL_IMPERSONATE_VERSION}/curl-impersonate-v${CURL_IMPERSONATE_VERSION}.${target}.tar.gz" \
+  --output "$temporary_directory/archive.tar.gz"
+printf '%s  %s\n' "$checksum" "$temporary_directory/archive.tar.gz" | sha256sum --check --status
+tar --extract --gzip --file "$temporary_directory/archive.tar.gz" --directory "$temporary_directory"
+install -d "$prefix/bin" "$prefix/share/licenses/curl-impersonate"
+install -m 0755 "$temporary_directory/curl-impersonate" "$prefix/bin/curl-impersonate"
+install -m 0644 "$temporary_directory"/LICENSE* "$prefix/share/licenses/curl-impersonate/"

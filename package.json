@@ -6,8 +6,7 @@
   "type": "module",
   "scripts": {
     "start": "node --env-file-if-exists=.env src/index.js",
-    "browser:verify": "node --env-file-if-exists=.env src/verify-browser.js",
-    "browser:smoke": "node --env-file-if-exists=.env src/browser-smoke.js",
+    "source:smoke": "node --env-file-if-exists=.env src/list-am-smoke.js",
     "backup": "node --env-file-if-exists=.env src/recovery-cli.js backup",
     "backup:validate": "node --env-file-if-exists=.env src/recovery-cli.js validate",
     "restore": "node --env-file-if-exists=.env src/recovery-cli.js restore",
@@ -29,8 +28,7 @@
     "node": "24.18.0"
   },
   "dependencies": {
-    "cheerio": "1.2.0",
-    "puppeteer-core": "25.10.0"
+    "cheerio": "1.2.0"
   },
   "devDependencies": {
     "@eslint/js": "10.0.1",

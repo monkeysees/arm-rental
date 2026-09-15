@@ -6,6 +6,7 @@ import {
   isExpectedExternalFailure,
   MAX_RETRY_DELAY_MS,
   retryOperation,
+  retryAfterMilliseconds,
 } from "../src/retry.js";
 
 test("bounded backoff grows exponentially with jitter and resets after success", async () => {
@@ -46,12 +47,12 @@ test("bounded backoff grows exponentially with jitter and resets after success",
 
 test("retry policy accepts network and 5xx failures but rejects terminal state", () => {
   assert.equal(
-    isExpectedExternalFailure({ code: "ERR_BROWSER_VERIFICATION_REQUIRED" }),
+    isExpectedExternalFailure({ code: "ERR_LIST_AM_CHALLENGE" }),
     true,
   );
   assert.equal(
     isExpectedExternalFailure({
-      code: "ERR_BROWSER_VERIFICATION_REQUIRED",
+      code: "ERR_LIST_AM_CHALLENGE",
       terminal: true,
     }),
     false,
@@ -85,5 +86,22 @@ test("retry policy accepts network and 5xx failures but rejects terminal state",
         maxDelayMs: MAX_RETRY_DELAY_MS + 1,
       }),
     /five minutes/u,
+  );
+});
+
+test("HTTP Retry-After accepts seconds and future dates without shortening them", () => {
+  const now = Date.parse("2026-09-15T12:00:00Z");
+  assert.equal(retryAfterMilliseconds("180"), 180_000);
+  assert.equal(
+    retryAfterMilliseconds("Tue, 15 Sep 2026 12:03:00 GMT", now),
+    180_000,
+  );
+  for (const value of [undefined, "", "garbage", "-1", "9007199254740992"]) {
+    assert.equal(retryAfterMilliseconds(value, now), undefined);
+  }
+  assert.equal(isExpectedExternalFailure({ httpStatus: 429 }), true);
+  assert.equal(
+    isExpectedExternalFailure({ code: "ERR_LIST_AM_TRANSPORT" }),
+    true,
   );
 });

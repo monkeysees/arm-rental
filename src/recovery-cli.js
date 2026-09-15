@@ -73,7 +73,7 @@ try {
         logger.info("Recovery operation event", { recovery: event }),
     });
     logger.warn(
-      "Restore completed; keep the bot stopped until browser:smoke passes",
+      "Restore completed; run the HTTP source smoke check before resuming the bot",
       result,
     );
   } else if (command === "disk-check") {

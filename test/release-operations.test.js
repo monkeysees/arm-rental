@@ -164,7 +164,7 @@ test("operations index covers every required runbook and each canonical page is 
     "docs/deployment-from-scratch.md",
     "docs/release-and-rollback.md",
     "docs/token-rotation.md",
-    "docs/browser-operations.md",
+    "docs/source-operations.md",
     "docs/state-recovery.md",
     "docs/startup-preflight.md",
     "docs/runtime-incidents.md",
@@ -198,12 +198,12 @@ test("operations index covers every required runbook and each canonical page is 
     "Fresh production launch",
     "Deploy and rollback",
     "Rotate Telegram token",
-    "browser verification",
+    "source access",
     "Restore persistent state",
     "Malformed, incompatible",
     "Stale crawling",
     "Telegram private or channel",
-    "Stale singleton or Chrome lock",
+    "Stale singleton lock",
     "Low disk or growing state",
   ]) {
     assert.match(index, new RegExp(topic, "iu"));

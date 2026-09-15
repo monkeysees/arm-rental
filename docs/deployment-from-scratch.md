@@ -164,8 +164,8 @@ When a channel is configured, add the bot as an administrator with Post
 Messages and Edit Messages permissions before deployment.
 
 The production Compose file supplies production-only runtime paths, headless
-Chrome, backup mount, and health settings. Do not copy a developer `.data`
-directory or browser profile into this file.
+HTTP transport, backup mount, and health settings. Do not copy a developer `.data`
+directory or source cookie file into this file.
 
 Expected result: the file is a regular non-symlink file with mode `0600` and
 has exactly one nonempty value for each of the five required keys.
@@ -341,22 +341,20 @@ deploy runs `state:init` once, immediately after it has proved the volume empty,
 and that is the only command in the tree permitted to create a database. It
 refuses to run over an existing one. A quarantined first candidate leaves the
 volume as it found it — the deploy removes the database it created, keeping the
-dedicated Chrome profile — so the next attempt initializes normally rather than
+dedicated source cookie file — so the next attempt initializes normally rather than
 being refused by the empty-storage gate.
 
 Expected result: the source revision and immutable candidate digest equal the
 GitHub release record, `firstInstall` is true, readiness is healthy, and a
 `crawl.succeeded` event exists. A first installation has no pre-deploy snapshot.
 Its named data volume must be empty or contain only the dedicated
-`chrome-profile/` created while resolving a failed candidate's browser
-verification challenge; application state or any other top-level entry is
+`list-am-cookies.txt` created by a failed candidate; application state or any other top-level entry is
 rejected.
 
-If startup reports `browser_verification_required`, keep the service stopped
-and follow [production browser operations](browser-operations.md) against the
-same production profile, Chrome build, service account, and outbound address.
-Do not bypass a challenge, expose Chrome debugging, or transfer a daily-use
-browser profile.
+If startup reports `source_challenge`, keep the service stopped and follow
+[source access operations](source-operations.md). Check the pinned HTTP binary,
+source cookie file, and production outbound address. Challenges fail closed and
+require investigation before restarting repeated requests.
 
 If deployment fails, retain the failed unit, quarantine record, and sanitized
 receipt. First-install failure cannot roll back because no prior release
@@ -503,8 +501,7 @@ The launch record must contain only:
 "observed-pass"`.
 
 Do not attach the production environment file, raw journals, provider
-credentials, Telegram identifiers, apartment data, browser cookies, or
-complete browser profiles.
+credentials, Telegram identifiers, apartment data, source cookies.
 
 Production launch remains blocked when any hosted gate failed, the active image
 does not match the recorded digest, readiness is false, rollback failed, a

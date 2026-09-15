@@ -1,10 +1,6 @@
 import { monitorEventLoopDelay } from "node:perf_hooks";
 
-// Long enough that ordinary scheduling jitter stays out of the journal, short
-// enough to still name a block the browser would notice. Puppeteer gives an
-// optional page interaction a third of the protocol budget, so anything past a
-// quarter-second is already a measurable share of what a CDP call may spend
-// waiting for this loop.
+// Ignore ordinary scheduling jitter; retain delays that affect HTTP and health.
 const DEFAULT_THRESHOLD_MS = 250;
 
 // One record per window rather than one per spike: a stall is diagnosed by
@@ -12,18 +8,7 @@ const DEFAULT_THRESHOLD_MS = 250;
 // windows shorter than a page fetch would report the same block twice.
 const DEFAULT_INTERVAL_MS = 10_000;
 
-/**
- * Watches how late the event loop is running and reports the windows that were
- * late enough to matter.
- *
- * The browser's CDP client shares this loop with everything else the process
- * does. A response that arrives while the loop is blocked is not read until
- * the block ends, so a long enough block is indistinguishable from a browser
- * that stopped answering, and surfaces as a protocol timeout rather than as
- * anything naming the work that actually caused it. Storage instrumentation
- * cannot stand in for this: it times the operations it knows about, which is
- * exactly the set that would already be suspected.
- */
+/** Reports event-loop stalls independently of database operation timings. */
 export function createEventLoopDelayMonitor({
   onMetric = () => {},
   intervalMs = DEFAULT_INTERVAL_MS,

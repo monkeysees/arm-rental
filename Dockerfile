@@ -6,8 +6,8 @@ ARG NODE_VERSION=24.18.0
 FROM node:${NODE_VERSION}-bookworm-slim@sha256:6f7b03f7c2c8e2e784dcf9295400527b9b1270fd37b7e9a7285cf83b6951452d AS production
 
 ARG NODE_VERSION
-ARG CHROME_VERSION=152.0.7977.82
-ARG CHROMIUM_PACKAGE_VERSION=152.0.7977.82-1~deb12u1
+ARG CURL_IMPERSONATE_VERSION=2.2.2
+ARG TARGETARCH
 ARG DEBIAN_SNAPSHOT=20260905T234553Z
 ARG SOURCE_REVISION
 ARG PACKAGE_LOCK_SHA256
@@ -19,12 +19,11 @@ LABEL org.opencontainers.image.title="rental-apartments-bot" \
       com.rental-apartments.state.schema.minimum="1" \
       com.rental-apartments.state.schema.maximum="1" \
       org.opencontainers.image.node.version="${NODE_VERSION}" \
-      org.opencontainers.image.chrome.version="${CHROME_VERSION}" \
+      org.opencontainers.image.curl-impersonate.version="${CURL_IMPERSONATE_VERSION}" \
       org.opencontainers.image.package-lock.sha256="${PACKAGE_LOCK_SHA256}"
 
 ENV NODE_ENV=production \
-    BROWSER_HEADLESS=true \
-    CHROME_EXECUTABLE_PATH=/usr/bin/chromium
+    CURL_IMPERSONATE_PATH=/usr/local/bin/curl-impersonate
 
 WORKDIR /app
 
@@ -34,27 +33,20 @@ RUN test "$(printf '%s' "${SOURCE_REVISION}" | wc -c)" -eq 40 \
     && test "${PACKAGE_LOCK_SHA256}" = "$(sha256sum package-lock.json | cut -d ' ' -f 1)"
 RUN npm ci --omit=dev && npm cache clean --force
 
-# Pin Chromium and its sandbox helper from a dated Debian snapshot so both the
-# exact browser and its shared libraries are reproducible.
+# Build-time installation verifies the release archive checksum and retains licenses.
+COPY scripts/install-curl-impersonate scripts/curl-impersonate-version /tmp/curl-install/
 RUN sed -i \
       -e "s|http://deb.debian.org/debian-security|http://snapshot.debian.org/archive/debian-security/${DEBIAN_SNAPSHOT}|g" \
       -e "s|http://deb.debian.org/debian|http://snapshot.debian.org/archive/debian/${DEBIAN_SNAPSHOT}|g" \
       -e '/^Signed-By:/a Check-Valid-Until: no' \
       /etc/apt/sources.list.d/debian.sources \
     && apt-get update \
-    && apt-get install --yes --no-install-recommends \
-      ca-certificates \
-      "chromium=${CHROMIUM_PACKAGE_VERSION}" \
-      "chromium-sandbox=${CHROMIUM_PACKAGE_VERSION}" \
-    && test "${CHROMIUM_PACKAGE_VERSION%%-*}" = "${CHROME_VERSION}" \
-    && test "$(dpkg-query --show --showformat='${Version}' chromium)" = \
-      "${CHROMIUM_PACKAGE_VERSION}" \
-    && test "$(dpkg-query --show --showformat='${Version}' chromium-sandbox)" = \
-      "${CHROMIUM_PACKAGE_VERSION}" \
-    && test "$(stat -c '%U:%G:%a' /usr/lib/chromium/chrome-sandbox)" = \
-      "root:root:4755" \
+    && apt-get install --yes --no-install-recommends ca-certificates curl \
+    && test "${CURL_IMPERSONATE_VERSION}" = "$(. /tmp/curl-install/curl-impersonate-version; printf '%s' "$CURL_IMPERSONATE_VERSION")" \
+    && /tmp/curl-install/install-curl-impersonate /usr/local "${TARGETARCH}" \
+    && apt-get purge --yes --auto-remove curl \
     && rm -rf \
-      /var/lib/apt/lists/* \
+      /var/lib/apt/lists/* /tmp/curl-install \
       /usr/local/lib/node_modules/npm \
       /usr/local/lib/node_modules/corepack \
     && rm -f /usr/local/bin/npm /usr/local/bin/npx /usr/local/bin/corepack

@@ -13,7 +13,7 @@ access-controlled platform mechanism.
   timestamps.
 - `GET /ready` and `GET /health` return HTTP 200 when work can be performed and
   HTTP 503 otherwise. They report sanitized component states for configuration,
-  storage, Telegram, browser, List.am, and CBA.
+  storage, Telegram, List.am, and CBA.
 
 Health output never includes credentials, Telegram owner or channel
 identifiers, apartment records, upstream response bodies, error messages, or
@@ -25,30 +25,24 @@ successful crawl. It becomes false at five consecutive crawl failures or once
 the last successful crawl is ten minutes old, whichever occurs first. A later
 successful crawl resets the failure counter and freshness clock.
 
-A List.am security challenge is a distinct `challenge` browser status with
-reason `BROWSER_VERIFICATION_REQUIRED`. Runtime fetching retries
-the challenged page up to twice in a fresh Chrome process with exponential
-backoff. If a retry permits the
-complete crawl to succeed, the crawl clears the component because it proves
-that the browser can fetch and validate the source again. The component and
-readiness reason appear as soon as the challenge is seen, but the
-`browser_challenge` alert does not: it waits until five crawls in a row have
-ended without clearing the challenge. The elapsed time depends on page runtime
-and exponential retry delays across failed crawls. List.am challenges a single page far more often than it locks the
-profile out, and a challenge the next crawl answers is not an operator's
-problem. The generic `readiness_failure` alert applies the same threshold to
-the browser-verification reason, so a readiness probe cannot bypass this delay.
-The HTTP readiness response still reports the challenge immediately. Other
-alert reasons remain active, including ten-minute crawl staleness and five
-consecutive crawl failures, even while a browser challenge is being retried.
-Repeated challenges inside one crawl count once, so the threshold
-measures crawls rather than page fetches. A startup/preflight challenge cannot
-recover this way because the runtime-only retry and crawling have not begun, so
-it alerts on sight; follow
-[`browser-operations.md`](browser-operations.md) before restarting the service.
+A List.am security challenge sets the `list_am` component to `challenge`
+with reason `LIST_AM_CHALLENGE`. The current crawl stops and the crawl loop
+backs off before trying again; it does not immediately retry the page. A
+successful source integrity check clears the challenge even if a later
+delivery or storage operation fails.
+
+Readiness changes as soon as the challenge is seen. The `list_am_challenge`
+alert waits until five crawls have ended challenged without a validated source
+recovery. The generic `readiness_failure` alert applies the same grace period
+to `LIST_AM_CHALLENGE`, so a readiness probe cannot bypass it. Other alert
+reasons remain active, including ten-minute crawl staleness and five
+consecutive crawl failures. Repeated challenge events inside one crawl count
+once. A startup/preflight challenge alerts immediately because runtime
+crawling has not begun; follow
+[`source-operations.md`](source-operations.md) before restarting the service.
 Other stable component statuses distinguish List.am transport/parsing, CBA,
-Telegram, storage, browser startup, and configuration failures without copying
-their potentially sensitive errors into HTTP.
+Telegram, storage, and configuration failures without copying sensitive errors
+into HTTP.
 
 Any hard source-integrity failure makes readiness false immediately with
 `LIST_AM_SOURCE_INTEGRITY`, without waiting for the five-failure or stale-crawl
@@ -107,7 +101,7 @@ visible as an increased `RestartCount` and, if it repeats, the
 `process_restart_loop` alert.
 
 The Docker healthcheck intentionally does not use readiness: restarting a
-responsive process does not remediate missing channel permissions, a browser
+responsive process does not remediate missing channel permissions, a List.am
 challenge, stale crawling, or an unavailable upstream.
 
 Inspect liveness from the deployment host. Only the supervised
@@ -137,7 +131,7 @@ readiness alert would fire.
 The response also includes `alertReasons`: the readiness reasons that have
 passed the application's alert grace policy. Host monitoring counts a failed
 probe only when this array is nonempty. A challenge inside its grace period
-still reports HTTP 503 and `BROWSER_VERIFICATION_REQUIRED` in `reasons`, while
+still reports HTTP 503 and `LIST_AM_CHALLENGE` in `reasons`, while
 staleness, exhausted crawl failures, and startup failures remain alertable.
 `node src/health-check.js --ready --json` prints only status and these two
 bounded code arrays, preserving a nonzero exit for an unready response. It
@@ -145,7 +139,7 @@ distinguishes `READINESS_PROBE_TIMEOUT`, `READINESS_PROBE_FAILED`, and
 `READINESS_RESPONSE_INVALID` from an application-reported readiness failure.
 
 Monitoring routes alertable failures to the matching reason/component runbook.
-It must never copy environment variables, state files, or browser diagnostics
+It must never copy environment variables, state files, cookies, or source bodies
 into probe output.
 
 ## Deployment validation

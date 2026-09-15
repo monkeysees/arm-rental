@@ -158,8 +158,7 @@ export const CONFIGURATION_CATALOG = Object.freeze([
       "Must not be the filesystem root; managed paths must remain inside it.",
     defaultValue: ".data",
     productionExplicit: true,
-    purpose:
-      "Contains persistent state, the browser profile, and singleton lease.",
+    purpose: "Contains persistent state, HTTP cookies, and singleton lease.",
   }),
   dataPath(
     "APARTMENTS_STATE_FILE",
@@ -237,7 +236,7 @@ export const CONFIGURATION_CATALOG = Object.freeze([
     type: "positive safe integer",
     constraints: "Must be a positive JavaScript safe integer.",
     defaultValue: "30000",
-    purpose: "Sets browser navigation and API request timeout.",
+    purpose: "Sets HTTP and API request timeout.",
   }),
   entry({
     name: "EXTERNAL_RETRY_BASE_MS",
@@ -256,75 +255,20 @@ export const CONFIGURATION_CATALOG = Object.freeze([
     purpose: "Caps external retry delays.",
   }),
   entry({
-    name: "CHROME_EXECUTABLE_PATH",
-    configKey: "chromeExecutablePath",
+    name: "CURL_IMPERSONATE_PATH",
+    configKey: "curlImpersonatePath",
     type: "path",
-    constraints: "When set in production, must be absolute.",
-    defaultValue: undefined,
-    defaultDescription: "auto-detected",
+    constraints: "Must be absolute in production.",
+    defaultValue: "/usr/local/bin/curl-impersonate",
     productionExplicit: true,
-    purpose: "Selects the Chrome or Chromium executable.",
+    purpose: "Selects the curl-impersonate executable for List.am requests.",
   }),
   dataPath(
-    "BROWSER_PROFILE_DIR",
-    "browserProfileDir",
-    "chrome-profile",
-    "Stores the persistent Chrome profile.",
+    "LIST_AM_COOKIE_FILE",
+    "listAmCookieFile",
+    "list-am-cookies.txt",
+    "Stores disposable List.am HTTP session cookies with private permissions.",
   ),
-  entry({
-    name: "BROWSER_HEADLESS",
-    configKey: "browserHeadless",
-    type: "boolean",
-    constraints: "true or false; production requires true.",
-    defaultValue: "false",
-    productionExplicit: true,
-    purpose: "Controls headless Chrome operation.",
-  }),
-  entry({
-    name: "BROWSER_LOAD_IMAGES",
-    configKey: "browserLoadImages",
-    type: "boolean",
-    constraints: "true or false.",
-    defaultValue: "true",
-    // Nothing downstream reads an image, so suppressing the fetch was free in
-    // parsing terms and saved bandwidth and decode time. It was not free to
-    // List.am's edge: a client that requests a listing page and none of its
-    // images does not look like the browser it claims to be. Set false to take
-    // the saving back on a host where it matters more than the challenge rate.
-    purpose: "Lets Chrome fetch and decode page images the crawl never reads.",
-  }),
-  entry({
-    name: "BROWSER_CHALLENGE_TIMEOUT_MS",
-    configKey: "browserChallengeTimeoutMs",
-    type: "positive safe integer",
-    constraints: "Must be a positive JavaScript safe integer.",
-    defaultValue: "120000",
-    purpose: "Bounds browser verification waits.",
-  }),
-  entry({
-    name: "BROWSER_PROTOCOL_TIMEOUT_MS",
-    configKey: "browserProtocolTimeoutMs",
-    type: "positive safe integer",
-    constraints: "Must be a positive JavaScript safe integer.",
-    defaultValue: "90000",
-    purpose: "Bounds Chrome protocol commands.",
-  }),
-  entry({
-    name: "BROWSER_CACHE_MAX_BYTES",
-    configKey: "browserCacheMaxBytes",
-    type: "positive safe integer",
-    constraints: "Must be a positive JavaScript safe integer.",
-    defaultValue: "67108864",
-    purpose: "Caps the Chrome HTTP disk cache.",
-  }),
-  entry({
-    name: "BROWSER_DEBUG_PORT",
-    configKey: "browserDebugPort",
-    type: "TCP port",
-    constraints: "Integer from 1 through 65535.",
-    defaultValue: "49222",
-    purpose: "Selects the loopback background-Chrome control port.",
-  }),
   entry({
     name: "BACKUP_DIRECTORY",
     configKey: "backupDirectory",

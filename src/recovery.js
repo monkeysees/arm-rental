@@ -14,10 +14,6 @@ import {
 import path from "node:path";
 import { backup as backupSqlite } from "node:sqlite";
 
-import {
-  browserVerificationStateFile,
-  compatibleBrowserVerification,
-} from "./browser-verification-state.js";
 import { acquireSingletonLock } from "./singleton-lock.js";
 import {
   openStateDatabase,
@@ -36,7 +32,8 @@ const BACKUP_TYPE = "rental-apartments-backup";
 // read one, so the manifest version is what tells an operator that a snapshot
 // predates the SQLite cutover.
 const PRE_SQLITE_BACKUP_VERSION = 1;
-const SQLITE_BACKUP_VERSION = 2;
+const LEGACY_SQLITE_BACKUP_VERSION = 2;
+const SQLITE_BACKUP_VERSION = 3;
 const DEFAULT_DAILY_RETENTION = 7;
 const DEFAULT_WEEKLY_RETENTION = 4;
 const UNSUPPORTED_DIRECTORY_SYNC_CODES = new Set([
@@ -44,12 +41,6 @@ const UNSUPPORTED_DIRECTORY_SYNC_CODES = new Set([
   "ENOTSUP",
   "EOPNOTSUPP",
 ]);
-const EXCLUDED_PROFILE_ENTRIES = new Set([
-  "SingletonCookie",
-  "SingletonLock",
-  "SingletonSocket",
-]);
-
 export class RecoveryValidationError extends Error {
   constructor(message, details = {}) {
     super(message);
@@ -94,39 +85,6 @@ async function optionalState(filename) {
       { filename, cause: error.message },
     );
   }
-}
-
-async function browserRecoverySummary(config, root) {
-  const profileDirectory = relocated(config, root, config.browserProfileDir);
-  let profileDetails;
-  try {
-    profileDetails = await lstat(profileDirectory);
-  } catch (error) {
-    if (error.code !== "ENOENT") throw error;
-  }
-  if (!profileDetails?.isDirectory() || profileDetails.isSymbolicLink()) {
-    throw new RecoveryValidationError(
-      "Required browser profile is missing or unsafe",
-      { profileDirectory },
-    );
-  }
-  const verificationFilename = relocated(
-    config,
-    root,
-    browserVerificationStateFile(config),
-  );
-  const verification = await optionalState(verificationFilename);
-  if (!compatibleBrowserVerification(verification, config.listUrlTemplate)) {
-    throw new RecoveryValidationError(
-      "Browser profile does not contain a compatible verification record",
-      { filename: verificationFilename },
-    );
-  }
-  return {
-    present: true,
-    verifiedAt: verification.verifiedAt,
-    regularAdsCount: verification.regularAdsCount,
-  };
 }
 
 /**
@@ -186,7 +144,6 @@ export async function validateRecoveryState(
         ...database.logicalCounts(),
         updateOffset: telegram.updateOffset,
       },
-      browser: await browserRecoverySummary(config, root),
     };
   } catch (error) {
     if (error instanceof RecoveryValidationError) throw error;
@@ -204,17 +161,11 @@ async function visitFiles(root, visitor, relative = "") {
   const entries = await readdir(directory, { withFileTypes: true });
   entries.sort((left, right) => left.name.localeCompare(right.name));
   for (const entry of entries) {
-    if (
-      relative === path.relative(root, root) &&
-      EXCLUDED_PROFILE_ENTRIES.has(entry.name)
-    ) {
-      continue;
-    }
     const entryRelative = path.join(relative, entry.name);
     const filename = path.join(root, entryRelative);
     if (entry.isSymbolicLink()) {
       throw new RecoveryValidationError(
-        `Browser profile contains an unsafe symbolic link: ${filename}`,
+        `Snapshot contains an unsafe symbolic link: ${filename}`,
         { filename },
       );
     }
@@ -225,7 +176,7 @@ async function visitFiles(root, visitor, relative = "") {
       await visitor(filename, entryRelative, "file");
     } else {
       throw new RecoveryValidationError(
-        `Browser profile contains an unsupported entry: ${filename}`,
+        `Snapshot contains an unsupported entry: ${filename}`,
         { filename },
       );
     }
@@ -326,19 +277,6 @@ async function copyData(config, destinationRoot) {
     sourceDatabase.close();
   }
 
-  const profileDestination = relocated(
-    config,
-    destinationRoot,
-    config.browserProfileDir,
-  );
-  await visitFiles(config.browserProfileDir, async () => {});
-  await cp(config.browserProfileDir, profileDestination, {
-    recursive: true,
-    errorOnExist: true,
-    force: false,
-    preserveTimestamps: true,
-    filter: (source) => !EXCLUDED_PROFILE_ENTRIES.has(path.basename(source)),
-  });
   await makeTreeDurable(destinationRoot);
 }
 
@@ -534,7 +472,9 @@ export async function validateSnapshot(config, snapshotDirectory) {
   }
   if (
     manifest?.type !== BACKUP_TYPE ||
-    manifest.version !== SQLITE_BACKUP_VERSION ||
+    ![LEGACY_SQLITE_BACKUP_VERSION, SQLITE_BACKUP_VERSION].includes(
+      manifest.version,
+    ) ||
     Number.isNaN(Date.parse(manifest.createdAt)) ||
     !manifest.summary ||
     !manifest.hashes ||
@@ -554,7 +494,13 @@ export async function validateSnapshot(config, snapshotDirectory) {
   const summary = await withStagedDatabase(config, dataRoot, (databaseRoot) =>
     validateRecoveryState(config, dataRoot, { databaseRoot }),
   );
-  if (JSON.stringify(summary) !== JSON.stringify(manifest.summary)) {
+  // Version 2 also summarized the retired browser profile. Its files remain
+  // checksum-validated above, but only durable application state is restored.
+  const expectedSummary =
+    manifest.version === LEGACY_SQLITE_BACKUP_VERSION
+      ? { database: manifest.summary.database }
+      : manifest.summary;
+  if (JSON.stringify(summary) !== JSON.stringify(expectedSummary)) {
     throw new RecoveryValidationError(
       "Backup schema counts or Telegram update offset do not match its manifest",
       { snapshotDirectory },
@@ -574,7 +520,7 @@ function managedTargets(config) {
     backend.database,
     backend.databaseWal,
     backend.databaseShm,
-    config.browserProfileDir,
+    config.listAmCookieFile,
   ];
 }
 
@@ -656,7 +602,6 @@ export async function restoreSnapshot(
     const result = {
       snapshot: resolvedSnapshot,
       summary: restoredSummary,
-      browserVerificationRequired: true,
     };
     onEvent({ name: "restore.completed", ...result });
     return result;

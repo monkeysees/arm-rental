@@ -1,0 +1,4 @@
+# Pinned release assets from lexiforest/curl-impersonate. Verify new bytes before updating.
+CURL_IMPERSONATE_VERSION=2.2.2
+CURL_IMPERSONATE_AMD64_SHA256=94f036c2fd18d1201fae73e3bc24332f3dff7c62bb4888afeaa744fd50dd998f
+CURL_IMPERSONATE_ARM64_SHA256=30d48cd8cb6a0652555192b4214ea26448905f02d00b2b27c82dcb4d131f2c58

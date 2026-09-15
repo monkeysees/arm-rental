@@ -945,7 +945,6 @@ export async function runTelegramBot(
     sleep = delay,
     onResult = () => {},
     onError = () => {},
-    onCrawlSettled = () => {},
     onMonitoringState = () => {},
     onPrivateAccessState = () => {},
     onPrivateAccessDenied = () => {},
@@ -1471,7 +1470,13 @@ export async function runTelegramBot(
         });
         if (error.terminal) throw error;
         if (isExpectedExternalFailure(error)) {
-          const retryDelayMs = crawlBackoff.nextDelay();
+          const retryDelayMs = Math.max(
+            crawlBackoff.nextDelay(),
+            error.code === "ERR_LIST_AM_CHALLENGE" || error.httpStatus === 429
+              ? config.pollIntervalMs || 60_000
+              : 0,
+            error.retryAfterMs || 0,
+          );
           await onRetry({
             component,
             operation: "crawl",
@@ -1479,21 +1484,18 @@ export async function runTelegramBot(
             delayMs: retryDelayMs,
           });
           try {
-            await sleep(retryDelayMs, undefined, { signal });
+            // Node otherwise turns a long server cooldown into a 1 ms timer.
+            for (let remaining = retryDelayMs; remaining > 0;) {
+              const interval = Math.min(remaining, 2_147_483_647);
+              await sleep(interval, undefined, { signal });
+              remaining -= interval;
+            }
           } catch (sleepError) {
             if (sleepError.name !== "AbortError") throw sleepError;
             return;
           }
           continue;
         }
-      } finally {
-        // The crawl's pages belong to one browsing session, so the browser is
-        // released here rather than after each page. Runs on every exit from
-        // the attempt, including the retry `continue` and the abort `return`,
-        // so no path leaves a browser alive across the poll interval. The
-        // handler owns its own failures: throwing here would replace whatever
-        // error the crawl was already reporting.
-        await onCrawlSettled({ crawlId });
       }
 
       try {

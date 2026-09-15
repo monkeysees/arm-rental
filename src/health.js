@@ -3,18 +3,12 @@ import { createServer } from "node:http";
 const TEN_MINUTES_MS = 10 * 60 * 1_000;
 const FORTY_EIGHT_HOURS_MS = 48 * 60 * 60 * 1_000;
 const SOURCE_INTEGRITY_ERROR = "ERR_LIST_AM_SOURCE_INTEGRITY";
-// List.am challenges a single page far more often than it locks the profile
-// out, and the immediate runtime retry answers most of those inside the same
-// crawl. Alerting on sight therefore pages an operator for a condition that is
-// already gone. Only a challenge that survives the retries of this many crawls
-// in a row is worth a notification — roughly five minutes at the default poll
-// interval.
-const BROWSER_CHALLENGE_ALERT_CRAWLS = 5;
+// Alert only after consecutive challenged crawls; readiness changes at once.
+const SOURCE_CHALLENGE_ALERT_CRAWLS = 5;
 const COMPONENT_NAMES = [
   "configuration",
   "storage",
   "telegram",
-  "browser",
   "list_am",
   "cba",
 ];
@@ -36,6 +30,7 @@ function safeCode(code, fallback) {
 }
 
 function preflightComponent(name) {
+  if (name === "source_transport") return "list_am";
   if (name === "exchange_rates") return "cba";
   if (name === "channel") return "telegram";
   if (["state", "singleton"].includes(name)) return "storage";
@@ -49,14 +44,13 @@ export function classifyRuntimeFailure(error, context = {}) {
     cba: "cba",
     storage: "storage",
     configuration: "configuration",
-    browser: "browser",
     list_am: "list_am",
   };
   if (
-    error?.code === "ERR_BROWSER_VERIFICATION_REQUIRED" ||
-    error?.name === "BrowserVerificationRequiredError"
+    error?.code === "ERR_LIST_AM_CHALLENGE" ||
+    error?.name === "ListAmChallengeError"
   ) {
-    return "browser_challenge";
+    return "list_am_challenge";
   }
   if (
     error?.code === "ERR_TELEGRAM_API" ||
@@ -91,14 +85,14 @@ export class HealthMonitor {
     now = () => new Date(),
     crawlStaleMs = TEN_MINUTES_MS,
     exchangeRateStaleMs = FORTY_EIGHT_HOURS_MS,
-    browserChallengeAlertCrawls = BROWSER_CHALLENGE_ALERT_CRAWLS,
+    sourceChallengeAlertCrawls = SOURCE_CHALLENGE_ALERT_CRAWLS,
     onAlert = () => {},
   }) {
     this.version = version;
     this.now = now;
     this.crawlStaleMs = crawlStaleMs;
     this.exchangeRateStaleMs = exchangeRateStaleMs;
-    this.browserChallengeAlertCrawls = browserChallengeAlertCrawls;
+    this.sourceChallengeAlertCrawls = sourceChallengeAlertCrawls;
     this.onAlert = onAlert;
     this.activeAlerts = new Set();
     this.startedAt = timestamp(now);
@@ -118,7 +112,7 @@ export class HealthMonitor {
       required: false,
       fetchedAt: null,
     };
-    this.browserChallenge = {
+    this.sourceChallenge = {
       // A challenge was seen by the crawl currently in flight.
       duringCrawl: false,
       // Crawls in a row that ended without clearing the challenge.
@@ -170,7 +164,7 @@ export class HealthMonitor {
           ? "ok"
           : status === "skipped"
             ? "skipped"
-            : status === "browser_verification_required"
+            : status === "source_challenge"
               ? "challenge"
               : "failed";
       if (
@@ -185,9 +179,7 @@ export class HealthMonitor {
     if (result?.failure) {
       const target = preflightComponent(result.failure.component);
       const status =
-        result.status === "browser_verification_required"
-          ? "challenge"
-          : "failed";
+        result.status === "source_challenge" ? "challenge" : "failed";
       this.components[target] = component(
         status,
         updatedAt,
@@ -199,16 +191,16 @@ export class HealthMonitor {
       if (result.failure.code === "ERR_TELEGRAM_CHANNEL_PERMISSIONS") {
         this.#setAlert("invalid_telegram_channel_permissions", true);
       }
-      if (result.status === "browser_verification_required") {
+      if (result.status === "source_challenge") {
         // Preflight has no crawl behind it to answer the challenge, so a
         // startup challenge is terminal and alerts on sight rather than
         // waiting for a streak of crawls that will never run.
-        this.browserChallenge = {
+        this.sourceChallenge = {
           duringCrawl: false,
-          consecutiveCrawls: this.browserChallengeAlertCrawls,
+          consecutiveCrawls: this.sourceChallengeAlertCrawls,
         };
-        this.#setAlert("browser_challenge", true, {
-          reason: "BROWSER_VERIFICATION_REQUIRED",
+        this.#setAlert("list_am_challenge", true, {
+          reason: "LIST_AM_CHALLENGE",
         });
       }
       if (result.failure.code === SOURCE_INTEGRITY_ERROR) {
@@ -261,13 +253,9 @@ export class HealthMonitor {
     this.monitoring.lastSuccessAt = completedAt;
     this.monitoring.consecutiveFailures = 0;
     this.#setComponent("list_am", "ok", undefined, completedAt);
-    // A complete crawl proves that the runtime browser can fetch and validate
-    // the source again, so an earlier transient challenge is no longer a
-    // current readiness failure.
-    this.#setComponent("browser", "ok", undefined, completedAt);
-    this.browserChallenge = { duringCrawl: false, consecutiveCrawls: 0 };
-    this.#setAlert("browser_challenge", false, {
-      reason: "BROWSER_VERIFICATION_REQUIRED",
+    this.sourceChallenge = { duringCrawl: false, consecutiveCrawls: 0 };
+    this.#setAlert("list_am_challenge", false, {
+      reason: "LIST_AM_CHALLENGE",
     });
     this.#setAlert("five_consecutive_crawl_failures", false);
     this.#setAlert("list_am_source_integrity", false, {
@@ -284,8 +272,8 @@ export class HealthMonitor {
         consecutiveFailures: this.monitoring.consecutiveFailures,
       });
     }
-    if (kind === "browser_challenge") {
-      this.recordBrowserChallenge(failedAt);
+    if (kind === "list_am_challenge") {
+      this.recordSourceChallenge(failedAt);
     } else {
       this.#setComponent(
         COMPONENT_NAMES.includes(kind) ? kind : "list_am",
@@ -299,29 +287,25 @@ export class HealthMonitor {
         });
       }
     }
-    this.#settleBrowserChallenge();
+    this.#settleSourceChallenge();
   }
 
   recordSourceIntegritySuccess(at = this.now()) {
     const completedAt = at.toISOString();
     this.#setComponent("list_am", "ok", undefined, completedAt);
+    this.sourceChallenge = { duringCrawl: false, consecutiveCrawls: 0 };
+    this.#setAlert("list_am_challenge", false, {
+      reason: "LIST_AM_CHALLENGE",
+    });
     this.#setAlert("list_am_source_integrity", false, {
       reason: "LIST_AM_SOURCE_INTEGRITY",
     });
   }
 
-  // The component reports the challenge at once, because readiness is a
-  // point-in-time judgement, but the alert waits for the crawl to end: only
-  // then is it known whether the retry answered the challenge. Repeated
-  // challenges inside one crawl count once, so the streak measures crawls.
-  recordBrowserChallenge(at = timestamp(this.now)) {
-    this.#setComponent(
-      "browser",
-      "challenge",
-      "ERR_BROWSER_VERIFICATION_REQUIRED",
-      at,
-    );
-    this.browserChallenge.duringCrawl = true;
+  // Readiness changes immediately; the alert counts completed failed crawls.
+  recordSourceChallenge(at = timestamp(this.now)) {
+    this.#setComponent("list_am", "challenge", "ERR_LIST_AM_CHALLENGE", at);
+    this.sourceChallenge.duringCrawl = true;
   }
 
   recordComponentSuccess(name) {
@@ -399,8 +383,8 @@ export class HealthMonitor {
       );
     }
 
-    if (components.browser.status === "challenge") {
-      reasons.push("BROWSER_VERIFICATION_REQUIRED");
+    if (components.list_am.status === "challenge") {
+      reasons.push("LIST_AM_CHALLENGE");
     }
 
     if (components.list_am.code === SOURCE_INTEGRITY_ERROR) {
@@ -447,10 +431,10 @@ export class HealthMonitor {
     const uniqueReasons = [...new Set(reasons)];
     const alertReasons = uniqueReasons.filter(
       (reason) =>
-        reason !== "BROWSER_VERIFICATION_REQUIRED" ||
+        reason !== "LIST_AM_CHALLENGE" ||
         this.preflight.status !== "ready" ||
-        this.browserChallenge.consecutiveCrawls >=
-          this.browserChallengeAlertCrawls,
+        this.sourceChallenge.consecutiveCrawls >=
+          this.sourceChallengeAlertCrawls,
     );
     if (this.preflight.status !== "pending") {
       // A readiness probe must not turn a retryable challenge into an alert
@@ -494,18 +478,18 @@ export class HealthMonitor {
     };
   }
 
-  #settleBrowserChallenge() {
-    if (!this.browserChallenge.duringCrawl) return;
-    this.browserChallenge.duringCrawl = false;
-    this.browserChallenge.consecutiveCrawls += 1;
+  #settleSourceChallenge() {
+    if (!this.sourceChallenge.duringCrawl) return;
+    this.sourceChallenge.duringCrawl = false;
+    this.sourceChallenge.consecutiveCrawls += 1;
     if (
-      this.browserChallenge.consecutiveCrawls < this.browserChallengeAlertCrawls
+      this.sourceChallenge.consecutiveCrawls < this.sourceChallengeAlertCrawls
     ) {
       return;
     }
-    this.#setAlert("browser_challenge", true, {
-      reason: "BROWSER_VERIFICATION_REQUIRED",
-      consecutiveCrawls: this.browserChallenge.consecutiveCrawls,
+    this.#setAlert("list_am_challenge", true, {
+      reason: "LIST_AM_CHALLENGE",
+      consecutiveCrawls: this.sourceChallenge.consecutiveCrawls,
     });
   }
 

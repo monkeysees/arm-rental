@@ -11,8 +11,8 @@ Every candidate must pass `npm run check` and `npm run test:coverage` before an
 image can be published. The suite exercises the production boundaries with
 fakes, local HTTP servers, temporary directories, and real child processes:
 
-- browser tests cover Chrome discovery, profile reuse across restarts,
-  challenge detection, renderer and protocol failures, and process cleanup;
+- HTTP transport tests cover cookie persistence, challenge detection, redirects,
+  bounded responses, timeouts, cancellation, and process cleanup;
 - state, configuration, preflight, singleton, and recovery tests cover
   restrictive modes, durable atomic writes, incompatible schemas, cross-process
   lease contention, snapshot validation, and exact restore;
@@ -22,7 +22,7 @@ fakes, local HTTP servers, temporary directories, and real child processes:
   build context without requiring production credentials.
 
 The hosted workflow additionally runs the production dependency audit, builds
-the exact production image, verifies the pinned Node and Chrome executables,
+the exact production image, verifies the pinned Node and curl-impersonate executables,
 runs image execution checks, and blocks publication on the configured
 high/critical vulnerability scan. These gates are reproducible and must make no
 Telegram, List.am, or CBA call.
@@ -89,8 +89,8 @@ data:
 - validate alert routing with safe evaluator inputs and test notifications,
   without revoking the live token, changing channel permissions, or injecting
   crawl failures;
-- perform interactive browser verification only while the production service is
-  stopped and holding the same persistent profile;
+- check source access only while the production service is stopped, using the
+  same cookie file and outbound address;
 - retain the CI result, image digest, snapshot manifest, deploy receipt, final
   readiness, crawl ID, and rollback result when applicable.
 

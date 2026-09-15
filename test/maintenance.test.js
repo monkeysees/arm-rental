@@ -1,17 +1,9 @@
 import assert from "node:assert/strict";
-import {
-  access,
-  mkdir,
-  mkdtemp,
-  readFile,
-  rm,
-  writeFile,
-} from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 
-import { recordBrowserVerification } from "../src/browser-verification-state.js";
 import { getConfig } from "../src/config.js";
 import {
   MAINTENANCE_HISTORY_FILENAME,
@@ -48,56 +40,11 @@ async function fixture(t) {
     create: true,
   });
   database.close();
-  await recordBrowserVerification(config, 12, {
-    now: () => new Date("2026-07-25T08:05:00.000Z"),
-  });
-  await Promise.all([
-    mkdir(path.join(config.browserProfileDir, "Default", "Cache"), {
-      recursive: true,
-    }),
-    mkdir(path.join(config.browserProfileDir, "Default", "Code Cache"), {
-      recursive: true,
-    }),
-    mkdir(path.join(config.browserProfileDir, "Default", "Local Storage"), {
-      recursive: true,
-    }),
-  ]);
-  await Promise.all([
-    writeFile(
-      path.join(config.browserProfileDir, "Default", "Cache", "cache.data"),
-      "discardable-cache",
-    ),
-    writeFile(
-      path.join(
-        config.browserProfileDir,
-        "Default",
-        "Code Cache",
-        "compiled.data",
-      ),
-      "discardable-code-cache",
-    ),
-    writeFile(
-      path.join(config.browserProfileDir, "Default", "Cookies"),
-      "verification-cookie",
-    ),
-    writeFile(
-      path.join(
-        config.browserProfileDir,
-        "Default",
-        "Local Storage",
-        "verification-state",
-      ),
-      "persistent-verification-state",
-    ),
-  ]);
+  await writeFile(config.listAmCookieFile, "session-cookie");
   return config;
 }
 
-async function missing(filename) {
-  await assert.rejects(access(filename), { code: "ENOENT" });
-}
-
-test("weekly maintenance reports state growth and cleans only reconstructible Chrome caches", async (t) => {
+test("weekly maintenance reports database and HTTP cookie growth without changing the session", async (t) => {
   const config = await fixture(t);
   const events = [];
   const diskCheck = async () => ({
@@ -118,28 +65,15 @@ test("weekly maintenance reports state growth and cleans only reconstructible Ch
     diskCheck,
   });
 
-  // Growth is measured over the database plus the verification record beside
-  // the profile: those are the only managed state files that remain.
   assert.deepEqual(
     first.stateFiles.map(({ name }) => name),
-    ["sqlite", "browserVerification"],
+    ["sqlite"],
   );
   assert.equal(first.stateFiles[0].schemaVersion, SQLITE_SCHEMA_VERSION);
-  assert.equal(
-    first.stateFiles.find(({ name }) => name === "browserVerification")
-      .entryCount,
-    1,
-  );
-  assert.equal(first.browserProfile.cacheBytesRemoved > 0, true);
-  assert.deepEqual(first.browserProfile.cleanedCachePaths, [
-    "Default/Cache",
-    "Default/Code Cache",
-  ]);
+  assert.equal(first.httpSession.bytes, Buffer.byteLength("session-cookie"));
   assert.equal(
     first.managedStorage.bytes,
-    first.managedStorage.stateBytes -
-      first.managedStorage.profileEmbeddedStateBytes +
-      first.browserProfile.bytes,
+    first.managedStorage.stateBytes + first.httpSession.bytes,
   );
   assert.equal(first.managedStorage.growth.bytes, null);
   assert.deepEqual(first.alerts, []);
@@ -148,32 +82,11 @@ test("weekly maintenance reports state growth and cleans only reconstructible Ch
     ["lease:released"],
   ]);
 
-  await missing(path.join(config.browserProfileDir, "Default", "Cache"));
-  await missing(path.join(config.browserProfileDir, "Default", "Code Cache"));
   assert.equal(
-    await readFile(
-      path.join(config.browserProfileDir, "Default", "Cookies"),
-      "utf8",
-    ),
-    "verification-cookie",
+    await readFile(config.listAmCookieFile, "utf8"),
+    "session-cookie",
   );
-  assert.equal(
-    await readFile(
-      path.join(
-        config.browserProfileDir,
-        "Default",
-        "Local Storage",
-        "verification-state",
-      ),
-      "utf8",
-    ),
-    "persistent-verification-state",
-  );
-
-  await writeFile(
-    path.join(config.browserProfileDir, "Default", "persistent-growth"),
-    "123456789",
-  );
+  await writeFile(config.listAmCookieFile, "session-cookie123456789");
   const second = await runMaintenance(config, {
     now: () => new Date("2026-08-03T03:00:00.000Z"),
     acquireLock,
@@ -218,7 +131,7 @@ test("SQLite maintenance validates one database and reports logical counts", asy
 
   assert.deepEqual(
     report.stateFiles.map(({ name }) => name),
-    ["sqlite", "browserVerification"],
+    ["sqlite"],
   );
   assert.equal(report.stateFiles[0].schemaVersion, SQLITE_SCHEMA_VERSION);
   assert.equal(report.stateFiles[0].telegramUsers, 0);
@@ -271,7 +184,7 @@ test("database and WAL growth alert at the sizes that bound each of them", () =>
   );
 });
 
-test("maintenance refuses a live service lease before reading or cleaning the profile", async (t) => {
+test("maintenance refuses a live service lease before reading persistent state", async (t) => {
   const config = await fixture(t);
   const liveLease = await acquireSingletonLock(config.dataDirectory);
   try {
@@ -283,11 +196,8 @@ test("maintenance refuses a live service lease before reading or cleaning the pr
     await liveLease.release();
   }
   assert.equal(
-    await readFile(
-      path.join(config.browserProfileDir, "Default", "Cache", "cache.data"),
-      "utf8",
-    ),
-    "discardable-cache",
+    await readFile(config.listAmCookieFile, "utf8"),
+    "session-cookie",
   );
 });
 

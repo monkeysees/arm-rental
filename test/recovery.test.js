@@ -1,9 +1,11 @@
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import {
   chmod,
   cp,
   lstat,
   mkdtemp,
+  mkdir,
   readFile,
   readdir,
   rm,
@@ -14,7 +16,6 @@ import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import test from "node:test";
 
-import { recordBrowserVerification } from "../src/browser-verification-state.js";
 import { getConfig } from "../src/config.js";
 import {
   checkDiskSpace,
@@ -52,7 +53,7 @@ function rates() {
 
 /**
  * Builds the only state shape a snapshot can hold: rows in the installed
- * database, beside a verified browser profile.
+ * database. HTTP cookies are disposable and excluded.
  */
 async function fixture(t) {
   const root = await mkdtemp(path.join(os.tmpdir(), "rental-recovery-"));
@@ -69,15 +70,6 @@ async function fixture(t) {
     },
     root,
   );
-  await recordBrowserVerification(config, 12, {
-    now: () => new Date("2026-07-25T08:05:00.000Z"),
-  });
-  await writeFile(
-    path.join(config.browserProfileDir, "Cookies"),
-    "verified-cookie-state",
-    { mode: 0o600 },
-  );
-
   const database = openStateDatabase({
     dataDirectory,
     listUrlTemplate: config.listUrlTemplate,
@@ -130,10 +122,11 @@ async function fixture(t) {
   } finally {
     database.close();
   }
+  await writeFile(config.listAmCookieFile, "session-cookie", { mode: 0o600 });
   return { root, config, dataDirectory, backupDirectory };
 }
 
-test("an intact snapshot restores every state and the verified browser profile", async (t) => {
+test("an intact snapshot restores durable state and discards HTTP session cookies", async (t) => {
   const { config, dataDirectory, backupDirectory } = await fixture(t);
   const events = [];
   const backup = await createSnapshot(config, {
@@ -141,13 +134,17 @@ test("an intact snapshot restores every state and the verified browser profile",
     onEvent: (event) => events.push(event.name),
   });
 
+  await assert.rejects(
+    lstat(path.join(backup.snapshot, "data", "list-am-cookies.txt")),
+    { code: "ENOENT" },
+  );
   assert.match(backup.snapshot, /daily/u);
   assert.match(backup.weeklySnapshot, /weekly/u);
   assert.equal(backup.summary.database.databaseId, DATABASE_ID);
   assert.equal(backup.summary.database.apartments, 2);
   assert.equal(backup.summary.database.telegramUsers, 2);
   assert.equal(backup.summary.database.updateOffset, 815);
-  assert.equal(backup.summary.browser.regularAdsCount, 12);
+  assert.deepEqual(Object.keys(backup.summary), ["database"]);
   assert.deepEqual(events, ["backup.started", "backup.completed"]);
   assert.equal(
     (await lstat(path.join(backup.snapshot, "manifest.json"))).mode & 0o777,
@@ -168,22 +165,15 @@ test("an intact snapshot restores every state and the verified browser profile",
   } finally {
     database.close();
   }
-  await writeFile(
-    path.join(config.browserProfileDir, "Cookies"),
-    "unverified-new-state",
-  );
+  await writeFile(config.listAmCookieFile, "unverified-new-state");
 
   const restored = await restoreSnapshot(config, backup.snapshot, {
     backupDirectory,
   });
-  assert.equal(restored.browserVerificationRequired, true);
   assert.equal(restored.summary.database.apartments, 2);
   assert.equal(restored.summary.database.updateOffset, 815);
   assert.equal(restored.summary.database.databaseId, DATABASE_ID);
-  assert.equal(
-    await readFile(path.join(config.browserProfileDir, "Cookies"), "utf8"),
-    "verified-cookie-state",
-  );
+  await assert.rejects(lstat(config.listAmCookieFile), { code: "ENOENT" });
   assert.equal(
     (await validateSnapshot(config, backup.snapshot)).summary.database
       .updateOffset,
@@ -397,4 +387,38 @@ test("routine snapshots hold to their daily and weekly retention", async (t) => 
 
   assert.equal((await readdir(path.join(backupDirectory, "daily"))).length, 7);
   assert.equal((await readdir(path.join(backupDirectory, "weekly"))).length, 1);
+});
+
+test("version 2 SQLite snapshots restore durable state without reinstalling their obsolete profile", async (t) => {
+  const { config } = await fixture(t);
+  const backup = await createSnapshot(config);
+  const manifestPath = path.join(backup.snapshot, "manifest.json");
+  const manifest = JSON.parse(await readFile(manifestPath, "utf8"));
+  manifest.version = 2;
+  manifest.summary.browser = {
+    present: true,
+    verifiedAt: TIME,
+    regularAdsCount: 12,
+  };
+  const legacyDirectory = path.join(backup.snapshot, "data", "chrome-profile");
+  await mkdir(legacyDirectory);
+  await writeFile(path.join(legacyDirectory, "Cookies"), "legacy-session");
+  manifest.hashes["chrome-profile/Cookies"] = createHash("sha256")
+    .update("legacy-session")
+    .digest("hex");
+  manifest.hashes = Object.fromEntries(
+    Object.entries(manifest.hashes).sort(([a], [b]) => a.localeCompare(b)),
+  );
+  await writeState(manifestPath, manifest);
+  const restored = await restoreSnapshot(config, backup.snapshot);
+  assert.equal(restored.summary.database.updateOffset, 815);
+  await assert.rejects(
+    lstat(path.join(config.dataDirectory, "chrome-profile")),
+    { code: "ENOENT" },
+  );
+  await writeFile(path.join(legacyDirectory, "Cookies"), "damaged-session");
+  await assert.rejects(
+    validateSnapshot(config, backup.snapshot),
+    /checksum failed/u,
+  );
 });

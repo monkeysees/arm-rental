@@ -1,6 +1,6 @@
 import { runApplication } from "./application.js";
 import { runTelegramBot } from "./bot.js";
-import { BrowserPageFetcher } from "./browser-fetch.js";
+import { ListAmHttpFetcher } from "./list-am-http.js";
 import { getConfig } from "./config.js";
 import { ExchangeRateService } from "./exchange-rates.js";
 import { HealthMonitor, startHealthServer } from "./health.js";
@@ -44,8 +44,8 @@ try {
     config,
     logger,
     healthMonitor,
-    browserFetcherFactory: (config, options) =>
-      new BrowserPageFetcher(config, options),
+    sourceFetcherFactory: (config, options) =>
+      new ListAmHttpFetcher(config, options),
     exchangeRateServiceFactory: (config, options) =>
       new ExchangeRateService(config, options),
     runBot: runTelegramBot,

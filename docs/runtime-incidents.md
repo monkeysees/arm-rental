@@ -1,7 +1,7 @@
 # Runtime incident response
 
 These runbooks cover a running release. They do not replace
-[release rollback](release-and-rollback.md), [browser verification](browser-operations.md),
+[release rollback](release-and-rollback.md), [source operations](source-operations.md),
 or [state restore](state-recovery.md).
 
 ## Stale crawling
@@ -19,7 +19,7 @@ docker inspect --format \
 docker exec rental-apartments-bot node -e \
   'fetch("http://127.0.0.1:8787/ready").then(async r => { console.log(await r.text()); process.exitCode=r.ok?0:1 })'
 docker compose --file compose.production.yaml logs --since 20m bot |
-  jq -Rr 'fromjson? | select(.event == "source.integrity.checked" or .event == "source.integrity.failed" or .event == "crawl.succeeded" or .event == "crawl.failed" or .event == "retry.scheduled" or .event == "browser.challenge" or .event == "browser.forced_exit") | [.timestamp,.event,.reason,.component,.code,.crawlId,.url,.challengeSource,.httpStatus] | @tsv'
+  jq -Rr 'fromjson? | select(.event == "source.integrity.checked" or .event == "source.integrity.failed" or .event == "crawl.succeeded" or .event == "crawl.failed" or .event == "retry.scheduled" or .event == "list_am.challenge") | [.timestamp,.event,.reason,.component,.code,.crawlId,.challengeSource,.httpStatus] | @tsv'
 ```
 
 Expected healthy output is a running container, ready HTTP response, and a
@@ -30,45 +30,21 @@ reading Telegram state.
 
 ### Recovery and expected output
 
-- `browser.challenge`: the application retries the page up to twice in a
-  fresh Chrome process with exponential backoff; do not add another
-  operator-forced crawl. A successful
-  retry permits the complete crawl to resolve the challenge and restore
-  readiness. If all attempts are challenged, the crawl fails and uses
-  exponential crawl backoff: a one-second base doubling to a one-minute cap
-  by default, with 20% jitter below each delay. `EXTERNAL_RETRY_BASE_MS` and
-  `EXTERNAL_RETRY_MAX_MS` configure these bounds, with a maximum cap of five
-  minutes. A successful crawl resets the delay. Page retries use the same base
-  with a cap of eight seconds or the configured maximum, whichever is lower.
-  Isolated `browser.challenge` events that a later
-  `crawl.succeeded` clears need no action and raise no alert; the
-  `browser_challenge` alert means five crawls in a row ended still challenged.
-  On that alert or no later complete crawl, stop and use the
-  [browser verification runbook](browser-operations.md). Expected manual
-  recovery is passed headless smoke, ready preflight, then `crawl.succeeded`.
-  The event carries `url`, so a run of challenges can be attributed to one
-  category rather than the crawl as a whole, and `challengeSource`:
-  `edge` means the provider in front of List.am labelled the response a
-  mitigation, while `missing_content` means only the absent listing container
-  said so. A run of `missing_content` with a 2xx `httpStatus` is the shape a
-  render or parser problem takes, not a verification problem, and the
-  verification runbook will not fix it. `rentalctl logs` projects none of these
-  three fields — its diagnostic context is deliberately allowlisted — so read
-  them with the raw journal recipe above.
-- `browser.forced_exit`: Chrome ignored SIGTERM for its full graceful window
-  and was killed, discarding whatever it had not yet written, including the
-  List.am clearance cookie. A single event is tolerable; a run of them explains
-  a run of challenges, because each forced exit costs the clearance the next
-  launch would otherwise have reused. Investigate host load and the renderer
-  stalls reported as `ERR_BROWSER_CONTENT_TIMEOUT` rather than reaching for the
-  verification runbook.
+- `list_am.challenge`: the crawl stops and backs off; there is no immediate
+  page retry. Challenge and HTTP 429 delays are at least `POLL_INTERVAL_MS`,
+  and a server `Retry-After` can extend the ordinary exponential backoff cap.
+  A valid source observation clears the challenge even if delivery later
+  fails. The `list_am_challenge` alert fires after five challenged crawls
+  without validated source recovery. Follow [source operations](source-operations.md)
+  when challenges persist. The event contains `httpStatus` and a
+  `challengeSource` of `edge` or `interstitial`, but no URL or response body.
 - `list_am`: verify host DNS/outbound HTTPS and the configured production
   target. Do not increase crawl rate, bypass a challenge, or repeatedly hammer
   List.am.
 - `LIST_AM_SOURCE_INTEGRITY`: preserve the prior state and bounded baseline,
   inspect only aggregate `source.integrity.failed` counts, compare a sanitized
   fixture in the current release, and deploy a reviewed selector/parser fix.
-  Do not reset state, clear the Chrome profile, print HTML, or bypass backoff.
+  Do not reset state, clear the HTTP cookies, print HTML, or bypass backoff.
   Expected recovery is `source.integrity.checked`, the matching alert
   resolution, and then a correlated `crawl.succeeded` when delivery completes.
 - `exchange_rates`: retain a usable snapshot while checking CBA access. Never
@@ -85,9 +61,9 @@ reading Telegram state.
 
 Rollback to the retained immutable artifact and verified snapshot when staleness
 began with a release and upstream/storage checks are healthy. Escalate at the
-fifth failure, ten stale minutes, repeated browser challenge, restart
+fifth failure, ten stale minutes, repeated List.am challenge, restart
 exhaustion, unexplained lack of crawl while monitoring is active, rate snapshot
-absence, or any risk of exceeding the agreed List.am access rate.
+absence, or any risk of exceeding the configured List.am request rate.
 
 ## Telegram private or channel delivery failure
 
@@ -129,13 +105,10 @@ unexpected historical resend, owner/channel mismatch, inability to regain
 BotFather/admin access, repeated 401/403/429, or a state write failure after
 Telegram accepted a message.
 
-## Stale singleton or Chrome lock
+## Stale singleton lease
 
-### Prerequisites and safe checks
-
-The service must be intentionally stopped. Lock removal is permitted only after
-proving no application, verifier, smoke, maintenance, recovery, or Chrome
-process uses the production data/profile. A live `.singleton.sock` is a
+Stop the service and prove no application, source smoke, maintenance, or
+recovery process uses its data directory. A live `.singleton.sock` is a
 kernel-owned lease, not a stale file.
 
 ```sh
@@ -143,45 +116,17 @@ docker compose --file compose.production.yaml stop bot
 docker inspect --format '{{.State.Running}}' rental-apartments-bot
 docker ps --filter volume=rental-apartments-data \
   --format 'container={{.ID}} name={{.Names}} status={{.Status}}'
-pgrep -a -f 'src/(index|verify-browser|browser-smoke|maintenance-cli|recovery-cli)\\.js|chrome.*chrome-profile' || true
-docker run --rm --user node \
-  --mount type=volume,src=rental-apartments-data,dst=/app/.data \
-  --entrypoint sh "$RENTAL_APARTMENTS_IMAGE" -c \
-  'find /app/.data -maxdepth 3 \\( -name ".singleton*" -o -name "SingletonLock" -o -name "SingletonSocket" -o -name "SingletonCookie" \\) -print'
 ```
 
-Expected safe output is `false`, no other container using the volume, no
-matching host process, and only the listed lock artifacts. If any process is
-alive, stop here and terminate it through its supervisor; never unlink its
-lock.
-
-### Recovery and expected output
-
-The application automatically recovers a refused stale singleton socket on
-next acquisition. Try one normal start first:
+If another process owns the lease, stop it through its supervisor. The
+application automatically recovers a refused stale socket on its next
+acquisition. Try one normal start and require ready preflight:
 
 ```sh
 docker compose --file compose.production.yaml up --detach bot
 docker compose --file compose.production.yaml logs --tail 100 bot
 ```
 
-Expected output is `Singleton lease acquired` and ready preflight. If Chrome
-still reports a stale `SingletonLock`, repeat every no-process check, take and
-validate a snapshot, then remove **only** Chrome's three well-known singleton
-entries while the service remains stopped:
-
-```sh
-docker compose --file compose.production.yaml run --rm --no-deps \
-  --entrypoint sh bot -c \
-  'rm -f /app/.data/chrome-profile/SingletonLock /app/.data/chrome-profile/SingletonSocket /app/.data/chrome-profile/SingletonCookie'
-docker compose --file compose.production.yaml run --rm --no-deps bot \
-  npm run browser:smoke
-docker compose --file compose.production.yaml up --detach bot
-```
-
-Do not remove `.singleton.sock`, `.singleton.json`, the profile, or any other
-Chrome file manually. Roll back the profile from the verified snapshot if smoke
-shows corruption. Escalate when ownership is uncertain, any process/container
-remains, automatic singleton recovery fails, paths are symlinks or unexpected
-types, Chrome locks immediately recur, smoke needs verification, or state/profile
-damage is suspected.
+Do not manually unlink a live lease or remove application state. Escalate when
+ownership is uncertain, another container still uses the volume, automatic
+recovery fails, or paths have unexpected types or symlink targets.

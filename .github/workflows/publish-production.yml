@@ -59,12 +59,17 @@ jobs:
           PACKAGE_LOCK_SHA256="$(sha256sum package-lock.json | cut -d ' ' -f 1)"
           test "$(docker image inspect --format '{{ index .Config.Labels "org.opencontainers.image.revision" }}' rental-apartments-bot:publication)" = "$SOURCE_REVISION"
           test "$(docker image inspect --format '{{ index .Config.Labels "org.opencontainers.image.node.version" }}' rental-apartments-bot:publication)" = "24.18.0"
-          test "$(docker image inspect --format '{{ index .Config.Labels "org.opencontainers.image.chrome.version" }}' rental-apartments-bot:publication)" = "152.0.7977.82"
+          test "$(docker image inspect --format '{{ index .Config.Labels "org.opencontainers.image.curl-impersonate.version" }}' rental-apartments-bot:publication)" = "2.2.2"
           test "$(docker image inspect --format '{{ index .Config.Labels "org.opencontainers.image.package-lock.sha256" }}' rental-apartments-bot:publication)" = "$PACKAGE_LOCK_SHA256"
           test "$(docker image inspect --format '{{ index .Config.Labels "com.rental-apartments.state.backend" }}' rental-apartments-bot:publication)" = "sqlite"
           test "$(docker image inspect --format '{{ index .Config.Labels "com.rental-apartments.state.schema.minimum" }}' rental-apartments-bot:publication)" = "1"
           test "$(docker image inspect --format '{{ index .Config.Labels "com.rental-apartments.state.schema.maximum" }}' rental-apartments-bot:publication)" = "1"
           test "$(docker run --rm --entrypoint node rental-apartments-bot:publication --version)" = "v24.18.0"
+
+      - name: Verify production HTTP executable and restrictions
+        run: |
+          docker run --rm --entrypoint /usr/local/bin/curl-impersonate rental-apartments-bot:publication --version | grep -F 'curl 8.21.0-IMPERSONATE'
+          scripts/smoke-production-http-image rental-apartments-bot:publication
 
       # This scan occurs before the first registry mutation. The pushed revision
       # tag and production pointer both reference these exact local bytes.

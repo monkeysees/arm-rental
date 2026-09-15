@@ -58,14 +58,12 @@ operation/step, retry attempt, and duplicate suppression count. Unknown fields,
 identifiers, URLs, and invalid reason values are not projected into this
 operator view.
 
-That exclusion is load-bearing for one diagnosis. `browser.challenge` records
-the challenged `url`, the navigation `httpStatus`, and a `challengeSource` of
-`edge` or `missing_content`, which together say which category was challenged
-and whether the provider in front of List.am actually said so. None of the
-three reaches `rentalctl logs`; read them from the raw journal, as
-[runtime-incidents.md](runtime-incidents.md) does. `browser.forced_exit`
-reports a Chrome that had to be killed, losing the unwritten List.am clearance
-that the next launch would have reused.
+`list_am.challenge` records only the HTTP status and a `challengeSource` of
+`edge` (an explicit mitigation header) or `interstitial` (a recognizable
+verification page). It never records request URLs, cookies, or response bodies.
+These fields are available in the raw journal; `rentalctl logs` projects only
+the bounded diagnostic context described above. See
+[source-operations.md](source-operations.md) for investigation steps.
 
 ```sh
 rentalctl logs --since 30m --follow
@@ -136,7 +134,7 @@ recalculates from retained journal records. This is recalculable
 history, not a time-series database; empty windows have zero counts and null
 ratios and percentiles.
 
-Primary events are `source.integrity.checked`, `source.integrity.failed`,
+Primary events are `list_am.challenge`, `source.integrity.checked`, `source.integrity.failed`,
 `crawl.succeeded`, `crawl.failed`, `retry.scheduled`,
 `state.transaction.completed`, `state.transaction.failed`,
 `state.checkpoint.completed`, `state.checkpoint.failed`,
@@ -148,16 +146,10 @@ loop ran more than 250ms late, with the window's `maxMs`, `p99Ms` and `meanMs`.
 Only windows past the threshold are recorded, so the absence of a record is
 itself the ordinary case rather than missing data.
 
-Read it against the browser records that share its timestamps. The browser's
-CDP client runs on this loop, so a response that arrives while the loop is
-blocked is not read until the block ends: a long enough block reaches the
-journal as `crawl.failed` with a `ProtocolError`, or as a skipped page
-interaction, and names the browser rather than whatever was actually running.
-A `runtime.event_loop.delayed` window covering such a record identifies this
-process as the cause; a protocol timeout with no delayed window across it does
-not, and points at the browser or the host instead. The storage metrics cannot
-settle this on their own — `state.transaction.*` times only the transactions it
-wraps, which excludes every read and everything outside the storage layer.
+Compare these windows with crawl and request failures. An event-loop stall can
+delay subprocess output handling, HTTP responses, and timeout callbacks.
+Storage metrics cover only the transactions they wrap; they do not measure
+every database read or other work on the event loop.
 
 Successful crawl records include private and channel re-admission counts. A
 re-admission means that a persisted filtered decision was reopened after a
@@ -204,28 +196,28 @@ Telegram delivery. Credentials come from
 `/etc/rental-apartments/env`; curl receives URL and form configuration on stdin
 so token and owner destination never enter argv or journal records.
 
-| Alert name                             | Trigger                                                 |
-| -------------------------------------- | ------------------------------------------------------- |
-| `readiness_failure`                    | readiness fails, with runtime challenge grace           |
-| `host_readiness_failure`               | two consecutive alertable host readiness probes fail    |
-| `browser_challenge`                    | fifth crawl in a row ends still challenged              |
-| `list_am_source_integrity`             | hard List.am source-integrity failure                   |
-| `invalid_telegram_credentials`         | terminal Telegram authentication rejection              |
-| `invalid_telegram_channel_permissions` | terminal channel permission rejection                   |
-| `five_consecutive_crawl_failures`      | fifth consecutive failed crawl                          |
-| `stale_exchange_rates`                 | CBA snapshot exceeds 48 hours                           |
-| `backup_failure`                       | snapshot operation fails                                |
-| `restore_test_failure`                 | snapshot validation or restore drill fails              |
-| `low_disk`                             | free-space threshold is crossed                         |
-| `state_database_growth`                | the SQLite database reaches 256 MiB                     |
-| `state_wal_growth`                     | the SQLite WAL reaches 25 MiB                           |
-| `process_restart_loop`                 | over three starts occur in ten minutes                  |
-| `state_transaction_latency`            | transaction p95 exceeds 500 ms over at least 20 samples |
-| `state_database_busy`                  | a database busy timeout is exhausted                    |
-| `state_database_operation_failure`     | a non-busy transaction or checkpoint fails              |
-| `deployment_blocked`                   | the deploy timer keeps skipping a quarantined candidate |
-| `deployment_failure`                   | a candidate was rejected and rolled back                |
-| `deployment_reconcile_exhausted`       | the restart budget for a dead service is spent          |
+| Alert name                             | Trigger                                                  |
+| -------------------------------------- | -------------------------------------------------------- |
+| `readiness_failure`                    | readiness fails, with runtime challenge grace            |
+| `host_readiness_failure`               | two consecutive alertable host readiness probes fail     |
+| `list_am_challenge`                    | fifth challenged crawl without validated source recovery |
+| `list_am_source_integrity`             | hard List.am source-integrity failure                    |
+| `invalid_telegram_credentials`         | terminal Telegram authentication rejection               |
+| `invalid_telegram_channel_permissions` | terminal channel permission rejection                    |
+| `five_consecutive_crawl_failures`      | fifth consecutive failed crawl                           |
+| `stale_exchange_rates`                 | CBA snapshot exceeds 48 hours                            |
+| `backup_failure`                       | snapshot operation fails                                 |
+| `restore_test_failure`                 | snapshot validation or restore drill fails               |
+| `low_disk`                             | free-space threshold is crossed                          |
+| `state_database_growth`                | the SQLite database reaches 256 MiB                      |
+| `state_wal_growth`                     | the SQLite WAL reaches 25 MiB                            |
+| `process_restart_loop`                 | over three starts occur in ten minutes                   |
+| `state_transaction_latency`            | transaction p95 exceeds 500 ms over at least 20 samples  |
+| `state_database_busy`                  | a database busy timeout is exhausted                     |
+| `state_database_operation_failure`     | a non-busy transaction or checkpoint fails               |
+| `deployment_blocked`                   | the deploy timer keeps skipping a quarantined candidate  |
+| `deployment_failure`                   | a candidate was rejected and rolled back                 |
+| `deployment_reconcile_exhausted`       | the restart budget for a dead service is spent           |
 
 `deployment_blocked` exists because a rejected candidate is otherwise silent. A
 failed deployment quarantines its digest, but the discovery pointer goes on

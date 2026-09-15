@@ -6,8 +6,7 @@ the single structured log record whose message is
 component statuses. The record does not contain the Telegram token, bot
 identity, or Telegram response payload.
 
-Always stop the service before changing state or opening the persistent Chrome
-profile:
+Always stop the service before changing state or running source smoke:
 
 ```sh
 docker compose --file compose.production.yaml stop
@@ -17,34 +16,25 @@ Use the same production environment and persistent volume for every check.
 Escalate rather than deleting files when the active process or exact persistent
 volume is uncertain.
 
-## Browser verification required
+## List.am challenge or transport failure
 
-Status `browser_verification_required` means Chrome started successfully but
-List.am did not expose its Regular Ads container. It is non-ready and does not
-start Telegram polling or crawling.
+Status `source_challenge` means List.am returned an explicit mitigation or
+recognizable verification interstitial. It is non-ready and does not start
+Telegram polling or crawling. Missing listing content without a challenge is
+reported through source-integrity checks instead.
 
-On a secure interactive host with the production environment and the same
-`BROWSER_PROFILE_DIR`, run the exact remediation command reported by preflight:
+Check `source_transport` for executable startup errors and `list_am` for HTTP
+or integrity failures. Use the stopped-service
+[source smoke procedure](source-operations.md), which validates both categories
+from the production network with the pinned transport and cookie jar. Wait
+before a challenge or rate-limit recheck; repeated restarts are not remediation.
+After a passing smoke, start the service and require ready preflight.
 
-```sh
-npm run browser:verify
-```
-
-Complete List.am verification in the opened Chrome window. Success prints
-`Browser verification succeeded`. Close the verifier, start the service, and
-confirm that preflight reports `ready`. Do not run the verifier while the
-service is active, copy a developer profile into production, expose Chrome's
-debugging endpoint, or disable the Chrome sandbox.
-
-The verifier takes the service singleton lease and fails before opening Chrome
-if the service is still active. Follow the complete
-[production browser operations](browser-operations.md) runbook, including the
-headless `npm run browser:smoke` check before restart and the restricted
-profile-transfer procedure when direct verification is impossible.
-
-If the challenge returns immediately, confirm that the verifier and service use
-the same persistent profile and outbound IP. Escalate repeated challenges or
-any request for credentials unrelated to List.am verification.
+Recoverable List.am failures report not-ready immediately, then hold the lease
+and responsive health endpoint for at least `POLL_INTERVAL_MS` (60 seconds by
+default) or a longer valid `Retry-After`. They then exit for the supervisor's
+bounded retries. SIGTERM/SIGINT cancel that wait and clean up immediately.
+Terminal configuration, state, executable, and credential failures do not wait.
 
 ## Incompatible state
 
@@ -69,7 +59,7 @@ docker inspect --format '{{.State.Running}}' rental-apartments-bot
 npm run backup:validate -- /app-backups/daily/SELECTED_SNAPSHOT
 ```
 
-Expected output is `false` and a valid manifest-v2 identity/count summary
+Expected output is `false` and a valid manifest-v3 (or supported v2) identity/count summary
 covering SQLite identity, schema, integrity, target, and logical counts. A
 snapshot taken before the SQLite cutover is refused with "predates the SQLite
 cutover"; it is not a recovery option.
@@ -117,17 +107,17 @@ and require `channel: passed` before publication. A transient Telegram network
 failure is non-terminal; verify outbound HTTPS and retry without changing
 credentials.
 
-## Storage, singleton, Chrome, List.am, and CBA failures
+## Storage, singleton, source transport, List.am, and CBA failures
 
 - Storage: verify the service account owns the persistent volume, directories
   can be mode `0700`, files can be mode `0600`, and the filesystem supports
   atomic rename. Do not redirect managed paths through symlinks.
 - Singleton: stop the reported live owner. Never remove the lease while that
   process is alive; stale sockets from an unclean exit recover automatically.
-- Chrome: confirm the pinned executable exists, is executable by the service
-  account, and the profile is not open elsewhere.
+- Source transport: confirm the pinned curl-impersonate executable exists and
+  is executable by the service account, and the private cookie path is safe.
 - List.am: verify outbound HTTPS and the configured target. A security
-  challenge must follow the browser-verification procedure above.
+  challenge must follow the source-operations procedure above.
 - Exchange rates: if no compatible snapshot exists, verify outbound HTTPS to
   the Central Bank of Armenia and retry. Do not fabricate or partially edit a
   rate snapshot.

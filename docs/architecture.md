@@ -35,7 +35,7 @@ canonical AMD amount drives all price filtering and channel price-band hashtags.
 
 The supported production topology is a singleton, long-running process on a
 Linux host or in one OCI container. Telegram long polling, the single-writer
-SQLite database, and the persistent Chrome profile exclude serverless or
+SQLite database, and the singleton lease exclude serverless or
 automatically scaled deployment. A supervisor restarts the process, forwards
 SIGTERM for graceful shutdown, and mounts `.data` on durable local storage.
 
@@ -61,14 +61,12 @@ the runtime routing adapter never stores a serialized former state document.
 Apartment discovery and crawl metadata commit together. User removal crosses
 Telegram and private-delivery tables in one transaction. Synchronous
 `DatabaseSync` transactions contain only local row operations and never span a
-browser request, Telegram request, rate-limit wait, or retry delay.
+HTTP request, Telegram request, rate-limit wait, or retry delay.
 
-Production runs on a pinned, supported Node.js LTS release with a reproducible
-Chrome or Chromium installation. Chrome normally runs headlessly with its
-profile on persistent storage; interactive List.am verification is performed
-only while the service is stopped. Secrets are supplied outside the application
-artifact, and readiness represents validated Telegram, browser, storage, and
-crawl operation rather than process existence alone.
+Production runs on pinned Node.js and checksum-verified curl-impersonate.
+List.am requests use the fixed Safari `safari2601` network profile and private
+persisted HTTP cookies. Secrets are supplied outside the artifact; readiness
+represents validated Telegram, source, storage, and crawl operation.
 
 The operator control flow from reviewed source through publication, host
 reconciliation, first deployment, acceptance evidence, and later unattended
@@ -87,7 +85,7 @@ from returning.
 ### Local observability
 
 Readiness exposes its raw reasons separately from `alertReasons`, which applies
-the runtime browser-challenge grace policy. The host's JSON probe projects only
+the runtime source-challenge grace policy. The host's JSON probe projects only
 those bounded code arrays and the status; transport errors and timeouts receive
 stable probe codes. Host failure streaks count only alertable results, preserving
 raw HTTP readiness while avoiding a second alert path around the grace period.
@@ -144,7 +142,7 @@ stopping the application. Recovery points remain on the separately mounted
 backup filesystem, while monthly restore drills use exactly named and labeled
 temporary resources with networking, Telegram polling, and delivery disabled.
 Those containers also receive the same non-secret, container-local production
-paths and browser/health settings that Compose normally injects, so recovery
+paths and source/health settings that Compose normally injects, so recovery
 validation cannot accidentally depend on host environment-file omissions.
 
 ### Unattended publication and deployment
@@ -167,9 +165,9 @@ the root-only environment file and uses the same 60-second application default
 when that optional setting is absent; repeated or malformed values fail closed.
 On first install, deployment creates the named local data volume with the
 Compose project and volume identity labels and verifies that identity against a
-real mountpoint. It accepts either empty storage or the single real
-`chrome-profile/` directory that a failed first candidate leaves for explicit
-operator verification. Any application state, symlinked profile, or other
+real mountpoint. It accepts either empty storage or the single regular
+`list-am-cookies.txt` file left by an interrupted source check.
+Any application state, symlinked cookie file, or other
 top-level entry fails closed before the application starts.
 `rental-deploy.timer` invokes a stable bootstrap launcher for first
 installation and the verified current release thereafter. Deployment shares
@@ -286,9 +284,9 @@ tests verify the collection contract but do not claim real VPS observations.
 `src/health.js` owns a sanitized, in-memory operational projection. It does not
 read Telegram or apartment state and never retains errors, upstream bodies,
 credentials, owner/channel identifiers, apartment data, or stacks. Startup
-preflight results populate configuration, storage, Telegram, browser, List.am,
+preflight results populate configuration, storage, Telegram, List.am,
 and CBA component states. Runtime callbacks then record private activation,
-channel configuration, crawl outcomes, browser challenges, Telegram operations,
+channel configuration, crawl outcomes, List.am challenges, Telegram operations,
 and exchange-rate refreshes. Readiness includes only the configured access mode
 and aggregate persisted, authorized, suspended, and effectively active private
 user counts; it never exposes user IDs or the configured allowlist.
@@ -299,12 +297,12 @@ non-loopback health addresses and production Compose publishes no inbound port.
 loop is responsive. `/ready` and `/health` require a ready preflight and, when
 private monitoring is active or a channel exists, a successful crawl less than
 ten minutes old with fewer than five consecutive failures. A success resets
-both failure and age gates. Browser verification has its own immediately
+both failure and age gates. List.am verification has its own immediately
 visible challenge state.
 
-Readiness responses and alert eligibility are separate: a runtime browser
-challenge makes the endpoint non-ready immediately, but both `browser_challenge`
-and the browser reason in `readiness_failure` wait for five crawls ending still
+Readiness responses and alert eligibility are separate: a runtime List.am
+challenge makes the endpoint non-ready immediately, but both `list_am_challenge`
+and the source reason in `readiness_failure` wait for five crawls ending still
 challenged. This prevents a host readiness probe from bypassing the retry grace
 period and emitting firing/resolved notifications for a seconds-long challenge.
 Other readiness reasons retain their existing gates; preflight challenges alert
@@ -313,7 +311,7 @@ immediately because runtime recovery has not started.
 The current CBA snapshot timestamp is included without its quote contents. A
 snapshot older than 48 hours is a warning; no usable snapshot makes readiness
 false whenever the active crawl path requires currency conversion. Component
-and reason codes let private alerting distinguish Telegram, browser challenge,
+and reason codes let private alerting distinguish Telegram, List.am challenge,
 List.am, CBA, storage, and configuration remediation without exposing raw
 exceptions.
 
@@ -344,16 +342,10 @@ version. CI installs the full locked dependency graph with `npm ci` before
 running linting, formatting, and tests. The production image performs a
 separate `npm ci --omit=dev`, so development-only tooling is not deployed.
 
-The Linux AMD64 production image is based on the immutable multi-platform
-digest of the official Node.js 24.18.0 Bookworm Slim image. It installs Debian
-Chromium 152.0.7977.82 and its set-user-ID sandbox helper from the Debian
-snapshot dated 2026-09-05. This stays within Puppeteer Core 25.10.0's supported
-Chrome 152 milestone. Debian's browser packages preserve the sandboxed X11
-startup used by the production browser smoke test.
-Installing the exact browser package and its libraries from one snapshot makes
-them part of the image build rather than undocumented host state. OCI image
-labels expose the exact Node and browser versions for deployment inventory and
-verification.
+The Linux AMD64 production image uses the immutable official Node.js 24.18.0
+Bookworm Slim digest and curl-impersonate 2.2.2. Installation verifies the
+architecture-specific archive checksum before copying the executable and
+licenses. OCI labels expose the Node and curl-impersonate versions.
 
 ### Continuous integration and artifact provenance
 
@@ -361,17 +353,11 @@ The two branch-protection boundaries are the stable `Required / quality` and
 `Required / production artifact` jobs. The first runs the complete repository
 checks, a separate 90%-line/80%-branch coverage gate, and a high-severity
 production dependency audit on the pinned Node runtime. The second builds the
-production image, exercises its pinned Chrome in both headless and headful
-modes on a native Linux AMD64 runner, and scans its OS packages and application
-libraries. The browser gate uses the same non-root,
-read-only, sandbox-enabled capability and tmpfs contract as production, with a
-private Xvfb display for the headful pass. This synthetic, secret-free smoke
-forwards Chrome diagnostics to its CI log so early browser exits retain their
-native cause. The validated image is deliberately ephemeral: the required job
-does not save or upload its several-hundred-megabyte Docker archive because no
-deployment consumer reads an Actions artifact. Production publication repeats
-the build, validation, and scan before it mutates GHCR, so an untested or
-unscanned image cannot become the deployable output.
+production image, exercises the pinned HTTP executable against a local fixture
+server under production container restrictions, and scans OS packages and
+application libraries. No production credentials or List.am access are needed.
+The required job keeps the validated image ephemeral; publication repeats
+build, validation, and scanning before publishing to GHCR.
 
 The aggregate production contract uses baseline POSIX/GNU text tooling supplied
 by the runner rather than optional hosted-image utilities. Its integration test
@@ -393,7 +379,7 @@ production secrets or directories.
 
 Build arguments bind the image to the full Git revision and SHA-256 digest of
 `package-lock.json`; the Dockerfile validates both and records them alongside
-the pinned Node and Chrome versions as OCI labels. After required CI succeeds
+the pinned Node and curl-impersonate versions as OCI labels. After required CI succeeds
 for a `main` push, the publication workflow rebuilds those same pinned inputs,
 repeats label validation and scanning, pushes an immutable GHCR image, and
 creates digest-bound release metadata. The immutable registry digest and its
@@ -419,11 +405,11 @@ artifact contents, and hosted-only validation are documented in
 
 `DATA_DIRECTORY` identifies the persistent storage root and defaults to
 `.data`. The default apartment, delivery, exchange-rate, Telegram, channel, and
-Chrome-profile paths are resolved beneath it. Explicit per-file overrides
+HTTP-cookie paths are resolved beneath it. Explicit per-file overrides
 remain available, but the process-wide singleton lease always lives directly in
 this directory.
 
-Before constructing the browser integration or entering Telegram polling,
+Before constructing the HTTP transport or entering Telegram polling,
 `src/index.js` starts the lifecycle in `src/application.js`, which calls
 `src/singleton-lock.js`. The lock is a Unix-domain socket at
 `.singleton.sock`, with operator-readable owner metadata in `.singleton.json`.
@@ -451,7 +437,7 @@ while stale socket recovery permits a crash restart on the same volume.
 
 Node runs directly under a minimal init process. On SIGINT or SIGTERM the
 application aborts Telegram long polling, crawl and exchange-rate work, waits
-for their awaited state writes to finish, closes Chrome, and only then releases
+for their awaited state writes to finish, closes the HTTP transport, and only then releases
 the lease. Delivery acknowledgements remain the backlog boundary: an
 acknowledged item is not re-enqueued after restart, while an interrupted
 unacknowledged send retains the documented at-least-once behavior.
@@ -459,39 +445,21 @@ unacknowledged send retains the documented at-least-once behavior.
 ### Deployment artifact isolation
 
 The container build context excludes local environment files, the complete
-`.data` tree (including any developer Chrome profile), dependency and coverage
+`.data` tree (including HTTP cookies), dependency and coverage
 trees, Git metadata, logs, and common development caches. The Dockerfile copies
 only the locked package manifests and `src`, and its runtime command does not
 load a local environment file. Production configuration therefore enters at
 container creation rather than becoming an image layer. npm and Corepack are
 build-time tools only and are removed after installing the locked dependencies
-and browser, leaving no package manager in the production filesystem.
+and curl-impersonate, leaving no package manager in the production filesystem.
 
-The final process runs as the official Node image's dedicated, unprivileged
-`node` account. The production Compose definition repeats that user boundary
-and makes the image root filesystem read-only. Its only application-persistent
-writable path is `/app/.data`. Chrome's `/tmp` and application SQLite's
-`/sqlite-tmp` are separate in-memory filesystems, each capped at 128 MiB;
-`/dev/shm` is capped at 256 MiB. All three disable device, set-user-ID, and
-executable-file behavior. The SQLite mount is mode `0700`, owned by the
-container's `node` account (UID/GID 1000). Compose sets `SQLITE_TMPDIR` before
-Node starts, directing disposable SQLite working files away from Chrome's
-temporary-space budget. The database and WAL remain on the persistent data
-volume. The service publishes no inbound ports.
-
-Chrome retains its Linux sandbox. The pinned `chrome-sandbox` helper is owned by
-root with its required mode in the image, while Chrome itself is launched by
-the unprivileged application account. Application launch arguments never
-disable the sandbox. Puppeteer's headless production control channel uses a
-pipe. Interactive Linux verification uses an ephemeral TCP debugging port
-inside its portless container and explicitly binds it to `127.0.0.1`; the
-interactive macOS path also restricts debugging to loopback.
-
-The image build verifies both signed Debian package versions and the sandbox
-helper's ownership and mode without executing a foreign-architecture binary.
-The native AMD64 hosted image gate executes the installed browser and
-requires the exact versioned Debian Chromium identity. That runtime check trims
-only trailing whitespace before comparison, without weakening the version pin.
+The final process runs as the unprivileged `node` account. Compose drops all
+capabilities, enables `no-new-privileges`, makes the root filesystem read-only,
+and publishes no ports. `/app/.data` is persistent; `/tmp` and `/sqlite-tmp`
+are separate 128 MiB tmpfs mounts with `nosuid,nodev,noexec`. SQLite scratch
+uses the private `/sqlite-tmp` mount; its database and WAL remain persistent.
+The native image gate checks the installed curl-impersonate identity and
+executes its Safari profile against a local HTTP fixture.
 
 ### Configuration and secret boundary
 
@@ -506,9 +474,9 @@ catalog inspection therefore does not load `.env`, runtime state, or configured
 secret and identifier values. The catalog defines `public`, `owner`, and
 `allowlist` access modes plus per-user inbound and per-recipient outbound rate
 limits; access configuration does not alter the owner-alert route or create a
-private-user admission limit. Production has no implicit storage or browser
-choices: `NODE_ENV=production`, `DATA_DIRECTORY`, `BROWSER_HEADLESS=true`, and
-an absolute `CHROME_EXECUTABLE_PATH` must all be explicit.
+private-user admission limit. Production has no implicit storage or executable
+choices: `NODE_ENV=production`, `DATA_DIRECTORY`, and
+an absolute `CURL_IMPERSONATE_PATH` must all be explicit.
 
 `src/environment-config.js` is the shared strict parser for runtime mode and
 the loopback health endpoint. The main configuration, JSON logger, and sibling
@@ -517,7 +485,7 @@ same invalid values. Log `applicationVersion` comes only from immutable package
 metadata; an undeclared environment override cannot forge release provenance.
 
 Apartment, private-delivery, channel-delivery, exchange-rate, Telegram bot, and
-Chrome-profile paths are normalized and must be distinct children of
+HTTP-cookie paths are normalized and must be distinct children of
 `DATA_DIRECTORY`. Startup rejects filesystem-root storage, paths outside the
 configured tree, non-regular state files, and symlinked managed paths. Before
 the lease is acquired it creates and probes the persistent tree, restricts
@@ -545,7 +513,7 @@ record reports the suppressed count. Redaction runs after the complete record
 is assembled, including generated event names, nested values, and error stacks.
 
 `src/retry.js` provides the shared expected-external-failure policy. Network
-errors, browser verification failures, and HTTP 5xx responses retry with
+errors, List.am challenge failures, and HTTP 5xx responses retry with
 exponential delay and jitter, bounded
 by the validated `EXTERNAL_RETRY_MAX_MS` value (at most five minutes). A
 successful operation resets its backoff object. Telegram's server-supplied
@@ -553,20 +521,10 @@ successful operation resets its backoff object. Telegram's server-supplied
 or permission errors, invalid configuration, and incompatible state escape to
 the supervisor instead of entering runtime retry loops.
 
-Runtime page fetches add up to two retries in a fresh Chrome process before the
-crawl-level policy runs. The bounded retry accepts browser verification
-responses, Puppeteer protocol/target/connection failures, the bounded page-read
-timeout, and the shared expected-external-failure set. Renderer stalls are the
-dominant runtime browser failure and never recover in place, so only a fresh
-process wins the page back; because each attempt now carries its own read
-budget, a third attempt costs less than a single unbounded stall did. Stall
-retries wait a jittered exponential delay capped well below
-`EXTERNAL_RETRY_MAX_MS`, because relaunching Chrome into the load spike that
-stalled the last renderer tends to stall again. Verification challenges and
-other retryable page failures use the same delayed retries. A final failure
-escapes to the
-crawl loop, which records one failed crawl and applies its existing backoff;
-preflight does not use this runtime-only retry.
+List.am requests have no immediate page retries. A failed crawl backs off
+before the next attempt. Challenges and HTTP 429 wait at least
+`POLL_INTERVAL_MS`; a server `Retry-After` remains authoritative even beyond
+the ordinary backoff cap. Successful crawls reset exponential backoff.
 
 Crawl completion and failure events carry a random crawl ID and elapsed
 milliseconds. Successful crawl records also expose the page, discovery,
@@ -575,18 +533,14 @@ send/edit, and total counters as log-derived metrics. Retry and
 channel-operation records are correlated with the same crawl where applicable.
 There is no public metrics surface.
 
-`HealthMonitor` emits edge-triggered firing/resolved events for readiness,
-browser challenge, invalid Telegram access, five crawl failures, and stale
-rates. A complete, integrity-valid runtime crawl clears an earlier browser
-challenge and emits its resolution. The browser-challenge alert is
-sustained rather than edge-triggered on the first sighting: the component and
-readiness reason change at once, but the alert waits for five consecutive
-crawls to end still challenged, so the far more common challenge that the
-runtime retry answers inside one crawl never reaches the owner. A preflight
-challenge remains terminal to startup, alerts on sight because no crawl can
-clear it, and requires the browser-verification workflow. Recovery commands emit
-backup, restore-test, and low-disk firing events. Docker sends application
-records to bounded persistent journald storage. The short-lived `ops/monitor`
+`HealthMonitor` emits firing/resolved events for readiness, List.am
+challenges, invalid Telegram access, five crawl failures, and stale rates.
+A challenge affects readiness immediately; the dedicated alert waits for five
+challenged crawls without validated source recovery. A successful integrity
+check clears it even when later delivery fails. Preflight challenges alert
+immediately because crawling has not begun. Recovery commands emit backup,
+restore-test, and low-disk events. Docker sends application records to bounded
+persistent journald storage. The short-lived `ops/monitor`
 systemd job derives restart-loop and other host-level alerts from bounded
 journal, Docker, filesystem, and timer observations, persists an atomic local
 snapshot, and sends deduplicated transitions to the Telegram owner. The alert
@@ -630,163 +584,73 @@ domain, not a failure.
 
 External checks use Telegram `getMe`, `getChat`, and `getChatMember` to verify
 credentials, channel reachability, and the bot's Post Messages and Edit
-Messages administrator permissions. Preflight launches Chrome with the durable
-profile, loads and parses page one of the configured List.am target, and asks
+Messages administrator permissions. Preflight validates the native executable
+and parses the configured List.am targets, then asks
 the exchange-rate service for either a compatible persisted snapshot or a
 successful CBA retrieval. Invalid credentials and channel configuration are
 terminal. A List.am challenge instead produces the distinct
-`browser_verification_required` non-ready state and the remediation command
-`npm run browser:verify`.
+`source_challenge` non-ready state and source-operations remediation.
 
 Startup emits exactly one structured `Startup preflight completed` result. It
 contains component states, a stable failure code, terminal/readiness flags, and
 when applicable the affected state domain and the reason its stored rows were
-rejected, or the browser remediation command. It
+rejected, or the source remediation command. It
 never contains the bot token, Telegram API URL, bot identity, or response
-payload. Chrome and the singleton lease are released on every failed preflight.
+payload. Recoverable List.am startup failures report not-ready immediately,
+then retain the lease and live health endpoint for at least `POLL_INTERVAL_MS`
+or a longer valid `Retry-After` before exiting for bounded supervisor retries.
+Signals cancel this cooldown immediately. Terminal configuration, state,
+executable, and Telegram credential failures exit without waiting. All failed
+preflights release the HTTP transport and lease before exit.
 Operational diagnosis and recovery are documented in
 [`docs/startup-preflight.md`](startup-preflight.md).
 
-### Browser operation and verification boundary
+### List.am HTTP transport boundary
 
-Production, preflight, and production-host smoke launch Chrome headlessly from
-the pinned executable. They reuse `BROWSER_PROFILE_DIR` on the durable volume;
-the interactive verifier changes only the launch display mode and uses that
-same profile. Both maintenance commands validate the managed storage tree and
-acquire the application singleton lease before constructing Chrome, which
-enforces the requirement that the service is stopped and prevents the service
-from starting concurrently.
+`src/list-am-http.js` invokes curl-impersonate directly without a shell, with
+profile `safari2601`, HTTPS-only requests, bounded output, and a request timeout.
+It waits at least two seconds between requests. Up to five manual redirects
+are permitted only within `https://www.list.am`; pagination redirects return
+the destination body so existing repeated-page detection remains effective.
+The transport never executes JavaScript or fetches page images.
 
-`npm run browser:verify` opens the configured page-one List.am target in a
-private interactive Chrome session, waits for the Regular Ads container, parses
-it, closes Chrome, and releases the lease. `npm run browser:smoke` is restricted
-to production configuration, retains headless mode, loads the configured target
-across every configured initial-crawl page through the persisted profile, and
-logs the final parsed Regular Ads count. The sequential fetches prove the
-complete preflight-to-crawl browser lifecycle rather than validating only a
-one-shot launch. A
-successful verifier followed by smoke and restarted preflight proves that
-verification state survived Chrome and application restart. Profile state is
-mounted at runtime; it is never copied from a developer `.data` directory or
-baked into an artifact. Direct production-host verification and a restricted
-profile-only transfer fallback are documented in
-[`docs/browser-operations.md`](browser-operations.md).
+The mode-`0600` cookie jar lives inside `DATA_DIRECTORY`. Each fetch stages it
+in a private directory and atomically replaces the persisted jar after a valid
+HTTP response. Failed or challenged requests preserve the previous jar.
+Concurrent fetches are rejected. Abort and close kill and reap an active
+subprocess and remove temporary files. Startup verifies the executable's
+impersonation identity; runtime never downloads executable code.
 
-Each Chrome launch uses a profile-keyed, mode-`0700` runtime root beneath the
-bounded system temporary directory. Startup clears stale resources left by a
-prior failed browser/service run. HOME, XDG configuration/cache, and the XDG
-runtime path all resolve beneath this tmpfs-backed launch directory. Chrome's
-child environment also overrides `SQLITE_TMPDIR` to this directory so its own
-SQLite use cannot consume the application's separate scratch mount. Chrome
-never needs to write to the immutable image home. Browser-owned Breakpad and
-crash-reporter subprocesses are disabled because they require additional
-mutable or tracing facilities; application-owned structured logging records
-browser process and protocol failures. Headless service launches keep DevTools
-on a private pipe. Interactive Linux verification uses an ephemeral
-loopback-only DevTools port, and its verifier container publishes no ports. The
-container has
-the `SYS_ADMIN` capability required by Puppeteer's sandboxed Docker runtime to
-create Chrome's short-lived PID and network namespaces; it remains non-root,
-read-only, portless, and uses Chrome's sandbox rather than `--no-sandbox`.
-Headless launches never pass the window-manager-only `--start-minimized` flag.
-On constrained Linux hosts, combining that flag with headless mode can cause
-Chromium's renderer scheduler to stall navigation and page evaluation even
-though the browser process remains healthy. Interactive launches retain the
-configured minimized behavior.
-Before every launch, the fetcher checks Chromium's profile-owner PID. If no
-owner is alive, it removes only Chromium's known `SingletonLock`,
-`SingletonCookie`, and `SingletonSocket` symlinks left by an interrupted
-process. A non-symlink singleton entry or a live owner fails closed, preventing
-recovery code from deleting unexpected profile data.
-The pages of one crawl share one browsing session. The fetcher closes the
-sandboxed Chromium process at the session boundary — the end of a crawl, or of
-the startup preflight — and the next session starts a fresh process against the
-same durable profile. Renderer and compositor state therefore cannot accumulate
-across the poll interval, while a crawl's later pages still arrive with the
-navigation history of its earlier ones behind them. Closing after every page
-instead made each page a session of its own, which is the shape List.am
-challenges. A failed page still disposes its browser immediately: abandoning
-the process is what recovers a stall, and the retry needs a fresh one. Headful
-interactive operation continues to reuse its visible browser across sessions.
-The browser version presented to List.am is read from the running Chromium
-process. The user agent uses Chrome's reduced `<major>.0.0.0` form, while
-high-entropy client hints retain the installed full build version. Browser
-upgrades are therefore reflected in both. Headless mode's `HeadlessChrome/`
-product token is normalized to `Chrome/`. Headless and headful launches of the
-same installed browser present the same version. There is no separate identity
-pin or environment override. The existing native Blink automation setting
-handles `navigator.webdriver`; startup does not install an own-property
-JavaScript getter on `navigator`.
-Optional scrolling uses immediate compositor updates and short Node-side pacing
-delays around synchronous browser evaluations. Smooth-scroll animations cannot
-accumulate across navigations, and headless page-timer throttling therefore
-cannot consume the browser protocol timeout or block the following content read.
-Both bounded waits share one guard. The optional scrolling holds at most a
-third of the protocol timeout and its failure is swallowed, while the content
-read that produces the page holds a larger share and fails the fetch. Observed
-page reads are bimodal — a healthy read returns in seconds, a stalled one never
-returns — so bounding the read strictly inside the protocol timeout converts a
-dead wait for the CDP backstop into a prompt retry against a fresh browser, and
-reports it as `ERR_BROWSER_CONTENT_TIMEOUT`.
-Launch initialization, navigation, renderer, challenge, abort, and graceful
-shutdown paths close the Puppeteer browser, terminate its remaining owned child
-when necessary, and remove the runtime root. A later crawl starts a fresh
-Chrome process against the unchanged durable profile. Chrome is given a
-generous window to exit on SIGTERM, because it flushes its cookie store on the
-way out and the List.am clearance lives there; killing it mid-flush discards a
-cookie that was just issued, so the next launch is challenged and issues
-another. Only a genuinely wedged browser reaches SIGKILL, and reaching it emits
-`browser.forced_exit` — a run of those explains a run of challenges, and
-nothing else in the logs connects the two.
+Explicit `cf-mitigated: challenge` headers and recognizable verification
+interstitials raise `ERR_LIST_AM_CHALLENGE`. Missing listing content alone is
+a source-integrity failure. Other HTTP statuses and `Retry-After` headers
+reach the crawler unchanged. `list_am.challenge` reports component `list_am`,
+HTTP status, and `challengeSource` (`edge` or `interstitial`), with no URL,
+cookies, or raw response body. Preflight reports `source_challenge`.
 
-Within a session, a page is fetched with the previous page's URL as its
-referer. Pagination reached by clicking carries where it was clicked from, and
-a crawl's later pages are its own earlier ones; only a page that actually
-delivered its listing becomes a referer, because a challenge or an origin error
-is not somewhere a reader would have been coming from.
+`npm run source:smoke` acquires the service singleton lease, validates page one
+of both categories with the same transport and integrity checks, and reports
+aggregate page/listing counts. It runs only with the service stopped and
+writes no verification marker. See [source operations](source-operations.md).
 
-A navigation's HTTP status is read rather than discarded. List.am answers a
-challenge through the provider in front of it, so an interstitial arrives as a
-status and a header the rendered page never shows. A response the provider
-labels a mitigation is a challenge outright; otherwise a page with no listing
-container is still treated as challenged, which catches an interstitial served
-as 200. A status alone does not decide it: statuses outside the mitigation set
-are the origin's own failure, reported as themselves so a 404 or a bad gateway
-fails the crawl by name instead of sending an operator to the verification
-runbook.
-
-Successive crawls are spaced by `POLL_INTERVAL_MS` spread a fifth either side
-at random. An exact interval makes the request pattern a metronome — with a
-crawl of roughly half a minute the origin sees a page load at a fixed period,
-to the second — which is a regularity no human session produces and a cheap
-signal for an edge to score. The spread averages back to the configured
-interval, so the request budget an operator sets is the budget the crawl
-spends. The wake-from-dormancy gate keeps the unjittered interval: it is a
-floor on how soon an activation may crawl, not a repeating cadence.
-
-Challenge detection emits the stable `browser.challenge` event with component
-`browser`, code `ERR_BROWSER_VERIFICATION_REQUIRED`, severity `warning`, and the
-operator remediation command. It also carries the challenged `url`, the
-navigation `httpStatus`, and a `challengeSource` of `edge` or
-`missing_content`, which say which category was challenged and whether the
-provider said so or an absent container inferred it. Startup additionally
-retains its distinct `browser_verification_required` preflight result. Local
-monitoring consumes this application event without coupling browser operation
-to alert delivery.
+Successive successful crawls retain the configured poll interval with its
+existing jitter. Failed crawls use backoff; challenge and rate-limit delays
+cannot be shortened by user activation.
 
 ### Production-focused test boundary
 
 Deployment-boundary coverage combines deterministic integration tests with
-post-deploy production verification and isolated operational exercises. Browser
-integration tests cover executable discovery, partial-launch cleanup, challenge
-detection, fresh launch after failure, protocol-close failure, and graceful
-child termination. Persistence integration tests use the real filesystem and
+post-deploy verification and isolated operational exercises. HTTP transport
+tests cover executable identity, cookies, challenge detection, bounded
+redirects and output, cancellation, timeout, and child cleanup.
+
+Persistence integration tests use the real filesystem and
 child processes to cover restrictive modes, flush and rename rollback, schema
 rejection, singleton contention, and intact snapshot restore.
 
 CI also checks the production Docker, Compose, release, configuration, and
 documentation contracts without credentials or network access. Hosted gates
-build and scan the exact image and exercise its pinned Node and Chrome binaries.
+build and scan the exact image and exercise its pinned Node and curl-impersonate binaries.
 The documentation consistency gate derives maintained Markdown and valid local
 path targets from the Git index while also requiring each target to exist in
 the worktree. A directory qualifies only when it contains a tracked descendant,
@@ -818,38 +682,25 @@ IDs, chat IDs, and absolute database paths are never logged, and telemetry
 failures cannot alter durability.
 
 `src/state.js` remains the atomic JSON primitive only for the defensive
-migration sentinels, browser verification record, and maintenance history.
+migration sentinels and maintenance history.
 Normal SQLite domain mutations do not call it.
 
-Every successful interactive verification, production browser smoke, and
-startup List.am preflight writes a versioned verification record inside the
-persistent Chrome profile. It binds the profile to the configured List.am
-target and records the verification time and parsed Regular Ads count. The
-record is evidence for offline snapshot validation; a post-restore browser
-smoke remains the required live verification before polling is enabled.
+`src/recovery.js` owns the persistence recovery boundary. Backup and restore
+acquire the singleton lease while the service is stopped. Manifest-v3 backups
+validate database identity, schema, target bindings, full integrity, foreign
+keys, logical counts, and update offset. Node's SQLite backup API produces a
+consistent standalone database; a new connection validates it before hashes
+and the snapshot are published atomically. WAL/SHM and disposable HTTP cookies
+are not copied. Retention requires seven daily and four weekly recovery
+points on independent storage.
 
-`src/recovery.js` is the maintenance boundary for the complete persistence set.
-Backup and restore acquire the application singleton lease, so the service must
-be stopped and no browser can mutate the profile. A manifest-v2 SQLite backup
-validates identity, schema, target bindings, full integrity,
-foreign keys, logical counts, update offset, and browser record. It uses Node's
-SQLite online backup API to produce a consistent standalone database, validates
-that destination through a new connection, hashes every staged file, and
-publishes atomically. WAL/SHM files are never copied. Sunday UTC snapshots are
-also retained as weekly points. Configuration enforces at least seven daily and
-four weekly points and rejects a backup destination that overlaps application
-data. Manifest-v1 snapshots described the five JSON state files and are no
-longer readable: backup, validation, and restore refuse them by name, saying the
-snapshot predates the SQLite cutover rather than reporting it as damaged. A
-snapshot taken before the cutover is therefore not a restorable backup.
-
-Restore accepts only a snapshot beneath the independently configured backup
-destination. It verifies the manifest, hashes, schemas, target identities,
-record counts, update offset, and browser record before acquiring the lease.
-Managed live entries are moved into a private rollback directory and the staged
-snapshot entries are renamed into place. Any failed install or post-install
-validation moves the prior entries back. A successful restore deliberately
-reports that live browser verification is still required.
+Restore accepts manifests v3 and v2, validating each version's declared files
+and hashes. Legacy v2 profile artifacts are not installed or required by the
+new transport. Manifest-v1 snapshots predate SQLite and remain unsupported.
+Managed live entries are staged in a private rollback directory before the
+snapshot entries are installed. Failed installation or validation restores the
+prior entries. A successful restore still requires a stopped-service source
+smoke before normal startup.
 
 `src/recovery-cli.js` exposes backup, snapshot validation, restore, and the
 20%-free-space check. Its structured `backup.*`, `restore.*`, and
@@ -859,23 +710,12 @@ work. Daily automation, the 24-hour RPO, one-hour RTO, quarterly drill, and
 operator escalation are documented in
 [`docs/state-recovery.md`](state-recovery.md).
 
-`src/maintenance.js` is the weekly state-growth boundary. After startup storage
-validation, `src/maintenance-cli.js` acquires the same singleton lease before
-reading state or touching the browser profile. It runs full integrity and
-foreign-key checks, checkpoints WAL, reports database/WAL bytes and per-domain
-logical counts, and measures the Chrome profile and total managed bytes. A small
-versioned JSON history file stores only the prior aggregate byte sample for
-week-over-week growth; it is neither an application state input nor included in
-its own growth total.
-
-Chrome receives a disk-cache byte cap at every launch. Under the stopped-service
-lease, weekly maintenance removes only enumerated reconstructible HTTP,
-bytecode, GPU, Dawn, Graphite, and shader cache directories. Cookie, local
-storage, IndexedDB, Service Worker, preference, and browser-verification data
-are outside the cleanup set. Cache targets that are not real directories fail
-closed. There is no shared apartment or channel-delivery deletion path. Future coordinated
-archive/prune rules and their mandatory restart/redelivery tests are specified
-in [`docs/state-maintenance.md`](state-maintenance.md).
+`src/maintenance.js` is the weekly state-growth boundary. Under the singleton
+lease it runs integrity and foreign-key checks, checkpoints WAL, and reports
+database/WAL sizes, logical counts, and managed bytes. A small versioned JSON
+history stores the previous aggregate sample for growth reporting. Maintenance
+does not delete domain records. Retention and capacity response are documented
+in [state maintenance](state-maintenance.md).
 
 ### Release and rollback boundary
 
@@ -896,7 +736,7 @@ expected channel checks, a successful crawl, and final readiness after the full
 observation window.
 
 A failed candidate is stopped before the verified snapshot is restored and the
-previous artifact is restarted, so browser/rate changes made during an
+previous artifact is restarted, so source/rate changes made during an
 ultimately failed preflight are reverted with the matching state. Rollback either uses
 a reviewed backward-compatible schema or restores the snapshot before the old
 artifact starts. Production recovery exercises verify this snapshot-backed
@@ -914,7 +754,7 @@ operator procedures are indexed in
 
 1. `src/index.js` validates private and channel configuration, acquires the
    persistent-directory singleton lease, and runs the startup preflight. Only a
-   ready result permits the reusable Chrome-backed page fetcher and Telegram bot
+   ready result permits the reusable HTTP page fetcher and Telegram bot
    to enter their long-running loops. At bot startup, the source-controlled
    profile short description, empty-chat description, and complete supported
    command list in the Telegram metadata module are synchronized through the
@@ -996,8 +836,7 @@ operator procedures are indexed in
    and suppresses another attempt for one hour; concurrent refresh requests
    share one in-flight operation.
 5. `src/crawler.js` walks the configured List.am categories one after another,
-   fetching their pages sequentially through `src/browser-fetch.js`, which
-   requests the `ru-RU` browser locale, and parsing each page with
+   fetching their pages sequentially through `src/list-am-http.js`, and parsing each page with
    `src/list-am.js`. Every parsed card is tagged with the kind its category
    publishes, and item identity remains global, so a listing that appeared in
    both categories would still be stored once. Because each category is read
@@ -1172,7 +1011,7 @@ source prices without hashtags.
 Private crawl fan-out evaluates source freshness once per listing and checks
 for a recent source update before matching a rejected listing against a user's
 filters. Recipient workers start across event-loop turns, keeping health and
-browser I/O serviceable while their network deliveries remain concurrent.
+source I/O serviceable while their network deliveries remain concurrent.
 
 Application state is one versioned `state.sqlite3` database on persistent local
 storage. `application_metadata` binds its immutable database ID to the List.am
@@ -1213,7 +1052,7 @@ the apartment category's own series.
 - Inbound token buckets, denial-response timestamps, and private delivery rate
   buckets remain process-local. They use a monotonic process clock, evict idle
   entries after 15 minutes, and restart empty.
-- `chrome-profile/` stores cookies from List.am security verification.
+- `list-am-cookies.txt` stores the private HTTP session and is excluded from snapshots.
 - `.maintenance-history.json` stores only the previous successful maintenance
   timestamp and aggregate managed byte count. It is excluded from application
   state thresholds, entry counts, and managed-growth totals.
@@ -1239,8 +1078,8 @@ counted without retaining card HTML or rejected attributes.
 `parseRegularApartments` returns the normalized apartments together with
 candidate, unique-candidate, parsed, duplicate, and rejected counts. Its
 completeness object counts usable normalized title, date, price, location,
-rooms, area, and floor values. Crawling, startup preflight, and browser
-verification consume this diagnostic result; the legacy array helper is only a
+rooms, area, and floor values. Crawling, startup preflight, and source
+smoke consume this diagnostic result; the legacy array helper is only a
 compatibility wrapper. Posting-date validation and crawl ordering share
 `src/posting-date.js`, preventing completeness and watermark decisions from
 interpreting dates differently. That module reads three displayed forms: a
@@ -1289,8 +1128,8 @@ the page, so date completeness is reported as telemetry only. Later empty
 pages remain valid. The
 crawler performs this validation while its discoveries are still in memory, so
 an invalid page cannot write apartment or delivery state or invoke private or
-channel delivery. Startup preflight and browser verification use the same
-evaluator and record verification only after validation. Source-integrity
+channel delivery. Startup preflight and source smoke use the same
+evaluator and report success only after validation. Source-integrity
 errors are recoverable external failures and therefore use bounded crawl
 backoff; readiness, alert, metric, and dedicated integrity-event projection is
 integrated with the operational surfaces separately.
@@ -1325,7 +1164,7 @@ hard-rule reason.
 
 ## Failure handling
 
-- HTTP, browser challenge, malformed apartment/private state, and private
+- HTTP, List.am challenge, malformed apartment/private state, and private
   Telegram API failures propagate to the monitoring loop and are logged as
   structured JSON.
 - CBA responses are accepted only when all three required quotes, their amounts,
@@ -1360,9 +1199,8 @@ hard-rule reason.
 - Replayed Telegram callbacks that render an already-current menu are treated
   as successful, covering the window between saving filter state and the update
   offset.
-- SIGINT and SIGTERM abort Telegram polling and browser work, then close Chrome
-  cleanly before the application lease is released.
-- Startup preflight failures close Chrome and release the singleton lease before
+- SIGINT and SIGTERM abort Telegram polling and source work, then reap HTTP subprocesses before the application lease is released.
+- Startup preflight failures close the HTTP transport and release the singleton lease before
   exiting. State compatibility is checked before external calls, so invalid
   state cannot be overwritten by a later initialization path.
 
@@ -1395,13 +1233,13 @@ hashtags, edits and retries, and missing-message replacement.
 Process integration tests start real child processes against one temporary
 persistent directory. They prove that a live second process fails before
 polling, an unclean exit is recoverable, and SIGTERM flushes delivery state,
-closes the Chrome-profile lock, releases the application lease, and permits a
+reaps HTTP subprocesses, releases the application lease, and permits a
 backlog-free restart. Deployment contract tests pin the one-replica,
 stop-before-start, bounded-restart, and 45-second grace settings.
 Artifact-isolation tests also verify the build-context denylist, immutable
-non-root container contract, bounded writable mounts, sandbox configuration,
-and loopback-only remote debugging.
+non-root container contract, bounded writable mounts, dropped capabilities,
+and no-new-privileges.
 Preflight integration tests exercise the complete ready path across state,
-Telegram, channel, browser, List.am, and CBA boundaries; terminal credential
-and permission failures; unchanged incompatible state; the typed browser
+Telegram, channel, source transport, List.am, and CBA boundaries; terminal credential
+and permission failures; unchanged incompatible state; the typed source
 challenge; loop exclusion; cleanup; and secret-free structured results.

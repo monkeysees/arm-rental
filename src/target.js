@@ -12,7 +12,7 @@ export const LIST_AM_HOUSE_URL_TEMPLATE =
  * Each category is its own newest-first stream with its own pagination, so a
  * crawl walks them one after another and tags what it parses with the kind the
  * category publishes. The apartment template stays the installation's identity
- * — it is what the state database, the browser profile, and the delivery
+ * — it is what the state database, the HTTP session, and the delivery
  * stores are bound to — so adding a category never rebinds stored state.
  */
 export const LIST_AM_SOURCES = Object.freeze([

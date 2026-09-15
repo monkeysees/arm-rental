@@ -12,11 +12,11 @@ const readProjectFile = (file) =>
   readFile(new URL(`../${file}`, import.meta.url), "utf8");
 
 test("required CI gates quality and an ephemeral production candidate", async () => {
-  const [workflow, packageText, dockerfile, browserSmoke] = await Promise.all([
+  const [workflow, packageText, dockerfile, httpSmoke] = await Promise.all([
     readProjectFile(".github/workflows/quality.yml"),
     readProjectFile("package.json"),
     readProjectFile("Dockerfile"),
-    readProjectFile("scripts/smoke-production-browser-image"),
+    readProjectFile("scripts/smoke-production-http-image"),
   ]);
   const packageJson = JSON.parse(packageText);
   const actionReferences = [
@@ -40,21 +40,19 @@ test("required CI gates quality and an ephemeral production candidate", async ()
   assert.match(workflow, /exit-code: 1/u);
   assert.match(
     workflow,
-    /scripts\/smoke-production-browser-image rental-apartments-bot:ci/u,
+    /scripts\/smoke-production-http-image rental-apartments-bot:ci/u,
   );
   // Publication performs its own gated GHCR push. Retaining a Docker archive
   // here wastes Actions storage and is not part of the deployment handoff.
   assert.doesNotMatch(workflow, /docker save rental-apartments-bot:ci/u);
   assert.doesNotMatch(workflow, /actions\/upload-artifact@/u);
 
-  assert.match(browserSmoke, /platform != linux\/amd64/u);
-  assert.match(browserSmoke, /--user node/u);
-  assert.match(browserSmoke, /--read-only/u);
-  assert.match(browserSmoke, /--cap-add SYS_ADMIN/u);
-  assert.match(browserSmoke, /browserDumpIo: true/u);
-  assert.match(browserSmoke, /run_browser_smoke headless true/u);
-  assert.match(browserSmoke, /run_browser_smoke headful false/u);
-  assert.doesNotMatch(browserSmoke, /--no-sandbox/u);
+  assert.match(httpSmoke, /--user node/u);
+  assert.match(httpSmoke, /--read-only/u);
+  assert.match(httpSmoke, /--cap-drop ALL/u);
+  assert.match(httpSmoke, /--security-opt no-new-privileges/u);
+  assert.match(httpSmoke, /createServer/u);
+  assert.doesNotMatch(httpSmoke, /SYS_ADMIN|Xvfb|--no-sandbox/u);
 
   assert.match(packageJson.scripts["test:coverage"], /test-coverage-lines=90/u);
   assert.match(
@@ -69,7 +67,7 @@ test("required CI gates quality and an ephemeral production candidate", async ()
   for (const label of [
     "org.opencontainers.image.revision",
     "org.opencontainers.image.node.version",
-    "org.opencontainers.image.chrome.version",
+    "org.opencontainers.image.curl-impersonate.version",
     "org.opencontainers.image.package-lock.sha256",
     "com.rental-apartments.state.backend",
     "com.rental-apartments.state.schema.minimum",
@@ -115,7 +113,7 @@ test("release manifest binds the deployable image to its complete inputs", async
     maximumStateSchema: 2,
     deployableStateBackends: ["sqlite"],
     nodeVersion: nodeVersion.trim(),
-    browserVersion: "152.0.7977.82",
+    curlImpersonateVersion: "2.2.2",
     packageLockSha256: createHash("sha256").update(packageLock).digest("hex"),
     imageArchive: {
       file: "production-image.tar.gz",

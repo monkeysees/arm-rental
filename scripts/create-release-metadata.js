@@ -81,11 +81,13 @@ export async function createReleaseMetadata({
     compose,
     operations,
   ] = await Promise.all(reads);
-  const browserVersion = dockerfile.match(
-    /^ARG CHROME_VERSION=(?<version>[0-9.]+)$/mu,
+  const curlImpersonateVersion = dockerfile.match(
+    /^ARG CURL_IMPERSONATE_VERSION=(?<version>[0-9.]+)$/mu,
   )?.groups?.version;
-  if (!browserVersion) {
-    throw new Error("Dockerfile must declare a pinned CHROME_VERSION");
+  if (!curlImpersonateVersion) {
+    throw new Error(
+      "Dockerfile must declare a pinned CURL_IMPERSONATE_VERSION",
+    );
   }
 
   const common = {
@@ -105,7 +107,7 @@ export async function createReleaseMetadata({
     // backends; every other release lists only the one its verifier accepts.
     deployableStateBackends: ["sqlite"],
     nodeVersion: nodeVersionText.trim(),
-    browserVersion,
+    curlImpersonateVersion,
     packageLockSha256: sha256(packageLock),
   };
   if (imageReference) {

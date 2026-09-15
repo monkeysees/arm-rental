@@ -5,9 +5,9 @@
 The production recovery point objective (RPO) is 24 hours and the recovery time
 objective (RTO) is one hour. A snapshot contains the apartment database,
 private-delivery history, bot activation and Telegram update offset,
-exchange-rate snapshot, configured channel-delivery history, and the complete
-required Chrome profile. Chrome's transient `Singleton*` lock entries are
-excluded.
+exchange-rate snapshot and configured channel-delivery history. Disposable
+HTTP session cookies are excluded; restore clears them, and the next HTTP
+request starts a fresh session.
 
 Run one backup every day. The command retains the newest seven daily snapshots
 and, when the UTC backup date is Sunday, the newest four weekly snapshots.
@@ -18,13 +18,21 @@ managed volume or remote-mounted filesystem whose loss is independent of the
 application volume and host.
 
 Snapshots contain a standalone mode-`0600` database produced by
-Node's SQLite backup API, the defensive sentinels, a manifest-v2,
+Node's SQLite backup API, the defensive sentinels, a manifest-v3,
 SHA-256 hashes, identity/schema/target/count summaries, the Telegram update
-offset, and the last successful browser verification record. The backup and restore commands emit stable
+offset. The backup and restore commands emit stable
 `backup.*`, `restore.*`, and `storage.low_disk` events for later alert routing.
 The summary includes only bounded logical counts and source-integrity aggregate
 metadata; restore validation preserves the exact aggregate without exposing
 apartment or user data.
+
+### Existing SQLite snapshots
+
+Manifest-v2 snapshots remain restorable: every archived file is checksum
+validated and the database summary must match. Their obsolete browser profile
+is not installed. Existing profile directories in the live data volume are
+left untouched; cleanup is documented in [state maintenance](state-maintenance.md).
+New snapshots use manifest-v3 and contain no browser artifacts.
 
 ### The stranded pre-SQLite recovery point
 
@@ -68,14 +76,14 @@ is no counterpart operation: nothing can take a new protected rollback point.
 Prerequisites:
 
 - the bot's normal production environment is available, including target,
-  owner, channel, browser, data, and backup configuration;
+  owner, channel, HTTP transport, data, and backup configuration;
 - the independent backup filesystem is mounted and writable by the service
   account;
 - the service supervisor can stop and start the singleton cleanly;
 - the local monitor evaluates nonzero results and missing terminal success.
 
-The snapshot includes SQLite state and the browser profile, so the bot **must
-be stopped**. The command also acquires the same singleton lease as the
+The bot **must be stopped** to keep the snapshot consistent with application
+state. The command also acquires the same singleton lease as the
 application and fails with `ERR_SINGLETON_LOCKED` if a live process remains.
 It opens and validates the source, uses the online backup API, then validates
 the destination through a fresh connection; it never copies a live main file
@@ -102,7 +110,7 @@ Expected output includes
 the immutable `daily/<timestamp>` recovery point and, on Sunday UTC, its weekly
 copy.
 
-The recovery CLI performs schema, target, counts, update-offset, profile, and
+The recovery CLI performs schema, target, counts, update-offset, and
 checksum validation before publishing the snapshot. It never deletes the
 newest seven daily or four weekly points. If it fails, the temporary snapshot
 is removed, existing recovery points remain unchanged, and the wrapper still
@@ -126,7 +134,7 @@ It exits `2` and emits `storage.low_disk` when available blocks fall below 20%
 (or the higher configured threshold). At warning:
 
 1. keep the independent backup destination mounted;
-2. identify whether application state, Chrome caches, logs, or another tenant
+2. identify whether application state, logs, or another tenant
    is consuming the filesystem;
 3. move logs through their normal retention mechanism and expand the volume if
    the safe cause is not immediately removable;
@@ -147,8 +155,7 @@ journalctl -u rental-restore-drill.service --since -2h
 ```
 
 Expected validation reports the application ID, schema and database IDs,
-target bindings, per-domain logical counts, Telegram `updateOffset`, browser
-verification timestamp, and hash success. Select the newest valid recovery point from before the incident.
+target bindings, per-domain logical counts, Telegram `updateOffset`, and hash success. Select the newest valid recovery point from before the incident.
 Do not edit a snapshot or restore from a `.snapshot-*.tmp` directory.
 
 An image whose declared schema range does not include the snapshot must not
@@ -164,13 +171,13 @@ Prerequisites:
   target/owner/channel metadata expected by the snapshot;
 - the independently stored snapshot mounted read-only or otherwise protected;
 - the application data filesystem mounted and writable;
-- Chrome at the production version;
+- the packaged curl-impersonate executable;
 - the bot service stopped and a one-hour recovery window opened.
 
 Restore and restore validation require the bot to remain stopped. The command
 acquires the singleton lease, stages and validates every entry, moves current
 managed state aside, installs the staged entries, and validates the result. If
-installation fails, it moves the prior files and profile back before returning
+installation fails, it moves the prior files back before returning
 an error.
 
 Production restore is a break-glass procedure, distinct from the nondestructive
@@ -185,11 +192,10 @@ run either command against the live service or outside the shared lock. If
 restore fails and the application cannot pass preflight, cancel the restart in
 the trap and preserve the automatic restore rollback directory for diagnosis.
 
-Do not start polling after `restore` alone. The structural verification record
-proves which profile was captured; `browser:smoke` is the required live check
-that the restored profile can still load and parse List.am on this host. If it
-reports a challenge, run `npm run browser:verify` interactively while the
-service is still stopped, then repeat `npm run browser:smoke`.
+Do not start polling after `restore` alone. Run the HTTP source smoke check
+using the packaged transport to verify that this host can load and parse
+List.am with a fresh session. A challenge fails the check; investigate the
+source response and network conditions before resuming polling.
 
 Compare the restore output with the selected manifest:
 
@@ -197,7 +203,7 @@ Compare the restore output with the selected manifest:
 - private and channel delivery counts match;
 - Telegram update offset matches;
 - exchange-rate schema contains USD, EUR, and RUB;
-- browser smoke parses the Regular Ads container.
+- HTTP source smoke parses the Regular Ads container.
 
 Only after all checks pass, start the supervised singleton:
 
@@ -238,7 +244,7 @@ If restore fails, keep the service stopped. The command attempts an automatic
 rollback to the pre-restore managed files. Validate those files with startup
 preflight before considering restart. Preserve the failed snapshot and command
 logs for diagnosis. Escalate when checksums fail, schema or target identity is
-incompatible, prior-state rollback reports an error, browser verification
+incompatible, prior-state rollback reports an error, the HTTP source check
 cannot be completed, counts or offset differ from the manifest, the independent
 destination is unavailable near the 24-hour RPO, or the one-hour RTO is at
 risk.

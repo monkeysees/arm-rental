@@ -60,7 +60,7 @@ const readyPreflight = {
     singleton: "passed",
     telegram: "passed",
     channel: "skipped",
-    browser: "passed",
+    source_transport: "passed",
     list_am: "passed",
     exchange_rates: "passed",
   },
@@ -130,10 +130,10 @@ test("runtime failures use stable stage and error codes", () => {
   assert.equal(
     classifyRuntimeFailure(
       Object.assign(new Error("challenge"), {
-        code: "ERR_BROWSER_VERIFICATION_REQUIRED",
+        code: "ERR_LIST_AM_CHALLENGE",
       }),
     ),
-    "browser_challenge",
+    "list_am_challenge",
   );
 });
 
@@ -356,7 +356,7 @@ test("liveness probe accepts only a responsive success status", async (t) => {
 test("readiness summaries distinguish challenge grace, invalid responses, and timeouts", async (t) => {
   let body = {
     ready: false,
-    reasons: ["BROWSER_VERIFICATION_REQUIRED"],
+    reasons: ["LIST_AM_CHALLENGE"],
     alertReasons: [],
     privateAccess: { secret: "must not appear" },
   };
@@ -375,7 +375,7 @@ test("readiness summaries distinguish challenge grace, invalid responses, and ti
   };
   assert.deepEqual(await probeReadinessSummary(options), {
     status: "not_ready",
-    reasons: ["BROWSER_VERIFICATION_REQUIRED"],
+    reasons: ["LIST_AM_CHALLENGE"],
     alertReasons: [],
   });
   const child = spawn(
@@ -518,7 +518,7 @@ test("health transitions emit each production alert once until resolved", () => 
   );
 });
 
-test("a browser challenge alerts only once it survives five crawls in a row", () => {
+test("a List.am challenge alerts only once it survives five crawls in a row", () => {
   const alerts = [];
   const currentTime = new Date("2026-07-25T10:00:00.000Z");
   const monitor = new HealthMonitor({
@@ -532,18 +532,13 @@ test("a browser challenge alerts only once it survives five crawls in a row", ()
   monitor.recordCrawlSuccess();
   const firings = () =>
     alerts.filter(
-      ({ name, status }) => name === "browser_challenge" && status === "firing",
+      ({ name, status }) => name === "list_am_challenge" && status === "firing",
     );
 
-  // Four challenged crawls in a row stay silent, and so does the fetch-level
-  // challenge that the retry answers before the crawl completes.
+  // Four challenged crawls stay silent; a successful next crawl resets them.
   for (let attempt = 0; attempt < 4; attempt += 1) {
-    monitor.recordCrawlFailure(
-      "browser_challenge",
-      "ERR_BROWSER_VERIFICATION_REQUIRED",
-    );
+    monitor.recordCrawlFailure("list_am_challenge", "ERR_LIST_AM_CHALLENGE");
   }
-  monitor.recordBrowserChallenge();
   assert.deepEqual(monitor.readiness().alertReasons, []);
   monitor.recordCrawlSuccess();
   assert.deepEqual(firings(), []);
@@ -551,38 +546,32 @@ test("a browser challenge alerts only once it survives five crawls in a row", ()
   // A challenge seen several times inside one crawl is still one crawl, so the
   // streak counts crawls rather than page fetches.
   for (let attempt = 0; attempt < 4; attempt += 1) {
-    monitor.recordBrowserChallenge();
-    monitor.recordBrowserChallenge();
+    monitor.recordSourceChallenge();
+    monitor.recordSourceChallenge();
     monitor.recordCrawlFailure("list_am", "ERR_LIST_AM");
   }
   assert.deepEqual(firings(), []);
 
-  monitor.recordCrawlFailure(
-    "browser_challenge",
-    "ERR_BROWSER_VERIFICATION_REQUIRED",
-  );
+  monitor.recordCrawlFailure("list_am_challenge", "ERR_LIST_AM_CHALLENGE");
   assert.deepEqual(firings(), [
     {
-      name: "browser_challenge",
+      name: "list_am_challenge",
       status: "firing",
-      reason: "BROWSER_VERIFICATION_REQUIRED",
+      reason: "LIST_AM_CHALLENGE",
       consecutiveCrawls: 5,
     },
   ]);
 
   // The complete crawl clears the streak, so the next challenge starts over.
   monitor.recordCrawlSuccess();
-  monitor.recordCrawlFailure(
-    "browser_challenge",
-    "ERR_BROWSER_VERIFICATION_REQUIRED",
-  );
+  monitor.recordCrawlFailure("list_am_challenge", "ERR_LIST_AM_CHALLENGE");
   assert.equal(firings().length, 1);
   assert.deepEqual(
-    alerts.filter(({ name }) => name === "browser_challenge").at(-1),
+    alerts.filter(({ name }) => name === "list_am_challenge").at(-1),
     {
-      name: "browser_challenge",
+      name: "list_am_challenge",
       status: "resolved",
-      reason: "BROWSER_VERIFICATION_REQUIRED",
+      reason: "LIST_AM_CHALLENGE",
     },
   );
 });
@@ -600,10 +589,8 @@ test("readiness probes do not bypass the runtime challenge alert threshold", () 
   monitor.setMonitoringState({ active: true, channelConfigured: false });
   monitor.recordCrawlSuccess();
 
-  monitor.recordBrowserChallenge();
-  assert.deepEqual(monitor.readiness().reasons, [
-    "BROWSER_VERIFICATION_REQUIRED",
-  ]);
+  monitor.recordSourceChallenge();
+  assert.deepEqual(monitor.readiness().reasons, ["LIST_AM_CHALLENGE"]);
   currentTime = new Date("2026-07-25T10:00:09.000Z");
   monitor.recordCrawlSuccess();
   assert.equal(monitor.readiness().ready, true);
@@ -614,18 +601,18 @@ test("readiness probes do not bypass the runtime challenge alert threshold", () 
   );
 
   for (let attempt = 0; attempt < 4; attempt += 1) {
-    monitor.recordCrawlFailure("browser_challenge");
+    monitor.recordCrawlFailure("list_am_challenge");
     assert.equal(monitor.readiness().ready, false);
   }
   assert.deepEqual(alerts, []);
-  monitor.recordCrawlFailure("browser_challenge");
+  monitor.recordCrawlFailure("list_am_challenge");
   assert.deepEqual(monitor.readiness().alertReasons, [
-    "BROWSER_VERIFICATION_REQUIRED",
+    "LIST_AM_CHALLENGE",
     "CRAWL_FAILURE_THRESHOLD",
   ]);
   assert.deepEqual(
     alerts.find(({ name }) => name === "readiness_failure")?.reasons,
-    ["BROWSER_VERIFICATION_REQUIRED", "CRAWL_FAILURE_THRESHOLD"],
+    ["LIST_AM_CHALLENGE", "CRAWL_FAILURE_THRESHOLD"],
   );
 
   monitor.recordCrawlSuccess();
@@ -637,7 +624,7 @@ test("readiness probes do not bypass the runtime challenge alert threshold", () 
     ["firing", "resolved"],
   );
   alerts.length = 0;
-  monitor.recordBrowserChallenge();
+  monitor.recordSourceChallenge();
   currentTime = new Date("2026-07-25T10:10:09.000Z");
   monitor.readiness();
   assert.deepEqual(alerts, [
@@ -657,29 +644,29 @@ test("a preflight challenge alerts on sight because no crawl can clear it", () =
     onAlert: (alert) => alerts.push(alert),
   });
   monitor.setPreflight({
-    status: "browser_verification_required",
+    status: "source_challenge",
     ready: false,
     checks: {
       ...readyPreflight.checks,
-      browser: "browser_verification_required",
+      list_am: "source_challenge",
     },
     failure: {
-      component: "browser",
-      code: "ERR_BROWSER_VERIFICATION_REQUIRED",
+      component: "list_am",
+      code: "ERR_LIST_AM_CHALLENGE",
     },
   });
 
   assert.deepEqual(
-    alerts.filter(({ name }) => name === "browser_challenge"),
+    alerts.filter(({ name }) => name === "list_am_challenge"),
     [
       {
-        name: "browser_challenge",
+        name: "list_am_challenge",
         status: "firing",
-        reason: "BROWSER_VERIFICATION_REQUIRED",
+        reason: "LIST_AM_CHALLENGE",
       },
     ],
   );
-  assert.equal(monitor.readiness().components.browser.status, "challenge");
+  assert.equal(monitor.readiness().components.list_am.status, "challenge");
 });
 
 test("source integrity fails readiness immediately and resolves on a valid observation", () => {
@@ -754,23 +741,18 @@ test("readiness reports challenges and exchange-rate availability without leakin
 
   assert.deepEqual(monitor.readiness().reasons, ["EXCHANGE_RATES_UNAVAILABLE"]);
   monitor.recordExchangeRateSnapshot(snapshot(currentTime.toISOString()));
-  monitor.recordCrawlFailure(
-    "browser_challenge",
-    "ERR_BROWSER_VERIFICATION_REQUIRED",
-  );
-  assert.ok(
-    monitor.readiness().reasons.includes("BROWSER_VERIFICATION_REQUIRED"),
-  );
-  assert.equal(monitor.readiness().components.browser.status, "challenge");
+  monitor.recordCrawlFailure("list_am_challenge", "ERR_LIST_AM_CHALLENGE");
+  assert.ok(monitor.readiness().reasons.includes("LIST_AM_CHALLENGE"));
+  assert.equal(monitor.readiness().components.list_am.status, "challenge");
 
   monitor.recordCrawlSuccess();
   const recovered = monitor.readiness();
   assert.equal(recovered.ready, true);
-  assert.equal(recovered.components.browser.status, "ok");
+  assert.equal(recovered.components.list_am.status, "ok");
   // Readiness reports the challenge while it lasts, but a single challenged
   // crawl is below the alert threshold and stays off the owner's phone.
   assert.deepEqual(
-    alerts.filter(({ name }) => name === "browser_challenge"),
+    alerts.filter(({ name }) => name === "list_am_challenge"),
     [],
   );
 
@@ -838,4 +820,43 @@ test("loopback server separates responsive liveness from readiness", async (t) =
     JSON.stringify(ready.body),
     /credential|owner|apartment|stack/iu,
   );
+});
+
+test("validated source recovery clears challenge alerts even when delivery fails", () => {
+  const alerts = [];
+  const monitor = new HealthMonitor({
+    version: "1.0.0",
+    now: () => new Date("2026-07-25T10:00:00.000Z"),
+    onAlert: (alert) => alerts.push(alert),
+  });
+  monitor.setPreflight(readyPreflight);
+  for (let attempt = 0; attempt < 5; attempt += 1) {
+    monitor.recordSourceChallenge();
+    monitor.recordCrawlFailure("list_am_challenge", "ERR_LIST_AM_CHALLENGE");
+  }
+  assert.equal(monitor.readiness().components.list_am.status, "challenge");
+  monitor.recordSourceIntegritySuccess();
+  monitor.recordCrawlFailure("telegram", "ERR_TELEGRAM_API");
+  const recovered = monitor.readiness();
+  assert.equal(recovered.components.list_am.status, "ok");
+  assert.equal(recovered.reasons.includes("LIST_AM_CHALLENGE"), false);
+  assert.equal(recovered.components.telegram.status, "failed");
+  assert.deepEqual(
+    alerts
+      .filter(({ name }) => name === "list_am_challenge")
+      .map(({ status }) => status),
+    ["firing", "resolved"],
+  );
+  monitor.recordCrawlFailure("list_am_challenge", "ERR_LIST_AM_CHALLENGE");
+  assert.equal(
+    monitor.readiness().alertReasons.includes("LIST_AM_CHALLENGE"),
+    false,
+  );
+  assert.deepEqual(Object.keys(monitor.readiness().components).sort(), [
+    "cba",
+    "configuration",
+    "list_am",
+    "storage",
+    "telegram",
+  ]);
 });

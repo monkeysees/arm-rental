@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { BrowserVerificationRequiredError } from "../src/browser-fetch.js";
+import { ListAmChallengeError } from "../src/list-am-http.js";
 
 import {
   compatibleBotState,
@@ -1809,7 +1809,7 @@ test("source-integrity failure uses crawl backoff and recovers", async () => {
   assert.ok(retryDelays[0] >= 800 && retryDelays[0] <= 1_000);
 });
 
-test("browser challenges back off into minutes, cap, and reset after a successful crawl", async () => {
+test("source challenges back off into minutes, cap, and reset after a successful crawl", async () => {
   const controller = new AbortController();
   const retries = [];
   const sleeps = [];
@@ -1843,7 +1843,7 @@ test("browser challenges back off into minutes, cap, and reset after a successfu
       crawl: async () => {
         calls += 1;
         if (calls === 12 || calls === 14) return {};
-        throw new BrowserVerificationRequiredError();
+        throw new ListAmChallengeError();
       },
       onError: async () => {},
       onRetry: async ({ delayMs }) => retries.push(delayMs),
@@ -1858,14 +1858,17 @@ test("browser challenges back off into minutes, cap, and reset after a successfu
   ];
   assert.equal(retries.length, ceilings.length);
   retries.forEach((ms, i) => {
-    assert.ok(ms >= ceilings[i] * 0.8 && ms <= ceilings[i]);
+    assert.ok(
+      ms >= Math.max(60_000, ceilings[i] * 0.8) &&
+        ms <= Math.max(60_000, ceilings[i]),
+    );
     assert.equal(sleeps[i < 11 ? i : i + 1], ms);
   });
 });
 
-test("every crawl attempt closes its browsing session", async () => {
+test("List.am rate limits honor Retry-After beyond the normal backoff cap", async () => {
   const controller = new AbortController();
-  const settled = [];
+  const waits = [];
   let crawlCalls = 0;
   const state = {
     version: 3,
@@ -1899,34 +1902,28 @@ test("every crawl attempt closes its browsing session", async () => {
       api,
       signal: controller.signal,
       telegramState: state,
-      sleep: async (_milliseconds, _value, { signal }) =>
-        signal.throwIfAborted(),
+      sleep: async (milliseconds, _value, { signal }) => {
+        signal.throwIfAborted();
+        waits.push(milliseconds);
+      },
       crawl: async () => {
         crawlCalls += 1;
-        // A failed attempt must release its browser too: leaving one alive
-        // over the retry delay is what the per-page teardown used to prevent.
         if (crawlCalls === 1) {
-          throw new ListAmSourceIntegrityError(
-            ListAmIntegrityReason.IDENTITY_REJECTION,
-            { page: 1 },
-          );
+          throw Object.assign(new Error("Rate limited"), {
+            httpStatus: 429,
+            retryAfterMs: 180_000,
+          });
         }
         return {};
       },
       onError: async () => {},
       onRetry: async () => {},
-      onCrawlSettled: async ({ crawlId }) => settled.push(crawlId),
       onResult: () => controller.abort(),
     },
   );
 
   assert.equal(crawlCalls, 2);
-  assert.equal(settled.length, 2, "the failed attempt released its browser");
-  assert.equal(
-    new Set(settled).size,
-    2,
-    "each attempt is reported under its own crawl",
-  );
+  assert.deepEqual(waits, [180_000]);
 });
 
 test("exchange rates refresh without private monitoring activation", async () => {

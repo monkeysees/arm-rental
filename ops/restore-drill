@@ -131,8 +131,7 @@ docker create \
   --env NODE_ENV=production \
   --env DATA_DIRECTORY=/app/.data \
   --env BACKUP_DIRECTORY=/app-backups \
-  --env BROWSER_HEADLESS=true \
-  --env CHROME_EXECUTABLE_PATH=/usr/bin/chromium \
+  --env CURL_IMPERSONATE_PATH=/usr/local/bin/curl-impersonate \
   --env HEALTH_HOST=127.0.0.1 \
   --env HEALTH_PORT=8787 \
   --env TELEGRAM_BOT_TOKEN=restore-drill-disabled \

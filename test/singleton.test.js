@@ -94,7 +94,7 @@ test("a second process fails before Telegram polling against the same data direc
   );
 });
 
-test("SIGTERM flushes delivery state, closes the Chrome profile, and releases the lease", async (testContext) => {
+test("SIGTERM flushes delivery state, closes the HTTP transport, and releases the lease", async (testContext) => {
   const dataDirectory = await temporaryDataDirectory(testContext);
   const first = startService(dataDirectory);
   stopAfterTest(testContext, first);
@@ -116,9 +116,10 @@ test("SIGTERM flushes delivery state, closes the Chrome profile, and releases th
     access(path.join(dataDirectory, ".singleton.sock")),
     /ENOENT/u,
   );
-  await assert.rejects(
-    access(path.join(dataDirectory, "chrome-profile", "SingletonLock")),
-    /ENOENT/u,
+  assert.match(firstExit.stdout, /SOURCE_CLOSED/u);
+  assert.equal(
+    await readFile(path.join(dataDirectory, "list-am-cookies.txt"), "utf8"),
+    "session-cookie",
   );
 
   const restarted = startService(dataDirectory);

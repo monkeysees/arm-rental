@@ -2,27 +2,23 @@
 
 The production service does not automatically delete or archive any
 apartment or delivery record. State growth is observable before retention is
-introduced, and the browser cache is bounded independently of browser identity
-data.
+introduced. HTTP session cookies are disposable and do not contain delivery history.
 
 ## Weekly report
 
 The maintenance CLI acquires the same singleton lease as the service. The
 systemd wrapper stops the bot before invoking it. A live bot makes the command
-fail with `ERR_SINGLETON_LOCKED` before it reads state or changes the Chrome
-profile. Take a successful backup first.
+fail with `ERR_SINGLETON_LOCKED` before it reads state. Take a successful backup first.
 
 The command opens the installed database, refuses a data directory that holds
 none, validates the database in full, and emits one `maintenance.report`
 JSON log record containing:
 
 - combined SQLite database/WAL bytes, schema version, update offset, and
-  per-domain logical counts, plus the browser verification record;
-- Chrome profile bytes before and after cache cleanup, removed cache bytes, and
-  the exact cache paths cleaned;
+  per-domain logical counts;
+- HTTP session cookie bytes, without exposing cookie content;
 - total managed bytes and byte/percentage growth from the prior successful
-  sample (the verification record is listed as state but not double-counted
-  inside the profile);
+  sample;
 - filesystem free/total bytes and the configured free-space threshold.
 
 The SQLite report keeps physical size separate from logical counts. Apartment,
@@ -31,7 +27,7 @@ counts never expose IDs or payloads.
 
 The prior aggregate sample is stored as
 `DATA_DIRECTORY/.maintenance-history.json`; it contains no apartment,
-Telegram, or browser content and is explicitly excluded from state-size
+Telegram, or cookie content and is explicitly excluded from state-size
 threshold inputs and managed-growth totals. The first run reports growth as
 `null`.
 
@@ -78,19 +74,22 @@ does not skip restart/readiness cleanup. Expected output is one
 state-size events, and exactly one `maintenance.completed` or
 `maintenance.failed` terminal record.
 
-## Browser cache boundary
+## HTTP session storage and former profiles
 
-Every Chrome launch passes `--disk-cache-size=BROWSER_CACHE_MAX_BYTES`
-(64 MiB by default). Weekly maintenance additionally removes only known,
-reconstructible `Cache`, `Code Cache`, `GPUCache`, Dawn, Graphite, and shader
-cache directories while the service lease is held. Cache paths must be real
-directories; an unexpected file or symbolic link fails closed.
+`LIST_AM_COOKIE_FILE` is a private mode-`0600` file inside `DATA_DIRECTORY`.
+Maintenance reports its size but does not read or clear its contents. Missing
+cookies are normal: the HTTP client creates a fresh session on the next request.
+Cookies are excluded from backups and cleared during restore. Request scratch
+directories named `.list-am-http-*` are also excluded from snapshots and
+maintenance totals. A forced process exit can leave one behind; inspect and
+remove only these known scratch directories while the service is stopped.
 
-The maintenance command never removes `Cookies`, `Local Storage`, `IndexedDB`,
-Service Worker storage, login data, preferences, or
-`.rental-apartments-verification.json`. After maintenance, the systemd
-wrapper's restart and readiness check exercises the retained profile. Follow
-the browser-operations runbook if readiness reports a browser challenge.
+Chromium is no longer installed or launched. Existing `chrome-profile`
+directories are not managed or deleted by this release. After a successful
+HTTP crawl and after giving up rollback to browser-based releases, an operator
+may remove the exact former profile directory with the service stopped and a
+current backup available. Inspect the path first; never remove unknown data or
+follow a symbolic link. Retained older snapshots may still contain profiles.
 
 ## Retention and future pruning policy
 
@@ -119,7 +118,7 @@ may apply these rules only after a separate reviewed schema migration:
   no-redelivery tombstone only after the apartment satisfies the inactive
   archive rule and the product explicitly gives up future edits.
 - Telegram update offsets, bot activation/filter state, the current exchange
-  rate snapshot, browser verification state, and browser identity storage are
+  rate snapshot and HTTP session cookies are
   not historical apartment records and are never covered by apartment
   retention.
 
@@ -170,8 +169,7 @@ restored and tested readiness before it returns that status.
 ### Recovery, expected output, and escalation
 
 For low disk, preserve the independent backup mount, rotate only externally
-collected logs through their approved retention, remove only the reconstructible
-browser caches enumerated by maintenance, and expand/migrate the data volume.
+collected logs through their approved retention, and expand/migrate the data volume.
 Run the retention-aware image cleanup dry run and service before considering
 volume expansion; it removes only verified deployment images outside the
 current-plus-two rollback set:
@@ -184,16 +182,16 @@ sudo rentalctl status
 
 Do not use a generic Docker prune command.
 Do not delete the database, delivery acknowledgements, sentinels, cookies,
-browser identity, snapshots within retention, or unknown files. For 256 MiB
+snapshots within retention, or unknown files. For 256 MiB
 state growth, record weekly trend and plan capacity. At 512 MiB, sustained
 transaction p95 above 500 ms, recurring busy failures, or repeated incomplete
 checkpoints, open a capacity/performance investigation and avoid ad hoc pruning.
 
 Expected recovery is free space safely above 20%, resolved alert events, ready
-restart, browser identity retained, and one successful crawl. Restore the
+restart and one successful crawl. Restore the
 verified pre-maintenance snapshot if an approved maintenance operation damages
 managed state. Escalate if free space cannot remain above 20% through the next
 crawl/backup, the backup destination is also constrained, growth is abrupt or
-unexplained, state validation/write latency fails, cache paths are symlinks or
+unexplained, state validation/write latency fails, managed paths are symlinks or
 unexpected types, the 512 MiB threshold is reached, or the service cannot return
 to ready.

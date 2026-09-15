@@ -80,7 +80,7 @@ probe_readiness_json() {
       and (.reasons | codes) and (.alertReasons | codes)
       and (.status == (if (.reasons | length) == 0 then "ready" else "not_ready" end))
       and (.reasons as $reasons | all(.alertReasons[]; . as $reason | $reasons | index($reason) != null))
-      and (.alertReasons as $alerts | all(.reasons[]; . == "BROWSER_VERIFICATION_REQUIRED" or (. as $reason | $alerts | index($reason) != null)))
+      and (.alertReasons as $alerts | all(.reasons[]; . == "LIST_AM_CHALLENGE" or (. as $reason | $alerts | index($reason) != null)))
     ' <<<"$candidate" >/dev/null 2>&1; then
       summary="$("$JQ_BIN" -c '{status, reasons, alertReasons}' <<<"$candidate")"
       status="$("$JQ_BIN" -r .status <<<"$summary")"
@@ -583,7 +583,6 @@ write_metrics_snapshot() {
             (if $maintenance == null then null else {
               sampledAt: ($maintenance.sampledAt // null),
               stateFiles: ($maintenance.stateFiles // []),
-              browserProfileBytes: ($maintenance.browserProfile.bytes // null),
               managedStorageBytes: ($maintenance.managedStorage.bytes // null)
             } end)
         }

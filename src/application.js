@@ -1,3 +1,4 @@
+import { setTimeout as delay } from "node:timers/promises";
 import { acquireSingletonLock } from "./singleton-lock.js";
 import { openApplicationState } from "./application-state.js";
 import { createEventLoopDelayMonitor } from "./event-loop-delay.js";
@@ -5,69 +6,17 @@ import { validateStartupConfig } from "./config.js";
 import { runStartupPreflight, startupFailureResult } from "./preflight.js";
 import { classifyRuntimeFailure } from "./health.js";
 import {
-  ExponentialBackoff,
-  isExpectedExternalFailure,
-  retryOperation,
-} from "./retry.js";
-import {
   LIST_AM_SOURCE_INTEGRITY_ERROR,
   sourceIntegrityFailureSummary,
 } from "./source-integrity.js";
-
-// The renderer stalled rather than refused. These are load symptoms, so the
-// browser they came from is already beyond saving and the host needs a moment
-// before the next one launches.
-const BROWSER_STALL_ERROR_NAMES = new Set([
-  "BrowserContentTimeoutError",
-  "ConnectionClosedError",
-  "ProtocolError",
-  "TargetCloseError",
-]);
-
-// Every stall, plus the challenge that a fresh browser can answer at once.
-const RETRYABLE_BROWSER_ERROR_NAMES = new Set([
-  ...BROWSER_STALL_ERROR_NAMES,
-  "BrowserVerificationRequiredError",
-]);
-
-// A stalled attempt is now bounded rather than open-ended, so backing off
-// costs a fraction of what waiting for one stall used to, and the cap keeps
-// three attempts well inside a single crawl.
-const BROWSER_RETRY_MAX_DELAY_MS = 8_000;
-
-function isRetryableRuntimeBrowserFailure(error) {
-  if (error?.terminal) return false;
-  return (
-    error?.code === "ERR_BROWSER_VERIFICATION_REQUIRED" ||
-    RETRYABLE_BROWSER_ERROR_NAMES.has(error?.name) ||
-    isExpectedExternalFailure(error)
-  );
-}
-
-function runtimeBrowserRetryReason(error) {
-  if (
-    error?.code === "ERR_BROWSER_VERIFICATION_REQUIRED" ||
-    error?.name === "BrowserVerificationRequiredError"
-  ) {
-    return "BROWSER_VERIFICATION_REQUIRED";
-  }
-  if (error?.name === "BrowserContentTimeoutError") {
-    return "BROWSER_CONTENT_TIMEOUT";
-  }
-  if (error?.name === "ProtocolError") return "BROWSER_PROTOCOL_FAILURE";
-  if (error?.name === "TargetCloseError") return "BROWSER_TARGET_CLOSED";
-  if (error?.name === "ConnectionClosedError") {
-    return "BROWSER_CONNECTION_CLOSED";
-  }
-  return "BROWSER_EXTERNAL_FAILURE";
-}
 
 export async function runApplication({
   config,
   logger,
   signalEmitter = process,
+  sleep = delay,
   acquireLock = acquireSingletonLock,
-  browserFetcherFactory,
+  sourceFetcherFactory,
   exchangeRateServiceFactory,
   runBot,
   preflight = runStartupPreflight,
@@ -84,7 +33,7 @@ export async function runApplication({
   const controller = new AbortController();
   let receivedSignal;
   const signalHandlers = new Map();
-  let browserFetcher;
+  let sourceFetcher;
   let applicationState;
   const recordSourceIntegrityChecked = ({ pages = [], ...context }) => {
     healthMonitor?.recordSourceIntegritySuccess();
@@ -97,14 +46,7 @@ export async function runApplication({
     }
   };
 
-  // Started before anything long-running so the record covers preflight and
-  // every crawl after it. A browser protocol timeout says only that a CDP call
-  // went unanswered; whether this process was in a position to read the answer
-  // is a separate question, and this is what answers it.
-  // Emitted at info: these records are read as a series against the crawl
-  // records sharing their timestamps, and the warning channel collapses
-  // repeats of one signature for minutes at a time, which is precisely the
-  // series a stall would erase.
+  // Observe event-loop stalls across startup, crawling, and delivery.
   const eventLoopDelay = eventLoopDelayMonitorFactory({
     onMetric: ({ name: event, ...metric }) =>
       logger.info("Event loop delayed", { event, ...metric }),
@@ -135,57 +77,21 @@ export async function runApplication({
       onMetric: ({ name: event, ...metric }) =>
         logger.info("State transaction metric", { event, ...metric }),
     });
-    browserFetcher = browserFetcherFactory(config, {
+    sourceFetcher = sourceFetcherFactory(config, {
       signal: controller.signal,
-      onStatus: (message) => logger.info(message),
       onEvent: (event) => {
-        if (event.name === "browser.challenge") {
-          healthMonitor?.recordBrowserChallenge();
-          logger.warn("Browser challenge detected", {
-            eventName: event.name,
-            component: event.component,
+        if (event.name === "list_am.challenge") {
+          healthMonitor?.recordSourceChallenge();
+          logger.warn("List.am challenge detected", {
+            event: event.name,
+            component: "list_am",
             code: event.code,
-            remediationCommand: event.remediationCommand,
-            // Which page, and whether the edge said so or a missing listing
-            // container inferred it. `rentalctl logs` projects neither, by
-            // design; the raw journal recipe in the runbook shows both. Absent
-            // fields are omitted rather than logged as null: a navigation that
-            // returned no response has no status to report.
-            ...(event.url === undefined ? {} : { url: event.url }),
-            ...(event.httpStatus === undefined
-              ? {}
-              : { httpStatus: event.httpStatus }),
-            ...(event.challengeSource === undefined
-              ? {}
-              : { challengeSource: event.challengeSource }),
-          });
-          return;
-        }
-        // A forced exit loses whatever Chrome had not written, the List.am
-        // clearance included, so it belongs next to the challenges it causes.
-        if (event.name === "browser.forced_exit") {
-          logger.warn("Chrome did not exit on request", {
-            eventName: event.name,
-            component: event.component,
-            code: event.code,
-            gracefulTimeoutMs: event.gracefulTimeoutMs,
+            httpStatus: event.httpStatus,
+            challengeSource: event.challengeSource,
           });
         }
       },
     });
-    // Releasing the browser is cleanup, never a reason to fail the work that
-    // was using it, so this absorbs its own failures and reports them.
-    const endBrowserSession = async () => {
-      try {
-        await browserFetcher.endSession();
-      } catch (error) {
-        logger.warn("Browser session release failed", {
-          event: "browser.session.release_failed",
-          component: "browser",
-          reason: error.message,
-        });
-      }
-    };
     const { stateAccess } = applicationState;
     const exchangeRateService = exchangeRateServiceFactory(config, {
       stateStore: stateAccess.exchangeRates,
@@ -213,7 +119,7 @@ export async function runApplication({
     const preflightResult = await preflight(config, {
       storageValidated: true,
       singletonLock,
-      browserFetcher,
+      sourceFetcher,
       exchangeRateService,
       signal: controller.signal,
       onRetry: (event) =>
@@ -225,9 +131,6 @@ export async function runApplication({
         recordSourceIntegrityChecked({ ...observation, phase: "preflight" }),
       stateAccess,
     });
-    // Preflight is a page run of its own, and the first crawl is a poll
-    // interval away. Release its browser rather than idling one until then.
-    await endBrowserSession();
     logger.info("Startup preflight completed", {
       preflight: preflightResult,
     });
@@ -240,42 +143,11 @@ export async function runApplication({
     logger.info(
       "Telegram bot is running; send /start in a private chat to configure monitoring",
     );
-    // A stalled renderer is the dominant browser failure in production and it
-    // never recovers in place, so the page is only ever won back by abandoning
-    // the attempt and launching a fresh Chrome. Now that each attempt carries
-    // its own budget, a third one costs less than a single stall used to, and
-    // it is the attempt that most often returns the page.
-    const fetchRuntimePage = (url) => {
-      // Short page retries precede the longer backoff across failed crawls.
-      const pageBackoff = new ExponentialBackoff({
-        baseDelayMs: config.externalRetryBaseMs || 1_000,
-        maxDelayMs: Math.min(
-          BROWSER_RETRY_MAX_DELAY_MS,
-          config.externalRetryMaxMs || BROWSER_RETRY_MAX_DELAY_MS,
-        ),
-      });
-      return retryOperation(() => browserFetcher.fetch(url), {
-        maxAttempts: 3,
-        shouldRetry: isRetryableRuntimeBrowserFailure,
-        backoff: pageBackoff,
-        signal: controller.signal,
-        onRetry: ({ attempt, delayMs, error }) =>
-          logger.warn("Browser page retry scheduled", {
-            event: "retry.scheduled",
-            component: "browser",
-            operation: "fetch_page",
-            attempt,
-            delayMs,
-            reason: runtimeBrowserRetryReason(error),
-          }),
-      });
-    };
     await runBot(config, {
       signal: controller.signal,
       stateAccess,
       exchangeRateService,
-      pageFetch: fetchRuntimePage,
-      onCrawlSettled: endBrowserSession,
+      pageFetch: (url) => sourceFetcher.fetch(url),
       onResult: (result) => {
         healthMonitor?.recordCrawlSuccess();
         logger.info("Apartment crawl completed", {
@@ -324,9 +196,9 @@ export async function runApplication({
           healthMonitor?.recordCrawlFailure(component, failureCode);
         } else {
           healthMonitor?.recordComponentFailure(
-            component === "browser_challenge" ? "browser" : component,
-            component === "browser_challenge"
-              ? "ERR_BROWSER_VERIFICATION_REQUIRED"
+            component === "list_am_challenge" ? "list_am" : component,
+            component === "list_am_challenge"
+              ? "ERR_LIST_AM_CHALLENGE"
               : failureCode,
           );
         }
@@ -458,7 +330,7 @@ export async function runApplication({
     if (!preflightLogged) {
       const preflightResult =
         error.preflightResult || startupFailureResult(startupComponent, error);
-      if (preflightResult.status === "browser_verification_required") {
+      if (preflightResult.status === "source_challenge") {
         logger.warn?.("Startup preflight completed", {
           preflight: preflightResult,
         });
@@ -475,6 +347,32 @@ export async function runApplication({
           ...sourceIntegrityFailureSummary(error),
         });
       }
+      if (
+        !preflightResult.terminal &&
+        preflightResult.failure?.component === "list_am" &&
+        !controller.signal.aborted
+      ) {
+        const retryAfterMs =
+          Number.isSafeInteger(error.retryAfterMs) && error.retryAfterMs >= 0
+            ? error.retryAfterMs
+            : 0;
+        const delayMs = Math.max(config.pollIntervalMs || 60_000, retryAfterMs);
+        logger.warn?.("Startup source retry cooling down", {
+          event: "startup.cooldown",
+          component: "list_am",
+          delayMs,
+        });
+        try {
+          // Chunk long Retry-After dates to avoid Node's timer overflow.
+          for (let remaining = delayMs; remaining > 0;) {
+            const interval = Math.min(remaining, 2_147_483_647);
+            await sleep(interval, undefined, { signal: controller.signal });
+            remaining -= interval;
+          }
+        } catch (sleepError) {
+          if (!controller.signal.aborted) throw sleepError;
+        }
+      }
     }
     throw error;
   } finally {
@@ -487,7 +385,7 @@ export async function runApplication({
     }
 
     try {
-      await browserFetcher?.close();
+      await sourceFetcher?.close();
     } finally {
       try {
         applicationState?.close();

@@ -82,8 +82,8 @@ test("configuration uses the requested target and initial crawl defaults", () =>
   assert.equal(config.healthPort, 8_787);
   assert.equal(config.externalRetryBaseMs, 1_000);
   assert.equal(config.externalRetryMaxMs, 60_000);
-  assert.equal(config.browserCacheMaxBytes, 64 * 1024 * 1024);
-  assert.equal(config.browserLoadImages, true);
+  assert.equal(config.curlImpersonatePath, "/usr/local/bin/curl-impersonate");
+  assert.equal(config.listAmCookieFile, "/app/.data/list-am-cookies.txt");
 });
 
 test("runtime and health helpers share catalog defaults and strict parsing", () => {
@@ -140,8 +140,7 @@ test("configuration catalog is complete, unique, and safe to inspect offline", (
   }
 
   assert.deepEqual(productionExplicitConfigurationNames().sort(), [
-    "BROWSER_HEADLESS",
-    "CHROME_EXECUTABLE_PATH",
+    "CURL_IMPERSONATE_PATH",
     "DATA_DIRECTORY",
     "TELEGRAM_BOT_TOKEN",
     "TELEGRAM_OWNER_ID",
@@ -265,7 +264,7 @@ test("startup revalidates access policy before touching persistent storage", asy
     /TELEGRAM_ALLOWED_USER_IDS/u,
   );
   assert.equal(permissions(await lstat(temporaryDirectory)), 0o755);
-  await assert.rejects(lstat(config.browserProfileDir), { code: "ENOENT" });
+  await assert.rejects(lstat(config.listAmCookieFile), { code: "ENOENT" });
 });
 
 test("configuration relocates default persistent files together", () => {
@@ -288,8 +287,8 @@ test("configuration relocates default persistent files together", () => {
     "/var/lib/rental-apartments/telegram-deliveries.json",
   );
   assert.equal(
-    config.browserProfileDir,
-    "/var/lib/rental-apartments/chrome-profile",
+    config.listAmCookieFile,
+    "/var/lib/rental-apartments/list-am-cookies.txt",
   );
 });
 
@@ -360,8 +359,8 @@ test("configuration rejects unsupported modes, unsafe paths, and collisions", ()
         {
           ...requiredEnvironment,
           DATA_DIRECTORY: "/app/data",
-          BROWSER_PROFILE_DIR: "/app/data/profile",
-          APARTMENTS_STATE_FILE: "/app/data/profile/apartments.json",
+          LIST_AM_COOKIE_FILE: "/app/data/session",
+          APARTMENTS_STATE_FILE: "/app/data/session/apartments.json",
         },
         "/app",
       ),
@@ -426,36 +425,27 @@ test("configuration rejects unsupported modes, unsafe paths, and collisions", ()
   );
 });
 
-test("production requires explicit persistent browser configuration", () => {
+test("production requires explicit HTTP transport configuration", () => {
   const production = {
     ...requiredEnvironment,
     NODE_ENV: "production",
     DATA_DIRECTORY: "/app/.data",
-    BROWSER_HEADLESS: "true",
-    CHROME_EXECUTABLE_PATH: "/opt/chrome/chrome",
+    CURL_IMPERSONATE_PATH: "/usr/local/bin/curl-impersonate",
   };
 
   assert.equal(getConfig(production, "/app").environmentName, "production");
-  for (const variable of [
-    "DATA_DIRECTORY",
-    "BROWSER_HEADLESS",
-    "CHROME_EXECUTABLE_PATH",
-  ]) {
+  for (const variable of ["DATA_DIRECTORY", "CURL_IMPERSONATE_PATH"]) {
     const incomplete = { ...production };
     delete incomplete[variable];
     assert.throws(() => getConfig(incomplete, "/app"), variable);
   }
   assert.throws(
-    () => getConfig({ ...production, BROWSER_HEADLESS: "false" }, "/app"),
-    /BROWSER_HEADLESS must be true in production/u,
-  );
-  assert.throws(
     () =>
       getConfig(
-        { ...production, CHROME_EXECUTABLE_PATH: "google-chrome" },
+        { ...production, CURL_IMPERSONATE_PATH: "curl-impersonate" },
         "/app",
       ),
-    /CHROME_EXECUTABLE_PATH must be absolute/u,
+    /CURL_IMPERSONATE_PATH must be absolute/u,
   );
 });
 
@@ -467,11 +457,12 @@ test("startup secures and proves the persistent data tree before use", async (t)
   await chmod(temporaryDirectory, 0o755);
   const config = stateConfig(temporaryDirectory);
   await writeFile(config.telegramStateFile, "{}\n", { mode: 0o644 });
+  await writeFile(config.listAmCookieFile, "", { mode: 0o644 });
 
   await validateStartupConfig(config);
 
   assert.equal(permissions(await lstat(temporaryDirectory)), 0o700);
-  assert.equal(permissions(await lstat(config.browserProfileDir)), 0o700);
+  assert.equal(permissions(await lstat(config.listAmCookieFile)), 0o600);
   assert.equal(permissions(await lstat(config.telegramStateFile)), 0o600);
   assert.equal(
     (await readdir(temporaryDirectory)).some((entry) =>
@@ -511,5 +502,32 @@ test("startup rejects a persistent path redirected through a symlink", async (t)
   await assert.rejects(
     validateStartupConfig(config),
     /not a safe directory|resolves outside DATA_DIRECTORY/u,
+  );
+});
+
+test("HTTP cookies cannot overwrite the database or follow a symbolic link", async (t) => {
+  for (const name of [
+    "state.sqlite3",
+    "state.sqlite3-wal",
+    "state.sqlite3-shm",
+  ]) {
+    assert.throws(
+      () =>
+        getConfig({
+          ...requiredEnvironment,
+          DATA_DIRECTORY: "/app/data",
+          LIST_AM_COOKIE_FILE: `/app/data/${name}`,
+        }),
+      /reserved runtime path/u,
+    );
+  }
+  const directory = await mkdtemp(path.join(os.tmpdir(), "rental-cookies-"));
+  t.after(() => rm(directory, { recursive: true, force: true }));
+  const config = stateConfig(directory);
+  await writeFile(path.join(directory, "private.txt"), "untouched");
+  await symlink(path.join(directory, "private.txt"), config.listAmCookieFile);
+  await assert.rejects(
+    validateStartupConfig(config),
+    /not a safe regular file/u,
   );
 });

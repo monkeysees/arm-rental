@@ -107,12 +107,15 @@ test("domain stores translate their callers into bounded row writes", async (t) 
   });
   await decisions.readmitFiltered("42", ["retry"]);
   await decisions.acknowledge("42", "fresh", TIME);
-  assert.deepEqual(repositories.privateDeliveries.loadRecipient("42"), {
-    initialSelectionApplied: true,
-    notified: { fresh: TIME },
-    skipped: { old: TIME },
-    filtered: {},
-  });
+  assert.deepEqual(
+    repositories.privateDeliveries.loadAllDecisions().recipients[42],
+    {
+      initialSelectionApplied: true,
+      notified: { fresh: TIME },
+      skipped: { old: TIME },
+      filtered: {},
+    },
+  );
   assert.deepEqual(await access.privateDeliveries.load(), {
     version: 2,
     type: "telegram-deliveries",
@@ -151,7 +154,10 @@ test("domain stores translate their callers into bounded row writes", async (t) 
     userDeleted: 1,
     recipientDeleted: 1,
   });
-  assert.equal(repositories.privateDeliveries.loadRecipient("42"), undefined);
+  assert.equal(
+    repositories.privateDeliveries.loadRecipient("42", []),
+    undefined,
+  );
   assert.equal(repositories.telegram.load().users[42], undefined);
   assert.deepEqual(await access.deleteUserData(42), {
     userDeleted: 0,
@@ -312,7 +318,8 @@ test("a private delivery write never reads a peer recipient's decisions", async 
     false,
   );
   assert.equal(
-    Object.keys(privateDeliveries.loadRecipient("99").skipped).length,
+    Object.keys(privateDeliveries.loadAllDecisions().recipients[99].skipped)
+      .length,
     500,
   );
 });
@@ -353,11 +360,114 @@ test("interleaved recipients keep each other's acknowledgements", async (t) => {
   for (const recipientId of ["42", "99"]) {
     assert.deepEqual(
       Object.keys(
-        repositories.privateDeliveries.loadRecipient(recipientId).notified,
+        repositories.privateDeliveries.loadAllDecisions().recipients[
+          recipientId
+        ].notified,
       ),
       ["1", "2", "3"],
     );
   }
+});
+
+test("a crawl never materializes decisions for absent listings", async (t) => {
+  const { repositories, stateAccess, crawl } = await deliveryCrawl(t);
+  repositories.privateDeliveries.addDecisions("42", "filtered", {
+    absent: TIME,
+  });
+  const loadRecipient = stateAccess.privateDeliveries.loadRecipient;
+  stateAccess.privateDeliveries.loadRecipient = async (...args) => {
+    const recipient = await loadRecipient(...args);
+    assert.deepEqual(Object.keys(recipient.filtered), []);
+    return recipient;
+  };
+  const delivered = [];
+  await crawl({
+    fetchPage: async () => new Response(listPage(["1", 110_000])),
+    privateDeliveries: [
+      {
+        recipientId: "42",
+        deliverApartment: async ({ itemId }) => delivered.push(itemId),
+      },
+    ],
+  });
+  assert.deepEqual(delivered, ["1"]);
+  assert.equal(
+    repositories.privateDeliveries.loadAllDecisions().recipients[42].filtered
+      .absent,
+    TIME,
+  );
+});
+
+test("returning listings recover retained decisions before source updates release them", async (t) => {
+  const { repositories, crawl } = await deliveryCrawl(t);
+  const historyAt = "2026-08-01T00:00:00.000Z";
+  const delivered = { notified: [], skipped: [], filtered: [] };
+  const announcements = [];
+  const targets = Object.keys(delivered).map((recipientId) => ({
+    recipientId,
+    deliverApartment: async ({ itemId }) => delivered[recipientId].push(itemId),
+    announceDelivery: async (batch) => announcements.push([recipientId, batch]),
+  }));
+  for (const status of Object.keys(delivered)) {
+    repositories.privateDeliveries.initializeSelection(status, {});
+    if (status === "notified")
+      repositories.privateDeliveries.acknowledge(status, "2", historyAt);
+    else
+      repositories.privateDeliveries.addDecisions(status, status, {
+        2: historyAt,
+      });
+  }
+  await crawl({
+    fetchPage: async () => new Response(listPage(["1", 110_000])),
+    privateDeliveries: targets,
+  });
+  for (const status of Object.keys(delivered)) {
+    assert.equal(
+      repositories.privateDeliveries.loadAllDecisions().recipients[status][
+        status
+      ][2],
+      historyAt,
+    );
+  }
+  await crawl({
+    fetchPage: async () =>
+      new Response(listPage(["2", 120_000], ["1", 110_000])),
+    privateDeliveries: targets,
+  });
+  assert.deepEqual(delivered, {
+    notified: ["1"],
+    skipped: ["1"],
+    filtered: ["1"],
+  });
+  await crawl({
+    fetchPage: async () =>
+      new Response(listPage(["2", 130_000], ["1", 110_000])),
+    privateDeliveries: targets,
+    now: () => new Date("2026-08-18T10:12:00.000Z"),
+  });
+  assert.deepEqual(delivered, {
+    notified: ["1", "2"],
+    skipped: ["1"],
+    filtered: ["1", "2"],
+  });
+  assert.deepEqual(announcements, []);
+  // Expired stored listings still carry decisions during classification.
+  const result = await crawl({
+    fetchPage: async () =>
+      new Response(listPage(["2", 130_000], ["1", 110_000])),
+    privateDeliveries: targets.map((target) => ({
+      ...target,
+      filters: { ...emptyFilters(), price: { min: null, max: 1 } },
+    })),
+    now: () => new Date("2026-08-21T10:12:00.000Z"),
+  });
+  assert.equal(result.filteredCount, 0);
+  assert.equal(result.notifiedCount, 0);
+  assert.equal(
+    repositories.privateDeliveries.loadAllDecisions().recipients.skipped
+      .skipped[2],
+    historyAt,
+  );
 });
 
 test("re-admission and later classification stay one bounded write each", async (t) => {
@@ -390,12 +500,15 @@ test("re-admission and later classification stay one bounded write each", async 
   assert.deepEqual(delivered, ["51"]);
   assert.equal(result.readmittedCount, 1);
   assert.equal(result.filteredCount, 1);
-  assert.deepEqual(repositories.privateDeliveries.loadRecipient("42"), {
-    initialSelectionApplied: true,
-    notified: { 51: "2026-08-18T10:12:00.000Z" },
-    skipped: {},
-    filtered: { 52: "2026-08-18T10:12:00.000Z" },
-  });
+  assert.deepEqual(
+    repositories.privateDeliveries.loadAllDecisions().recipients[42],
+    {
+      initialSelectionApplied: true,
+      notified: { 51: "2026-08-18T10:12:00.000Z" },
+      skipped: {},
+      filtered: { 52: "2026-08-18T10:12:00.000Z" },
+    },
+  );
   assert.deepEqual(
     metrics
       .filter(

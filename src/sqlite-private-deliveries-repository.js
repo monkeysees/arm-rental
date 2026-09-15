@@ -62,11 +62,12 @@ export class SqlitePrivateDeliveriesRepository {
     this.selectRecipient = database.prepare(
       "SELECT initial_selection_applied FROM private_recipients WHERE recipient_id = ?",
     );
-    // The (recipient_id, item_id) primary key indexes this lookup and supplies
-    // the ordering, so one recipient is read without touching a peer's rows.
+    // Probe the composite primary key only for listings the caller considers.
+    // json_each keeps the statement fixed without SQLite's bind-variable limit.
     this.selectRecipientDecisions =
       database.prepare(`SELECT item_id, status, decided_at
-      FROM private_delivery_decisions WHERE recipient_id = ? ORDER BY item_id`);
+      FROM private_delivery_decisions WHERE recipient_id = ?
+      AND item_id IN (SELECT value FROM json_each(?)) ORDER BY item_id`);
     this.upsertRecipient =
       database.prepare(`INSERT INTO private_recipients(recipient_id, initial_selection_applied)
       VALUES (?, ?) ON CONFLICT(recipient_id) DO UPDATE SET initial_selection_applied = excluded.initial_selection_applied`);
@@ -143,8 +144,12 @@ export class SqlitePrivateDeliveriesRepository {
     return Number(this.countInvalidDecisions.get().invalid) === 0;
   }
 
-  loadRecipient(value) {
+  loadRecipient(value, itemIds) {
     const id = recipientId(value);
+    if (!Array.isArray(itemIds)) {
+      throw new TypeError("Private delivery reads require listing IDs");
+    }
+    const requested = JSON.stringify(itemIdentifiers(itemIds, "Requested"));
     const row = this.selectRecipient.get(id);
     if (!row) return undefined;
     const recipient = {
@@ -153,7 +158,7 @@ export class SqlitePrivateDeliveriesRepository {
       filtered: {},
       initialSelectionApplied: Boolean(row.initial_selection_applied),
     };
-    for (const decision of this.selectRecipientDecisions.all(id)) {
+    for (const decision of this.selectRecipientDecisions.all(id, requested)) {
       if (!STATUSES.includes(decision.status)) throw invalidDecisionError();
       canonicalIsoTimestamp(
         decision.decided_at,

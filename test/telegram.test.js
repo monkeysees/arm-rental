@@ -2485,7 +2485,7 @@ test("a widened filter offers its rejected history and honours the answer", asyn
       42: {
         initialSelectionApplied: true,
         // Both were rejected by the price filter the user is about to reset.
-        filtered: { 7: rejectedAt, 6: rejectedAt },
+        filtered: { 7: rejectedAt, 6: rejectedAt, absent: rejectedAt },
       },
     },
     telegram: {
@@ -2507,6 +2507,17 @@ test("a widened filter offers its rejected history and honours the answer", asyn
       },
     },
   });
+  const historyReads = [];
+  const loadHistory = stateAccess.privateDeliveries.loadRecipient;
+  stateAccess.privateDeliveries.loadRecipient = async (
+    recipientId,
+    itemIds,
+  ) => {
+    historyReads.push(itemIds);
+    const recipient = await loadHistory(recipientId, itemIds);
+    assert.equal(recipient.filtered.absent, undefined);
+    return recipient;
+  };
   let updateCalls = 0;
   const api = {
     getUpdates: async (_offset, _timeout, signal) => {
@@ -2560,7 +2571,11 @@ test("a widened filter offers its rejected history and honours the answer", asyn
     ],
   ]);
   assert.match(edited[1][1], /^Хорошо, отправлю их при следующей проверке/u);
-  assert.deepEqual(stateAccess.recipients["42"].filtered, {});
+  assert.ok(historyReads.length > 0);
+  for (const itemIds of historyReads) assert.deepEqual(itemIds, ["7", "6"]);
+  assert.deepEqual(stateAccess.recipients["42"].filtered, {
+    absent: rejectedAt,
+  });
   assert.deepEqual(stateAccess.recipients["42"].skipped, {});
 });
 

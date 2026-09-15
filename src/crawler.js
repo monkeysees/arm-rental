@@ -512,15 +512,13 @@ export async function crawlApartments(
       if (target.isAuthorized?.() === false) return;
       const recipientId = String(target.recipientId);
       const recipientFilters = normalizeFilters(target.filters);
-      // One recipient's own rows, read where they are about to be classified.
-      // The decision table keeps every answer this installation has ever
-      // recorded, including those naming listings List.am dropped long ago,
-      // while a crawl only ever decides against the recipients it delivers to.
-      // Reading the whole of it put an unbounded history on the event loop the
-      // browser's CDP client shares, and put a peer's rows in reach of a
-      // worker that has no business seeing them.
+      // Include older stored listings too: non-matches are classified even
+      // outside the delivery window. Absent listings keep their rows in SQLite.
       let recipient = deliveryRecipientState(
-        await stateAccess.privateDeliveries.loadRecipient(recipientId),
+        await stateAccess.privateDeliveries.loadRecipient(
+          recipientId,
+          apartmentOrder,
+        ),
       );
 
       // The bot reopens this gate every time the user answers the monitoring

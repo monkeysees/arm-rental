@@ -1,0 +1,103 @@
+{
+  "status": "passed",
+  "node": "v24.18.0",
+  "platform": "linux/x64",
+  "workload": {
+    "history": 4000,
+    "scenario": "all",
+    "users": 1000,
+    "listings": 20,
+    "rate": 20
+  },
+  "results": [
+    {
+      "phase": "seed",
+      "wallMs": 29326,
+      "nodeCpuMs": 27248,
+      "nodeMaxRssMiB": 149.14453125,
+      "eventLoopMaxMs": 0,
+      "transactions": 1,
+      "transactionMs": 29318.618705,
+      "messages": 0,
+      "announcements": 0,
+      "payloadBytes": 0,
+      "interrupted": false,
+      "databaseBytes": 437473280
+    },
+    {
+      "phase": "initial",
+      "wallMs": 52111,
+      "nodeCpuMs": 7956,
+      "nodeMaxRssMiB": 220.30078125,
+      "eventLoopMaxMs": 66.748415,
+      "transactions": 21001,
+      "transactionMs": 19083.842853000144,
+      "messages": 20000,
+      "announcements": 1000,
+      "payloadBytes": 4464000,
+      "interrupted": false,
+      "databaseBytes": 439406592
+    },
+    {
+      "phase": "unchanged",
+      "wallMs": 234,
+      "nodeCpuMs": 315,
+      "nodeMaxRssMiB": 103.03125,
+      "eventLoopMaxMs": 10.084351,
+      "transactions": 1,
+      "transactionMs": 2.9233549999999013,
+      "messages": 0,
+      "announcements": 0,
+      "payloadBytes": 0,
+      "interrupted": false,
+      "databaseBytes": 439406592
+    },
+    {
+      "phase": "interrupted",
+      "wallMs": 3608,
+      "nodeCpuMs": 710,
+      "nodeMaxRssMiB": 120.42578125,
+      "eventLoopMaxMs": 24.657919,
+      "transactions": 501,
+      "transactionMs": 431.38904099998945,
+      "messages": 500,
+      "announcements": 0,
+      "payloadBytes": 109000,
+      "interrupted": true,
+      "databaseBytes": 439488512
+    },
+    {
+      "phase": "resumed",
+      "wallMs": 52133,
+      "nodeCpuMs": 9435,
+      "nodeMaxRssMiB": 216.9921875,
+      "eventLoopMaxMs": 62.390271,
+      "transactions": 19501,
+      "transactionMs": 20723.179517000037,
+      "messages": 19500,
+      "announcements": 1000,
+      "payloadBytes": 4355000,
+      "interrupted": false,
+      "databaseBytes": 443748352
+    },
+    {
+      "phase": "verified",
+      "wallMs": 374,
+      "nodeCpuMs": 500,
+      "nodeMaxRssMiB": 106.390625,
+      "eventLoopMaxMs": 10.305535,
+      "transactions": 1,
+      "transactionMs": 3.177099999999882,
+      "messages": 0,
+      "announcements": 0,
+      "payloadBytes": 0,
+      "interrupted": false,
+      "retainedHistoryDecisions": 4000000,
+      "databaseBytes": 443748352
+    }
+  ],
+  "sampledCgroupPeakMiB": null,
+  "lifetimeCgroupPeakMiB": null,
+  "duplicateDeliveries": 0,
+  "pendingDeliveries": 0
+}

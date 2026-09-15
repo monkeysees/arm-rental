@@ -1077,13 +1077,16 @@ export async function runTelegramBot(
    */
   const releasableHistoryFor = async (chatId, user) => {
     if (!user?.active || user.deletionPendingAt) return [];
-    const recipient = await stateAccess.privateDeliveries.loadRecipient(chatId);
-    if (!recipient || Object.keys(recipient.filtered).length === 0) return [];
     const apartmentState = migrateApartmentState(
       await stateAccess.apartments.load(),
       config.listUrlTemplate,
     );
     if (!apartmentState) return [];
+    const recipient = await stateAccess.privateDeliveries.loadRecipient(
+      String(chatId),
+      apartmentState.apartmentOrder ?? [],
+    );
+    if (!recipient || Object.keys(recipient.filtered).length === 0) return [];
     return releasableHistory(
       // Legacy state carries no source order; the next crawl rebuilds it, and
       // until then there is no defensible "newest first" to offer.

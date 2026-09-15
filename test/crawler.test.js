@@ -1683,9 +1683,12 @@ test("crawler reads only the delivery targets' own decision history", async () =
         wholeTableReads.push("load");
         return state.stateAccess.privateDeliveries.load();
       },
-      loadRecipient: async (recipientId) => {
+      loadRecipient: async (recipientId, itemIds) => {
         recipientReads.push(String(recipientId));
-        return state.stateAccess.privateDeliveries.loadRecipient(recipientId);
+        return state.stateAccess.privateDeliveries.loadRecipient(
+          recipientId,
+          itemIds,
+        );
       },
     },
   };
@@ -1711,10 +1714,10 @@ test("recipient fan-out lets queued I/O run between recipient histories", async 
   const state = memoryState();
   const order = [];
   const loadRecipient = state.stateAccess.privateDeliveries.loadRecipient;
-  state.stateAccess.privateDeliveries.loadRecipient = async (id) => {
+  state.stateAccess.privateDeliveries.loadRecipient = async (id, itemIds) => {
     order.push(`read:${id}`);
     setImmediate(() => order.push(`io:${id}`));
-    return loadRecipient(id);
+    return loadRecipient(id, itemIds);
   };
   await crawlApartments(
     { ...config, initialPageCount: 1 },

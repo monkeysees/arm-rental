@@ -327,9 +327,12 @@ test("startup recovery removes only the requested user and preserves offset and 
   assert.equal(bot.users[42], undefined);
   assert.equal(bot.legacyRecipientId, undefined);
   assert.equal(bot.users[99].chatId, 99);
-  assert.equal(repositories.privateDeliveries.loadRecipient("42"), undefined);
+  assert.equal(
+    repositories.privateDeliveries.loadRecipient("42", []),
+    undefined,
+  );
   assert.deepEqual(
-    repositories.privateDeliveries.loadRecipient("99").notified,
+    repositories.privateDeliveries.loadAllDecisions().recipients[99].notified,
     {
       peer: "2026-07-26T11:00:00.000Z",
     },
@@ -359,7 +362,10 @@ test("startup recovery removes only the requested user and preserves offset and 
   assert.match(sent[0][1], /Мониторинг: остановлен/u);
 
   // Re-registering must not resurrect the deleted delivery history.
-  assert.equal(repositories.privateDeliveries.loadRecipient("42"), undefined);
+  assert.equal(
+    repositories.privateDeliveries.loadRecipient("42", []),
+    undefined,
+  );
 });
 
 test("a crash around the atomic deletion stays replayable and idempotent", async (t) => {
@@ -392,8 +398,10 @@ test("a crash around the atomic deletion stays replayable and idempotent", async
       // The user row and the delivery history move together, so the only two
       // states a crash can leave are "both present" and "both gone".
       const afterCrash = repositories.telegram.load();
-      const deletedRecipient =
-        repositories.privateDeliveries.loadRecipient("42");
+      const deletedRecipient = repositories.privateDeliveries.loadRecipient(
+        "42",
+        [],
+      );
       if (boundary === "before") {
         assert.ok(afterCrash.users[42].deletionPendingAt);
         assert.ok(deletedRecipient);
@@ -416,10 +424,10 @@ test("a crash around the atomic deletion stays replayable and idempotent", async
       assert.equal(final.updateOffset, 123);
       assert.ok(final.users[99]);
       assert.equal(
-        repositories.privateDeliveries.loadRecipient("42"),
+        repositories.privateDeliveries.loadRecipient("42", []),
         undefined,
       );
-      assert.ok(repositories.privateDeliveries.loadRecipient("99"));
+      assert.ok(repositories.privateDeliveries.loadRecipient("99", []));
     });
   }
 });

@@ -7,6 +7,11 @@ code tests; it is not a deployment target.
 
 ## Deterministic CI integration gates
 
+The optional [resource baseline](resource-baseline.md) measures synthetic
+1,000-monitoring workloads with real SQLite and simulated source responses. It uses
+isolated state and simulated Telegram delivery; its results are capacity
+evidence for the stated fixtures, not production acceptance evidence.
+
 Every candidate must pass `npm run check` and `npm run test:coverage` before an
 image can be published. The suite exercises the production boundaries with
 fakes, local HTTP servers, temporary directories, and real child processes:

@@ -877,14 +877,19 @@ operator procedures are indexed in
    channel publication, while every user's worker remains sequential and
    oldest-first. A worker reads and persists only its own recipient's rows:
    its history is read where it is about to be classified, keyed by
-   `(recipient_id, item_id)`, and it commits one bounded write per initial
+   `(recipient_id, item_id)` and restricted to the crawl's explicit listing IDs,
+   and it commits one bounded write per initial
    selection, re-admission batch, classification batch, or acknowledgement.
    The decision table retains every answer the installation has recorded,
    including those naming listings List.am has since dropped, so no crawl path
-   reads it whole: doing so would put an unbounded, ever-growing synchronous
-   read on the event loop the browser's CDP client shares. Those writes still pass through a serialized,
-   failure-latching chain: it orders them against user deletion, which still
-   replaces delivery state as a whole, and stops recording once a write has
+   reads it whole or loads a recipient's absent-listing decisions into memory.
+   Older stored listings remain in the read set because non-matches are
+   classified even outside the delivery window. Menu history offers use the
+   stored listing order to scope the same indexed read. Returning listings
+   recover their original decisions; no retention cutoff or schema migration
+   is involved. Those writes still pass through a serialized,
+   failure-latching chain: it orders them against atomic user deletion
+   and stops recording once a write has
    failed. Every delivery decision is bounded to the last day of List.am
    activity, measured against the instant the crawl read the source
    (`SOURCE_ACTIVITY_WINDOW_MS` in `src/source-activity.js`): an apartment

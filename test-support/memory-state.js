@@ -89,10 +89,25 @@ export function createMemoryStateAccess({
       },
     },
     privateDeliveries: {
-      loadRecipient: async (recipientId) =>
-        recipients[String(recipientId)]
-          ? structuredClone(recipients[String(recipientId)])
-          : undefined,
+      loadRecipient: async (recipientId, itemIds) => {
+        if (!Array.isArray(itemIds))
+          throw new TypeError("Private delivery reads require listing IDs");
+        const entry = recipients[String(recipientId)];
+        if (!entry) return undefined;
+        return {
+          initialSelectionApplied: entry.initialSelectionApplied,
+          ...Object.fromEntries(
+            ["notified", "skipped", "filtered"].map((status) => [
+              status,
+              Object.fromEntries(
+                itemIds
+                  .filter((itemId) => Object.hasOwn(entry[status], itemId))
+                  .map((itemId) => [itemId, entry[status][itemId]]),
+              ),
+            ]),
+          ),
+        };
+      },
       load: async () => ({
         version: 2,
         type: "telegram-deliveries",

@@ -429,7 +429,7 @@ test("bounded classifications roll back as a unit and acknowledgements touch one
     { code: "ERR_STATE_DATABASE_CONSTRAINT" },
   );
   assert.deepEqual(
-    repositories.privateDeliveries.loadRecipient("42").filtered,
+    repositories.privateDeliveries.loadAllDecisions().recipients[42].filtered,
     { existing: TIME },
   );
 
@@ -473,7 +473,10 @@ test("admission, update, deletion, and rate failures retain their durable bounda
       }),
     /cannot overlap/u,
   );
-  assert.equal(repositories.privateDeliveries.loadRecipient("42"), undefined);
+  assert.equal(
+    repositories.privateDeliveries.loadRecipient("42", []),
+    undefined,
+  );
 
   repositories.privateDeliveries.initializeSelection("42", {
     filtered: { readmit: TIME },
@@ -483,7 +486,8 @@ test("admission, update, deletion, and rate failures retain their durable bounda
     1,
   );
   assert.equal(
-    repositories.privateDeliveries.loadRecipient("42").filtered.readmit,
+    repositories.privateDeliveries.loadRecipient("42", ["readmit"]).filtered
+      .readmit,
     undefined,
   );
 
@@ -495,19 +499,22 @@ test("admission, update, deletion, and rate failures retain their durable bounda
   });
   repositories.privateDeliveries.declineHistory("42", { decline: TIME });
   assert.equal(
-    repositories.privateDeliveries.loadRecipient("42").skipped.decline,
+    repositories.privateDeliveries.loadRecipient("42", ["decline"]).skipped
+      .decline,
     TIME,
   );
   repositories.privateDeliveries.requestSelection("42");
   assert.equal(
-    repositories.privateDeliveries.loadRecipient("42").initialSelectionApplied,
+    repositories.privateDeliveries.loadRecipient("42", [])
+      .initialSelectionApplied,
     false,
   );
   repositories.privateDeliveries.initializeSelection("42", {
     skipped: { reject: TIME },
     released: ["accept"],
   });
-  const reclassified = repositories.privateDeliveries.loadRecipient("42");
+  const reclassified =
+    repositories.privateDeliveries.loadAllDecisions().recipients[42];
   assert.equal(reclassified.initialSelectionApplied, true);
   assert.deepEqual(reclassified.filtered, {});
   assert.deepEqual(reclassified.skipped, { decline: TIME, reject: TIME });
@@ -542,7 +549,10 @@ test("admission, update, deletion, and rate failures retain their durable bounda
   );
   assert.equal(repositories.telegram.load().users[42], undefined);
   assert.equal(repositories.telegram.load().legacyRecipientId, undefined);
-  assert.equal(repositories.privateDeliveries.loadRecipient("42"), undefined);
+  assert.equal(
+    repositories.privateDeliveries.loadRecipient("42", []),
+    undefined,
+  );
 
   repositories.exchangeRates.save(rateSnapshot());
   assert.throws(
@@ -624,6 +634,59 @@ test("all five domains can import in one outer transaction", (t) => {
   });
 });
 
+test("recipient reads select explicit listing IDs and retain every stored decision", (t) => {
+  const database = openDatabase(temporaryDirectory(t));
+  t.after(() => database.close());
+  const { privateDeliveries } = createSqliteRepositories(database, {
+    listUrlTemplate: LIST_URL,
+    channelId: CHANNEL_ID,
+  });
+  privateDeliveries.initializeSelection("42", {
+    skipped: { skipped: TIME },
+    filtered: { filtered: TIME, absent: TIME },
+  });
+  privateDeliveries.acknowledge("42", "notified", TIME);
+  privateDeliveries.acknowledge("99", "filtered", TIME);
+  const before = privateDeliveries.loadAllDecisions();
+  // More IDs than SQLite permits individual bind parameters, including
+  // duplicate and unknown IDs. Only existing requested rows are returned.
+  const itemIds = [
+    "notified",
+    "skipped",
+    "filtered",
+    "filtered",
+    ...Array.from({ length: 33000 }, (_, index) => `unknown-${index}`),
+  ];
+  assert.deepEqual(privateDeliveries.loadRecipient("42", itemIds), {
+    initialSelectionApplied: true,
+    notified: { notified: TIME },
+    skipped: { skipped: TIME },
+    filtered: { filtered: TIME },
+  });
+  assert.deepEqual(privateDeliveries.loadRecipient("42", []), {
+    initialSelectionApplied: true,
+    notified: {},
+    skipped: {},
+    filtered: {},
+  });
+  assert.equal(privateDeliveries.loadRecipient("missing", itemIds), undefined);
+  assert.throws(
+    () => privateDeliveries.loadRecipient("42"),
+    /require listing IDs/u,
+  );
+  assert.throws(
+    () => privateDeliveries.loadRecipient("42", [""]),
+    /non-empty/u,
+  );
+  privateDeliveries.requestSelection("42");
+  assert.equal(
+    privateDeliveries.loadRecipient("42", []).initialSelectionApplied,
+    false,
+  );
+  privateDeliveries.initializeSelection("42", {});
+  assert.deepEqual(privateDeliveries.loadAllDecisions(), before);
+});
+
 test("stored decisions are judged in place, not rebuilt", (t) => {
   const directory = temporaryDirectory(t);
   const database = openDatabase(directory);
@@ -657,7 +720,7 @@ test("stored decisions are judged in place, not rebuilt", (t) => {
   );
   assert.equal(privateDeliveries.validate(), false);
   assert.throws(
-    () => privateDeliveries.loadRecipient("42"),
+    () => privateDeliveries.loadRecipient("42", ["62"]),
     /canonical ISO timestamp/u,
   );
 });

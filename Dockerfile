@@ -41,7 +41,8 @@ RUN sed -i \
       -e '/^Signed-By:/a Check-Valid-Until: no' \
       /etc/apt/sources.list.d/debian.sources \
     && apt-get update \
-    && apt-get install --yes --no-install-recommends ca-certificates curl \
+    && apt-get install --yes --no-install-recommends \
+      ca-certificates curl libpcre2-8-0=10.42-1+deb12u1 \
     && test "${CURL_IMPERSONATE_VERSION}" = "$(. /tmp/curl-install/curl-impersonate-version; printf '%s' "$CURL_IMPERSONATE_VERSION")" \
     && /tmp/curl-install/install-curl-impersonate /usr/local "${TARGETARCH}" \
     && apt-get purge --yes --auto-remove curl \

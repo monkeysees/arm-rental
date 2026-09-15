@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Install the patched PCRE2 runtime library so the Chromium-free image passes the production vulnerability scan.
 - Replace Chromium and Puppeteer with pinned Safari-profile HTTP fetching, private cookies, bounded redirects, paced requests, and server-directed retry cooldowns; remove browser verification, sandbox privileges, and profile backups.
 - Honor source-challenge grace in host readiness alerts and include specific readiness or probe failure reasons in alerts and status.
 - Avoid repeated filtering and date parsing across private recipients, and yield between recipient workers to keep health probes and source I/O responsive.

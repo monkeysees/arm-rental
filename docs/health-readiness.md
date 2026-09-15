@@ -26,14 +26,15 @@ the last successful crawl is ten minutes old, whichever occurs first. A later
 successful crawl resets the failure counter and freshness clock.
 
 A List.am security challenge is a distinct `challenge` browser status with
-reason `BROWSER_VERIFICATION_REQUIRED`. Runtime fetching immediately retries
-the challenged page once in a fresh Chrome process. If that retry permits the
+reason `BROWSER_VERIFICATION_REQUIRED`. Runtime fetching retries
+the challenged page up to twice in a fresh Chrome process with exponential
+backoff. If a retry permits the
 complete crawl to succeed, the crawl clears the component because it proves
 that the browser can fetch and validate the source again. The component and
 readiness reason appear as soon as the challenge is seen, but the
 `browser_challenge` alert does not: it waits until five crawls in a row have
-ended without clearing the challenge, roughly five minutes at the default poll
-interval. List.am challenges a single page far more often than it locks the
+ended without clearing the challenge. The elapsed time depends on page runtime
+and exponential retry delays across failed crawls. List.am challenges a single page far more often than it locks the
 profile out, and a challenge the next crawl answers is not an operator's
 problem. The generic `readiness_failure` alert applies the same threshold to
 the browser-verification reason, so a readiness probe cannot bypass this delay.

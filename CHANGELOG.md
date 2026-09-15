@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Back off exponentially on browser verification failures, delaying page retries and growing repeated crawl retry delays into minutes until a successful crawl resets them.
 - Match desktop Chrome's reduced user-agent format while preserving full-version client hints, and remove the redundant JavaScript webdriver override.
 - Honor browser-challenge grace in host readiness alerts and include specific readiness or probe failure reasons in alerts and status.
 - Avoid repeated filtering and date parsing across private recipients, and yield between recipient workers to keep health probes and browser I/O responsive.

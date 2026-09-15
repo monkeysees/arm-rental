@@ -35,10 +35,6 @@ const RETRYABLE_BROWSER_ERROR_NAMES = new Set([
 // three attempts well inside a single crawl.
 const BROWSER_RETRY_MAX_DELAY_MS = 8_000;
 
-function isBrowserStallFailure(error) {
-  return !error?.terminal && BROWSER_STALL_ERROR_NAMES.has(error?.name);
-}
-
 function isRetryableRuntimeBrowserFailure(error) {
   if (error?.terminal) return false;
   return (
@@ -250,8 +246,8 @@ export async function runApplication({
     // its own budget, a third one costs less than a single stall used to, and
     // it is the attempt that most often returns the page.
     const fetchRuntimePage = (url) => {
-      // Per fetch, so one page's stalls cannot lengthen the next page's waits.
-      const stallBackoff = new ExponentialBackoff({
+      // Short page retries precede the longer backoff across failed crawls.
+      const pageBackoff = new ExponentialBackoff({
         baseDelayMs: config.externalRetryBaseMs || 1_000,
         maxDelayMs: Math.min(
           BROWSER_RETRY_MAX_DELAY_MS,
@@ -261,10 +257,7 @@ export async function runApplication({
       return retryOperation(() => browserFetcher.fetch(url), {
         maxAttempts: 3,
         shouldRetry: isRetryableRuntimeBrowserFailure,
-        // Only a stall waits. A verification challenge is not a load symptom,
-        // and delaying it would just postpone the page.
-        retryDelay: (error) =>
-          isBrowserStallFailure(error) ? stallBackoff.nextDelay() : 0,
+        backoff: pageBackoff,
         signal: controller.signal,
         onRetry: ({ attempt, delayMs, error }) =>
           logger.warn("Browser page retry scheduled", {

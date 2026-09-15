@@ -53,7 +53,7 @@ test("configuration validation fails before locks, resources, or loops start", a
   assert.deepEqual(calls, ["validate"]);
 });
 
-test("runtime page fetch immediately retries a browser challenge once", async () => {
+test("runtime page fetch backs off before retrying a browser challenge", async () => {
   const alerts = [];
   const monitor = new HealthMonitor({
     version: "1.0.0",
@@ -72,7 +72,7 @@ test("runtime page fetch immediately retries a browser challenge once", async ()
   let fetchAttempts = 0;
 
   await runApplication({
-    config: { dataDirectory: "/data" },
+    config: { dataDirectory: "/data", externalRetryBaseMs: 1 },
     logger,
     healthMonitor: monitor,
     validateConfig: async () => {},
@@ -85,7 +85,7 @@ test("runtime page fetch immediately retries a browser challenge once", async ()
     browserFetcherFactory: (_config, callbacks) => ({
       fetch: async () => {
         fetchAttempts += 1;
-        if (fetchAttempts === 1) {
+        if (fetchAttempts <= 2) {
           callbacks.onEvent({
             name: "browser.challenge",
             component: "browser",
@@ -156,7 +156,13 @@ test("runtime page fetch immediately retries a browser challenge once", async ()
     },
   });
 
-  assert.equal(fetchAttempts, 2);
+  assert.equal(fetchAttempts, 3);
+  assert.deepEqual(
+    warnings
+      .filter(({ message }) => message === "Browser page retry scheduled")
+      .map(({ context }) => context.delayMs),
+    [1, 2],
+  );
   assert.deepEqual(
     warnings.find(({ message }) => message === "Browser page retry scheduled")
       ?.context,
@@ -165,7 +171,7 @@ test("runtime page fetch immediately retries a browser challenge once", async ()
       component: "browser",
       operation: "fetch_page",
       attempt: 1,
-      delayMs: 0,
+      delayMs: 1,
       reason: "BROWSER_VERIFICATION_REQUIRED",
     },
   );

@@ -545,7 +545,8 @@ record reports the suppressed count. Redaction runs after the complete record
 is assembled, including generated event names, nested values, and error stacks.
 
 `src/retry.js` provides the shared expected-external-failure policy. Network
-errors and HTTP 5xx responses retry with exponential delay and jitter, bounded
+errors, browser verification failures, and HTTP 5xx responses retry with
+exponential delay and jitter, bounded
 by the validated `EXTERNAL_RETRY_MAX_MS` value (at most five minutes). A
 successful operation resets its backoff object. Telegram's server-supplied
 `retry_after` is deliberately authoritative for HTTP 429. Terminal credential
@@ -561,8 +562,9 @@ process wins the page back; because each attempt now carries its own read
 budget, a third attempt costs less than a single unbounded stall did. Stall
 retries wait a jittered exponential delay capped well below
 `EXTERNAL_RETRY_MAX_MS`, because relaunching Chrome into the load spike that
-stalled the last renderer tends to stall again. A verification challenge is not
-a load symptom and still retries immediately. A final failure escapes to the
+stalled the last renderer tends to stall again. Verification challenges and
+other retryable page failures use the same delayed retries. A final failure
+escapes to the
 crawl loop, which records one failed crawl and applies its existing backoff;
 preflight does not use this runtime-only retry.
 

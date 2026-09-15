@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { BrowserVerificationRequiredError } from "../src/browser-fetch.js";
 
 import {
   compatibleBotState,
@@ -1806,6 +1807,60 @@ test("source-integrity failure uses crawl backoff and recovers", async () => {
   assert.equal(crawlCalls, 2);
   assert.equal(retryDelays.length, 1);
   assert.ok(retryDelays[0] >= 800 && retryDelays[0] <= 1_000);
+});
+
+test("browser challenges back off into minutes, cap, and reset after a successful crawl", async () => {
+  const controller = new AbortController();
+  const retries = [];
+  const sleeps = [];
+  let calls = 0;
+  await runTelegramBot(
+    {
+      telegramOwnerId: 42,
+      telegramAccessMode: "public",
+      pollIntervalMs: 60_000,
+      externalRetryBaseMs: 1_000,
+      externalRetryMaxMs: 300_000,
+    },
+    {
+      signal: controller.signal,
+      telegramState: {
+        version: 3,
+        type: "telegram-bot",
+        updateOffset: 0,
+        users: { 42: { active: true, chatId: 42 } },
+      },
+      api: {
+        getUpdates: async (_offset, _timeout, signal) =>
+          new Promise((resolve) => {
+            signal.addEventListener("abort", () => resolve([]), { once: true });
+          }),
+      },
+      sleep: async (ms, _value, { signal }) => {
+        signal.throwIfAborted();
+        sleeps.push(ms);
+      },
+      crawl: async () => {
+        calls += 1;
+        if (calls === 12 || calls === 14) return {};
+        throw new BrowserVerificationRequiredError();
+      },
+      onError: async () => {},
+      onRetry: async ({ delayMs }) => retries.push(delayMs),
+      onResult: () => {
+        if (calls === 14) controller.abort();
+      },
+    },
+  );
+  const ceilings = [
+    1_000, 2_000, 4_000, 8_000, 16_000, 32_000, 64_000, 128_000, 256_000,
+    300_000, 300_000, 1_000,
+  ];
+  assert.equal(retries.length, ceilings.length);
+  retries.forEach((ms, i) => {
+    assert.ok(ms >= ceilings[i] * 0.8 && ms <= ceilings[i]);
+    assert.equal(sleeps[i < 11 ? i : i + 1], ms);
+  });
 });
 
 test("every crawl attempt closes its browsing session", async () => {

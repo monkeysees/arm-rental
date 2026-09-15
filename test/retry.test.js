@@ -46,6 +46,17 @@ test("bounded backoff grows exponentially with jitter and resets after success",
 
 test("retry policy accepts network and 5xx failures but rejects terminal state", () => {
   assert.equal(
+    isExpectedExternalFailure({ code: "ERR_BROWSER_VERIFICATION_REQUIRED" }),
+    true,
+  );
+  assert.equal(
+    isExpectedExternalFailure({
+      code: "ERR_BROWSER_VERIFICATION_REQUIRED",
+      terminal: true,
+    }),
+    false,
+  );
+  assert.equal(
     isExpectedExternalFailure(
       Object.assign(new Error("source drift"), {
         code: "ERR_LIST_AM_SOURCE_INTEGRITY",

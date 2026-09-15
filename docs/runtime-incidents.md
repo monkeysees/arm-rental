@@ -30,11 +30,17 @@ reading Telegram state.
 
 ### Recovery and expected output
 
-- `browser.challenge`: the application immediately retries the page once in a
-  fresh Chrome process; do not add another operator-forced crawl. A successful
+- `browser.challenge`: the application retries the page up to twice in a
+  fresh Chrome process with exponential backoff; do not add another
+  operator-forced crawl. A successful
   retry permits the complete crawl to resolve the challenge and restore
-  readiness. If the fresh attempt is also challenged, the crawl fails and uses
-  its normal backoff. Isolated `browser.challenge` events that a later
+  readiness. If all attempts are challenged, the crawl fails and uses
+  exponential crawl backoff: a one-second base doubling to a one-minute cap
+  by default, with 20% jitter below each delay. `EXTERNAL_RETRY_BASE_MS` and
+  `EXTERNAL_RETRY_MAX_MS` configure these bounds, with a maximum cap of five
+  minutes. A successful crawl resets the delay. Page retries use the same base
+  with a cap of eight seconds or the configured maximum, whichever is lower.
+  Isolated `browser.challenge` events that a later
   `crawl.succeeded` clears need no action and raise no alert; the
   `browser_challenge` alert means five crawls in a row ended still challenged.
   On that alert or no later complete crawl, stop and use the

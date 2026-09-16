@@ -1356,3 +1356,13 @@ Preflight integration tests exercise the complete ready path across state,
 Telegram, channel, source transport, List.am, and CBA boundaries; terminal credential
 and permission failures; unchanged incompatible state; the typed source
 challenge; loop exclusion; cleanup; and secret-free structured results.
+
+### Offline runtime comparison
+
+`experiments/node-replay/` exercises the existing parser, normalization, filters,
+SQLite classification, private scheduler, acknowledgements, and process restart
+with deterministic 500/1,000-recipient fixtures. Its exported JSON/HTML contract
+and independent result oracle are shared comparison inputs, not production
+components. The [baseline protocol](node-replay-baseline.md) separates virtual
+behavior checks from wall measurements and defines the cgroup RAM boundary;
+local application-container results do not establish whole-machine Pi capacity.

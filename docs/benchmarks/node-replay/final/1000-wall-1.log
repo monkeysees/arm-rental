@@ -1,0 +1,13 @@
+wall 1000: seed
+wall 1000: unchanged
+wall 1000: unchanged
+wall 1000: unchanged
+wall 1000: unchanged
+wall 1000: updated
+wall 1000: fresh
+wall 1000: catchup-store
+wall 1000: catchup
+wall 1000: interrupted
+wall 1000: resumed
+wall 1000: drained
+wall 1000: returning

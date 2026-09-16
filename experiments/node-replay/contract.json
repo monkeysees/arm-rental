@@ -1,0 +1,158 @@
+{
+  "version": 1,
+  "populations": [500, 1000],
+  "seed": {
+    "listingCount": 5442,
+    "absentCount": 1121,
+    "decisionsPerRecipient": 6563,
+    "timestamp": "2026-09-15T10:00:00.000Z",
+    "listingIdBase": 100000,
+    "absentIdBase": 150000
+  },
+  "clockEpoch": "2026-09-16T12:00:00.000Z",
+  "crawlIntervalMs": 60000,
+  "initialDeliveryLimit": 8,
+  "transport": {
+    "latencyMs": 5,
+    "globalAttemptsPerSecond": 200,
+    "recipientMessagesPerMinute": 20,
+    "recipientBurst": 5,
+    "retryAfterMs": 1000,
+    "retryRecipientsModulo": 10,
+    "maxAttempts": 4
+  },
+  "profiles": [
+    {
+      "price": 100000,
+      "kind": "apartment",
+      "originalAmount": 100000,
+      "currency": "AMD"
+    },
+    {
+      "price": 200000,
+      "kind": "house",
+      "originalAmount": 500,
+      "currency": "USD"
+    },
+    {
+      "price": 300000,
+      "kind": "apartment",
+      "originalAmount": 300000,
+      "currency": "AMD"
+    },
+    {
+      "price": 400000,
+      "kind": "house",
+      "originalAmount": 400000,
+      "currency": "AMD"
+    }
+  ],
+  "expected": {
+    "unchanged": [[], [], [], []],
+    "updated": [
+      ["100000", "100004"],
+      ["100001", "100005"],
+      ["100002", "100006"],
+      ["100003", "100007"]
+    ],
+    "fresh": [
+      ["200000", "200004"],
+      ["200001", "200005"],
+      ["200002", "200006"],
+      ["200003", "200007"]
+    ],
+    "catchup": [
+      [
+        "300008",
+        "300012",
+        "300016",
+        "300020",
+        "300024",
+        "300028",
+        "300032",
+        "300036"
+      ],
+      [
+        "300009",
+        "300013",
+        "300017",
+        "300021",
+        "300025",
+        "300029",
+        "300033",
+        "300037"
+      ],
+      [
+        "300010",
+        "300014",
+        "300018",
+        "300022",
+        "300026",
+        "300030",
+        "300034",
+        "300038"
+      ],
+      [
+        "300011",
+        "300015",
+        "300019",
+        "300023",
+        "300027",
+        "300031",
+        "300035",
+        "300039"
+      ]
+    ],
+    "skippedCatchup": [
+      ["300000", "300004"],
+      ["300001", "300005"],
+      ["300002", "300006"],
+      ["300003", "300007"]
+    ],
+    "interrupted": [
+      ["400000", "400004"],
+      ["400001", "400005"],
+      ["400002", "400006"],
+      ["400003", "400007"]
+    ],
+    "resumed": [
+      ["400008", "400012", "400016", "400020", "400024", "400028"],
+      ["400009", "400013", "400017", "400021", "400025", "400029"],
+      ["400010", "400014", "400018", "400022", "400026", "400030"],
+      ["400011", "400015", "400019", "400023", "400027", "400031"]
+    ],
+    "drained": [[], [], [], []],
+    "returning": [[], [], [], []]
+  },
+  "measurement": {
+    "primaryRamMetric": "maximum memory.peak across all replay workers in one fresh cgroup",
+    "boundary": "offline service container including coordinator, Node, SQLite/native memory, filesystem cache and fixture state; excludes host OS, Docker daemon, live curl and production supervision",
+    "memoryBytes": 536870912,
+    "cpus": 1,
+    "swapBytes": 0,
+    "repeats": 3,
+    "steadySamples": 3,
+    "capacityDrainTolerance": 1.1,
+    "repeatProtocol": "Sequential fresh offline containers; one virtual replay and three independent full wall replays per population; no overlapping benchmark runs; no forced GC; retain failures. Bootstrap reconciles seeded history once, followed by three unchanged samples.",
+    "fairProgressTarget": "Every recipient first delivery by complete classification time + two global-rate sweeps (announcement and first listing) + retryAfterMs + latencyMs, with capacityDrainTolerance"
+  },
+  "exchangeRates": {
+    "fetchedAt": "2026-09-16T10:00:00.000Z",
+    "effectiveDate": "2026-09-15",
+    "rates": {
+      "USD": {
+        "amount": 1,
+        "rate": 400
+      }
+    }
+  },
+  "expectedPayload": {
+    "title": "Replay rental {id}; append \" updated\" only in updated phase",
+    "url": "https://www.list.am/ru/item/{id}",
+    "location": "Арабкир",
+    "rooms": 2,
+    "areaSqM": 60,
+    "floor": "3/9",
+    "price": "profile originalAmount/currency and canonical AMD price; USD uses the fixed exchangeRates snapshot"
+  }
+}

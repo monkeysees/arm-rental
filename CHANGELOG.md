@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Add an offline 500/1,000-recipient Node replay contract, independent result verification, durable restart checks, and repeated constrained-container resource measurements for the runtime experiment.
+
 - Validate published image schema labels against the application schema version so upgrades no longer fail a stale publication check.
 
 - Bound private delivery to eight fair concurrent operations, release capacity during rate-limit and retry waits, and keep pending payloads out of recipient queues while preserving deletion and restart recovery.

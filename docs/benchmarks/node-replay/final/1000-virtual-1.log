@@ -1,0 +1,13 @@
+virtual 1000: seed
+virtual 1000: unchanged
+virtual 1000: unchanged
+virtual 1000: unchanged
+virtual 1000: unchanged
+virtual 1000: updated
+virtual 1000: fresh
+virtual 1000: catchup-store
+virtual 1000: catchup
+virtual 1000: interrupted
+virtual 1000: resumed
+virtual 1000: drained
+virtual 1000: returning

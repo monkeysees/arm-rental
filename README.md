@@ -44,6 +44,10 @@ SQLite and payloads are loaded for the next send. This trades peak throughput
 for bounded memory and fair progress as the recipient population grows. See the
 [concurrency benchmark](docs/private-concurrency-benchmark.md) for measurements.
 
+The isolated [Node replay baseline](docs/node-replay-baseline.md) defines the
+500/1,000-recipient behavior contract and resource measurements for the runtime
+comparison experiment. It does not change production deployment.
+
 Private delivery makes one promise about time: a user is only ever sent
 apartments List.am posted or changed within the last 24 hours. Everything the
 crawl discovers is still stored, but an older card waits for its next List.am

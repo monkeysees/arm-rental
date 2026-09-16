@@ -282,7 +282,7 @@ async function worker() {
         });
         const counts = database
           .prepare(
-            "SELECT CASE status WHEN 0 THEN 'notified' WHEN 1 THEN 'skipped' WHEN 2 THEN 'filtered' END AS status, count(*) AS count FROM private_delivery_decisions GROUP BY status",
+            "SELECT CASE status WHEN 0 THEN 'notified' WHEN 1 THEN 'skipped' WHEN 2 THEN 'filtered' END AS status, count(*) AS count FROM private_delivery_decisions GROUP BY status ORDER BY 1",
           )
           .all();
         assert.equal(

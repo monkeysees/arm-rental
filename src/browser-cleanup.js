@@ -9,6 +9,36 @@ import {
 import path from "node:path";
 import { acquireSingletonLock } from "./singleton-lock.js";
 
+// mountinfo distinguishes same-device bind mounts that st_dev cannot detect.
+export function assertNoProfileMounts(candidate, mountInfo) {
+  const lines = mountInfo.trim().split("\n");
+  if (!mountInfo.trim())
+    throw new Error("Cannot verify profile mount boundaries");
+  for (const line of lines) {
+    const fields = line.split(" ");
+    if (
+      fields.length < 10 ||
+      !fields.includes("-") ||
+      !fields[4]?.startsWith("/")
+    ) {
+      throw new Error("Cannot verify profile mount boundaries");
+    }
+    const mountpoint = fields[4].replace(/\\([0-7]{3})/g, (_, octal) =>
+      String.fromCharCode(Number.parseInt(octal, 8)),
+    );
+    if (mountpoint === candidate || mountpoint.startsWith(`${candidate}/`)) {
+      throw new Error(`Unsafe mounted profile entry: ${mountpoint}`);
+    }
+  }
+}
+
+async function checkProfileMounts(candidate) {
+  assertNoProfileMounts(
+    candidate,
+    await readFile("/proc/self/mountinfo", "utf8"),
+  );
+}
+
 // Only the retired, fixed-name profile is eligible. Never accept a caller path.
 export async function cleanupBrowserProfile(
   dataDirectory,
@@ -25,6 +55,7 @@ export async function cleanupBrowserProfile(
   const candidate = path.join(root, "chrome-profile");
   const lease = await acquireSingletonLock(root);
   try {
+    await checkProfileMounts(candidate);
     const entries = [];
     async function inspect(filename, top = false) {
       let stat;
@@ -58,8 +89,9 @@ export async function cleanupBrowserProfile(
       0,
     );
     if (apply) {
-      // Validate the whole tree first; then recheck each inode before unlinking.
+      // Recheck mount boundaries immediately before each destructive operation.
       for (const { filename, stat } of entries) {
+        await checkProfileMounts(candidate);
         const current = await lstat(filename);
         if (
           current.ino !== stat.ino ||

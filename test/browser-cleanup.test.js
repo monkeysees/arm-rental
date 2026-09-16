@@ -14,7 +14,10 @@ import path from "node:path";
 import { spawnSync } from "node:child_process";
 import test from "node:test";
 import { acquireSingletonLock } from "../src/singleton-lock.js";
-import { cleanupBrowserProfile } from "../src/browser-cleanup.js";
+import {
+  cleanupBrowserProfile,
+  assertNoProfileMounts,
+} from "../src/browser-cleanup.js";
 
 async function fixture(t) {
   const root = await mkdtemp(path.join(os.tmpdir(), "browser-cleanup-"));
@@ -150,4 +153,33 @@ test("backup inventory separates legacy browser bytes and preserves all snapshot
     );
   await symlink(root, path.join(backup, "outside"));
   await assert.rejects(browserBackupUsage(backup), /Unsafe backup entry/u);
+});
+
+test("mount boundaries reject same-device bind mounts and escaped paths", () => {
+  const candidate = "/data/service space/chrome-profile";
+  const line = (mountpoint) =>
+    `101 20 8:1 / ${mountpoint} rw - ext4 /dev/root rw`;
+  const root = line("/data/service\\040space");
+  assert.doesNotThrow(() => assertNoProfileMounts(candidate, root));
+  assert.doesNotThrow(() =>
+    assertNoProfileMounts(
+      candidate,
+      `${root}\n${line("/data/service\\040space/chrome-profile-other")}`,
+    ),
+  );
+  for (const mounted of [
+    "/data/service\\040space/chrome-profile",
+    "/data/service\\040space/chrome-profile/Default",
+    "/data/service\\040space/chrome-profile/Default/Cookies",
+  ]) {
+    assert.throws(
+      () => assertNoProfileMounts(candidate, `${root}\n${line(mounted)}`),
+      /Unsafe mounted profile entry/u,
+    );
+  }
+  assert.throws(() => assertNoProfileMounts(candidate, ""), /Cannot verify/u);
+  assert.throws(
+    () => assertNoProfileMounts(candidate, "unexpected format"),
+    /Cannot verify/u,
+  );
 });

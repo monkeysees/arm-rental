@@ -310,7 +310,7 @@ func memorySnapshot(phase string) map[string]any {
 		fmt.Sscan(string(data), &total, &resident)
 		resident *= int64(os.Getpagesize())
 	}
-	return map[string]any{"processRssBytes": resident, "phase": phase, "goHeapBytes": mem.HeapAlloc, "processPeakRssBytes": usage.Maxrss * 1024, "cgroupCurrentBytes": cgroup("memory.current")}
+	return map[string]any{"processRssBytes": resident, "phase": phase, "goHeapBytes": mem.HeapAlloc, "processPeakRssBytes": usage.Maxrss * 1024, "cgroupCurrentBytes": cgroup("memory.current"), "cgroupStat": cgroup("memory.stat")}
 }
 func validateInterrupted(s *Store, m Manifest, users int) error {
 	var ids []string

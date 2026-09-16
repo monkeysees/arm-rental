@@ -1,0 +1,16 @@
+{
+  "node": {
+    "commit": "43e6377",
+    "directory": "docs/benchmarks/node-replay/final"
+  },
+  "go": {
+    "commit": "0f099af",
+    "directory": "docs/benchmarks/go-replay/recovery"
+  },
+  "rust": {
+    "commit": "0f099af",
+    "directory": "docs/benchmarks/rust-replay/recovery"
+  },
+  "additionalNodeGate": "node-500-virtual.json",
+  "note": "Retained original repeated results are not copied or changed; all are revalidated by report.js."
+}

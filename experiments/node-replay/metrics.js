@@ -12,6 +12,7 @@ export function memory() {
     peakRssBytes: process.resourceUsage().maxRSS * 1024,
     serviceCurrentBytes: Number(cgroup("memory.current")) || null,
     servicePeakBytes: Number(cgroup("memory.peak")) || null,
+    cgroupStat: cgroup("memory.stat"),
   };
 }
 export function size(filename) {

@@ -475,16 +475,15 @@ export async function crawlApartments(
       if (target.isAuthorized?.() === false) return;
       const recipientId = String(target.recipientId);
       const recipientFilters = normalizeFilters(target.filters);
-      const { apartments, apartmentOrder, workIds } = await recordDecision(
-        () => {
+      const { apartments, apartmentOrder, workIds, hasStoredApartments } =
+        await recordDecision(() => {
           if (target.isAuthorized?.() === false)
             return { apartments: {}, apartmentOrder: [] };
           return stateAccess.privateDeliveries.loadCandidates(
             recipientId,
-            JSON.stringify(recipientFilters),
+            recipientFilters,
           );
-        },
-      );
+        });
       if (target.isAuthorized?.() === false) return;
       const activeSourceIds = new Set(
         apartmentOrder.filter((itemId) =>
@@ -505,7 +504,10 @@ export async function crawlApartments(
       // subscription all classify the history that accumulated meanwhile
       // against the answer the user just gave.
       let selectionApplied = false;
-      if (!recipient.initialSelectionApplied && apartmentOrder.length > 0) {
+      if (
+        !recipient.initialSelectionApplied &&
+        (apartmentOrder.length > 0 || hasStoredApartments)
+      ) {
         const classifiedAt = now().toISOString();
         const selectable = selectableHistory(
           apartmentOrder,

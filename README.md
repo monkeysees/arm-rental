@@ -59,6 +59,11 @@ Both prototypes now exercise [interruption recovery and 1,000-recipient
 progress](docs/native-replay-recovery.md) through separate processes using the
 full shared workload.
 
+The [fair runtime comparison](docs/runtime-comparison.md) strengthens Node's
+history classification and compares all three implementations with correctness
+gates, repeated measurements, curl transport accounting, and complete local
+runtime artifacts.
+
 Private delivery makes one promise about time: a user is only ever sent
 apartments List.am posted or changed within the last 24 hours. Everything the
 crawl discovers is still stored, but an older card waits for its next List.am

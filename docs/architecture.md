@@ -1359,6 +1359,17 @@ challenge; loop exclusion; cleanup; and secret-free structured results.
 
 ### Offline runtime comparison
 
+The comparison branch also narrows Node's full-history private classification:
+SQLite stages unclassified listings, filtered listings matching the current
+filters, and notified listings with an update. Skipped and unchanged notified
+history stays durable without payload decoding per recipient. One crawl caches
+the stored listing inventory and at most eight filter match sets, clearing them
+with the delivery batches. A separate inventory-presence flag completes initial
+selection even when every stored listing already has a terminal decision.
+Routine source changes and durable pending work retain their existing path.
+See the [fair comparison protocol](runtime-comparison.md) for its gates and
+measurement boundary. This work does not deploy or replace production.
+
 `experiments/node-replay/` exercises the existing parser, normalization, filters,
 SQLite classification, private scheduler, acknowledgements, and process restart
 with deterministic 500/1,000-recipient fixtures. Its exported JSON/HTML contract

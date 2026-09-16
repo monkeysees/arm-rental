@@ -75,7 +75,7 @@ fn memory() -> Value {
 }
 fn snapshot(phase: &str) -> Result<Value> {
     Ok(
-        json!({"phase":phase,"processRssBytes":memory()["rss"],"processPeakRssBytes":process_resources()?.0,"cgroupCurrentBytes":cgroup("memory.current")}),
+        json!({"phase":phase,"processRssBytes":memory()["rss"],"processPeakRssBytes":process_resources()?.0,"cgroupCurrentBytes":cgroup("memory.current"),"cgroupStat":cgroup("memory.stat")}),
     )
 }
 // DefaultHasher is deterministic within this pinned executable. Stream every ordered

@@ -38,6 +38,11 @@ test(
     assert.equal(result.restart.uncleanExitCode, 23);
     assert.equal(result.capacity, null);
     assert(verifyReplayResult(result));
+    assert(
+      result.phases.find((phase) => phase.name === "catchup").transactionProfile
+        .private_delivery_prepare.rowsChanged < 400,
+      "unchanged-filter catch-up must not restage the full classified history",
+    );
     const reordered = structuredClone(result);
     reordered.phases
       .find((phase) => phase.name === "fresh")

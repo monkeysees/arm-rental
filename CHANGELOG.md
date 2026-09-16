@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Compare Node, Go, and Rust with correctness-gated repeated workloads, narrower Node history classification, memory attribution, controlled curl transport, and complete experimental runtime artifacts.
+
 - Verify Go and Rust interruption recovery at 500/1,000 recipients with durable-prefix checks, acceptance-before-acknowledgement diagnostics, full shared replay verification, and repeated resource measurements.
 
 - Add an isolated Rust 500-recipient replay with compact SQLite decisions, bounded fair delivery, shared verification, clean-reopen checks, and constrained resource measurements.

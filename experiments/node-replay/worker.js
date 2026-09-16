@@ -25,7 +25,22 @@ const options = {
   dataDirectory: directory,
   listUrlTemplate: LIST_AM_URL_TEMPLATE,
 };
-const db = openStateDatabase({ ...options, create: stage === "seed" });
+let transactionProfile = {};
+const db = openStateDatabase({
+  ...options,
+  create: stage === "seed",
+  onMetric: (metric) => {
+    if (metric.name !== "state.transaction.completed") return;
+    const entry = (transactionProfile[metric.operation] ??= {
+      count: 0,
+      rowsChanged: 0,
+      durationMs: 0,
+    });
+    entry.count++;
+    entry.rowsChanged += metric.rowsChanged;
+    entry.durationMs += metric.durationMs;
+  },
+});
 const repos = createSqliteRepositories(db, options);
 const access = createSqliteStateAccess(db, repos);
 const config = {
@@ -49,6 +64,7 @@ const restartGapMs = priorRun
   : 0;
 
 async function crawl(name) {
+  transactionProfile = {};
   const fixture = phases.find((phase) => phase.name === name);
   const ids = fixture.ids;
   const deliver = !fixture.action.startsWith("store-without-delivery");
@@ -296,6 +312,7 @@ async function crawl(name) {
   const sentCount = sent.reduce((total, items) => total + items.length, 0);
   const summary = {
     name,
+    transactionProfile,
     wallMs,
     cpuMs: (usage.user + usage.system) / 1000,
     clockMode: mode,

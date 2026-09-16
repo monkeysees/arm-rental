@@ -1,0 +1,117 @@
+{
+  "status": "passed",
+  "curlVersion": "curl 8.21.0-IMPERSONATE (Linux) libcurl/8.21.0-IMPERSONATE BoringSSL zlib/1.3.1 brotli/1.2.0 zstd/1.5.7 libidn2/2.3.7 nghttp2/1.63.0 ngtcp2/1.20.0 nghttp3/1.15.0\nRelease-Date: [unreleased]\nProtocols: dict file ftp ftps gopher gophers http https imap imaps ipfs ipns mqtt mqtts pop3 pop3s rtsp smtp smtps telnet tftp ws wss\nFeatures: alt-svc AsynchDNS brotli ECH HSTS HTTP2 HTTP3 HTTPS-proxy HTTPSRR IDN IPv6 Largefile libz SSL SSLS-EXPORT threadsafe UnixSockets zstd\n",
+  "binarySha256": "9775f5c719cc7649d0da41a786ef5e25da886514c547399a6d86b6038f105786",
+  "payloadSha256": "24c6fa64c071e41e83083c84f8c1595025ee3f0a389e482c472486f08a02be30",
+  "payloadBytes": 1770,
+  "boundary": "Dedicated offline container with Node loopback fixture peer and real sequential curl children; 100ms peer delay and 2s request spacing. Separate from replay; not a production TLS measurement.",
+  "idle": {
+    "rss": 64917504,
+    "heapTotal": 10203136,
+    "heapUsed": 7756880,
+    "external": 3941923,
+    "arrayBuffers": 146595,
+    "peakRssBytes": 65871872,
+    "serviceCurrentBytes": 21233664,
+    "servicePeakBytes": 22106112,
+    "cgroupStat": "anon 19578880\nfile 0\nkernel 1179648\nkernel_stack 114688\npagetables 565248\nsec_pagetables 0\npercpu 1992\nsock 0\nvmalloc 12288\nshmem 0\nzswap 0\nzswapped 0\nfile_mapped 0\nfile_dirty 0\nfile_writeback 0\nswapcached 0\nanon_thp 4194304\nfile_thp 0\nshmem_thp 0\ninactive_anon 19505152\nactive_anon 4096\ninactive_file 0\nactive_file 0\nunevictable 0\nslab_reclaimable 91016\nslab_unreclaimable 219856\nslab 310872\nworkingset_refault_anon 0\nworkingset_refault_file 0\nworkingset_activate_anon 0\nworkingset_activate_file 0\nworkingset_restore_anon 0\nworkingset_restore_file 0\nworkingset_nodereclaim 0\npgscan 0\npgsteal 0\npgscan_kswapd 0\npgscan_direct 0\npgsteal_kswapd 0\npgsteal_direct 0\npgfault 5649\npgmajfault 0\npgrefill 0\npgactivate 0\npgdeactivate 0\npglazyfree 0\npglazyfreed 0\nzswpin 0\nzswpout 0\nthp_fault_alloc 4\nthp_collapse_alloc 0"
+  },
+  "after": {
+    "rss": 69013504,
+    "heapTotal": 10727424,
+    "heapUsed": 9296648,
+    "external": 3977363,
+    "arrayBuffers": 181995,
+    "peakRssBytes": 69013504,
+    "serviceCurrentBytes": 23199744,
+    "servicePeakBytes": 23937024,
+    "cgroupStat": "anon 21630976\nfile 4096\nkernel 1302528\nkernel_stack 114688\npagetables 626688\nsec_pagetables 0\npercpu 1992\nsock 0\nvmalloc 12288\nshmem 4096\nzswap 0\nzswapped 0\nfile_mapped 0\nfile_dirty 0\nfile_writeback 0\nswapcached 0\nanon_thp 4194304\nfile_thp 0\nshmem_thp 0\ninactive_anon 21581824\nactive_anon 4096\ninactive_file 0\nactive_file 0\nunevictable 0\nslab_reclaimable 106984\nslab_unreclaimable 245608\nslab 352592\nworkingset_refault_anon 0\nworkingset_refault_file 0\nworkingset_activate_anon 0\nworkingset_activate_file 0\nworkingset_restore_anon 0\nworkingset_restore_file 0\nworkingset_nodereclaim 0\npgscan 0\npgsteal 0\npgscan_kswapd 0\npgscan_direct 0\npgsteal_kswapd 0\npgsteal_direct 0\npgfault 13701\npgmajfault 0\npgrefill 0\npgactivate 22\npgdeactivate 0\npglazyfree 0\npglazyfreed 0\nzswpin 0\nzswpout 0\nthp_fault_alloc 4\nthp_collapse_alloc 0"
+  },
+  "cpuBefore": "usage_usec 119003\nuser_usec 99809\nsystem_usec 19194\nnr_periods 1\nnr_throttled 0\nthrottled_usec 0\nnr_bursts 0\nburst_usec 0",
+  "cpuAfter": "usage_usec 367219\nuser_usec 247563\nsystem_usec 119655\nnr_periods 62\nnr_throttled 0\nthrottled_usec 0\nnr_bursts 0\nburst_usec 0",
+  "memoryStat": "anon 21630976\nfile 4096\nkernel 1302528\nkernel_stack 114688\npagetables 626688\nsec_pagetables 0\npercpu 1992\nsock 0\nvmalloc 12288\nshmem 4096\nzswap 0\nzswapped 0\nfile_mapped 0\nfile_dirty 0\nfile_writeback 0\nswapcached 0\nanon_thp 4194304\nfile_thp 0\nshmem_thp 0\ninactive_anon 21581824\nactive_anon 4096\ninactive_file 0\nactive_file 0\nunevictable 0\nslab_reclaimable 106984\nslab_unreclaimable 246136\nslab 353120\nworkingset_refault_anon 0\nworkingset_refault_file 0\nworkingset_activate_anon 0\nworkingset_activate_file 0\nworkingset_restore_anon 0\nworkingset_restore_file 0\nworkingset_nodereclaim 0\npgscan 0\npgsteal 0\npgscan_kswapd 0\npgscan_direct 0\npgsteal_kswapd 0\npgsteal_direct 0\npgfault 13701\npgmajfault 0\npgrefill 0\npgactivate 22\npgdeactivate 0\npglazyfree 0\npglazyfreed 0\nzswpin 0\nzswpout 0\nthp_fault_alloc 4\nthp_collapse_alloc 0",
+  "runs": [
+    {
+      "wallMs": 115.383085,
+      "childPeakRssBytes": 2977792
+    },
+    {
+      "wallMs": 104.33994699999994,
+      "childPeakRssBytes": 2998272
+    },
+    {
+      "wallMs": 106.90375900000026,
+      "childPeakRssBytes": 2945024
+    },
+    {
+      "wallMs": 104.26094999999987,
+      "childPeakRssBytes": 2924544
+    },
+    {
+      "wallMs": 103.84182599999986,
+      "childPeakRssBytes": 3014656
+    },
+    {
+      "wallMs": 104.00790700000107,
+      "childPeakRssBytes": 2998272
+    },
+    {
+      "wallMs": 103.79015899999831,
+      "childPeakRssBytes": 2985984
+    },
+    {
+      "wallMs": 103.53125399999954,
+      "childPeakRssBytes": 2920448
+    },
+    {
+      "wallMs": 105.36593999999968,
+      "childPeakRssBytes": 2961408
+    },
+    {
+      "wallMs": 103.90697799999907,
+      "childPeakRssBytes": 3018752
+    },
+    {
+      "wallMs": 104.02564900000289,
+      "childPeakRssBytes": 2969600
+    },
+    {
+      "wallMs": 104.56530000000203,
+      "childPeakRssBytes": 3002368
+    },
+    {
+      "wallMs": 105.57769599999665,
+      "childPeakRssBytes": 2977792
+    },
+    {
+      "wallMs": 104.52567700000145,
+      "childPeakRssBytes": 2985984
+    },
+    {
+      "wallMs": 103.77037200000268,
+      "childPeakRssBytes": 2924544
+    },
+    {
+      "wallMs": 102.64113799999905,
+      "childPeakRssBytes": 3047424
+    },
+    {
+      "wallMs": 103.25317499999801,
+      "childPeakRssBytes": 2985984
+    },
+    {
+      "wallMs": 105.48587399999815,
+      "childPeakRssBytes": 2985984
+    },
+    {
+      "wallMs": 104.02578100000392,
+      "childPeakRssBytes": 2965504
+    },
+    {
+      "wallMs": 103.7450450000033,
+      "childPeakRssBytes": 2985984
+    }
+  ],
+  "sampledServicePeakBytes": 23887872,
+  "childPeakRssBytes": 3047424
+}

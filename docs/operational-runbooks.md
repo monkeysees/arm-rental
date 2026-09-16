@@ -19,6 +19,7 @@ into another handbook.
 | Telegram private or channel failure                      | [Telegram delivery response](runtime-incidents.md#telegram-private-or-channel-delivery-failure)  |
 | Stale singleton lock or lease                            | [Stale-lock response](runtime-incidents.md#stale-singleton-lease)                                |
 | Low disk or growing state                                | [Capacity response](state-maintenance.md#low-disk-and-state-growth-response)                     |
+| Retired Chromium profile                                 | [Guarded browser cleanup](state-maintenance.md#http-session-storage-and-former-profiles)         |
 | Failed or overdue scheduled operation                    | [Systemd operations](#systemd-operations)                                                        |
 | Current status, logs, timers, and local alerts           | [Production observability](observability.md)                                                     |
 | Production recovery acceptance exercises                 | [Production recovery exercises](production-exercises.md)                                         |

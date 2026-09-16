@@ -84,12 +84,45 @@ directories named `.list-am-http-*` are also excluded from snapshots and
 maintenance totals. A forced process exit can leave one behind; inspect and
 remove only these known scratch directories while the service is stopped.
 
-Chromium is no longer installed or launched. Existing `chrome-profile`
-directories are not managed or deleted by this release. After a successful
-HTTP crawl and after giving up rollback to browser-based releases, an operator
-may remove the exact former profile directory with the service stopped and a
-current backup available. Inspect the path first; never remove unknown data or
-follow a symbolic link. Retained older snapshots may still contain profiles.
+Chromium is no longer installed or launched. Retire only the service-owned
+`DATA_DIRECTORY/chrome-profile` through the serialized operator command:
+
+```sh
+sudo /opt/rental-apartments/current/ops/browser-cleanup
+sudo /opt/rental-apartments/current/ops/browser-cleanup --apply
+```
+
+The default is a reviewable dry run. Both modes temporarily stop the service
+and restart it with a readiness check, because inspecting the profile takes the
+same singleton lease as the application. Run during an acceptable brief outage.
+The shared operations lock excludes concurrent deployment, backup, and restore.
+First the command checks that the running container matches the immutable
+current-image record, checks the HTTP transport and absence of browser binaries
+and dependencies in that artifact, and validates the newest daily manifest-v3
+snapshot through the current recovery implementation. Deploy a release carrying
+this command before using it. A browser release or a legacy newest snapshot
+fails closed before stopping the service; run a normal backup first if needed.
+
+The profile report gives exact candidate paths and allocated bytes; `--apply`
+reports reclaimed bytes. Missing data is a successful zero-byte no-op. The
+command refuses symbolic links (including ancestors), foreign ownership,
+mounted subtrees, hardlinked files and unexpected entry types. Investigate an
+unsafe path; do not bypass the check. SQLite, WAL, cookies, unrelated files and
+live singleton leases are preserved. No rollback image or snapshot is deleted;
+restoring a retained legacy snapshot does not reinstall its browser profile.
+
+A separate read-only backup inventory reports retained usage and per-snapshot
+paths/bytes, splitting browser-bearing legacy snapshots, browser-free current
+snapshots, and legacy/unknown formats. Unknown is not a claim of restorability.
+Existing daily/weekly retention and protected recovery points remain intact.
+Allocated bytes may differ from filesystem free-space changes due to filesystem
+accounting and open file handles.
+
+Validation uses disposable local fixtures: CLI dry-run/apply/repeat, unsafe
+paths, active lease refusal, wrapper lock/artifact/snapshot checks and restart
+on failure, plus manifest-v3 snapshot validation and a real SQLite restore with
+retired profile data present. No production profile or backup is deleted merely
+to validate this operation.
 
 ## Retention and future pruning policy
 

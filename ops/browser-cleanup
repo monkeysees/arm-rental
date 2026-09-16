@@ -1,0 +1,56 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+SCRIPT_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
+# shellcheck source=ops/lib/operations.sh
+source "$SCRIPT_DIR/lib/operations.sh"
+mode=--dry-run
+if (($#)); then
+  [[ $# == 1 && ($1 == --dry-run || $1 == --apply) ]] || {
+    printf 'Usage: browser-cleanup [--dry-run|--apply]\n' >&2
+    exit 64
+  }
+  mode=$1
+fi
+OPS_RESTART_REQUIRED=0
+ops_cleanup() {
+  if ((OPS_RESTART_REQUIRED)); then ops_start_application; fi
+}
+ops_begin browser-cleanup rental-browser-cleanup
+ops_set_step acquire-operations-lock
+ops_acquire_lock
+ops_set_step validate-runtime-contract
+ops_validate_runtime_contract
+ops_require_backup_mount
+ops_set_step verify-active-release
+image=$(ops_read_image_reference)
+expected=$(docker image inspect --format '{{.Id}}' "$image")
+active=$(docker inspect --format '{{.Image}}' "$RENTAL_CONTAINER_NAME")
+[[ -n $expected && $expected == "$active" ]]
+# Inspect the running artifact, not the host checkout or an unstarted image.
+docker exec "$RENTAL_CONTAINER_NAME" node --input-type=module -e '
+  import fs from "node:fs";
+  import path from "node:path";
+  for (const file of ["/app/src/list-am-http.js", "/app/src/browser-cleanup-cli.js"]) {
+    if (!fs.statSync(file).isFile()) process.exit(65);
+  }
+  const p = JSON.parse(fs.readFileSync("/app/package.json", "utf8"));
+  if (Object.keys(p.dependencies || {}).some(n => /puppeteer|playwright|chromium/i.test(n))) process.exit(65);
+  const directories = [...(process.env.PATH || "").split(":"), "/usr/lib/chromium", "/opt/google/chrome"];
+  for (const directory of directories) {
+    for (const binary of ["chromium", "chromium-browser", "google-chrome", "chrome"]) {
+      if (fs.existsSync(path.join(directory, binary))) process.exit(65);
+    }
+  }
+'
+ops_set_step validate-browser-free-snapshot
+snapshot=$(ops_latest_snapshot)
+ops_validate_snapshot "$snapshot"
+jq --exit-status '.version == 3 and ([.hashes | keys[] | select(test("chrome-profile|chromium"; "i"))] | length == 0)' "$snapshot/manifest.json" >/dev/null
+ops_set_step report-retained-backup-usage
+# Read-only inventory keeps old browser-bearing snapshots separate from current ones.
+ops_compose run --rm --no-deps bot node src/browser-cleanup-cli.js --backup-report
+OPS_RESTART_REQUIRED=1
+ops_set_step stop-application
+ops_stop_application
+ops_set_step cleanup-obsolete-profile
+ops_compose run --rm --no-deps bot node src/browser-cleanup-cli.js "$mode"

@@ -311,6 +311,7 @@ deploy/rollback details and the complete operational index are documented in
 Weekly state growth reporting and the
 no-deletion retention policy are documented in
 [docs/state-maintenance.md](docs/state-maintenance.md).
+The same runbook documents the guarded [retired browser profile cleanup](docs/state-maintenance.md#http-session-storage-and-former-profiles), which defaults to a dry-run report and preserves current state and recovery points.
 
 The idempotent Hetzner host bootstrap, immutable infrastructure inputs,
 root-only initial secret handling, SSH-only firewall, protected backup volume,

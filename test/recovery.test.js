@@ -15,6 +15,8 @@ import os from "node:os";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import test from "node:test";
+import { createLegacyDatabase } from "./helpers/sqlite-legacy.js";
+import { SQLITE_SCHEMA_VERSION } from "../src/sqlite-schema.js";
 
 import { getConfig } from "../src/config.js";
 import {
@@ -35,6 +37,67 @@ import { writeState } from "../src/state.js";
 const DATABASE_ID = "database-1";
 const MIGRATION_ID = "migration-1";
 const TIME = "2026-07-25T08:00:00.000Z";
+
+test("an older SQLite snapshot validates unchanged and restores through the forward migration", async (t) => {
+  const { config } = await fixture(t);
+  const backup = await createSnapshot(config, { now: () => new Date(TIME) });
+  const dataRoot = path.join(backup.snapshot, "data");
+  const filename = stateDatabasePaths(dataRoot).database;
+  await rm(filename);
+  const legacy = createLegacyDatabase(dataRoot, {
+    listUrlTemplate: config.listUrlTemplate,
+    channelId: config.telegramChannelId,
+  });
+  legacy.exec("INSERT INTO private_recipients VALUES ('42', 1)");
+  legacy
+    .prepare(
+      "INSERT INTO private_delivery_decisions VALUES ('42', 'returning', 'skipped', ?)",
+    )
+    .run("2026-07-25T08:00:00.999Z");
+  legacy.close();
+  const archived = await readFile(filename);
+  const manifestPath = path.join(backup.snapshot, "manifest.json");
+  const manifest = JSON.parse(await readFile(manifestPath, "utf8"));
+  Object.assign(manifest.summary.database, {
+    userVersion: 2,
+    databaseId: "legacy-database",
+    apartments: 0,
+    privateRecipients: 1,
+    privateDecisions: 1,
+    channelDeliveries: 0,
+    telegramUsers: 0,
+    exchangeRateSnapshots: 0,
+    updateOffset: 0,
+  });
+  manifest.hashes["state.sqlite3"] = createHash("sha256")
+    .update(archived)
+    .digest("hex");
+  await writeState(manifestPath, manifest);
+  const validated = await validateSnapshot(config, backup.snapshot);
+  assert.equal(validated.summary.database.userVersion, SQLITE_SCHEMA_VERSION);
+  assert.deepEqual(await readFile(filename), archived);
+  await restoreSnapshot(config, backup.snapshot);
+  const restored = openStateDatabase({
+    dataDirectory: config.dataDirectory,
+    listUrlTemplate: config.listUrlTemplate,
+    channelId: config.telegramChannelId,
+  });
+  const repository = createSqliteRepositories(restored, {
+    listUrlTemplate: config.listUrlTemplate,
+    channelId: config.telegramChannelId,
+  }).privateDeliveries;
+  assert.deepEqual(repository.loadRecipient("42", ["returning"]).skipped, {
+    returning: "2026-07-25T08:00:00.999Z",
+  });
+  restored.close();
+  assert.deepEqual(await readFile(filename), archived);
+  manifest.summary.database.userVersion = 1;
+  await writeState(manifestPath, manifest);
+  await assert.rejects(
+    validateSnapshot(config, backup.snapshot),
+    /do not match its manifest/u,
+  );
+});
 
 function rates() {
   return {

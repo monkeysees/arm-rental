@@ -12,6 +12,8 @@ import path from "node:path";
 import test from "node:test";
 import { DatabaseSync } from "node:sqlite";
 
+import { createLegacyDatabase } from "./helpers/sqlite-legacy.js";
+
 import { emptyFilters } from "../src/filters.js";
 import { openStateDatabase } from "../src/sqlite-database.js";
 import { createSqliteRepositories } from "../src/sqlite-repositories.js";
@@ -117,7 +119,7 @@ test("SQLite lifecycle creates a secured, bound schema and reopens it", (t) => {
       .prepare("SELECT version FROM schema_migrations")
       .all()
       .map(({ version }) => version),
-    [1, 2],
+    [1, 2, 3],
   );
   assert.equal(database.validate({ full: true }), true);
 
@@ -239,8 +241,11 @@ test("transaction helper rolls back synchronously and emits sanitized bounded me
  * that never named a housing kind, and one flat first-page history.
  */
 function seedPreHousesInstallation(directory) {
-  const database = openDatabase(directory);
-  const connection = database.connection;
+  const connection = createLegacyDatabase(directory, {
+    version: 1,
+    listUrlTemplate: LIST_URL,
+    channelId: CHANNEL_ID,
+  });
   connection
     .prepare("INSERT INTO apartments(item_id, payload_json) VALUES (?, ?)")
     .run(
@@ -282,7 +287,7 @@ function seedPreHousesInstallation(directory) {
     );
   connection.exec("DELETE FROM schema_migrations WHERE version = 2");
   connection.exec("PRAGMA user_version = 1");
-  database.close({ checkpoint: false });
+  connection.close();
 }
 
 test("the housing-kind backfill converts an installation created before houses", (t) => {
@@ -323,7 +328,7 @@ test("repositories preserve complete logical state across a checkpoint and reope
   });
 
   const apartments = apartmentState();
-  repositories.apartments.commitCrawl(apartments);
+  repositories.apartments.importState(apartments);
   repositories.privateDeliveries.initializeSelection("42", {
     skipped: { 20: TIME },
     filtered: { 30: TIME },

@@ -189,6 +189,32 @@ export function postingDateSortValue(value, referenceValue = Date.now()) {
   return null;
 }
 
+/** Index keys retain relative/yearless semantics without scanning old payloads. */
+export function postingDateIndex(value) {
+  const text = typeof value === "string" ? value.trim() : "";
+  const annual = text.match(MONTH_AND_DAY);
+  if (annual) {
+    const month = monthNumber(annual[1]);
+    const day = Number(annual[2]);
+    if (month !== undefined && endOfDay(2000, month, day) !== null) {
+      return { bucket: "annual", key: month * 32 + day };
+    }
+  }
+  const relative = text.match(RELATIVE_DAY);
+  if (relative && postingDateSortValue(text) !== null) {
+    return {
+      bucket: "relative",
+      key: -RELATIVE_DAYS_AGO.get(relative[1].toLocaleLowerCase("ru-RU")),
+    };
+  }
+  return { bucket: "fixed", key: postingDateSortValue(text) };
+}
+
+export function annualPostingDateCutoff(referenceValue = Date.now()) {
+  const date = new Date(referenceValue + FUTURE_TOLERANCE_MS - (DAY_MS - 1));
+  return date.getUTCMonth() * 32 + date.getUTCDate();
+}
+
 /**
  * Renders an instant in the dated form List.am prints with a year and a clock.
  *

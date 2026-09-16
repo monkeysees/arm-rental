@@ -48,6 +48,10 @@ The isolated [Node replay baseline](docs/node-replay-baseline.md) defines the
 500/1,000-recipient behavior contract and resource measurements for the runtime
 comparison experiment. It does not change production deployment.
 
+The [Go offline slice](docs/go-replay-slice.md) runs the shared 500-recipient
+workload through fixture parsing, SQLite classification, simulated delivery,
+and clean reopen using the same local runner.
+
 Private delivery makes one promise about time: a user is only ever sent
 apartments List.am posted or changed within the last 24 hours. Everything the
 crawl discovers is still stored, but an older card waits for its next List.am

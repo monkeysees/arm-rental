@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Add an isolated Go 500-recipient replay with compact SQLite decisions, fair rate-limited delivery, clean-reopen checks, shared verification, and constrained resource measurements.
+
 - Add an offline 500/1,000-recipient Node replay contract, independent result verification, durable restart checks, and repeated constrained-container resource measurements for the runtime experiment.
 
 - Validate published image schema labels against the application schema version so upgrades no longer fail a stale publication check.

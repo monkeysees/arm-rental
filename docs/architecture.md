@@ -1366,3 +1366,10 @@ and independent result oracle are shared comparison inputs, not production
 components. The [baseline protocol](node-replay-baseline.md) separates virtual
 behavior checks from wall measurements and defines the cgroup RAM boundary;
 local application-container results do not establish whole-machine Pi capacity.
+
+`experiments/go-replay/` consumes the exported fixture contract for the isolated
+500-recipient Go slice. A single SQLite writer stores source revisions and
+compact decisions, queries recent catch-up candidates, and supplies pending
+payloads to a bounded fair event loop. The shared runner/verifier names its
+clean-reopen scope explicitly; forced interruption and stress remain follow-up
+work. See [Go replay choices and measurements](go-replay-slice.md).

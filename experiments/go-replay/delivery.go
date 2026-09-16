@@ -1,0 +1,223 @@
+package main
+
+import (
+	"fmt"
+	"reflect"
+	"time"
+)
+
+type PhaseResult struct {
+	Name                     string              `json:"name"`
+	Sent                     int                 `json:"sent"`
+	Announcements            int                 `json:"announcements"`
+	Retries                  int                 `json:"retries"`
+	Attempts                 int                 `json:"attempts"`
+	RecipientsAsserted       int                 `json:"recipientsAsserted"`
+	ClassifiedRecipients     int                 `json:"classifiedRecipients"`
+	DeliveriesByProfile      [][]string          `json:"deliveriesByProfile"`
+	PayloadsByProfile        [][]Listing         `json:"payloadsByProfile"`
+	ClassificationsByProfile []map[string]string `json:"classificationsByProfile"`
+	ClassificationWallMs     float64             `json:"classificationWallMs"`
+	WallMs                   float64             `json:"wallMs"`
+	DrainMs                  float64             `json:"drainMs"`
+	FirstProgressMaxMs       float64             `json:"firstProgressMaxMs"`
+	MaxInFlight              int                 `json:"maxInFlight"`
+	RateLimitsVerified       bool                `json:"rateLimitsVerified"`
+}
+
+// One event loop owns SQLite. Each turn starts at most one send per ready user;
+// waits have deadlines, and only transport latency occupies one of eight slots.
+func (s *Store) deliver(m Manifest, users int, catchup bool, mode string, now int64, out *PhaseResult) error {
+	type attempt struct {
+		at    float64
+		retry bool
+	}
+	history := make([][]attempt, users)
+	lastAttempt := -1e30
+	type recipient struct {
+		tokens, refilled, ready     float64
+		announcement, retried, done bool
+		attempts                    int
+		sent                        []Listing
+	}
+	type flight struct {
+		user    int
+		listing *Listing
+		end     float64
+		retry   bool
+	}
+	states := make([]recipient, users)
+	for i := range states {
+		states[i] = recipient{tokens: float64(m.Transport.RecipientBurst), announcement: catchup, sent: []Listing{}}
+	}
+	start := time.Now()
+	clock := 0.0
+	global := 0.0
+	cursor := 0
+	finished := 0
+	flights := []flight{}
+	for finished < users || len(flights) > 0 {
+		if mode == "wall" {
+			clock = float64(time.Since(start).Microseconds()) / 1000
+		}
+		pending := flights[:0]
+		for _, f := range flights {
+			if f.end > clock {
+				pending = append(pending, f)
+				continue
+			}
+			r := &states[f.user]
+			if f.retry {
+				r.retried = true
+				r.ready = clock + float64(m.Transport.RetryAfterMs)
+				out.Retries++
+				continue
+			}
+			r.ready = clock
+			r.attempts = 0
+			if f.listing == nil {
+				r.announcement = false
+				out.Announcements++
+			} else {
+				if e := s.acknowledge(f.user, f.listing.ID, now); e != nil {
+					return e
+				}
+				if len(r.sent) == 0 && clock > out.FirstProgressMaxMs {
+					out.FirstProgressMaxMs = clock
+				}
+				r.sent = append(r.sent, *f.listing)
+				out.Sent++
+			}
+		}
+		flights = pending
+		launched := false
+		next := 1e30
+		for _, f := range flights {
+			if f.end < next {
+				next = f.end
+			}
+		}
+		for scanned := 0; scanned < users && len(flights) < 8; scanned++ {
+			u := cursor
+			cursor = (cursor + 1) % users
+			r := &states[u]
+			if r.done {
+				continue
+			}
+			if r.ready > clock {
+				if r.ready < next {
+					next = r.ready
+				}
+				continue
+			}
+			l, e := s.next(u)
+			if e != nil {
+				return e
+			}
+			if l == nil && !r.announcement {
+				r.done = true
+				finished++
+				continue
+			}
+			r.tokens += (clock - r.refilled) * float64(m.Transport.RecipientMessagesPerMinute) / 60000
+			if r.tokens > float64(m.Transport.RecipientBurst) {
+				r.tokens = float64(m.Transport.RecipientBurst)
+			}
+			r.refilled = clock
+			if r.attempts == 0 && r.tokens < 1 {
+				r.ready = clock + (1-r.tokens)*60000/float64(m.Transport.RecipientMessagesPerMinute)
+				if r.ready < next {
+					next = r.ready
+				}
+				continue
+			}
+			if clock < global {
+				if global < next {
+					next = global
+				}
+				continue
+			}
+			if clock-lastAttempt+0.000001 < 1000/float64(m.Transport.GlobalAttemptsPerSecond) {
+				return fmt.Errorf("global transport rate exceeded")
+			}
+			lastAttempt = clock
+			history[u] = append(history[u], attempt{clock, r.attempts > 0})
+			if r.attempts == 0 {
+				r.tokens--
+			}
+			r.attempts++
+			if r.attempts > m.Transport.MaxAttempts {
+				return fmt.Errorf("retry budget exceeded")
+			}
+			if r.announcement {
+				l = nil
+			}
+			retry := catchup && l != nil && len(r.sent) == 0 && u%m.Transport.RetryRecipientsModulo == 0 && !r.retried
+			end := clock + float64(m.Transport.LatencyMs)
+			flights = append(flights, flight{u, l, end, retry})
+			r.ready = 1e30
+			global = clock + 1000/float64(m.Transport.GlobalAttemptsPerSecond)
+			out.Attempts++
+			launched = true
+			if len(flights) > out.MaxInFlight {
+				out.MaxInFlight = len(flights)
+			}
+			break
+		}
+		if finished == users && len(flights) == 0 {
+			break
+		}
+		if launched {
+			continue
+		}
+		if next == 1e30 {
+			return fmt.Errorf("scheduler deadlock")
+		}
+		if mode == "wall" {
+			delay := next - float64(time.Since(start).Microseconds())/1000
+			if delay > 0 {
+				time.Sleep(time.Duration(delay * 1e6))
+			}
+		} else {
+			clock = next
+		}
+	}
+	out.DrainMs = clock
+	for _, attempts := range history {
+		logical := []float64{}
+		for i, a := range attempts {
+			if a.retry {
+				if i == 0 || a.at-attempts[i-1].at+0.000001 < float64(m.Transport.LatencyMs+m.Transport.RetryAfterMs) {
+					return fmt.Errorf("retry deadline violated")
+				}
+			} else {
+				logical = append(logical, a.at)
+			}
+		}
+		for i, first := range logical {
+			for j := i; j < len(logical); j++ {
+				allowed := float64(m.Transport.RecipientBurst) + (logical[j]-first)*float64(m.Transport.RecipientMessagesPerMinute)/60000
+				if float64(j-i+1) > allowed+0.000001 {
+					return fmt.Errorf("recipient transport rate exceeded")
+				}
+			}
+		}
+	}
+	out.RateLimitsVerified = true
+	out.DeliveriesByProfile = make([][]string, 4)
+	out.PayloadsByProfile = make([][]Listing, 4)
+	for u, r := range states {
+		ids := []string{}
+		for _, l := range r.sent {
+			ids = append(ids, l.ID)
+		}
+		if u < 4 {
+			out.DeliveriesByProfile[u] = ids
+			out.PayloadsByProfile[u] = r.sent
+		} else if !reflect.DeepEqual(r.sent, out.PayloadsByProfile[u%4]) {
+			return fmt.Errorf("recipient %d payload/order differs", u)
+		}
+		out.RecipientsAsserted++
+	}
+	return nil
+}

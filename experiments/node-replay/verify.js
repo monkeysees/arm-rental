@@ -26,6 +26,7 @@ export function expectedClassifications(phase, group) {
   );
 }
 export function verifyReplayResult(result) {
+  if (result.scope === "go-500-slice") return verifyGoSlice(result);
   assert.equal(result.version, 1);
   assert.equal(result.status, "passed");
   const users = result.workload.users;
@@ -70,6 +71,81 @@ export function verifyReplayResult(result) {
   assert.equal(result.restart.uncleanExitCode, 23);
   assert.equal(result.restart.acknowledgedPrefixPreserved, true);
   assert.equal(result.restart.unsentSuffixDelivered, true);
+  return true;
+}
+export function verifyGoSlice(result) {
+  assert.equal(result.version, 1);
+  assert.equal(result.status, "passed");
+  const users = result.workload.users;
+  assert([4, 500].includes(users));
+  assert.equal(result.workload.decisionsPerRecipient, 6563);
+  assert.deepEqual(
+    result.phases.map((p) => p.name),
+    [
+      "seed",
+      "seed-decisions",
+      ...Array(4).fill("unchanged"),
+      "updated",
+      "fresh",
+      "catchup-store",
+      "catchup",
+      "reopen-unchanged",
+    ],
+  );
+  for (const observed of result.phases) {
+    const reopen = observed.name === "reopen-unchanged";
+    const expected = reopen
+      ? contract.expected.unchanged
+      : contract.expected[observed.name];
+    if (!expected) continue;
+    assert.equal(observed.recipientsAsserted, users);
+    assert.equal(observed.classifiedRecipients, users);
+    assert.deepEqual(observed.deliveriesByProfile, expected);
+    assert.equal(observed.sent, (expected.flat().length * users) / 4);
+    const fixture = phases.find(
+      (p) => p.name === (reopen ? "catchup" : observed.name),
+    );
+    assert.deepEqual(
+      observed.classificationsByProfile,
+      [0, 1, 2, 3].map((group) => expectedClassifications(fixture, group)),
+    );
+    assert(observed.maxInFlight <= 8);
+    assert.equal(observed.rateLimitsVerified, true);
+    for (let group = 0; group < 4; group++) {
+      assert.deepEqual(
+        observed.payloadsByProfile[group],
+        expected[group].map((id) => ({
+          id,
+          kind: contract.profiles[group].kind,
+          title: `Replay rental ${id}${observed.name === "updated" ? " updated" : ""}`,
+          url: `https://www.list.am/ru/item/${id}`,
+          price: contract.profiles[group].price,
+          originalAmount: contract.profiles[group].originalAmount,
+          currency: contract.profiles[group].currency,
+          location: "Арабкир",
+          rooms: 2,
+          areaSqM: 60,
+          floor: "3/9",
+          postedAt: Date.parse(
+            Number(id) < 200000
+              ? "2026-09-15T23:59:59.999Z"
+              : "2026-09-16T23:59:59.999Z",
+          ),
+        })),
+      );
+    }
+  }
+  const catchup = result.phases.find((p) => p.name === "catchup");
+  assert.equal(catchup.announcements, users);
+  assert.equal(catchup.retries, Math.ceil(users / 10));
+  assert.equal(catchup.attempts, users * 9 + Math.ceil(users / 10));
+  assert(catchup.drainMs >= 12000);
+  assert.deepEqual(result.restart, {
+    cleanReopen: true,
+    acknowledgementsPreserved: true,
+    unchangedSendsNothing: true,
+  });
+  assert.equal(result.resources.decisionRows, users * (6563 + 48));
   return true;
 }
 if (process.argv[1] === fileURLToPath(import.meta.url)) {

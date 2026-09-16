@@ -8,10 +8,22 @@ import {
 } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { parseArgs } from "node:util";
 import { contract } from "./fixture.js";
 import { verifyReplayResult } from "./verify.js";
 
-const [output] = process.argv.slice(2);
+const {
+  values,
+  positionals: [output],
+} = parseArgs({
+  allowPositionals: true,
+  options: {
+    runtime: { type: "string", default: "node" },
+    "go-binary": { type: "string" },
+  },
+});
+assert(["node", "go"].includes(values.runtime));
+if (values.runtime === "go") assert(path.isAbsolute(values["go-binary"] ?? ""));
 assert(
   output,
   "Usage: node experiments/node-replay/measure.js NEW_RESULTS_DIRECTORY",
@@ -30,6 +42,8 @@ const manifest = {
   protocol: contract.measurement,
   startedAt: new Date().toISOString(),
   image,
+  runtime: values.runtime,
+  scope: values.runtime === "go" ? "go-500-slice" : "full-contract",
   imageId: command("docker", [
     "image",
     "inspect",
@@ -56,7 +70,7 @@ const save = () =>
     JSON.stringify(manifest, null, 2),
   );
 save();
-for (const users of contract.populations) {
+for (const users of values.runtime === "go" ? [500] : contract.populations) {
   for (const [mode, count] of [
     ["virtual", 1],
     ["wall", contract.measurement.repeats],
@@ -79,6 +93,9 @@ for (const users of contract.populations) {
         `${root}:/app:ro`,
         "-w",
         "/app",
+        ...(values.runtime === "go"
+          ? ["-v", `${values["go-binary"]}:/replay:ro`]
+          : []),
         image,
         "node",
         "experiments/node-replay/run.js",
@@ -86,6 +103,9 @@ for (const users of contract.populations) {
         String(users),
         "--mode",
         mode,
+        ...(values.runtime === "go"
+          ? ["--runtime", "go", "--go-binary", "/replay"]
+          : []),
       ];
       const stdout = createWriteStream(path.join(output, `${name}.json`));
       const stderr = createWriteStream(path.join(output, `${name}.log`));

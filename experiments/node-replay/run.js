@@ -12,6 +12,8 @@ const { values } = parseArgs({
   options: {
     users: { type: "string", default: "500" },
     mode: { type: "string", default: "virtual" },
+    runtime: { type: "string", default: "node" },
+    "go-binary": { type: "string" },
   },
 });
 const users = Number(values.users),
@@ -21,6 +23,12 @@ assert(
   "Use 500 or 1000 recipients (4 is a diagnostic)",
 );
 assert(["virtual", "wall"].includes(mode));
+assert(["node", "go"].includes(values.runtime));
+if (values.runtime === "go") {
+  const { runGoReplay } = await import("../go-replay/run.js");
+  await runGoReplay({ users, mode, binary: values["go-binary"] });
+  process.exit(0);
+}
 const directory = mkdtempSync(path.join(tmpdir(), "node-replay-"));
 const root = fileURLToPath(new URL("../..", import.meta.url));
 const sourceHashes = {};

@@ -26,7 +26,8 @@ export function expectedClassifications(phase, group) {
   );
 }
 export function verifyReplayResult(result) {
-  if (result.scope === "go-500-slice") return verifyGoSlice(result);
+  if (["go-500-slice", "rust-500-slice"].includes(result.scope))
+    return verifyNativeSlice(result);
   assert.equal(result.version, 1);
   assert.equal(result.status, "passed");
   const users = result.workload.users;
@@ -73,7 +74,7 @@ export function verifyReplayResult(result) {
   assert.equal(result.restart.unsentSuffixDelivered, true);
   return true;
 }
-export function verifyGoSlice(result) {
+export function verifyNativeSlice(result) {
   assert.equal(result.version, 1);
   assert.equal(result.status, "passed");
   const users = result.workload.users;

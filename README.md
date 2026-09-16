@@ -52,6 +52,9 @@ The [Go offline slice](docs/go-replay-slice.md) runs the shared 500-recipient
 workload through fixture parsing, SQLite classification, simulated delivery,
 and clean reopen using the same local runner.
 
+The [Rust offline slice](docs/rust-replay-slice.md) runs the same 500-recipient
+fixture workload and clean-reopen checks through the shared local runner.
+
 Private delivery makes one promise about time: a user is only ever sent
 apartments List.am posted or changed within the last 24 hours. Everything the
 crawl discovers is still stored, but an older card waits for its next List.am

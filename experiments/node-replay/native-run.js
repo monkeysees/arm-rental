@@ -5,16 +5,28 @@ import { mkdtempSync, readFileSync, readdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { verifyGoSlice } from "../node-replay/verify.js";
-import { evaluateCapacity } from "../node-replay/capacity.js";
-import { memory } from "../node-replay/metrics.js";
+import { verifyNativeSlice } from "./verify.js";
+import { evaluateCapacity } from "./capacity.js";
+import { memory } from "./metrics.js";
 
-export async function runGoReplay({ users, mode, binary }) {
+function sourceFiles(directory, prefix = "") {
+  return readdirSync(directory, { withFileTypes: true }).flatMap((entry) => {
+    if (entry.name === "target") return [];
+    const relative = path.join(prefix, entry.name);
+    if (entry.isDirectory())
+      return sourceFiles(path.join(directory, entry.name), relative);
+    return /\.(go|mod|sum|js|json|rs|toml|lock)$/.test(entry.name)
+      ? [relative]
+      : [];
+  });
+}
+
+export async function runNativeReplay({ users, mode, binary, runtime }) {
   assert(
     binary && path.isAbsolute(binary),
-    "--go-binary must be an absolute executable path",
+    `--${runtime}-binary must be an absolute executable path`,
   );
-  const directory = mkdtempSync(path.join(tmpdir(), "go-replay-"));
+  const directory = mkdtempSync(path.join(tmpdir(), `${runtime}-replay-`));
   const root = fileURLToPath(new URL("../..", import.meta.url));
   try {
     const fixtures = path.join(directory, "fixtures");
@@ -43,15 +55,18 @@ export async function runGoReplay({ users, mode, binary }) {
       child.on("close", (code) =>
         code === 0
           ? resolve(Buffer.concat(chunks))
-          : reject(new Error(`Go replay exit ${code}`)),
+          : reject(new Error(`${runtime} replay exit ${code}`)),
       );
     });
     const result = JSON.parse(output);
-    verifyGoSlice(result);
+    assert.equal(result.scope, `${runtime}-500-slice`);
+    verifyNativeSlice(result);
     result.sourceHashes = {};
-    for (const folder of ["experiments/go-replay", "experiments/node-replay"]) {
-      for (const name of readdirSync(path.join(root, folder)).sort()) {
-        if (!/\.(go|mod|sum|js|json)$/.test(name)) continue;
+    for (const folder of [
+      `experiments/${runtime}-replay`,
+      "experiments/node-replay",
+    ]) {
+      for (const name of sourceFiles(path.join(root, folder)).sort()) {
         result.sourceHashes[`${folder}/${name}`] = createHash("sha256")
           .update(readFileSync(path.join(root, folder, name)))
           .digest("hex");

@@ -1373,3 +1373,9 @@ compact decisions, queries recent catch-up candidates, and supplies pending
 payloads to a bounded fair event loop. The shared runner/verifier names its
 clean-reopen scope explicitly; forced interruption and stress remain follow-up
 work. See [Go replay choices and measurements](go-replay-slice.md).
+
+`experiments/rust-replay/` implements the same isolated 500-recipient slice in
+Rust with HTML5 fixture parsing, bundled SQLite, incremental revisions, compact
+integer decisions, and a single bounded delivery scheduler. The native runner
+and independent slice oracle are shared with Go. No production component imports
+this prototype. See [Rust replay choices and measurements](rust-replay-slice.md).

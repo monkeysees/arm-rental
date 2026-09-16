@@ -20,10 +20,12 @@ const {
   options: {
     runtime: { type: "string", default: "node" },
     "go-binary": { type: "string" },
+    "rust-binary": { type: "string" },
   },
 });
-assert(["node", "go"].includes(values.runtime));
-if (values.runtime === "go") assert(path.isAbsolute(values["go-binary"] ?? ""));
+assert(["node", "go", "rust"].includes(values.runtime));
+if (values.runtime !== "node")
+  assert(path.isAbsolute(values[`${values.runtime}-binary`] ?? ""));
 assert(
   output,
   "Usage: node experiments/node-replay/measure.js NEW_RESULTS_DIRECTORY",
@@ -43,7 +45,8 @@ const manifest = {
   startedAt: new Date().toISOString(),
   image,
   runtime: values.runtime,
-  scope: values.runtime === "go" ? "go-500-slice" : "full-contract",
+  scope:
+    values.runtime !== "node" ? `${values.runtime}-500-slice` : "full-contract",
   imageId: command("docker", [
     "image",
     "inspect",
@@ -70,7 +73,7 @@ const save = () =>
     JSON.stringify(manifest, null, 2),
   );
 save();
-for (const users of values.runtime === "go" ? [500] : contract.populations) {
+for (const users of values.runtime !== "node" ? [500] : contract.populations) {
   for (const [mode, count] of [
     ["virtual", 1],
     ["wall", contract.measurement.repeats],
@@ -93,8 +96,8 @@ for (const users of values.runtime === "go" ? [500] : contract.populations) {
         `${root}:/app:ro`,
         "-w",
         "/app",
-        ...(values.runtime === "go"
-          ? ["-v", `${values["go-binary"]}:/replay:ro`]
+        ...(values.runtime !== "node"
+          ? ["-v", `${values[`${values.runtime}-binary`]}:/replay:ro`]
           : []),
         image,
         "node",
@@ -103,8 +106,13 @@ for (const users of values.runtime === "go" ? [500] : contract.populations) {
         String(users),
         "--mode",
         mode,
-        ...(values.runtime === "go"
-          ? ["--runtime", "go", "--go-binary", "/replay"]
+        ...(values.runtime !== "node"
+          ? [
+              "--runtime",
+              values.runtime,
+              `--${values.runtime}-binary`,
+              "/replay",
+            ]
           : []),
       ];
       const stdout = createWriteStream(path.join(output, `${name}.json`));

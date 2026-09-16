@@ -899,14 +899,18 @@ operator procedures are indexed in
    channel publication, while every user's worker remains sequential and
    oldest-first. A worker reads and persists only its own recipient's rows:
    its history is read where it is about to be classified, keyed by
-   `(recipient_id, item_id)` and restricted to the crawl's explicit listing IDs,
+   `(recipient_id, item_id)` and restricted to source changes and durable pending IDs,
    and it commits one bounded write per initial
    selection, re-admission batch, classification batch, or acknowledgement.
    The decision table retains every answer the installation has recorded,
    including those naming listings List.am has since dropped, so no crawl path
    reads it whole or loads a recipient's absent-listing decisions into memory.
-   Older stored listings remain in the read set because non-matches are
-   classified even outside the delivery window. Menu history offers use the
+   Initial selection, migration, and an explicit filter change include older
+   stored listings because non-matches are classified even outside the delivery
+   window. Each recipient's source cursor and normalized filter fingerprint
+   prevent routine unchanged crawls from repeating that scan. Candidate IDs and
+   cursor advancement commit together before classification, and outstanding
+   sends remain queued across interruption. Menu history offers use the
    stored listing order to scope the same indexed read. Returning listings
    recover their original decisions; no retention cutoff or schema migration
    is involved. Those writes still pass through a serialized,
@@ -1064,6 +1068,15 @@ interruption. Older binaries require their matching pre-deploy snapshot before
 rollback. See the [schema contract](sqlite-schema.md) and
 [measured size, query, and migration costs](compact-decisions-benchmark.md).
 
+Schema version 5 adds a shared indexed source-change sequence on each listing,
+private recipient cursors and filter fingerprints, and a durable private work
+table. Schema version 6 adds the channel source cursor, durable channel work,
+and an index for channel admission statuses. Existing decisions remain intact;
+the first upgraded pass reconciles them before routine incremental selection.
+Both consumers share listing decoding and source revisions, while retaining
+their different admission rules. Older binaries require their pre-upgrade
+snapshot for rollback.
+
 - `apartments` stores a normalized listing JSON payload plus indexed discovery
   and encounter fields per item. Discovery reads bounded category watermarks
   and looks up only IDs on encountered pages. `crawl_state` stores checked time,
@@ -1077,16 +1090,23 @@ rollback. See the [schema contract](sqlite-schema.md) and
   canonicalization in the same transaction.
 - `private_recipients` and `private_delivery_decisions` store one row per
   recipient/item terminal decision (`notified`, `skipped`, or `filtered`).
-  Absence remains pending. Initial selection and batch classification commit
+  A missing terminal decision remains undecided; `private_delivery_work`
+  explicitly retains candidates awaiting classification or delivery. Initial selection and batch classification commit
   before delivery, filtered re-admission deletes its obsolete row before the
-  network call, and a successful send is followed immediately by one-row
+  network call and queues the item, and a successful send is followed immediately by one-row
   acknowledgement. Schema 4 encodes these statuses as 0, 1, and 2 and stores
   exact signed epoch milliseconds; absent-listing decisions remain retained.
 - `channel_state` and `channel_deliveries` store target/fingerprint admission
   state plus pending, filtered, skipped-initial, and published rows. Published
   rows alone may contain message ID, content hash, publication time, and optional
   update time. Sends, replacements, edits, and reposts update acknowledgement
-  fields only after Telegram accepts the operation.
+  fields only after Telegram accepts the operation. `channel_work` retains
+  publication and edit candidates, including failures across process restarts.
+  Routine selection uses payload changes and encounters of initially skipped
+  posts; unchanged published encounters need no rendering or comparison.
+  Candidate reads are paged, and the combined pending/new work follows the
+  retained source order. Initial classification streams the listing table in
+  one transaction; explicit fingerprint changes reconcile rejected history.
 - `telegram_state` stores the nonnegative update offset and optional legacy
   recipient binding. `telegram_users` stores activation, initial-send choice,
   normalized filters, pending range input, and deletion marker. Each processed
@@ -1105,11 +1125,12 @@ rollback. See the [schema contract](sqlite-schema.md) and
   timestamp and aggregate managed byte count. It is excluded from application
   state thresholds, entry counts, and managed-growth totals.
 
-Private and channel delivery still load the full retained listing projection
-after a crawl commits, and channel state still loads its retained delivery
-history. These consumer reads are measured separately from discovery and
-persistence; their optimization belongs to the separate delivery tickets.
-Without either consumer, discovery and persistence need no full-history read.
+Routine private and channel delivery no longer load the full retained listing
+or channel-decision projection after a crawl commits. They use indexed source
+revisions plus their durable work tables. Full projections remain available for
+validation/export and explicit private history offers; selection/filter changes
+may reconcile history once. See the [delivery benchmark](incremental-delivery-benchmark.md)
+for retained-history CPU, memory, and recovery evidence.
 
 The five legacy JSON paths contain only incompatible `sqlite-migrated`
 sentinels after cutover. They carry backend, migration, and database identities

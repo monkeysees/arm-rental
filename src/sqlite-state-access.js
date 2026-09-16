@@ -55,59 +55,6 @@ function createDeliveryDecisions(database, repository) {
   };
 }
 
-function saveChannelState(database, repository, state) {
-  const previous = repository.load();
-  if (!previous) {
-    repository.initialize(state.filterFingerprint, state.apartments);
-    return state;
-  }
-
-  database.transaction("channel_state_commit", () => {
-    if (previous.filterFingerprint !== state.filterFingerprint) {
-      repository.updateFilterFingerprint(state.filterFingerprint, {
-        transaction: false,
-      });
-    }
-    const additions = Object.fromEntries(
-      Object.entries(state.apartments).filter(
-        ([itemId]) => !Object.hasOwn(previous.apartments, itemId),
-      ),
-    );
-    if (Object.keys(additions).length > 0) {
-      repository.classify(additions, { transaction: false });
-    }
-
-    for (const [itemId, entry] of Object.entries(state.apartments)) {
-      const prior = previous.apartments[itemId];
-      if (!prior || sameValue(prior, entry)) continue;
-      if (
-        entry.status === "pending" &&
-        ["filtered", "skipped_initial"].includes(prior.status)
-      ) {
-        repository.readmit(itemId, entry.reencounteredAt, {
-          transaction: false,
-        });
-        continue;
-      }
-      if (entry.status === "published") {
-        repository.acknowledge(
-          itemId,
-          {
-            messageId: entry.messageId,
-            contentHash: entry.contentHash,
-            publishedAt: entry.publishedAt,
-            ...(entry.updatedAt ? { updatedAt: entry.updatedAt } : {}),
-          },
-          { transaction: false },
-        );
-        continue;
-      }
-      throw new TypeError("Unsupported channel delivery state transition");
-    }
-  });
-  return state;
-}
-
 function saveTelegramState(repository, state) {
   const previous = repository.load();
   const next = migrateBotState(state);
@@ -135,11 +82,9 @@ function saveTelegramState(repository, state) {
 
 /**
  * Names one store per domain so a caller reaches its own rows directly. The
- * channel and Telegram stores still accept a whole domain state because their
- * callers hold one in memory for a whole publication or poll; each translates
- * it into the bounded repository operations the change actually implies.
- * Private delivery has no whole-state writer left: every decision is written
- * through `decisions`, and a recipient only ever leaves through the atomic
+ * Telegram adapter translates each poll's state into bounded user operations.
+ * Delivery consumers use candidate and decision operations directly; neither
+ * rewrites a whole history. A recipient only ever leaves through the atomic
  * `deleteUserData` transaction.
  */
 export function createSqliteStateAccess(database, repositories) {
@@ -154,6 +99,14 @@ export function createSqliteStateAccess(database, repositories) {
     },
     privateDeliveries: {
       load: () => repositories.privateDeliveries.loadAllDecisions(),
+      loadCandidates: (recipientId, fingerprint) =>
+        repositories.privateDeliveries.loadCandidates(recipientId, fingerprint),
+      retainPending: (recipientId, itemIds, workIds) =>
+        repositories.privateDeliveries.retainPending(
+          recipientId,
+          itemIds,
+          workIds,
+        ),
       loadRecipient: (recipientId, itemIds) =>
         repositories.privateDeliveries.loadRecipient(recipientId, itemIds),
       validate: () => repositories.privateDeliveries.validate(),
@@ -162,13 +115,7 @@ export function createSqliteStateAccess(database, repositories) {
         repositories.privateDeliveries,
       ),
     },
-    channelDeliveries: repositories.channelDeliveries
-      ? {
-          load: () => repositories.channelDeliveries.load(),
-          save: (state) =>
-            saveChannelState(database, repositories.channelDeliveries, state),
-        }
-      : null,
+    channelDeliveries: repositories.channelDeliveries,
     telegram: {
       load: () => repositories.telegram.load(),
       save: (state) => saveTelegramState(repositories.telegram, state),

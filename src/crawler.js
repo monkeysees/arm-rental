@@ -436,16 +436,8 @@ export async function crawlApartments(
     changes: [...changes.values()],
     encounteredOrder: mergedEncounterOrder,
   });
-  // These delivery consumers still classify retained history. Discovery and
-  // persistence need no full-history read when neither consumer is running.
-  const state =
-    deliveryTargets.length > 0 || afterStateSaved
-      ? await stateAccess.apartments.load()
-      : { ...crawlMetadata, apartments: {}, apartmentOrder: [] };
-  const { apartments, apartmentOrder } = state;
-
   const channelPublication = afterStateSaved
-    ? Promise.resolve().then(() => afterStateSaved(state))
+    ? Promise.resolve().then(() => afterStateSaved(crawlMetadata))
     : Promise.resolve();
 
   let notifiedCount = 0;
@@ -455,11 +447,6 @@ export async function crawlApartments(
   // Delivery measures source activity against the instant this crawl read
   // List.am, so every recipient in the fan-out applies the same window.
   const sourceActivityReference = Date.parse(checkedAt);
-  const activeSourceIds = new Set(
-    apartmentOrder.filter((itemId) =>
-      withinSourceActivity(apartments[itemId], sourceActivityReference),
-    ),
-  );
   // What this crawl itself saw appear or change: the news half of any batch.
   const freshIds = new Set(
     [...discovered, ...updated].map(({ itemId }) => itemId),
@@ -486,8 +473,24 @@ export async function crawlApartments(
       if (target.isAuthorized?.() === false) return;
       const recipientId = String(target.recipientId);
       const recipientFilters = normalizeFilters(target.filters);
-      // Include older stored listings too: non-matches are classified even
-      // outside the delivery window. Absent listings keep their rows in SQLite.
+      const { apartments, apartmentOrder, workIds } = await recordDecision(
+        () => {
+          if (target.isAuthorized?.() === false)
+            return { apartments: {}, apartmentOrder: [] };
+          return stateAccess.privateDeliveries.loadCandidates(
+            recipientId,
+            JSON.stringify(recipientFilters),
+          );
+        },
+      );
+      if (target.isAuthorized?.() === false) return;
+      const activeSourceIds = new Set(
+        apartmentOrder.filter((itemId) =>
+          withinSourceActivity(apartments[itemId], sourceActivityReference),
+        ),
+      );
+      // Explicit selection/filter changes include expired unclassified history;
+      // routine workers only decode source changes and outstanding work.
       let recipient = deliveryRecipientState(
         await stateAccess.privateDeliveries.loadRecipient(
           recipientId,
@@ -654,6 +657,14 @@ export async function crawlApartments(
         .map((itemId) => apartments[itemId])
         .filter(Boolean);
 
+      await recordDecision(() =>
+        stateAccess.privateDeliveries.retainPending(
+          recipientId,
+          pending.map(({ itemId }) => itemId),
+          workIds,
+        ),
+      );
+
       // A batch that carries history — everything this crawl selected for a
       // fresh answer, or left pending by an earlier interrupted send —
       // announces itself first, so a burst of apartments never arrives
@@ -671,6 +682,7 @@ export async function crawlApartments(
         }
       }
 
+      const remaining = new Set(pending.map(({ itemId }) => itemId));
       for (const apartment of pending) {
         if (target.isAuthorized?.() === false) break;
         try {
@@ -687,8 +699,17 @@ export async function crawlApartments(
         await recordDecision(() =>
           decisions.acknowledge(recipientId, apartment.itemId, deliveredAt),
         );
+        remaining.delete(apartment.itemId);
         notifiedCount += 1;
       }
+      if (remaining.size !== pending.length)
+        await recordDecision(() =>
+          stateAccess.privateDeliveries.retainPending(
+            recipientId,
+            [...remaining],
+            workIds,
+          ),
+        );
     };
 
     const workers = [];
@@ -701,6 +722,7 @@ export async function crawlApartments(
       // Stagger worker starts across event-loop turns while sends stay concurrent.
       await yieldToEventLoop();
       workers.push(Promise.allSettled([startWorker(target)]));
+      await yieldToEventLoop();
     }
     const outcomes = (await Promise.all(workers)).flat();
     const failed = outcomes.find(({ status }) => status === "rejected");

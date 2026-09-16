@@ -119,7 +119,7 @@ test("SQLite lifecycle creates a secured, bound schema and reopens it", (t) => {
       .prepare("SELECT version FROM schema_migrations")
       .all()
       .map(({ version }) => version),
-    [1, 2, 3, 4],
+    [1, 2, 3, 4, 5, 6],
   );
   assert.equal(database.validate({ full: true }), true);
 
@@ -202,7 +202,9 @@ test("transaction helper rolls back synchronously and emits sanitized bounded me
     () =>
       database.transaction("fault_injection", () => {
         database
-          .prepare("INSERT INTO private_recipients VALUES (?, 0)")
+          .prepare(
+            "INSERT INTO private_recipients(recipient_id, initial_selection_applied) VALUES (?, 0)",
+          )
           .run("private-id");
         database
           .prepare("INSERT INTO private_delivery_decisions VALUES (?, ?, ?, ?)")
@@ -334,9 +336,17 @@ test("repositories preserve complete logical state across a checkpoint and reope
     filtered: { 30: TIME },
   });
   repositories.privateDeliveries.acknowledge("42", "10", TIME);
-  repositories.channelDeliveries.initialize(HASH, {
-    10: { status: "pending", classifiedAt: TIME },
-    20: { status: "filtered", classifiedAt: TIME },
+  repositories.channelDeliveries.importState({
+    version: 1,
+    type: "telegram-channel-deliveries",
+    channelId: CHANNEL_ID,
+    urlTemplate: LIST_URL,
+    initialized: true,
+    filterFingerprint: HASH,
+    apartments: {
+      10: { status: "pending", classifiedAt: TIME },
+      20: { status: "filtered", classifiedAt: TIME },
+    },
   });
   repositories.channelDeliveries.acknowledge("10", {
     messageId: 101,
@@ -449,8 +459,14 @@ test("bounded classifications roll back as a unit and acknowledgements touch one
     2,
   );
 
-  repositories.channelDeliveries.initialize(HASH, {
-    one: { status: "pending", classifiedAt: TIME },
+  repositories.channelDeliveries.importState({
+    version: 1,
+    type: "telegram-channel-deliveries",
+    channelId: CHANNEL_ID,
+    urlTemplate: LIST_URL,
+    initialized: true,
+    filterFingerprint: HASH,
+    apartments: { one: { status: "pending", classifiedAt: TIME } },
   });
   repositories.channelDeliveries.acknowledge("one", {
     messageId: 5,

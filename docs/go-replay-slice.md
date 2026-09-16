@@ -129,7 +129,8 @@ acknowledgement duplicate window remains unresolved.
 
 The primary RAM metric is the entire fresh replay container's cgroup-v2
 `memory.peak`: Node coordinator/exporter, Go executable, SQLite/native memory,
-filesystem cache, and kernel charges. It excludes build tools, the host OS,
+filesystem cache, and kernel charges, sampled by the coordinator after verifying
+the worker result. It excludes build tools, the host OS,
 Docker daemon, production supervision, and live curl. Maximum process RSS, Go
 heap, total process CPU, per-phase wall/classification/drain times, and final
 SQLite/WAL sizes are secondary. Resource output records actual CPU/memory/swap
@@ -156,4 +157,48 @@ performed; curl memory and subprocess costs are excluded from these measurements
 
 ## Acceptance measurements
 
-Results are recorded after the repeat protocol completes.
+The final protocol uses one virtual run and three wall runs at 500 recipients.
+The [raw manifest](benchmarks/go-replay/final/manifest.json) records host details,
+image identity, exact commands, timestamps, and individual verdicts. Each result
+includes source hashes and the compiled binary hash. The host is the same x86-64
+four-vCPU KVM guest described in the Node baseline; every measurement container
+has one CPU, 512 MiB RAM, networking disabled, and zero swap allowance.
+
+All four runs passed the independent behavior verifier, including every
+recipient's payload/order, catch-up announcement/retry/skip decisions, and clean
+reopen. The final database retains 3,305,500 decisions: the original 3,281,500
+plus 48 new classifications per recipient. The compiled SQLite version is 3.53.4.
+
+| Metric                                                       | Wall-run median |   Range across three runs |
+| ------------------------------------------------------------ | --------------: | ------------------------: |
+| Primary whole-container peak RAM (MiB)                       |          193.72 |             193.57–194.90 |
+| Go process peak RSS (MiB)                                    |           27.41 |               25.22–27.64 |
+| Whole Go replay CPU / wall (s)                               |   19.12 / 51.36 | 18.92–19.34 / 51.19–51.62 |
+| Routine classification / total wall (s)                      |    0.35 / 11.65 |   0.32–0.35 / 11.55–11.71 |
+| Catch-up classification / total wall (s)                     |    1.88 / 27.06 |   1.81–1.91 / 26.77–27.09 |
+| Last recipient's first listing, including classification (s) |            9.98 |                9.85–10.14 |
+| Permitted first-progress deadline, including tolerance (s)   |            8.68 |                 8.60–8.70 |
+| Final SQLite / WAL after clean reopen (MiB)                  |       74.99 / 0 |                 74.99 / 0 |
+
+All three wall runs met the routine 60-second target and application memory
+limit. All three missed the 25.025-second catch-up target and the shared
+first-progress deadline. The round-robin cursor can defer a retried recipient
+until the next sweep, so valid rate/retry behavior and eventual progress do not
+guarantee that deadline. These are capacity misses, not relaxed thresholds or a
+claim of production readiness. The common capacity evaluator also reproduces
+all eight checked-in Node baseline verdicts exactly.
+
+Local verification passed all 425 repository tests on Node 24.18.0, with 94.51%
+line and 88.33% branch coverage, plus the Go integration suite, Go vet/compilation,
+ESLint, changed-file formatting, and the production deployment-contract check.
+The repository-wide formatter flags an existing untracked `.scratch/` Markdown
+file; it is outside this task. Standards and specification reviews have no
+remaining findings. Production runtime and deployment files are unchanged.
+
+Implementation effort was approximately 25 minutes of elapsed agent work,
+including repository/spec inspection, Go implementation, focused tests, two
+independent review axes and follow-ups, full repository validation, and repeated
+measurement attempts. No human acceptance execution or production operation was
+required. The [initial diagnostic failure](benchmarks/go-replay/initial-failure/README.md)
+records the output-truncation failure and the discarded measurement attempts;
+those attempts are not capacity evidence.

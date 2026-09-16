@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Add a production-shaped retained-history benchmark with repeated crawls, delivery recovery, and isolated-container resource measurements.
 - Add guarded, dry-run-first cleanup of the retired Chromium profile with separate backup usage reporting and recovery validation.
 - Build a minimal production runtime image and verify initialization, recovery, maintenance, health, and shutdown without network access.
 - Install the patched PCRE2 runtime library so the Chromium-free image passes the production vulnerability scan.

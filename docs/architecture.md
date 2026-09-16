@@ -668,6 +668,14 @@ snapshot-backed production workflows and collect only schema-allowlisted
 evidence. These boundaries are documented in
 [`docs/production-testing.md`](production-testing.md).
 
+The offline retained-history benchmark drives real parsing, classification,
+delivery acknowledgements, and SQLite through synthetic source responses. It
+separates setup, repeated crawls within one process, delivery bursts, and
+restart recovery, with coordinator overhead reported separately. Deterministic
+counts and ordering checks accompany CPU, RSS, container memory, and storage
+measurements; the existing large historical-decision workload remains available.
+See [resource baselines](resource-baseline.md) for reproduction and limitations.
+
 ### Durable state and recovery boundary
 
 `src/sqlite-database.js` securely creates `state.sqlite3` at mode `0600`, checks

@@ -346,6 +346,18 @@ measured binaries, not a claim that both artifact sizes are fully minimized.
 Artifact manifests retain source hashes in addition to the Git revision, so a
 build made from an uncommitted experiment tree is identified explicitly.
 
+## Verification
+
+The final pinned Node 24.18.0 suite passes **426/426 tests**, with **94.57% line**
+and **88.23% branch coverage**. ESLint, Prettier and the production deployment
+contract validator pass. Go tests, vet and the release build pass with Go 1.27.1;
+Rust's eight tests, formatting, Clippy with warnings denied and release build
+pass with Rust 1.94.0. The report CLI rejects corrupted delivery order, different
+observed resource limits and a mislabeled runtime. All final raw reports were
+revalidated, and measured/packaged source hashes still match the final source.
+Independent Standards and Spec reviews against `0f099af` found no actionable
+findings in implementation commit `a5ab8e5`.
+
 ## Local and ARM limitations
 
 Measurements run on the existing x86-64 KVM host with Docker overlayfs and ext4

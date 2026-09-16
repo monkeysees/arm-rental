@@ -234,3 +234,25 @@ counts and time, and separate coordinator overhead:
 The reports record the application base revision. The benchmark was an
 uncommitted addition during measurement; its exact SHA-256 was
 `ac8e3d958e91b115c23abf9b269435d0b5c935863a3c6ee785c322483fd23d25`.
+
+### Acceptance after incremental crawls and decision compaction
+
+An independent [integrated run](benchmarks/2026-09-16-integrated-retained.json)
+at revision `56f2af2b5781d573f9437fd2b100897d3e1c799e` exercised schema 4 with
+the same 5,442 listings, 88 recipients, and 577,501 decisions, using Node
+24.18.0, one CPU, and 512 MiB with no swap or network access. All assertions
+passed: five unchanged crawls sent nothing, a source update delivered 22
+messages, interruption and restart delivered 3 + 173 messages, and no duplicate
+or pending deliveries remained. All 98,605 absent-listing decisions survived.
+
+Total wall time was 75.28 seconds; unchanged crawls took 5.62–5.96 seconds.
+This all-listings-per-page workload remains dominated by parsing and consumer
+history work, so it does not reproduce the bounded-encounter speedup measured
+in [the incremental crawl benchmark](incremental-crawl-benchmark.md).
+The [compaction benchmark](compact-decisions-benchmark.md) separately measures
+upgrading populated old schemas; this run initializes schema 4 directly and
+does not establish that a large migration fits the same memory limit.
+
+The retained-history report subsequently gained explicit alphabetical status
+ordering; the existing CLI regression test caught and verifies that presentation
+fix. It does not change this run's delivery or retention outcomes.

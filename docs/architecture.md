@@ -52,7 +52,7 @@ direction; the only way forward from a pre-cutover host is a snapshot taken
 after the cutover. Missing, corrupt, newer-schema, wrong-application-ID, and
 target-mismatched databases fail closed without fallback or dual writes.
 
-Schema version 1 is a deliberate compatibility decision: one `STRICT` database
+The versioned schema uses one `STRICT` database that
 stores an apartment payload per row, compact ordered crawl metadata, normalized
 private and channel delivery decisions, Telegram users and update offset, and
 the validated exchange-rate snapshot. Domain repositories expose bounded

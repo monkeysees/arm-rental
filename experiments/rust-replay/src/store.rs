@@ -5,6 +5,31 @@ use crate::{
 use rusqlite::{Connection, OptionalExtension, params};
 use std::{collections::BTreeMap, path::Path, time::Duration};
 
+#[derive(Clone, Copy)]
+#[repr(i64)]
+enum Decision {
+    Pending = 0,
+    Notified = 1,
+    Filtered = 2,
+    Skipped = 3,
+}
+impl Decision {
+    fn name(self) -> &'static str {
+        match self {
+            Self::Pending => "pending",
+            Self::Notified => "notified",
+            Self::Filtered => "filtered",
+            Self::Skipped => "skipped",
+        }
+    }
+    fn from_code(code: i64) -> Result<Self> {
+        [Self::Pending, Self::Notified, Self::Filtered, Self::Skipped]
+            .into_iter()
+            .find(|status| *status as i64 == code)
+            .ok_or_else(|| "invalid decision".into())
+    }
+}
+
 pub struct Store {
     pub db: Connection,
 }
@@ -57,7 +82,11 @@ impl Store {
                     insert.execute(params![
                         user as i64,
                         id,
-                        if id % 4 == (user % 4) as i64 { 1 } else { 2 },
+                        (if id % 4 == (user % 4) as i64 {
+                            Decision::Notified
+                        } else {
+                            Decision::Filtered
+                        }) as i64,
                         1,
                         stamp
                     ])?;
@@ -83,14 +112,14 @@ impl Store {
                 tx.prepare("SELECT revision FROM decisions WHERE user=? AND id=?")?;
             let mut write = tx.prepare("INSERT INTO decisions VALUES(?,?,?,?,?) ON CONFLICT(user,id) DO UPDATE SET status=excluded.status,revision=excluded.revision,at=excluded.at")?;
             for user in 0..users {
-                let mut items: Vec<(Listing, i64, i64)> = Vec::new();
+                let mut items: Vec<(Listing, i64, Decision)> = Vec::new();
                 if catchup {
                     let mut rows = recent.query(params![user as i64, now - 86400000])?;
                     while let Some(row) = rows.next()? {
                         items.push((
                             serde_json::from_str(&row.get::<_, String>(0)?)?,
                             row.get(1)?,
-                            0,
+                            Decision::Pending,
                         ));
                     }
                 } else {
@@ -105,7 +134,7 @@ impl Store {
                         if old == Some(rev) {
                             continue;
                         }
-                        items.push((l.clone(), rev, 0));
+                        items.push((l.clone(), rev, Decision::Pending));
                     }
                     items.sort_by(|a, b| (a.0.posted_at, &a.0.id).cmp(&(b.0.posted_at, &b.0.id)));
                 }
@@ -114,16 +143,16 @@ impl Store {
                     *status = if m.recipients.filters_by_group[user % 4].matches(listing) {
                         matches += 1;
                         if catchup && matches > m.initial_delivery_limit {
-                            3
+                            Decision::Skipped
                         } else {
-                            0
+                            Decision::Pending
                         }
                     } else {
-                        2
+                        Decision::Filtered
                     };
                 }
                 for (l, rev, status) in items {
-                    write.execute(params![user as i64, l.id, status, rev, now])?;
+                    write.execute(params![user as i64, l.id, status as i64, rev, now])?;
                 }
             }
         }
@@ -153,10 +182,8 @@ impl Store {
             .prepare_cached("SELECT status FROM decisions WHERE user=? AND id=?")?;
         ids.iter()
             .map(|id| {
-                let status: u32 = query.query_row(params![user as i64, id], |r| r.get(0))?;
-                let name = ["pending", "notified", "filtered", "skipped"]
-                    .get(status as usize)
-                    .ok_or("invalid decision")?;
+                let status: i64 = query.query_row(params![user as i64, id], |r| r.get(0))?;
+                let name = Decision::from_code(status)?.name();
                 Ok((id.clone(), name.to_string()))
             })
             .collect()

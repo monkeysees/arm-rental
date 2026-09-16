@@ -1,4 +1,4 @@
-import { setImmediate as yieldToEventLoop } from "node:timers/promises";
+import { schedulePrivateDeliveries } from "./private-delivery-scheduler.js";
 import {
   APARTMENT_STATE_VERSION,
   SOURCE_INTEGRITY_HISTORY_LIMIT,
@@ -168,6 +168,8 @@ export async function crawlApartments(
     afterStateSaved,
     deliveryStateMutation,
     onSourceIntegrityChecked = () => {},
+    signal,
+    deliverySleep,
   } = {},
 ) {
   const deliveryTargets =
@@ -469,7 +471,7 @@ export async function crawlApartments(
       });
     const decisions = stateAccess.privateDeliveries.decisions;
 
-    const deliverRecipient = async (target) => {
+    const classifyRecipient = async (target) => {
       if (target.isAuthorized?.() === false) return;
       const recipientId = String(target.recipientId);
       const recipientFilters = normalizeFilters(target.filters);
@@ -665,68 +667,68 @@ export async function crawlApartments(
         ),
       );
 
-      // A batch that carries history — everything this crawl selected for a
-      // fresh answer, or left pending by an earlier interrupted send —
-      // announces itself first, so a burst of apartments never arrives
-      // unexplained. A routine crawl delivering what it has just seen appear
-      // or change on List.am stays silent and sends the apartment alone.
-      const carriesHistory =
-        selectionApplied || pending.some(({ itemId }) => !freshIds.has(itemId));
-      if (pending.length > 0 && carriesHistory && target.announceDelivery) {
-        if (target.isAuthorized?.() === false) return;
-        try {
-          await target.announceDelivery({ count: pending.length });
-        } catch (error) {
-          if (!error.privateRecipientUnavailable) throw error;
-          return;
-        }
-      }
-
-      const remaining = new Set(pending.map(({ itemId }) => itemId));
-      for (const apartment of pending) {
-        if (target.isAuthorized?.() === false) break;
-        try {
-          await target.deliverApartment(apartment);
-        } catch (error) {
-          if (error.privateRecipientUnavailable) break;
-          throw error;
-        }
-        const deliveredAt = now().toISOString();
-        recipient = {
-          ...recipient,
-          notified: { ...recipient.notified, [apartment.itemId]: deliveredAt },
-        };
-        await recordDecision(() =>
-          decisions.acknowledge(recipientId, apartment.itemId, deliveredAt),
-        );
-        remaining.delete(apartment.itemId);
-        notifiedCount += 1;
-      }
-      if (remaining.size !== pending.length)
-        await recordDecision(() =>
-          stateAccess.privateDeliveries.retainPending(
-            recipientId,
-            [...remaining],
-            workIds,
-          ),
-        );
+      const workByItem = new Map(
+        apartmentOrder.map((id, index) => [id, workIds?.[index]]),
+      );
+      await stateAccess.privateDeliveries.prepareBatch(
+        recipientId,
+        pending.map(({ itemId }) => ({
+          itemId,
+          workId: workByItem.get(itemId),
+        })),
+      );
+      return {
+        count: pending.length,
+        announce:
+          selectionApplied ||
+          pending.some(({ itemId }) => !freshIds.has(itemId)),
+      };
     };
 
-    const workers = [];
-    const startWorker = async (target) =>
-      target.runDeliveryWorker
-        ? target.runDeliveryWorker(() => deliverRecipient(target))
-        : deliverRecipient(target);
-    for (const target of deliveryTargets) {
-      // Promise continuations alone starve health and source I/O during fan-out.
-      // Stagger worker starts across event-loop turns while sends stay concurrent.
-      await yieldToEventLoop();
-      workers.push(Promise.allSettled([startWorker(target)]));
-      await yieldToEventLoop();
+    try {
+      await schedulePrivateDeliveries(
+        deliveryTargets,
+        async (job) => {
+          const { target } = job;
+          const recipientId = String(target.recipientId);
+          if (job.phase === "classify") {
+            const batch = await classifyRecipient(target);
+            if (!batch || batch.count === 0) {
+              job.phase = "done";
+              return;
+            }
+            job.count = batch.count;
+            job.phase =
+              batch.announce && target.announceDelivery ? "announce" : "send";
+            return;
+          }
+          if (job.phase === "announce") {
+            const outcome = await target.announceDelivery({ count: job.count });
+            if (!outcome?.deferred) job.phase = "send";
+            return;
+          }
+          const next =
+            await stateAccess.privateDeliveries.nextBatchItem(recipientId);
+          if (!next) {
+            job.phase = "done";
+            return;
+          }
+          const outcome = await target.deliverApartment(next.apartment);
+          if (outcome?.deferred) return;
+          await recordDecision(() =>
+            stateAccess.privateDeliveries.acknowledgeBatchItem(
+              recipientId,
+              next,
+              now().toISOString(),
+            ),
+          );
+          notifiedCount += 1;
+        },
+        { signal, sleep: deliverySleep },
+      );
+    } finally {
+      await stateAccess.privateDeliveries.clearBatches();
     }
-    const outcomes = (await Promise.all(workers)).flat();
-    const failed = outcomes.find(({ status }) => status === "rejected");
-    if (failed) throw failed.reason;
   };
 
   const [privateOutcome, channelOutcome] = await Promise.allSettled([

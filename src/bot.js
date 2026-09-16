@@ -993,6 +993,7 @@ export async function runTelegramBot(
     ...(monotonicNow ? { monotonicNow } : {}),
   });
   const privateDeliveryBarrier = new PrivateDeliveryBarrier();
+  const deliveryLifetimes = new Map();
   const withDeliveryStateMutation = (operation) => {
     const pending = deliveryStateMutation.then(operation);
     deliveryStateMutation = pending.catch(() => {});
@@ -1015,6 +1016,7 @@ export async function runTelegramBot(
       .map(({ chatId }) => chatId);
   const recoverPendingDeletions = async (recovered) => {
     for (const senderId of pendingDeletionIds()) {
+      deliveryLifetimes.get(String(senderId))?.abort();
       privateDeliveryBarrier.block(senderId);
       await privateDeliveryRateLimiter.cancelRecipient(senderId);
       await privateDeliveryBarrier.drain(senderId);
@@ -1338,21 +1340,36 @@ export async function runTelegramBot(
         const result = await crawl(config, {
           fetchPage: pageFetch,
           stateAccess,
+          signal,
+          deliverySleep: sleep,
           exchangeRates,
           onSourceIntegrityChecked: (observation) =>
             onSourceIntegrityChecked({ ...observation, crawlId }),
           ...(privateUsers.length > 0
             ? {
                 privateDeliveries: privateUsers.map((user) => {
+                  const lifetime = new AbortController();
+                  deliveryLifetimes.set(String(user.chatId), lifetime);
                   const isAuthorized = () => {
                     const currentUser = state.users[String(user.chatId)];
                     return Boolean(
+                      !lifetime.signal.aborted &&
                       currentUser?.active &&
                       !currentUser.deletionPendingAt &&
                       isPrivateUserAuthorized(config, user.chatId),
                     );
                   };
+                  let attempts = 0;
+                  let retryAt = 0;
+                  const deliveryNow = monotonicNow ?? (() => performance.now());
+                  const deliveryBackoff = new ExponentialBackoff({
+                    baseDelayMs: config.externalRetryBaseMs,
+                    maxDelayMs: config.externalRetryMaxMs,
+                    random,
+                  });
                   const sendPrivate = async (text) => {
+                    const consumeToken = attempts === 0;
+                    attempts += 1;
                     try {
                       await privateDeliveryRateLimiter.run(
                         String(user.chatId),
@@ -1368,12 +1385,37 @@ export async function runTelegramBot(
                             user.chatId,
                             text,
                             deliverySignal,
+                            undefined,
+                            { maxAttempts: 1 },
                           );
                         },
-                        { signal },
+                        { signal, consumeToken },
                       );
+                      attempts = 0;
+                      retryAt = 0;
+                      deliveryBackoff.reset();
                     } catch (error) {
                       if (error.privateRecipientUnavailable) throw error;
+                      if (
+                        !signal?.aborted &&
+                        attempts < 4 &&
+                        isExpectedExternalFailure(error)
+                      ) {
+                        const delayMs =
+                          error.retryAfterMs ?? deliveryBackoff.nextDelay();
+                        retryAt = deliveryNow() + delayMs;
+                        await onRetry({
+                          component: "telegram",
+                          method: "sendMessage",
+                          attempt: attempts,
+                          delayMs,
+                          reason:
+                            error.httpStatus === 429
+                              ? "telegram_retry_after"
+                              : "expected_external_failure",
+                        });
+                        return { deferred: true };
+                      }
                       error.privateDeliveryFailure = true;
                       if (error.terminal) {
                         // A user can block the bot at any time. Remove that
@@ -1393,9 +1435,16 @@ export async function runTelegramBot(
                   };
                   return {
                     recipientId: String(user.chatId),
+                    deliverySignal: lifetime.signal,
                     filters: user.filters,
                     sendInitialApartments: user.sendInitialApartments,
                     isAuthorized,
+                    deliveryDelayMs: () =>
+                      attempts > 0
+                        ? Math.max(0, retryAt - deliveryNow())
+                        : privateDeliveryRateLimiter.delayMs(
+                            String(user.chatId),
+                          ),
                     runDeliveryWorker: (operation) =>
                       privateDeliveryBarrier.run(user.chatId, operation),
                     // The heads-up that precedes a batch carrying history is a
@@ -1499,6 +1548,8 @@ export async function runTelegramBot(
           }
           continue;
         }
+      } finally {
+        deliveryLifetimes.clear();
       }
 
       try {

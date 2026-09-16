@@ -98,6 +98,16 @@ export function createSqliteStateAccess(database, repositories) {
       commitCrawl: (crawl) => repositories.apartments.commitCrawl(crawl),
     },
     privateDeliveries: {
+      prepareBatch: (id, items) =>
+        repositories.privateDeliveries.prepareBatch(id, items),
+      nextBatchItem: (id) => repositories.privateDeliveries.nextBatchItem(id),
+      acknowledgeBatchItem: (id, item, decidedAt) =>
+        repositories.privateDeliveries.acknowledgeBatchItem(
+          id,
+          item,
+          decidedAt,
+        ),
+      clearBatches: () => repositories.privateDeliveries.clearBatches(),
       load: () => repositories.privateDeliveries.loadAllDecisions(),
       loadCandidates: (recipientId, fingerprint) =>
         repositories.privateDeliveries.loadCandidates(recipientId, fingerprint),

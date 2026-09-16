@@ -1816,3 +1816,37 @@ test("an undated card is discovered behind same-day cards the source dated", asy
   assert.equal(second.discoveredCount, 1);
   assert.deepEqual(delivered, ["1", "2"]);
 });
+
+test("private delivery bounds active sends and gives each recipient a turn", async () => {
+  const state = memoryState();
+  let active = 0;
+  let peak = 0;
+  const sent = [];
+  const recipients = Array.from({ length: 32 }, (_, index) => ({
+    recipientId: String(index + 1),
+    deliverApartment: async ({ itemId }) => {
+      active += 1;
+      peak = Math.max(peak, active);
+      await new Promise((resolve) => setTimeout(resolve, 5));
+      sent.push([index + 1, itemId]);
+      active -= 1;
+    },
+  }));
+  const result = await crawlApartments(
+    { ...config, initialPageCount: 1 },
+    {
+      ...state,
+      fetchPage: async () => new Response(page("3", "2", "1")),
+      privateDeliveries: recipients,
+      now: () => new Date("2026-07-24T12:00:00Z"),
+    },
+  );
+  assert.ok(peak <= 8, `active sends peaked at ${peak}`);
+  assert.equal(result.notifiedCount, 96);
+  assert.equal(new Set(sent.slice(0, 32).map(([id]) => id)).size, 32);
+  for (let id = 1; id <= 32; id += 1)
+    assert.deepEqual(
+      sent.filter(([user]) => user === id).map(([, item]) => item),
+      ["1", "2", "3"],
+    );
+});

@@ -1,0 +1,131 @@
+{
+  "baselineRevision": "386ac321d443dd49d60079952c8848ac8b876908",
+  "candidateSourceSha256": {
+    "src/bot.js": "c2f6d650a661e2b5f77d230ae40c80903eada3674af6e3f73afa737b9e3bfa84",
+    "src/crawler.js": "a00caeb7e7dc1fee1faef6760d4823c37bf1dec890e7db095170710999691b4e",
+    "src/private-delivery-scheduler.js": "1a702b6d2b825993b3c50384dad58a34705bc33fefd9dda7e65fb65c5a7ed3b1",
+    "src/rate-limit.js": "a9c5d2db65388dc75c19c9e063f60ec4b9154d82f12ac0b32504dba32c60bf99",
+    "src/sqlite-private-deliveries-repository.js": "aa5e604d4ad00b154915af880726daf978fc2a006b95d1519505e0ccc48e506c",
+    "src/sqlite-state-access.js": "a45d2c76a7558fea970887336799063e4627eb4ac9206bee78892ad7688d3f7a",
+    "src/telegram.js": "0ab071faef795a76540446253e3b53ccd053d954f233c9f7248729d1dc4c5450",
+    "scripts/private-concurrency-benchmark.js": "f07a9a60c95af644b5abf65dfaa09b542fbd5e8dd4a99f3e5ce2653d6cddaedc"
+  },
+  "runs": [
+    {
+      "status": "passed",
+      "node": "v24.18.0",
+      "workload": {
+        "implementation-root": "/baseline",
+        "users": 88,
+        "listings": 1000,
+        "selected": 100,
+        "send-delay-ms": 5
+      },
+      "limits": {
+        "cpu": "100000 100000",
+        "memory": "536870912"
+      },
+      "wallMs": 9538.466527999999,
+      "cpuMs": 6669.945,
+      "sent": 8800,
+      "messagesPerSecond": 922.5801625625835,
+      "peakActive": 66,
+      "rssBeforeBytes": 99762176,
+      "peakRssBytes": 176865280,
+      "cgroupPeakBytes": "133771264",
+      "firstListingLatencyMs": {
+        "p50": 3355.889722,
+        "p95": 7067.742622,
+        "max": 7425.440009999999
+      },
+      "implementation": "baseline"
+    },
+    {
+      "status": "passed",
+      "node": "v24.18.0",
+      "workload": {
+        "users": 88,
+        "implementation-root": "/app/",
+        "listings": 1000,
+        "selected": 100,
+        "send-delay-ms": 5
+      },
+      "limits": {
+        "cpu": "100000 100000",
+        "memory": "536870912"
+      },
+      "wallMs": 15618.558001000001,
+      "cpuMs": 6679.512,
+      "sent": 8800,
+      "messagesPerSecond": 563.4322963385331,
+      "peakActive": 8,
+      "rssBeforeBytes": 97574912,
+      "peakRssBytes": 121069568,
+      "cgroupPeakBytes": "77189120",
+      "firstListingLatencyMs": {
+        "p50": 4435.963923,
+        "p95": 4484.238029,
+        "max": 4513.226947
+      },
+      "implementation": "candidate"
+    },
+    {
+      "status": "passed",
+      "node": "v24.18.0",
+      "workload": {
+        "implementation-root": "/baseline",
+        "users": 256,
+        "listings": 1000,
+        "selected": 100,
+        "send-delay-ms": 5
+      },
+      "limits": {
+        "cpu": "100000 100000",
+        "memory": "536870912"
+      },
+      "wallMs": 26433.662014999998,
+      "cpuMs": 18313.186,
+      "sent": 25600,
+      "messagesPerSecond": 968.4621065924605,
+      "peakActive": 70,
+      "rssBeforeBytes": 97349632,
+      "peakRssBytes": 180686848,
+      "cgroupPeakBytes": "144326656",
+      "firstListingLatencyMs": {
+        "p50": 11505.362532000001,
+        "p95": 23402.743328,
+        "max": 24597.397458
+      },
+      "implementation": "baseline"
+    },
+    {
+      "status": "passed",
+      "node": "v24.18.0",
+      "workload": {
+        "users": 256,
+        "implementation-root": "/app/",
+        "listings": 1000,
+        "selected": 100,
+        "send-delay-ms": 5
+      },
+      "limits": {
+        "cpu": "100000 100000",
+        "memory": "536870912"
+      },
+      "wallMs": 48360.899993,
+      "cpuMs": 19091.535,
+      "sent": 25600,
+      "messagesPerSecond": 529.353258597451,
+      "peakActive": 8,
+      "rssBeforeBytes": 99840000,
+      "peakRssBytes": 128618496,
+      "cgroupPeakBytes": "88748032",
+      "firstListingLatencyMs": {
+        "p50": 11122.883222,
+        "p95": 11305.648913,
+        "max": 11320.832989
+      },
+      "implementation": "candidate"
+    }
+  ]
+}

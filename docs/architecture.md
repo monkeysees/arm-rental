@@ -895,9 +895,12 @@ operator procedures are indexed in
 9. Newly discovered and updated records are atomically committed before
    Telegram delivery begins. The crawl fans out across authorized active users,
    each with independent `src/filters.js` admission and delivery history.
-   Recipient workers run concurrently so a slow user does not delay peers or
-   channel publication, while every user's worker remains sequential and
-   oldest-first. A worker reads and persists only its own recipient's rows:
+   `src/private-delivery-scheduler.js` limits private work to eight concurrent
+   classification/send operations. Recipients take one message per turn and
+   return to the end of the queue; each recipient remains sequential and
+   oldest-first. A slow network operation occupies one slot; product-rate and
+   Telegram retry waits occupy none. Channel publication remains independent.
+   A worker reads and persists only its own recipient's rows:
    its history is read where it is about to be classified, keyed by
    `(recipient_id, item_id)` and restricted to source changes and durable pending IDs,
    and it commits one bounded write per initial
@@ -1041,8 +1044,43 @@ source prices without hashtags.
 
 Private crawl fan-out evaluates source freshness once per listing and checks
 for a recent source update before matching a rejected listing against a user's
-filters. Recipient workers start across event-loop turns, keeping health and
-source I/O serviceable while their network deliveries remain concurrent.
+filters. Scheduler operations start across event-loop turns, keeping health and
+source I/O serviceable. `PRIVATE_DELIVERY_CONCURRENCY` is a fixed internal setting
+of eight, rather than another operator environment variable. It bounds active
+classification snapshots and private HTTP attempts, at the cost of lower peak
+throughput. See [measurements and reproduction](private-concurrency-benchmark.md).
+
+The scheduler retains one small descriptor per recipient and at most eight
+active operations. Classification may still load one recipient's full candidate
+history; it never retains every recipient's full pending payload list. Selected
+IDs, their order, and captured durable work tokens go into the connection-local
+SQLite TEMP table `private_delivery_batch`. The pinned SQLite build uses
+file-backed temporary storage with a roughly 2 MiB page cache; overflow uses
+`SQLITE_TMPDIR` (the existing bounded 128 MiB production scratch mount). Exhausting
+scratch space fails delivery without discarding durable pending work. One payload
+is read per send turn. The temporary table is not part of the durable schema or
+backups, and is cleared when delivery finishes or fails. A successful send commits
+its acknowledgement, captured work-token removal, and temporary-item removal in
+one transaction; a newer menu acceptance token is preserved. Restart rebuilds the
+temporary selection from existing durable decisions and outstanding work.
+
+Per-recipient product tokens cover announcements and listing messages. A logical
+message consumes one token even if Telegram needs retries. Private Telegram calls
+make one HTTP attempt per turn; up to four attempts retain the existing backoff,
+retry telemetry, and authoritative `retry_after` semantics. One abortable scheduler
+timer covers the earliest ready recipient; waiting recipients retain deadlines
+and attempt counts, not text or payloads. Other Telegram call sites retain their
+normal inline retry behavior.
+
+Each classification or send-and-acknowledge turn holds the existing recipient
+deletion barrier. Deletion cancels the recipient's crawl lifetime, wakes a sleeping
+scheduler, drains its active turn, and removes its private rows and temporary
+batch. Recreating the same chat ID cannot revive an old lifetime. Authorization
+is checked before each turn and again immediately before HTTP. Shutdown stops
+new turns, aborts active private HTTP attempts and the scheduler timer, waits for
+accepted sends to finish their local acknowledgements, and clears temporary
+batches. Unsent work stays durable; no rate-limit or retry deadline must elapse
+inside the supported 45-second shutdown grace.
 
 Application state is one versioned `state.sqlite3` database on persistent local
 storage. `application_metadata` binds its immutable database ID to the List.am

@@ -53,6 +53,7 @@ export function createMemoryStateAccess({
     ]),
   );
   const writes = [];
+  const batches = new Map();
 
   const write = async (domain, detail) => {
     writes.push({ domain, ...detail });
@@ -146,6 +147,30 @@ export function createMemoryStateAccess({
       },
     },
     privateDeliveries: {
+      prepareBatch: async (id, items) =>
+        batches.set(
+          id,
+          items.map(({ itemId }, position) => ({ itemId, position })),
+        ),
+      nextBatchItem: async (id) => {
+        const next = batches.get(id)?.[0];
+        return (
+          next && {
+            position: next.position,
+            apartment: clone(apartmentState.apartments[next.itemId]),
+          }
+        );
+      },
+      acknowledgeBatchItem: async (id, { apartment }, decidedAt) => {
+        await write("privateDeliveries", {
+          recipientId: id,
+          itemId: apartment.itemId,
+          decidedAt,
+        });
+        recipient(id).notified[apartment.itemId] = decidedAt;
+        batches.get(id).shift();
+      },
+      clearBatches: async () => batches.clear(),
       loadCandidates: async () =>
         clone({
           apartments: apartmentState?.apartments || {},

@@ -597,7 +597,8 @@ test("a private delivery write never reads a peer recipient's decisions", async 
   );
   assert.deepEqual(
     acknowledgements.map(({ rowsChanged }) => rowsChanged),
-    [1, 1],
+    // The decision, durable work token, and temporary batch item commit together.
+    [3, 3],
   );
   assert.equal(
     metrics.some(
@@ -812,4 +813,106 @@ test("re-admission and later classification stay one bounded write each", async 
       ["private_delivery_classify", 1],
     ],
   );
+});
+
+test("bounded private batches survive slow sends, failure, deletion, shutdown and restart", async (t) => {
+  const fixture = await deliveryCrawl(t);
+  const { config, database, repositories } = fixture;
+  let access = fixture.stateAccess;
+  const { PrivateDeliveryBarrier } = await import("../src/rate-limit.js");
+  const barrier = new PrivateDeliveryBarrier();
+  const controller = new AbortController();
+  const authorized = new Set(
+    Array.from({ length: 40 }, (_, i) => String(i + 1)),
+  );
+  const sent = new Map([...authorized].map((id) => [id, []]));
+  const announcements = new Map();
+  let active = 0;
+  let peak = 0;
+  let successes = 0;
+  let failures = 0;
+  let deleting;
+  const html = listPage(...[5, 4, 3, 2, 1].map((id) => [String(id), 100000]));
+  const targets = (restart = false) =>
+    [...authorized].map((recipientId) => ({
+      recipientId,
+      isAuthorized: () => authorized.has(recipientId),
+      runDeliveryWorker: (operation) => barrier.run(recipientId, operation),
+      announceDelivery: async ({ count }) => {
+        announcements.set(
+          recipientId,
+          (announcements.get(recipientId) || 0) + 1,
+        );
+        assert.ok(count > 0 && count <= 5);
+      },
+      deliverApartment: async ({ itemId }) => {
+        assert.ok(announcements.get(recipientId) > 0);
+        if (!restart && recipientId === "1") {
+          failures += 1;
+          throw new Error("send failed");
+        }
+        active += 1;
+        peak = Math.max(peak, active);
+        try {
+          await new Promise((resolve) =>
+            setTimeout(resolve, recipientId === "2" ? 15 : 1),
+          );
+          if (!restart && recipientId === "4" && !deleting) {
+            authorized.delete("3");
+            barrier.block("3");
+            deleting = barrier.drain("3").then(() => access.deleteUserData(3));
+            await deleting;
+          }
+          sent.get(recipientId).push(itemId);
+          successes += 1;
+          if (!restart && successes === 60) controller.abort();
+        } finally {
+          active -= 1;
+        }
+      },
+    }));
+  await assert.rejects(
+    fixture.crawl({
+      fetchPage: async () => new Response(html),
+      privateDeliveries: targets(),
+      signal: controller.signal,
+    }),
+    { name: "AbortError" },
+  );
+  await deleting;
+  assert.equal(active, 0);
+  assert.ok(peak <= 8);
+  assert.equal(failures, 1);
+  assert.equal(
+    repositories.privateDeliveries.loadRecipient("3", []),
+    undefined,
+  );
+  const beforeRestart = successes;
+  database.close();
+  const reopened = openStateDatabase({
+    dataDirectory: config.dataDirectory,
+    listUrlTemplate: LIST_URL,
+  });
+  t.after(() => reopened.close());
+  const restored = createSqliteRepositories(reopened, {
+    listUrlTemplate: LIST_URL,
+  });
+  access = createSqliteStateAccess(reopened, restored);
+  await crawlApartments(config, {
+    stateAccess: access,
+    fetchPage: async () => new Response(html),
+    now: () => new Date(TIME),
+    privateDeliveries: targets(true),
+  });
+  assert.ok(successes > beforeRestart);
+  for (const id of authorized)
+    assert.deepEqual(sent.get(id), ["1", "2", "3", "4", "5"]);
+  assert.equal(restored.privateDeliveries.loadRecipient("3", []), undefined);
+  const result = await crawlApartments(config, {
+    stateAccess: access,
+    fetchPage: async () => new Response(html),
+    now: () => new Date(TIME),
+    privateDeliveries: targets(true),
+  });
+  assert.equal(result.notifiedCount, 0);
 });

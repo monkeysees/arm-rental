@@ -57,7 +57,11 @@ export class TelegramApi {
     this.onRetry = onRetry;
   }
 
-  async call(method, payload, { signal, timeoutMs = this.timeoutMs } = {}) {
+  async call(
+    method,
+    payload,
+    { signal, timeoutMs = this.timeoutMs, maxAttempts = 4 } = {},
+  ) {
     return retryOperation(
       async () => {
         const response = await this.fetchImpl(`${this.baseUrl}/${method}`, {
@@ -84,7 +88,7 @@ export class TelegramApi {
         return body.result;
       },
       {
-        maxAttempts: 4,
+        maxAttempts,
         backoff: new ExponentialBackoff({
           baseDelayMs: this.retryBaseMs,
           maxDelayMs: this.retryMaxMs,
@@ -158,7 +162,7 @@ export class TelegramApi {
     );
   }
 
-  sendMessage(chatId, text, signal, replyMarkup) {
+  sendMessage(chatId, text, signal, replyMarkup, { maxAttempts = 4 } = {}) {
     return this.call(
       "sendMessage",
       {
@@ -167,7 +171,7 @@ export class TelegramApi {
         disable_web_page_preview: true,
         ...(replyMarkup ? { reply_markup: replyMarkup } : {}),
       },
-      { signal },
+      { signal, maxAttempts },
     );
   }
 

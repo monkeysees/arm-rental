@@ -37,6 +37,13 @@ Telegram notifications and new channel posts are sent by date ascending:
 earlier listings first, then later listings. Apartments and houses are merged
 into that single order rather than being sent category by category.
 
+Private delivery runs at most eight classification or send operations at once.
+Recipients take turns one message at a time; a recipient waiting for its rate
+limit or Telegram's retry delay releases its slot. Pending listing IDs stay in
+SQLite and payloads are loaded for the next send. This trades peak throughput
+for bounded memory and fair progress as the recipient population grows. See the
+[concurrency benchmark](docs/private-concurrency-benchmark.md) for measurements.
+
 Private delivery makes one promise about time: a user is only ever sent
 apartments List.am posted or changed within the last 24 hours. Everything the
 crawl discovers is still stored, but an older card waits for its next List.am

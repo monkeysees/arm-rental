@@ -147,7 +147,13 @@ export class PrivateDeliveryRateLimiter {
     }
   }
 
-  async run(key, operation, { signal } = {}) {
+  delayMs(key) {
+    const bucket = this.#bucket(String(key));
+    bucket.lastActivityAt = this.#refill(bucket);
+    return Math.max(0, Math.ceil((1 - bucket.tokens) / this.refillPerMs));
+  }
+
+  async run(key, operation, { signal, consumeToken = true } = {}) {
     if (typeof operation !== "function") {
       throw new TypeError("operation must be a function");
     }
@@ -161,7 +167,8 @@ export class PrivateDeliveryRateLimiter {
     bucket.lastActivityAt = this.#nowAfter(bucket.lastActivityAt);
 
     try {
-      await this.#acquire(bucket, operationSignal);
+      operationSignal.throwIfAborted();
+      if (consumeToken) await this.#acquire(bucket, operationSignal);
       return await operation(operationSignal);
     } catch (error) {
       if (bucket.abortController.signal.aborted) {

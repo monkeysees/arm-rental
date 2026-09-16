@@ -11,7 +11,10 @@ import {
   decisionStatusCode,
   decisionTimestamp,
 } from "./sqlite-decision-values.js";
-import { apartmentCandidates } from "./sqlite-apartment-values.js";
+import {
+  apartmentCandidates,
+  storedApartment,
+} from "./sqlite-apartment-values.js";
 
 function decodedDecision(row) {
   return {
@@ -132,10 +135,74 @@ export class SqlitePrivateDeliveriesRepository {
       database.prepare(`SELECT w.work_id, a.item_id, a.payload_json, a.last_seen_at
       FROM private_delivery_work w JOIN apartments a ON a.item_id = w.item_id
       WHERE w.recipient_id = ? ORDER BY a.encounter_sequence DESC, a.encounter_position ASC`);
+    // A connection-local snapshot of selected IDs, backed by SQLite's bounded
+    // temp-page cache. Durable work remains untouched until acknowledgement.
+    database
+      .prepare(
+        `CREATE TEMP TABLE IF NOT EXISTS private_delivery_batch (
+      recipient_id TEXT NOT NULL, position INTEGER NOT NULL,
+      item_id TEXT NOT NULL, work_id INTEGER,
+      PRIMARY KEY(recipient_id, position)
+    ) WITHOUT ROWID`,
+      )
+      .run();
+    this.insertBatchItem = database.prepare(
+      "INSERT INTO private_delivery_batch VALUES (?, ?, ?, ?)",
+    );
+    this.selectBatchItem =
+      database.prepare(`SELECT b.position, b.work_id, a.payload_json, a.last_seen_at
+      FROM private_delivery_batch b JOIN apartments a ON a.item_id = b.item_id
+      WHERE b.recipient_id = ? ORDER BY b.position LIMIT 1`);
+    this.deleteBatchItem = database.prepare(
+      "DELETE FROM private_delivery_batch WHERE recipient_id = ? AND position = ?",
+    );
+    this.deleteBatch = database.prepare(
+      "DELETE FROM private_delivery_batch WHERE recipient_id = ?",
+    );
+    this.deleteCapturedWork = database.prepare(
+      "DELETE FROM private_delivery_work WHERE recipient_id = ? AND work_id = ?",
+    );
+    this.clearBatchStatement = database.prepare(
+      "DELETE FROM private_delivery_batch",
+    );
     this.pruneWork =
       database.prepare(`DELETE FROM private_delivery_work WHERE recipient_id = ?
       AND work_id IN (SELECT value FROM json_each(?))
       AND item_id NOT IN (SELECT value FROM json_each(?))`);
+  }
+
+  prepareBatch(value, items) {
+    const id = recipientId(value);
+    return this.database.transaction("private_delivery_batch", () => {
+      this.deleteBatch.run(id);
+      items.forEach(({ itemId, workId }, position) => {
+        this.insertBatchItem.run(id, position, itemId, workId ?? null);
+      });
+    });
+  }
+
+  nextBatchItem(value) {
+    const row = this.selectBatchItem.get(recipientId(value));
+    return (
+      row && {
+        position: row.position,
+        workId: row.work_id,
+        apartment: storedApartment(row),
+      }
+    );
+  }
+
+  acknowledgeBatchItem(value, { position, workId, apartment }, decidedAt) {
+    const id = recipientId(value);
+    return this.database.transaction("private_delivery_acknowledge", () => {
+      this.acknowledge(id, apartment.itemId, decidedAt, { transaction: false });
+      this.deleteCapturedWork.run(id, workId ?? null);
+      this.deleteBatchItem.run(id, position);
+    });
+  }
+
+  clearBatches() {
+    this.clearBatchStatement.run();
   }
 
   loadCandidates(value, fingerprint) {
@@ -444,7 +511,10 @@ export class SqlitePrivateDeliveriesRepository {
       this.database,
       "private_recipient_delete",
       transaction,
-      () => Number(this.deleteRecipientStatement.run(id).changes),
+      () => {
+        this.deleteBatch.run(id);
+        return Number(this.deleteRecipientStatement.run(id).changes);
+      },
     );
   }
 

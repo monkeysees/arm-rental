@@ -19,15 +19,6 @@ const CHANNEL_STATUSES = new Set([
 ]);
 const HASH_PATTERN = /^[a-f0-9]{64}$/u;
 
-function validateFingerprint(value) {
-  if (typeof value !== "string" || !HASH_PATTERN.test(value)) {
-    throw new TypeError(
-      "Channel filter fingerprint must be a lowercase SHA-256 digest",
-    );
-  }
-  return value;
-}
-
 function validateEntry(itemId, entry) {
   nonEmptyIdentifier(itemId, "Channel item ID");
   if (
@@ -272,39 +263,6 @@ export class SqliteChannelDeliveriesRepository {
       throw error;
     }
     return state;
-  }
-
-  initialize(filterFingerprint, decisions, { transaction = true } = {}) {
-    validateFingerprint(filterFingerprint);
-    const entries = Object.entries(decisions || {}).map(([itemId, entry]) => [
-      itemId,
-      validateEntry(itemId, entry),
-    ]);
-    return runRepositoryTransaction(
-      this.database,
-      "channel_initialize",
-      transaction,
-      () => {
-        this.insertState.run(
-          this.channelId,
-          this.listUrlTemplate,
-          filterFingerprint,
-        );
-        for (const [itemId, entry] of entries) this.insertEntry(itemId, entry);
-        return entries.length;
-      },
-    );
-  }
-
-  updateFilterFingerprint(filterFingerprint, { transaction = true } = {}) {
-    validateFingerprint(filterFingerprint);
-    return runRepositoryTransaction(
-      this.database,
-      "channel_filter_fingerprint",
-      transaction,
-      () =>
-        Number(this.updateFingerprintStatement.run(filterFingerprint).changes),
-    );
   }
 
   classify(decisions, { transaction = true } = {}) {

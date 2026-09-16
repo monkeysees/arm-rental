@@ -338,11 +338,16 @@ npm run check:production-contract
 The production image pins Node.js 24.18.0 and checksum-verified
 curl-impersonate 2.2.2. Application dependencies are installed with
 `npm ci --omit=dev`; the host needs a Linux AMD64 OCI runtime.
+The final image contains only runtime components, certificates, licenses, and
+scanner metadata. It has no shell or package manager; operational commands
+invoke `node` directly. See [runtime image measurements and verification](docs/runtime-image.md).
 
 Build and inspect the deployment versions:
 
 ```sh
 docker build --platform linux/amd64 --target production \
+  --build-arg SOURCE_REVISION="$(git rev-parse HEAD)" \
+  --build-arg PACKAGE_LOCK_SHA256="$(sha256sum package-lock.json | cut -d ' ' -f 1)" \
   --tag rental-apartments-bot:local .
 docker image inspect --format '{{json .Config.Labels}}' \
   rental-apartments-bot:local

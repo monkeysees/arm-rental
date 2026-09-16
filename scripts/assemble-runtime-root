@@ -1,0 +1,35 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+
+# Executed only in the pinned Debian build stage. Resolve the native library
+# closure there, so the same recipe works on both supported architectures.
+root="${1:?Usage: assemble-runtime-root ABSOLUTE_DIRECTORY}"
+[[ "$root" == /* && "$root" != / ]]
+mkdir -p "$root/usr/local/bin" "$root/usr/local/share" "$root/etc/ssl/certs" "$root/usr/share/doc" \
+  "$root/var/lib/dpkg" "$root/app/.data" "$root/tmp" "$root/sqlite-tmp"
+for binary in /usr/local/bin/node /usr/local/bin/curl-impersonate; do
+  cp --parents "$binary" "$root"
+  while IFS= read -r library; do
+    cp --dereference --parents "$library" "$root"
+  done < <(ldd "$binary" | awk '/=> \// {print $3} $1 ~ /^\// {print $1}')
+done
+cp /etc/ssl/certs/ca-certificates.crt "$root/etc/ssl/certs/"
+cp --dereference /etc/os-release "$root/etc/"
+cp /etc/debian_version "$root/etc/"
+cp /etc/nsswitch.conf "$root/etc/"
+printf 'root:x:0:0:root:/root:/sbin/nologin\nnode:x:1000:1000:Node:/app:/sbin/nologin\n' >"$root/etc/passwd"
+printf 'root:x:0:\nnode:x:1000:\n' >"$root/etc/group"
+cp --parents /usr/local/LICENSE "$root"
+cp -a /usr/local/share/licenses "$root/usr/local/share/"
+cp -a /usr/share/common-licenses "$root/usr/share/"
+# Retain exact package versions and licensing for the shipped Debian components.
+# This inventory lets OS vulnerability scanners see the scratch image's libc.
+for package in base-files ca-certificates libc6 libgcc-s1 libstdc++6; do
+  dpkg-query --status "$package" >>"$root/var/lib/dpkg/status"
+  printf '\n' >>"$root/var/lib/dpkg/status"
+  mkdir -p "$root/usr/share/doc/$package"
+  cp --dereference "/usr/share/doc/$package/copyright" "$root/usr/share/doc/$package/"
+done
+chown 1000:1000 "$root/app/.data"
+chmod 0700 "$root/app/.data"
+chmod 1777 "$root/tmp" "$root/sqlite-tmp"

@@ -52,7 +52,7 @@ direction; the only way forward from a pre-cutover host is a snapshot taken
 after the cutover. Missing, corrupt, newer-schema, wrong-application-ID, and
 target-mismatched databases fail closed without fallback or dual writes.
 
-Schema version 1 is a deliberate compatibility decision: one `STRICT` database
+The versioned schema uses one `STRICT` database that
 stores an apartment payload per row, compact ordered crawl metadata, normalized
 private and channel delivery decisions, Telegram users and update offset, and
 the validated exchange-rate snapshot. Domain repositories expose bounded
@@ -342,10 +342,14 @@ version. CI installs the full locked dependency graph with `npm ci` before
 running linting, formatting, and tests. The production image performs a
 separate `npm ci --omit=dev`, so development-only tooling is not deployed.
 
-The Linux AMD64 production image uses the immutable official Node.js 24.18.0
+The Linux AMD64 production build uses the immutable official Node.js 24.18.0
 Bookworm Slim digest and curl-impersonate 2.2.2. Installation verifies the
-architecture-specific archive checksum before copying the executable and
-licenses. OCI labels expose the Node and curl-impersonate versions.
+architecture-specific archive checksum. A scratch final stage receives only
+Node, curl-impersonate, their shared libraries, CA certificates, licenses,
+production dependencies, and application files. Debian identity and the package
+inventory for shipped libraries remain available to vulnerability scanners;
+shells, package managers, headers, and installation tools stay in the build
+stage. OCI labels expose runtime versions and the supported SQLite schema range.
 
 ### Continuous integration and artifact provenance
 
@@ -353,9 +357,11 @@ The two branch-protection boundaries are the stable `Required / quality` and
 `Required / production artifact` jobs. The first runs the complete repository
 checks, a separate 90%-line/80%-branch coverage gate, and a high-severity
 production dependency audit on the pinned Node runtime. The second builds the
-production image, exercises the pinned HTTP executable against a local fixture
-server under production container restrictions, and scans OS packages and
-application libraries. No production credentials or List.am access are needed.
+production image, exercises HTTP cookies, state initialization, backup,
+validation, restore, maintenance, health, startup, and shutdown under production
+container restrictions, and scans OS packages and application libraries. Local
+fixtures supply external responses; no production credentials or List.am access
+are needed.
 The required job keeps the validated image ephemeral; publication repeats
 build, validation, and scanning before publishing to GHCR.
 

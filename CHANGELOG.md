@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Build a minimal production runtime image and verify initialization, recovery, maintenance, health, and shutdown without network access.
 - Install the patched PCRE2 runtime library so the Chromium-free image passes the production vulnerability scan.
 - Replace Chromium and Puppeteer with pinned Safari-profile HTTP fetching, private cookies, bounded redirects, paced requests, and server-directed retry cooldowns; remove browser verification, sandbox privileges, and profile backups.
 - Read private delivery history only for relevant listing IDs, preserving retained decisions and notification behavior while allowing the four-million-decision benchmark to complete within 512 MiB.

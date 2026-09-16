@@ -3,7 +3,7 @@
 ARG NODE_VERSION=24.18.0
 
 # The digest pins the complete multi-platform Node image, including Debian.
-FROM node:${NODE_VERSION}-bookworm-slim@sha256:6f7b03f7c2c8e2e784dcf9295400527b9b1270fd37b7e9a7285cf83b6951452d AS production
+FROM node:${NODE_VERSION}-bookworm-slim@sha256:6f7b03f7c2c8e2e784dcf9295400527b9b1270fd37b7e9a7285cf83b6951452d AS build
 
 ARG NODE_VERSION
 ARG CURL_IMPERSONATE_VERSION=2.2.2
@@ -12,18 +12,6 @@ ARG DEBIAN_SNAPSHOT=20260905T234553Z
 ARG SOURCE_REVISION
 ARG PACKAGE_LOCK_SHA256
 ARG DEBIAN_FRONTEND=noninteractive
-
-LABEL org.opencontainers.image.title="rental-apartments-bot" \
-      org.opencontainers.image.revision="${SOURCE_REVISION}" \
-      com.rental-apartments.state.backend="sqlite" \
-      com.rental-apartments.state.schema.minimum="1" \
-      com.rental-apartments.state.schema.maximum="1" \
-      org.opencontainers.image.node.version="${NODE_VERSION}" \
-      org.opencontainers.image.curl-impersonate.version="${CURL_IMPERSONATE_VERSION}" \
-      org.opencontainers.image.package-lock.sha256="${PACKAGE_LOCK_SHA256}"
-
-ENV NODE_ENV=production \
-    CURL_IMPERSONATE_PATH=/usr/local/bin/curl-impersonate
 
 WORKDIR /app
 
@@ -44,16 +32,37 @@ RUN sed -i \
     && apt-get install --yes --no-install-recommends \
       ca-certificates curl libpcre2-8-0=10.42-1+deb12u1 \
     && test "${CURL_IMPERSONATE_VERSION}" = "$(. /tmp/curl-install/curl-impersonate-version; printf '%s' "$CURL_IMPERSONATE_VERSION")" \
-    && /tmp/curl-install/install-curl-impersonate /usr/local "${TARGETARCH}" \
-    && apt-get purge --yes --auto-remove curl \
-    && rm -rf \
-      /var/lib/apt/lists/* /tmp/curl-install \
-      /usr/local/lib/node_modules/npm \
-      /usr/local/lib/node_modules/corepack \
-    && rm -f /usr/local/bin/npm /usr/local/bin/npx /usr/local/bin/corepack
+    && /tmp/curl-install/install-curl-impersonate /usr/local "${TARGETARCH}"
 
+COPY scripts/assemble-runtime-root /tmp/assemble-runtime-root
+RUN /tmp/assemble-runtime-root /runtime
+
+FROM scratch AS production
+
+ARG NODE_VERSION
+ARG CURL_IMPERSONATE_VERSION=2.2.2
+ARG SOURCE_REVISION
+ARG PACKAGE_LOCK_SHA256
+
+LABEL org.opencontainers.image.title="rental-apartments-bot" \
+      org.opencontainers.image.revision="${SOURCE_REVISION}" \
+      com.rental-apartments.state.backend="sqlite" \
+      com.rental-apartments.state.schema.minimum="1" \
+      com.rental-apartments.state.schema.maximum="2" \
+      org.opencontainers.image.node.version="${NODE_VERSION}" \
+      org.opencontainers.image.curl-impersonate.version="${CURL_IMPERSONATE_VERSION}" \
+      org.opencontainers.image.package-lock.sha256="${PACKAGE_LOCK_SHA256}"
+
+ENV NODE_ENV=production \
+    PATH=/usr/local/bin \
+    CURL_IMPERSONATE_PATH=/usr/local/bin/curl-impersonate \
+    SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt
+
+COPY --from=build /runtime/ /
+WORKDIR /app
+COPY --from=build /app/package.json /app/package-lock.json ./
+COPY --from=build /app/node_modules ./node_modules
 COPY --chown=node:node src ./src
-RUN install -d -o node -g node -m 0700 /app/.data
 
 USER node
 

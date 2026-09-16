@@ -84,7 +84,7 @@ jobs:
           docker run --rm --entrypoint /usr/local/bin/curl-impersonate rental-apartments-bot:ci --version | grep -F 'curl 8.21.0-IMPERSONATE'
 
       - name: Smoke-test production HTTP transport
-        run: scripts/smoke-production-http-image rental-apartments-bot:ci
+        run: scripts/smoke-production-runtime-image rental-apartments-bot:ci
 
       - name: Scan OS and application dependencies
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # 0.36.0

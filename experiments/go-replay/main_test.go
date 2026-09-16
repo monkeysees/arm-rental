@@ -109,3 +109,31 @@ func TestReplayRejectsUnknownCurrency(t *testing.T) {
 		t.Fatalf("expected missing rate, got %v", err)
 	}
 }
+
+func TestSharedRunnerFlushesCompleteResult(t *testing.T) {
+	root, err := filepath.Abs("../..")
+	if err != nil {
+		t.Fatal(err)
+	}
+	binary := filepath.Join(t.TempDir(), "replay")
+	build := exec.Command("go", "build", "-buildvcs=false", "-o", binary, ".")
+	if out, err := build.CombinedOutput(); err != nil {
+		t.Fatalf("build: %v\n%s", err, out)
+	}
+	cmd := exec.Command("node", "experiments/node-replay/run.js", "--runtime", "go", "--go-binary", binary, "--users", "4", "--mode", "virtual")
+	cmd.Dir = root
+	out, err := cmd.Output()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(out) <= 65536 {
+		t.Fatal("result must exercise pipe-buffer boundary")
+	}
+	var result Result
+	if err = json.Unmarshal(out, &result); err != nil {
+		t.Fatalf("truncated runner output: %v", err)
+	}
+	if result.Status != "passed" {
+		t.Fatal("runner failed")
+	}
+}

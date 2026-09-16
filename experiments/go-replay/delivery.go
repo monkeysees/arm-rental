@@ -98,6 +98,12 @@ func (s *Store) deliver(m Manifest, users int, catchup bool, mode string, now in
 			}
 		}
 		for scanned := 0; scanned < users && len(flights) < 8; scanned++ {
+			if clock < global {
+				if global < next {
+					next = global
+				}
+				break
+			}
 			u := cursor
 			cursor = (cursor + 1) % users
 			r := &states[u]
@@ -124,16 +130,11 @@ func (s *Store) deliver(m Manifest, users int, catchup bool, mode string, now in
 				r.tokens = float64(m.Transport.RecipientBurst)
 			}
 			r.refilled = clock
-			if r.attempts == 0 && r.tokens < 1 {
+			// Fractional refills can land a few ulps below one at the deadline.
+			if r.attempts == 0 && r.tokens+1e-9 < 1 {
 				r.ready = clock + (1-r.tokens)*60000/float64(m.Transport.RecipientMessagesPerMinute)
 				if r.ready < next {
 					next = r.ready
-				}
-				continue
-			}
-			if clock < global {
-				if global < next {
-					next = global
 				}
 				continue
 			}
@@ -144,6 +145,9 @@ func (s *Store) deliver(m Manifest, users int, catchup bool, mode string, now in
 			history[u] = append(history[u], attempt{clock, r.attempts > 0})
 			if r.attempts == 0 {
 				r.tokens--
+				if r.tokens < 0 {
+					r.tokens = 0
+				}
 			}
 			r.attempts++
 			if r.attempts > m.Transport.MaxAttempts {

@@ -96,31 +96,6 @@ func (s *Store) seed(m Manifest, users int) error {
 }
 func (s *Store) classify(m Manifest, users int, changed []Listing, catchup bool, now int64) error {
 	list := changed
-	if catchup {
-		list = []Listing{}
-		rows, e := s.db.Query("SELECT payload FROM listings WHERE posted>=? ORDER BY posted,id", now-86400000)
-		if e != nil {
-			return e
-		}
-		for rows.Next() {
-			var b string
-			if e = rows.Scan(&b); e != nil {
-				rows.Close()
-				return e
-			}
-			var l Listing
-			if e = json.Unmarshal([]byte(b), &l); e != nil {
-				rows.Close()
-				return e
-			}
-			list = append(list, l)
-		}
-		e = rows.Err()
-		rows.Close()
-		if e != nil {
-			return e
-		}
-	}
 	sort.Slice(list, func(i, j int) bool {
 		if list[i].PostedAt != list[j].PostedAt {
 			return list[i].PostedAt < list[j].PostedAt
@@ -138,7 +113,34 @@ func (s *Store) classify(m Manifest, users int, changed []Listing, catchup bool,
 			revision, status int
 		}
 		items := []decision{}
+		if catchup {
+			rows, err := tx.Query(`SELECT l.payload,l.revision FROM listings l LEFT JOIN decisions d ON d.user=? AND d.id=l.id WHERE l.posted>=? AND (d.revision IS NULL OR d.revision!=l.revision) ORDER BY l.posted,l.id`, u, now-86400000)
+			if err != nil {
+				return err
+			}
+			for rows.Next() {
+				var b string
+				var d decision
+				if err = rows.Scan(&b, &d.revision); err != nil {
+					rows.Close()
+					return err
+				}
+				if err = json.Unmarshal([]byte(b), &d.l); err != nil {
+					rows.Close()
+					return err
+				}
+				items = append(items, d)
+			}
+			err = rows.Err()
+			rows.Close()
+			if err != nil {
+				return err
+			}
+		}
 		for _, l := range list {
+			if catchup {
+				break
+			}
 			if l.PostedAt < now-86400000 {
 				continue
 			}
@@ -154,11 +156,13 @@ func (s *Store) classify(m Manifest, users int, changed []Listing, catchup bool,
 			if e == nil && oldRevision == revision {
 				continue
 			}
-			status := 2
-			if m.Recipients.FiltersByGroup[u%4].Matches(l) {
-				status = 0
+			items = append(items, decision{l, revision, 0})
+		}
+		for i := range items {
+			items[i].status = 2
+			if m.Recipients.FiltersByGroup[u%4].Matches(items[i].l) {
+				items[i].status = 0
 			}
-			items = append(items, decision{l, revision, status})
 		}
 		if catchup {
 			count := 0

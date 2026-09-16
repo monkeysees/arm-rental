@@ -6,7 +6,8 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { verifyGoSlice } from "../node-replay/verify.js";
-import { contract } from "../node-replay/fixture.js";
+import { evaluateCapacity } from "../node-replay/capacity.js";
+import { memory } from "../node-replay/metrics.js";
 
 export async function runGoReplay({ users, mode, binary }) {
   assert(
@@ -59,47 +60,24 @@ export async function runGoReplay({ users, mode, binary }) {
     result.binarySha256 = createHash("sha256")
       .update(readFileSync(binary))
       .digest("hex");
-    const routine = result.phases.filter((p) =>
-      ["updated", "fresh"].includes(p.name),
-    );
-    const catchup = result.phases.find((p) => p.name === "catchup");
-    const idealDrainMs = Math.max(
-      (catchup.attempts * 1000) / contract.transport.globalAttemptsPerSecond,
-      ((contract.initialDeliveryLimit + 1 - contract.transport.recipientBurst) *
-        60000) /
-        contract.transport.recipientMessagesPerMinute,
-    );
-    const fairProgressDeadlineMs =
-      catchup.classificationWallMs +
-      (2 * users * 1000) / contract.transport.globalAttemptsPerSecond +
-      contract.transport.retryAfterMs +
-      contract.transport.latencyMs;
-    result.capacity =
-      mode === "wall"
-        ? {
-            routineWithinCrawlInterval:
-              routine.reduce((sum, p) => sum + p.wallMs, 0) <=
-              contract.crawlIntervalMs,
-            classificationWithinCrawlInterval:
-              routine.reduce((sum, p) => sum + p.classificationWallMs, 0) <=
-              contract.crawlIntervalMs,
-            catchupIdealDrainMs: idealDrainMs,
-            catchupWithinPermittedRateTarget:
-              catchup.wallMs <=
-              idealDrainMs * contract.measurement.capacityDrainTolerance,
-            fairProgressDeadlineMs,
-            fairProgress:
-              catchup.classificationWallMs + catchup.firstProgressMaxMs <=
-              fairProgressDeadlineMs *
-                contract.measurement.capacityDrainTolerance,
-            withinApplicationMemoryLimit:
-              result.resources.primaryRamBytes === null
-                ? null
-                : result.resources.primaryRamBytes <=
-                  contract.measurement.memoryBytes,
-          }
-        : null;
-    console.log(JSON.stringify(result, null, 2));
+    result.resources.primaryRamBytes = memory().servicePeakBytes;
+    result.capacity = evaluateCapacity({
+      users,
+      mode,
+      primaryRamBytes: result.resources.primaryRamBytes,
+      phases: result.phases.map((phase) => ({
+        ...phase,
+        recipientsWithProgress: phase.sent > 0 ? phase.recipientsAsserted : 0,
+        firstRecipientProgressMs: {
+          max: phase.classificationWallMs + phase.firstProgressMaxMs,
+        },
+      })),
+    });
+    await new Promise((resolve, reject) => {
+      process.stdout.write(`${JSON.stringify(result, null, 2)}\n`, (error) =>
+        error ? reject(error) : resolve(),
+      );
+    });
   } finally {
     rmSync(directory, { recursive: true, force: true });
   }

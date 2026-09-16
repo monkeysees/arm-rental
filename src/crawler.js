@@ -1,7 +1,6 @@
 import { setImmediate as yieldToEventLoop } from "node:timers/promises";
 import {
   APARTMENT_STATE_VERSION,
-  migrateApartmentState,
   SOURCE_INTEGRITY_HISTORY_LIMIT,
 } from "./apartment-state.js";
 import {
@@ -76,21 +75,6 @@ async function fetchHtml(url, fetchPage) {
     throw error;
   }
   return response.text();
-}
-
-function latestKnownPostingDate(apartments) {
-  let latestDate = null;
-  let latestValue = null;
-
-  for (const apartment of Object.values(apartments)) {
-    const value = postingDateSortValue(apartment?.date);
-    if (value !== null && (latestValue === null || value > latestValue)) {
-      latestDate = apartment.date;
-      latestValue = value;
-    }
-  }
-
-  return { date: latestDate, value: latestValue };
 }
 
 const SOURCE_FIELDS = [
@@ -204,32 +188,25 @@ export async function crawlApartments(
     throw new Error("Private delivery recipient IDs must be unique");
   }
 
-  const stored = await stateAccess.apartments.load();
-  const apartmentState = migrateApartmentState(stored, config.listUrlTemplate);
-  if (stored !== undefined && !apartmentState) {
-    const error = new Error("Apartment state has an incompatible schema");
-    error.code = "ERR_STATE_INCOMPATIBLE";
-    throw error;
-  }
   const listSources = configuredListSources(config);
-  // A stored record written before houses existed carries no kind; it was an
-  // apartment, and saying so here keeps every later comparison total.
-  const previousApartments = apartmentState
-    ? Object.fromEntries(
-        Object.entries(apartmentState.apartments).map(([itemId, apartment]) => [
-          itemId,
-          {
-            ...apartment,
-            kind: propertyKindOf(apartment),
-            price: normalizeApartmentPrice(apartment.price, exchangeRates),
-          },
-        ]),
-      )
-    : {};
-  const previousOrder = apartmentState?.apartmentOrder || [];
+  const apartmentState = await stateAccess.apartments.loadCrawl(
+    listSources.map(({ kind }) => kind),
+  );
+  const previousApartments = {};
   const priorFirstPageCounts =
-    apartmentState?.sourceIntegrity.recentFirstPageCounts || {};
-  const initialRun = Object.keys(previousApartments).length === 0;
+    apartmentState.sourceIntegrity?.recentFirstPageCounts || {};
+  const initialRun = apartmentState.totalCount === 0;
+  // The partial index is empty after legacy prices have been frozen once.
+  const changes = new Map(
+    (await stateAccess.apartments.findLegacyPrices()).map((apartment) => [
+      apartment.itemId,
+      {
+        ...apartment,
+        kind: propertyKindOf(apartment),
+        price: normalizeApartmentPrice(apartment.price, exchangeRates),
+      },
+    ]),
+  );
   // Taken once, so every card this crawl has to date for itself is dated
   // identically no matter how long the crawl's pagination runs.
   const crawlPostingDate = formatPostingDate(now().getTime());
@@ -250,10 +227,8 @@ export async function crawlApartments(
   // category added to an existing installation starts from scratch while the
   // established one keeps crawling incrementally.
   for (const { kind, urlTemplate } of listSources) {
-    const knownOfKind = Object.values(previousApartments).filter(
-      (apartment) => apartment.kind === kind,
-    );
-    const kindInitialRun = knownOfKind.length === 0;
+    const lastKnownPostingDate = apartmentState.watermarks[kind];
+    const kindInitialRun = lastKnownPostingDate.initialRun;
     // A category added to an installation that already holds listings performs
     // its first crawl inside an ordinary deployment, and the candidate
     // observation window bounds how long any one crawl may take there. A full
@@ -265,7 +240,6 @@ export async function crawlApartments(
       kindInitialRun && !initialRun
         ? config.addedCategoryPageCount
         : config.initialPageCount;
-    const lastKnownPostingDate = latestKnownPostingDate(knownOfKind);
     const pageSignatures = new Set();
     let kindPagesParsed = 0;
     let stoppedAtKnownDate = null;
@@ -304,6 +278,17 @@ export async function crawlApartments(
         break;
       }
       pageSignatures.add(signature);
+
+      const known = await stateAccess.apartments.findEncountered(
+        apartments.map(({ itemId }) => itemId),
+      );
+      for (const [itemId, apartment] of Object.entries(known)) {
+        previousApartments[itemId] = {
+          ...apartment,
+          kind: propertyKindOf(apartment),
+          price: normalizeApartmentPrice(apartment.price, exchangeRates),
+        };
+      }
 
       for (const parsed of apartments) {
         // Only a date the source printed can say the crawl has reached history.
@@ -376,14 +361,10 @@ export async function crawlApartments(
   await onSourceIntegrityChecked({ pages: sourceIntegrityChecks });
 
   const checkedAt = now().toISOString();
-  const apartments = { ...previousApartments };
   const updated = [];
   for (const [itemId, observed] of observedKnown) {
     const previous = previousApartments[itemId];
-    if (!sourceDataChanged(previous, observed)) {
-      apartments[itemId] = { ...previous, lastSeenAt: checkedAt };
-      continue;
-    }
+    if (!sourceDataChanged(previous, observed)) continue;
 
     const priceChanged =
       originalPriceValues(previous.price).amount !==
@@ -399,15 +380,15 @@ export async function crawlApartments(
       lastSeenAt: checkedAt,
       updatedAt: checkedAt,
     };
-    apartments[itemId] = apartment;
+    changes.set(itemId, apartment);
     updated.push(apartment);
   }
   for (const apartment of discovered) {
-    apartments[apartment.itemId] = {
+    changes.set(apartment.itemId, {
       ...apartment,
       firstSeenAt: checkedAt,
       lastSeenAt: checkedAt,
-    };
+    });
   }
   // Each category is read newest-first, but they are read one after another,
   // so their encounters are merged back into one newest-first sequence. Every
@@ -429,23 +410,7 @@ export async function crawlApartments(
       return right.postedAt - left.postedAt;
     })
     .map(({ itemId }) => itemId);
-  const orderedIds = new Set(mergedEncounterOrder);
-  const takeUnorderedId = (itemId) => {
-    if (!Object.hasOwn(apartments, itemId) || orderedIds.has(itemId)) {
-      return false;
-    }
-    orderedIds.add(itemId);
-    return true;
-  };
-  const retainedOrder = previousOrder.filter(takeUnorderedId);
-  const missingFromOrder = Object.keys(apartments).filter(takeUnorderedId);
-  const apartmentOrder = [
-    ...mergedEncounterOrder,
-    ...retainedOrder,
-    ...missingFromOrder,
-  ];
-
-  const state = {
+  const crawlMetadata = {
     version: APARTMENT_STATE_VERSION,
     type: "list-am-apartments",
     urlTemplate: config.listUrlTemplate,
@@ -457,8 +422,6 @@ export async function crawlApartments(
       updatedCount: updated.length,
       sources: sourceSummaries,
     },
-    apartments,
-    apartmentOrder,
     sourceIntegrity: {
       recentFirstPageCounts: appendedFirstPageCounts(
         priorFirstPageCounts,
@@ -468,7 +431,18 @@ export async function crawlApartments(
     },
   };
 
-  await stateAccess.apartments.save(state);
+  const totalCount = await stateAccess.apartments.commitCrawl({
+    ...crawlMetadata,
+    changes: [...changes.values()],
+    encounteredOrder: mergedEncounterOrder,
+  });
+  // These delivery consumers still classify retained history. Discovery and
+  // persistence need no full-history read when neither consumer is running.
+  const state =
+    deliveryTargets.length > 0 || afterStateSaved
+      ? await stateAccess.apartments.load()
+      : { ...crawlMetadata, apartments: {}, apartmentOrder: [] };
+  const { apartments, apartmentOrder } = state;
 
   const channelPublication = afterStateSaved
     ? Promise.resolve().then(() => afterStateSaved(state))
@@ -758,7 +732,7 @@ export async function crawlApartments(
     skippedCount,
     filteredCount,
     readmittedCount,
-    totalCount: Object.keys(apartments).length,
+    totalCount,
     sources: sourceSummaries,
     sourceIntegrity: { pages: sourceIntegrityChecks },
   };

@@ -12,7 +12,7 @@ import {
   statfs,
 } from "node:fs/promises";
 import path from "node:path";
-import { backup as backupSqlite } from "node:sqlite";
+import { backup as backupSqlite, DatabaseSync } from "node:sqlite";
 
 import { acquireSingletonLock } from "./singleton-lock.js";
 import {
@@ -491,8 +491,24 @@ export async function validateSnapshot(config, snapshotDirectory) {
       snapshotDirectory,
     });
   }
-  const summary = await withStagedDatabase(config, dataRoot, (databaseRoot) =>
-    validateRecoveryState(config, dataRoot, { databaseRoot }),
+  let archivedVersion;
+  const summary = await withStagedDatabase(
+    config,
+    dataRoot,
+    async (databaseRoot) => {
+      const archived = new DatabaseSync(
+        stateDatabasePaths(databaseRoot).database,
+        { readOnly: true },
+      );
+      try {
+        archivedVersion = Number(
+          archived.prepare("PRAGMA user_version").get().user_version,
+        );
+      } finally {
+        archived.close();
+      }
+      return validateRecoveryState(config, dataRoot, { databaseRoot });
+    },
   );
   // Version 2 also summarized the retired browser profile. Its files remain
   // checksum-validated above, but only durable application state is restored.
@@ -500,7 +516,13 @@ export async function validateSnapshot(config, snapshotDirectory) {
     manifest.version === LEGACY_SQLITE_BACKUP_VERSION
       ? { database: manifest.summary.database }
       : manifest.summary;
-  if (JSON.stringify(summary) !== JSON.stringify(expectedSummary)) {
+  // Compare the archive's declared schema before migration, while checking all
+  // logical counts and identities after a successful staged upgrade.
+  const archivedSummary = {
+    ...summary,
+    database: { ...summary.database, userVersion: archivedVersion },
+  };
+  if (JSON.stringify(archivedSummary) !== JSON.stringify(expectedSummary)) {
     throw new RecoveryValidationError(
       "Backup schema counts or Telegram update offset do not match its manifest",
       { snapshotDirectory },

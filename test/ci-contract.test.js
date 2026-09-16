@@ -117,7 +117,7 @@ test("release manifest binds the deployable image to its complete inputs", async
     sourceRevision: "a".repeat(40),
     stateBackend: "sqlite",
     minimumStateSchema: 1,
-    maximumStateSchema: 2,
+    maximumStateSchema: SQLITE_SCHEMA_VERSION,
     deployableStateBackends: ["sqlite"],
     nodeVersion: nodeVersion.trim(),
     curlImpersonateVersion: "2.2.2",

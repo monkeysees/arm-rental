@@ -1049,12 +1049,22 @@ implicit — `apartment` on every stored listing payload, an explicit apartment
 selection on every stored filter, and the flat first-page history reseated as
 the apartment category's own series.
 
-- `apartments` stores one complete normalized listing JSON payload per item,
-  including its housing kind; `crawl_state` atomically stores checked time,
-  crawl metadata, exact item order, and the bounded per-kind source-integrity
-  history. A crawl upserts changed payloads,
-  removes absent rows, and advances all metadata in one transaction before any
-  Telegram work starts.
+Schema version 3 adds indexed category/date watermarks and per-listing encounter
+sequence, position, and last-seen columns. It migrates the previous order once,
+then removes the serialized historical order from crawl metadata. Fixed,
+relative, and yearless dates retain their existing interpretation at read time.
+
+- `apartments` stores a normalized listing JSON payload plus indexed discovery
+  and encounter fields per item. Discovery reads bounded category watermarks
+  and looks up only IDs on encountered pages. `crawl_state` stores checked time,
+  crawl metadata, sequence, total count, and bounded per-kind source-integrity
+  history. Changed payloads, encountered ordering/last-seen fields, and crawl
+  metadata commit atomically before Telegram work starts. An unchanged crawl
+  serializes no retained listing payloads and rebuilds no membership table;
+  absent listings remain available for later re-encounters. Ordering projects
+  the current encounters first, followed by previously retained encounter order.
+  An indexed scan finds only legacy raw-price payloads for their one-time
+  canonicalization in the same transaction.
 - `private_recipients` and `private_delivery_decisions` store one row per
   recipient/item terminal decision (`notified`, `skipped`, or `filtered`).
   Absence remains pending. Initial selection and batch classification commit
@@ -1083,6 +1093,12 @@ the apartment category's own series.
 - `.maintenance-history.json` stores only the previous successful maintenance
   timestamp and aggregate managed byte count. It is excluded from application
   state thresholds, entry counts, and managed-growth totals.
+
+Private and channel delivery still load the full retained listing projection
+after a crawl commits, and channel state still loads its retained delivery
+history. These consumer reads are measured separately from discovery and
+persistence; their optimization belongs to the separate delivery tickets.
+Without either consumer, discovery and persistence need no full-history read.
 
 The five legacy JSON paths contain only incompatible `sqlite-migrated`
 sentinels after cutover. They carry backend, migration, and database identities

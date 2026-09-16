@@ -1,3 +1,7 @@
+import { migrateApartmentState } from "../src/apartment-state.js";
+import { postingDateSortValue } from "../src/posting-date.js";
+import { propertyKindOf } from "../src/property-kind.js";
+
 /**
  * An in-memory stand-in for the SQLite state access, shaped like the
  * repositories rather than like the state files that used to back them. Each
@@ -82,10 +86,62 @@ export function createMemoryStateAccess({
     },
     apartments: {
       load: async () => clone(apartmentState),
-      save: async (state) => {
+      findLegacyPrices: async () =>
+        clone(
+          Object.values(apartmentState?.apartments || {}).filter(
+            (apartment) => !Object.hasOwn(apartment.price || {}, "amountAmd"),
+          ),
+        ),
+      loadCrawl: async (kinds) => {
+        const migrated = migrateApartmentState(apartmentState, listUrlTemplate);
+        if (apartmentState !== undefined && !migrated) {
+          const error = new Error("Apartment state has an incompatible schema");
+          error.code = "ERR_STATE_INCOMPATIBLE";
+          throw error;
+        }
+        const values = Object.values(migrated?.apartments || {});
+        return {
+          sourceIntegrity: migrated?.sourceIntegrity,
+          totalCount: values.length,
+          watermarks: Object.fromEntries(
+            kinds.map((kind) => {
+              const matching = values.filter(
+                (apartment) => propertyKindOf(apartment) === kind,
+              );
+              let latest = { date: null, value: null };
+              for (const apartment of matching) {
+                const value = postingDateSortValue(apartment.date);
+                if (
+                  value !== null &&
+                  (latest.value === null || value > latest.value)
+                )
+                  latest = { date: apartment.date, value };
+              }
+              return [kind, { ...latest, initialRun: matching.length === 0 }];
+            }),
+          ),
+        };
+      },
+      findEncountered: async (itemIds) =>
+        Object.fromEntries(
+          itemIds
+            .filter((id) => apartmentState?.apartments[id])
+            .map((id) => [id, clone(apartmentState.apartments[id])]),
+        ),
+      commitCrawl: async ({ changes, encounteredOrder, ...metadata }) => {
+        const apartments = clone(apartmentState?.apartments || {});
+        for (const apartment of changes)
+          apartments[apartment.itemId] = clone(apartment);
+        for (const itemId of encounteredOrder)
+          apartments[itemId].lastSeenAt = metadata.checkedAt;
+        const order = new Set(encounteredOrder);
+        for (const itemId of apartmentState?.apartmentOrder || [])
+          order.add(itemId);
+        for (const itemId of Object.keys(apartments)) order.add(itemId);
+        const state = { ...metadata, apartments, apartmentOrder: [...order] };
         await write("apartments", { state });
-        apartmentState = structuredClone(state);
-        return state;
+        apartmentState = state;
+        return order.size;
       },
     },
     privateDeliveries: {

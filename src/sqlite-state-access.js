@@ -146,7 +146,11 @@ export function createSqliteStateAccess(database, repositories) {
   return {
     apartments: {
       load: () => repositories.apartments.load(),
-      save: (state) => repositories.apartments.commitCrawl(state),
+      loadCrawl: (kinds) => repositories.apartments.loadCrawl(kinds),
+      findLegacyPrices: () => repositories.apartments.findLegacyPrices(),
+      findEncountered: (itemIds) =>
+        repositories.apartments.findEncountered(itemIds),
+      commitCrawl: (crawl) => repositories.apartments.commitCrawl(crawl),
     },
     privateDeliveries: {
       load: () => repositories.privateDeliveries.loadAllDecisions(),

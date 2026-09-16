@@ -386,7 +386,7 @@ export function openStateDatabase({
     }
 
     const normalizedChannelId = canonicalChannelId(channelId);
-    if (!created && userVersion === SQLITE_SCHEMA_VERSION) {
+    if (!created) {
       const metadata = connection
         .prepare("SELECT * FROM application_metadata WHERE singleton = 1")
         .get();

@@ -5,6 +5,10 @@ Issue [#30](https://github.com/monkeysees/arm-rental/issues/30) implements the
 The runtime and deployment in production are unchanged. All experiment work stays
 on `experiment/22-runtime-comparison`.
 
+The current executable also implements the [full interruption/recovery and
+1,000-recipient follow-up](native-replay-recovery.md). Measurements below retain
+the original #30 slice scope; use the follow-up for current acceptance results.
+
 ## Reproduce
 
 From the repository root, with Docker and the existing npm dependencies installed:
@@ -43,8 +47,9 @@ With Go 1.27.1, a C compiler, and Node available locally, `go test ./...`,
 checks. The JavaScript project has no separate typechecking command.
 The standalone executable accepts `--fixtures EXPORTED_DIRECTORY --database
 NEW_SQLITE_PATH --users 500 --mode virtual|wall`; it refuses existing database
-files. Four recipients are supported for diagnostics only; 1,000 is deliberately
-rejected until the recovery follow-up.
+files in `--stage exercise`, then exits 23 after interrupted delivery.
+`--stage resume` requires the existing database. The shared runner invokes both
+stages. Populations 500 and 1,000 are supported; four recipients are diagnostic.
 
 ## Implemented boundary
 
@@ -76,7 +81,8 @@ recipient's contiguous logical-message intervals against the token-bucket bound.
 Wall mode sleeps against monotonic deadlines; virtual time is behavior evidence
 only and has no capacity verdict.
 
-The shared verifier explicitly identifies this result as `go-500-slice`. It
+The historical #30 results are identified as `go-500-slice`; current results use
+`go-full-contract` and the recovery oracle. The original slice verifier
 checks bootstrap plus three unchanged cycles, updates, fresh cards, catch-up
 storage/selection/delivery, and a clean reopen followed by an unchanged crawl.
 Every recipient's actual payload/order and classifications are compared before
@@ -117,10 +123,11 @@ Recent-window catch-up selection avoids rereading every retained decision for
 every recipient. Both are potentially transferable Node improvements, but their
 impact needs a separate production-contract review before adoption.
 
-This slice does not include forced interruption, a new-process crash recovery
+The original #30 slice did not include forced interruption, a new-process crash recovery
 suffix, the returning-absent-card phase, or the 1,000-recipient stress gate. The
-full Node verifier retains those requirements; the Go scope does not claim to
-pass them. Clean close/reopen is within the same process. It also omits bot
+full Node verifier retained those requirements; the original Go scope did not
+claim to pass them. The follow-up linked above implements them. The original
+clean close/reopen was within the same process. The prototype still omits bot
 polling/conversations, deletion, filter-release prompts, public channels,
 metadata, live source transport, arbitrary date/attribute parsing, category
 pagination/watermarks, CBA refresh, migrations, backups, health checks, operational

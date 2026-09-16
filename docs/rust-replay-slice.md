@@ -5,6 +5,10 @@ Issue [#31](https://github.com/monkeysees/arm-rental/issues/31) implements the
 All changes stay on `experiment/22-runtime-comparison`; production runtime and
 deployment are unchanged.
 
+The current executable also implements the [full interruption/recovery and
+1,000-recipient follow-up](native-replay-recovery.md). Measurements below retain
+the original #31 slice scope; use the follow-up for current acceptance results.
+
 ## Reproduce
 
 From the repository root with Docker and npm dependencies available:
@@ -42,8 +46,9 @@ the JavaScript repository has no separate typechecking command. Cargo.lock pins
 all dependencies. Build downloads happen before measurement; replay containers
 have networking disabled. The standalone binary accepts `--fixtures DIRECTORY
 --database NEW_SQLITE_PATH --users 500 --mode virtual|wall`. Four recipients are
-supported for diagnostics; 1,000 is explicitly refused until the recovery work.
-Existing database paths, including symlinks, are refused before opening SQLite.
+supported for diagnostics; 500 and 1,000 run the full recovery contract.
+`--stage exercise` refuses existing database paths and exits 23 after interrupted
+delivery; `--stage resume` requires existing state. The shared runner invokes both.
 
 ## Implemented boundary
 
@@ -70,8 +75,8 @@ against monotonic deadlines; virtual mode establishes behavior only. An audit
 checks global attempt spacing, retry deadlines, and all contiguous intervals of
 logical recipient messages against the token-bucket bound.
 
-The shared native oracle distinguishes `rust-500-slice` from the full Node
-recovery contract. It checks every recipient before compression into four
+The historical #31 results use `rust-500-slice`; current results use
+`rust-full-contract` and the full recovery oracle. Both check every recipient before compression into four
 profiles, then verifies payloads, ordering, decisions, announcements and retries
 against independently authored expected outputs. Clean reopen checks persisted
 acknowledgements before another unchanged crawl, requires zero additional sends,
@@ -112,11 +117,12 @@ reuse are potentially transferable Node improvements, subject to a separate
 production behavior review. Delivery observations are retained for the oracle,
 so their memory is part of this experiment, not a production queue design.
 
-Omissions: forced interruption, new-process crash recovery, returning absent
-cards, 1,000 recipients, bot polling/conversations, deletion and filter-release
+The original #31 slice omitted forced interruption, new-process crash recovery,
+returning absent cards and 1,000 recipients; the follow-up linked above adds them.
+Remaining omissions: bot polling/conversations, deletion and filter-release
 prompts, public channels, live HTTP and CBA refresh, arbitrary date parsing,
 pagination/watermarks, migrations, backup, health/alerts, deployment and shutdown
-integration. Clean reopen is in the same process. The external-send/local-ack
+integration. The original clean reopen was in the same process. The external-send/local-ack
 at-least-once duplicate window remains unresolved.
 
 ## Production transport and resource boundary

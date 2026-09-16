@@ -1368,14 +1368,21 @@ behavior checks from wall measurements and defines the cgroup RAM boundary;
 local application-container results do not establish whole-machine Pi capacity.
 
 `experiments/go-replay/` consumes the exported fixture contract for the isolated
-500-recipient Go slice. A single SQLite writer stores source revisions and
+500/1,000-recipient Go replay. A single SQLite writer stores source revisions and
 compact decisions, queries recent catch-up candidates, and supplies pending
-payloads to a bounded fair event loop. The shared runner/verifier names its
-clean-reopen scope explicitly; forced interruption and stress remain follow-up
-work. See [Go replay choices and measurements](go-replay-slice.md).
+payloads to a bounded fair event loop. The shared runner/verifier executes an
+unclean exercise exit and a new resume process. See [Go replay choices and
+measurements](go-replay-slice.md).
 
-`experiments/rust-replay/` implements the same isolated 500-recipient slice in
+`experiments/rust-replay/` implements the same isolated 500/1,000-recipient replay in
 Rust with HTML5 fixture parsing, bundled SQLite, incremental revisions, compact
 integer decisions, and a single bounded delivery scheduler. The native runner
-and independent slice oracle are shared with Go. No production component imports
+and independent full-contract oracle are shared with Go. No production component imports
 this prototype. See [Rust replay choices and measurements](rust-replay-slice.md).
+
+Both prototypes preserve SQLite classifications and durable acknowledgements
+through process restart, resume only pending work, and verify retained/absent
+history and final queue exhaustion. The [recovery protocol and
+measurements](native-replay-recovery.md) retain the shared workload and memory
+boundary. A separate diagnostic models the external-acceptance/local-acknowledgement
+duplicate window; neither prototype claims exactly-once Telegram delivery.

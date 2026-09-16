@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Verify Go and Rust interruption recovery at 500/1,000 recipients with durable-prefix checks, acceptance-before-acknowledgement diagnostics, full shared replay verification, and repeated resource measurements.
+
 - Add an isolated Rust 500-recipient replay with compact SQLite decisions, bounded fair delivery, shared verification, clean-reopen checks, and constrained resource measurements.
 
 - Add an isolated Go 500-recipient replay with compact SQLite decisions, fair rate-limited delivery, clean-reopen checks, shared verification, and constrained resource measurements.

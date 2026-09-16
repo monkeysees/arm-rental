@@ -5,7 +5,20 @@ import {
   runRepositoryTransaction,
 } from "./sqlite-repository-values.js";
 
-const STATUSES = ["notified", "skipped", "filtered"];
+import {
+  PRIVATE_DECISION_STATUSES as STATUSES,
+  decisionMilliseconds,
+  decisionStatusCode,
+  decisionTimestamp,
+} from "./sqlite-decision-values.js";
+
+function decodedDecision(row) {
+  return {
+    ...row,
+    status: STATUSES[row.status],
+    decided_at: decisionTimestamp(row.decided_at),
+  };
+}
 
 function recipientId(value) {
   return nonEmptyIdentifier(value, "Private recipient ID");
@@ -83,7 +96,7 @@ export class SqlitePrivateDeliveriesRepository {
       status = excluded.status, decided_at = excluded.decided_at`);
     this.deleteFiltered =
       database.prepare(`DELETE FROM private_delivery_decisions
-      WHERE recipient_id = ? AND item_id = ? AND status = 'filtered'`);
+      WHERE recipient_id = ? AND item_id = ? AND status = 2`);
     this.deleteRecipientStatement = database.prepare(
       "DELETE FROM private_recipients WHERE recipient_id = ?",
     );
@@ -91,7 +104,7 @@ export class SqlitePrivateDeliveriesRepository {
     // usable must not be handed all of them to find out.
     this.countInvalidDecisions =
       database.prepare(`SELECT count(*) AS invalid FROM private_delivery_decisions
-      WHERE strftime('%Y-%m-%dT%H:%M:%fZ', decided_at) IS NOT decided_at`);
+      WHERE typeof(decided_at) <> 'integer' OR decided_at NOT BETWEEN -8640000000000000 AND 8640000000000000 OR status NOT IN (0, 1, 2)`);
     this.clearDecisions = database.prepare(
       "DELETE FROM private_delivery_decisions",
     );
@@ -110,7 +123,8 @@ export class SqlitePrivateDeliveriesRepository {
         },
       ]),
     );
-    for (const row of this.selectDecisions.all()) {
+    for (const stored of this.selectDecisions.iterate()) {
+      const row = decodedDecision(stored);
       const recipient = recipients[row.recipient_id];
       if (!recipient || !STATUSES.includes(row.status)) {
         throw invalidDecisionError();
@@ -136,9 +150,9 @@ export class SqlitePrivateDeliveriesRepository {
    * rebuilding it just to check it puts its whole size on the event loop at
    * every start, and that size only grows. Status and recipient linkage are
    * already refused by the schema's own constraints, which leaves the decision
-   * timestamp: SQLite reformats each one through its own date parser, and a
-   * value that does not survive that round trip is exactly the value
-   * `canonicalIsoTimestamp` refuses when a recipient is later read.
+   * timestamp: integer milliseconds cover exactly the canonical ISO domain,
+   * including negative epochs and expanded years. The SQL predicate also
+   * catches corruption introduced with CHECK constraints disabled.
    */
   validate() {
     return Number(this.countInvalidDecisions.get().invalid) === 0;
@@ -158,7 +172,8 @@ export class SqlitePrivateDeliveriesRepository {
       filtered: {},
       initialSelectionApplied: Boolean(row.initial_selection_applied),
     };
-    for (const decision of this.selectRecipientDecisions.all(id, requested)) {
+    for (const stored of this.selectRecipientDecisions.iterate(id, requested)) {
+      const decision = decodedDecision(stored);
       if (!STATUSES.includes(decision.status)) throw invalidDecisionError();
       canonicalIsoTimestamp(
         decision.decided_at,
@@ -220,9 +235,19 @@ export class SqlitePrivateDeliveriesRepository {
         this.upsertRecipient.run(id, 1);
         for (const itemId of releasedIds) this.deleteFiltered.run(id, itemId);
         for (const [itemId, timestamp] of skippedEntries)
-          this.upsertDecision.run(id, itemId, "skipped", timestamp);
+          this.upsertDecision.run(
+            id,
+            itemId,
+            1,
+            decisionMilliseconds(timestamp),
+          );
         for (const [itemId, timestamp] of filteredEntries)
-          this.upsertDecision.run(id, itemId, "filtered", timestamp);
+          this.upsertDecision.run(
+            id,
+            itemId,
+            2,
+            decisionMilliseconds(timestamp),
+          );
         return (
           releasedIds.length + skippedEntries.length + filteredEntries.length
         );
@@ -266,7 +291,12 @@ export class SqlitePrivateDeliveriesRepository {
       () => {
         this.ensureRecipientStatement.run(id);
         for (const [itemId, timestamp] of entries)
-          this.upsertDecision.run(id, itemId, "skipped", timestamp);
+          this.upsertDecision.run(
+            id,
+            itemId,
+            1,
+            decisionMilliseconds(timestamp),
+          );
         return entries.length;
       },
     );
@@ -284,7 +314,12 @@ export class SqlitePrivateDeliveriesRepository {
       () => {
         this.ensureRecipientStatement.run(id);
         for (const [itemId, timestamp] of entries)
-          this.insertDecision.run(id, itemId, status, timestamp);
+          this.insertDecision.run(
+            id,
+            itemId,
+            decisionStatusCode(status),
+            decisionMilliseconds(timestamp),
+          );
         return entries.length;
       },
     );
@@ -311,7 +346,12 @@ export class SqlitePrivateDeliveriesRepository {
       transaction,
       () => {
         this.ensureRecipientStatement.run(id);
-        this.upsertDecision.run(id, normalizedItemId, "notified", decidedAt);
+        this.upsertDecision.run(
+          id,
+          normalizedItemId,
+          0,
+          decisionMilliseconds(decidedAt),
+        );
         return 1;
       },
     );
@@ -356,7 +396,12 @@ export class SqlitePrivateDeliveriesRepository {
           );
           for (const status of STATUSES) {
             for (const [itemId, timestamp] of recipient.decisions[status])
-              this.insertDecision.run(id, itemId, status, timestamp);
+              this.insertDecision.run(
+                id,
+                itemId,
+                decisionStatusCode(status),
+                decisionMilliseconds(timestamp),
+              );
           }
         }
         return recipients.length;

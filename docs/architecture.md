@@ -1054,6 +1054,16 @@ sequence, position, and last-seen columns. It migrates the previous order once,
 then removes the serialized historical order from crawl metadata. Fixed,
 relative, and yearless dates retain their existing interpretation at read time.
 
+Schema version 4 stores private delivery decisions as integer milliseconds and
+status codes in a `STRICT, WITHOUT ROWID` table. The composite recipient/item
+primary key serves bounded lookups and recipient deletion; the unused status
+index is removed. Repository APIs preserve status names and exact canonical ISO
+timestamps. Conversion and schema bookkeeping commit transactionally, then a
+durable pending marker makes space reclamation with `VACUUM` retryable after an
+interruption. Older binaries require their matching pre-deploy snapshot before
+rollback. See the [schema contract](sqlite-schema.md) and
+[measured size, query, and migration costs](compact-decisions-benchmark.md).
+
 - `apartments` stores a normalized listing JSON payload plus indexed discovery
   and encounter fields per item. Discovery reads bounded category watermarks
   and looks up only IDs on encountered pages. `crawl_state` stores checked time,
@@ -1070,7 +1080,8 @@ relative, and yearless dates retain their existing interpretation at read time.
   Absence remains pending. Initial selection and batch classification commit
   before delivery, filtered re-admission deletes its obsolete row before the
   network call, and a successful send is followed immediately by one-row
-  acknowledgement.
+  acknowledgement. Schema 4 encodes these statuses as 0, 1, and 2 and stores
+  exact signed epoch milliseconds; absent-listing decisions remain retained.
 - `channel_state` and `channel_deliveries` store target/fingerprint admission
   state plus pending, filtered, skipped-initial, and published rows. Published
   rows alone may contain message ID, content hash, publication time, and optional

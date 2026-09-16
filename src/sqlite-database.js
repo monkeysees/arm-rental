@@ -10,6 +10,7 @@ import {
 import path from "node:path";
 import { performance } from "node:perf_hooks";
 import { DatabaseSync } from "node:sqlite";
+import { finishDecisionCompaction } from "./sqlite-decisions-migration.js";
 
 import {
   applySqliteMigrations,
@@ -462,6 +463,7 @@ export function openStateDatabase({
         .run();
     }
 
+    finishDecisionCompaction(connection);
     const result = new StateDatabase(connection, filename, {
       onMetric,
       monotonicNow,

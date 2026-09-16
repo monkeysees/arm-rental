@@ -119,7 +119,7 @@ test("SQLite lifecycle creates a secured, bound schema and reopens it", (t) => {
       .prepare("SELECT version FROM schema_migrations")
       .all()
       .map(({ version }) => version),
-    [1, 2, 3],
+    [1, 2, 3, 4],
   );
   assert.equal(database.validate({ full: true }), true);
 
@@ -206,7 +206,7 @@ test("transaction helper rolls back synchronously and emits sanitized bounded me
           .run("private-id");
         database
           .prepare("INSERT INTO private_delivery_decisions VALUES (?, ?, ?, ?)")
-          .run("private-id", "item-id", "invalid-status", TIME);
+          .run("private-id", "item-id", 3, Date.parse(TIME));
       }),
     { code: "ERR_STATE_DATABASE_CONSTRAINT" },
   );
@@ -716,13 +716,12 @@ test("stored decisions are judged in place, not rebuilt", (t) => {
   assert.equal(privateDeliveries.validate(), true);
   privateDeliveries.loadAllDecisions = loadAllDecisions;
 
-  // A timestamp the schema accepts — it is a non-empty string — but that
-  // `canonicalIsoTimestamp` would refuse the moment this recipient is next
-  // delivered to. Written straight to the table, the way a hand-edited or
-  // externally restored database would carry it.
+  // Simulate external corruption bypassing the otherwise enforcing CHECK.
+  database.connection.exec("PRAGMA ignore_check_constraints = ON");
   database.connection.exec(
-    "UPDATE private_delivery_decisions SET decided_at = '2026-08-18T10:11:12Z' WHERE item_id = '62'",
+    "UPDATE private_delivery_decisions SET decided_at = 8640000000000001 WHERE item_id = '62'",
   );
+  database.connection.exec("PRAGMA ignore_check_constraints = OFF");
   assert.equal(privateDeliveries.validate(), false);
   assert.throws(
     () => privateDeliveries.loadRecipient("42", ["62"]),

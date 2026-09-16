@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Compact private delivery history without losing decisions, with an exact-millisecond schema migration and snapshot-safe rollback.
 - Persist crawls incrementally with indexed category watermarks, atomic encountered-listing updates, retained ordering, and compatible snapshot recovery.
 - Add a production-shaped retained-history benchmark with repeated crawls, delivery recovery, and isolated-container resource measurements.
 - Add guarded, dry-run-first cleanup of the retired Chromium profile with separate backup usage reporting and recovery validation.

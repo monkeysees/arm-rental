@@ -254,8 +254,8 @@ async function worker() {
       result.retainedHistoryDecisions = database
         .prepare(
           `SELECT count(*) AS count FROM private_delivery_decisions
-          WHERE item_id GLOB 'history-*' AND status = 'filtered'
-          AND decided_at = '2026-08-01T00:00:00.000Z'`,
+          WHERE item_id GLOB 'history-*' AND status = 2
+          AND decided_at = 1785542400000`,
         )
         .get().count;
       assert.equal(

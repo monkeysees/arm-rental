@@ -282,7 +282,7 @@ async function worker() {
         });
         const counts = database
           .prepare(
-            "SELECT status, count(*) AS count FROM private_delivery_decisions GROUP BY status",
+            "SELECT CASE status WHEN 0 THEN 'notified' WHEN 1 THEN 'skipped' WHEN 2 THEN 'filtered' END AS status, count(*) AS count FROM private_delivery_decisions GROUP BY status",
           )
           .all();
         assert.equal(
@@ -401,7 +401,7 @@ async function worker() {
       .prepare(
         "SELECT count(*) AS count FROM private_delivery_decisions WHERE item_id GLOB 'absent-*' AND decided_at = ?",
       )
-      .get(stamp).count;
+      .get(Date.parse(stamp)).count;
     if (values.phase !== "ordering")
       assert.equal(
         absentDecisions,

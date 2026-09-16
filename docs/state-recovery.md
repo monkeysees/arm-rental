@@ -35,6 +35,19 @@ left untouched by restore; use the default-dry-run `ops/browser-cleanup`
 procedure in [state maintenance](state-maintenance.md#http-session-storage-and-former-profiles).
 New snapshots use manifest-v3 and contain no browser artifacts.
 
+Schemas 1 through 4 remain supported. Validation reads the archived schema
+version from a writable staged copy, then upgrades and validates that copy;
+the archived version must still match the manifest. Logical counts, target
+identity, and update offset must match after migration. The snapshot database
+and its checksums remain unchanged. Restore installs and upgrades a staged
+copy before normal startup. Schema 4 compacts private decisions without
+discarding history; see [the schema contract](sqlite-schema.md).
+
+A pre-schema-4 image must restore its matching pre-deploy snapshot before it
+starts. Validating an older snapshot with the candidate does not make the
+candidate's upgraded live database readable by the older image. Retain the old
+snapshot and immutable image together through candidate acceptance.
+
 ### The stranded pre-SQLite recovery point
 
 A snapshot taken before the SQLite cutover carries a manifest-v1 body naming

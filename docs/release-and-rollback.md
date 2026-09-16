@@ -229,6 +229,15 @@ rewrite an unsupported database. Candidate acceptance must show a
 `source.integrity.checked` record and `crawl.succeeded` record with the same
 crawl ID.
 
+This release accepts SQLite schemas 1–4 and writes schema 4. The upgrade to
+schema 4 replaces private delivery rows transactionally, then reclaims free
+pages with a retryable one-time VACUUM before startup continues. Allow temporary
+space for replacement pages, WAL, and the VACUUM copy, and preserve the stopped
+service's pre-deploy snapshot on independent storage. Previous schema-2/3 images
+cannot use `state-strategy=compatible` against this live state: use the existing
+snapshot restore rollback path. Exact migration and rollback evidence is in
+[the compaction benchmark](compact-decisions-benchmark.md).
+
 The restored deployment configuration remains the access-policy authority;
 never infer an access mode from snapshot users or resume users that the
 restored mode does not authorize. Restore private-delivery acknowledgements

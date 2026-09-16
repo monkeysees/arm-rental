@@ -373,9 +373,7 @@ test("publication accepts the current SQLite image schema and rejects a mismatch
   const step = workflow
     .split("      - name: Verify pinned runtime and OCI provenance\n")[1]
     ?.split("\n      - name:")[0];
-  const script = step
-    ?.split("        run: |\n")[1]
-    ?.replace(/^ {10}/gmu, "");
+  const script = step?.split("        run: |\n")[1]?.replace(/^ {10}/gmu, "");
   assert.ok(script, "publication must verify image provenance before pushing");
   const docker = `
     docker() {

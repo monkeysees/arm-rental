@@ -132,3 +132,105 @@ These runs validate the current integration and bounded-heap completion. They
 ran on a shared development host alongside tests, without a container memory
 limit, so their timings and RSS are not directly comparable to the historical
 512 MiB container results and do not establish production capacity.
+
+## Production-shaped retained history
+
+`scripts/retained-history-baseline.js` supplements the historical-decision
+benchmark above. Its default fixture has exactly 5,442 retained listings,
+88 active recipients and 577,501 decisions, matching the September 15 count
+snapshot without copying production data. Both housing categories are retained.
+Four equal price cohorts produce mostly filtered decisions, with notified and
+permanently skipped matches. The remaining decisions reference absent listings;
+every worker verifies those original historical timestamps survive unchanged.
+These distributions are deterministic modeling choices, not measured production
+status proportions.
+
+```sh
+node scripts/retained-history-baseline.js > retained.json
+node scripts/retained-history-baseline.js --listings 12000 --users 200 --decisions 3000000 --repeats 10 > larger.json
+node --test test/retained-history-baseline.test.js
+```
+
+The decision count automatically grows to at least listings × recipients. A
+small correctness fixture accepts `--listings 12 --users 4 --decisions 61`.
+Seeding, repeated steady-state crawls and restart recovery use three separate
+worker processes; the repeated unchanged crawls, update, return and interrupted
+burst deliberately share one worker and heap. No forced garbage collection is
+used. Each phase records wall and CPU time, current RSS/heap and lifetime process
+peak RSS, database and live WAL bytes, completed storage transactions and their
+aggregate duration, and cgroup current/peak bytes where available. Cgroup peak
+is container lifetime, not an additive per-phase measurement. Coordinator CPU
+and peak RSS are reported separately; its wall time includes all workers.
+
+Assertions verify unchanged silence, source-update redelivery, suppression of a
+returning previously notified listing, bounded initial selection, accepted and
+declined filter history, and delivery interruption followed by restart. Per-user
+ordering follows oldest-first stable source order. The interrupted and resumed
+bursts must produce exactly two new listings per original recipient in total,
+without duplicates, and a final crawl must find no pending delivery. Interruption
+is a simulated send failure with settled workers, not a process kill between
+Telegram acceptance and database acknowledgement. Selection/history exercises
+the crawler and state-access boundary rather than Telegram menu callbacks.
+
+The simulator formats Russian listing messages but sends nothing and applies no
+rate-limit delay. Delivery-burst timings therefore measure local CPU/storage
+costs, not production Telegram throughput; use the earlier rate-limited harness
+for limiter behavior. SQL statement/read counts are not measured: storage
+operations here mean completed transactions. Parsing all retained listings each
+crawl is a reproducible stress workload rather than a model of actual source
+pagination. Neither benchmark establishes VPS capacity or a reduction guarantee.
+
+The dedicated four-card ordering phase mixes September 14 and 15 timestamps
+within the 24-hour activity window and asserts a literal oldest-first ID
+sequence across categories, independently of the same-date giant fixture.
+
+For isolated measurements, use a new container for each repeat, a disk-backed
+scratch directory and the pinned runtime image. This command mounts only the
+checkout and scratch state, disables networking, and limits the entire
+coordinator/worker cgroup to one CPU and 512 MiB with no additional swap:
+
+```sh
+mkdir -p /tmp/arm-retained-data
+task_revision="$(git rev-parse HEAD)"
+for run in 1 2 3; do
+  docker run --rm --network none --cpus 1 --memory 512m --memory-swap 512m \
+    -e BASELINE_DATA_ROOT=/data -e BASELINE_IMAGE=node:24.18.0-bookworm-slim \
+    -e BASELINE_REVISION="$task_revision" \
+    -v "$PWD:/app:ro" -v /tmp/arm-retained-data:/data -w /app \
+    node:24.18.0-bookworm-slim node scripts/retained-history-baseline.js \
+    > "retained-run-${run}.json" || exit "$?"
+done
+```
+
+The cgroup includes worker and coordinator memory plus charged filesystem cache.
+The image is the benchmark runtime, not the deployed application image. Shared
+host contention can still affect timings despite the dedicated container. For
+reproduction of the recorded runs, the runtime image manifest digest is
+`sha256:6f7b03f7c2c8e2e784dcf9295400527b9b1270fd37b7e9a7285cf83b6951452d`.
+
+### Recorded baseline: September 16, 2026
+
+Three independent isolated runs used Node 24.18.0, the image digest above, one
+CPU, 512 MiB memory with no swap, and five unchanged crawls per steady worker.
+Each passed all assertions at the default population, preserving all 98,605
+absent-listing decisions. Each update delivered 22 messages; interruption and
+restart delivered 3 + 173 = 176 new messages, with no duplicates or pending work.
+
+| Run | Total wall seconds | Unchanged crawl seconds (range) | Worker peak RSS MiB | Whole-container peak MiB |
+| --- | ------------------ | ------------------------------- | ------------------- | ------------------------ |
+| 1   | 73.26              | 5.28–5.94                       | 173.67              | 254.39                   |
+| 2   | 71.60              | 5.02–5.50                       | 192.75              | 255.72                   |
+| 3   | 76.10              | 5.28–6.20                       | 179.90              | 259.36                   |
+
+This spread measures repeat variability on this host, including natural GC; it
+is not a promised memory reduction or production capacity estimate. Raw results
+include per-phase CPU, current container memory, database/WAL sizes, transaction
+counts and time, and separate coordinator overhead:
+
+- [Repeat 1](benchmarks/2026-09-16-retained-run-1.json)
+- [Repeat 2](benchmarks/2026-09-16-retained-run-2.json)
+- [Repeat 3](benchmarks/2026-09-16-retained-run-3.json)
+
+The reports record the application base revision. The benchmark was an
+uncommitted addition during measurement; its exact SHA-256 was
+`ac8e3d958e91b115c23abf9b269435d0b5c935863a3c6ee785c322483fd23d25`.

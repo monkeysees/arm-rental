@@ -72,7 +72,45 @@ export function verifyReplayResult(result) {
   assert.equal(result.restart.uncleanExitCode, 23);
   assert.equal(result.restart.acknowledgedPrefixPreserved, true);
   assert.equal(result.restart.unsentSuffixDelivered, true);
+  if (["go-full-contract", "rust-full-contract"].includes(result.scope)) {
+    for (const observed of result.phases) {
+      if (!contract.expected[observed.name]) continue;
+      verifyNativePayloads(observed, contract.expected[observed.name]);
+    }
+    assert.equal(catchup.attempts, users * 9 + Math.ceil(users / 10));
+    assert(catchup.drainMs >= 12000);
+    assert.equal(result.resources.decisionRows, users * (6563 + 80));
+    assert.equal(result.resources.pendingRows, 0);
+  }
   return true;
+}
+
+function verifyNativePayloads(observed, expected) {
+  assert(observed.maxInFlight <= 8);
+  assert.equal(observed.rateLimitsVerified, true);
+  for (let group = 0; group < 4; group++) {
+    assert.deepEqual(
+      observed.payloadsByProfile[group],
+      expected[group].map((id) => ({
+        id,
+        kind: contract.profiles[group].kind,
+        title: `Replay rental ${id}${observed.name === "updated" ? " updated" : ""}`,
+        url: `https://www.list.am/ru/item/${id}`,
+        price: contract.profiles[group].price,
+        originalAmount: contract.profiles[group].originalAmount,
+        currency: contract.profiles[group].currency,
+        location: "Арабкир",
+        rooms: 2,
+        areaSqM: 60,
+        floor: "3/9",
+        postedAt: Date.parse(
+          Number(id) < 200000
+            ? "2026-09-15T23:59:59.999Z"
+            : "2026-09-16T23:59:59.999Z",
+        ),
+      })),
+    );
+  }
 }
 export function verifyNativeSlice(result) {
   assert.equal(result.version, 1);
@@ -110,31 +148,7 @@ export function verifyNativeSlice(result) {
       observed.classificationsByProfile,
       [0, 1, 2, 3].map((group) => expectedClassifications(fixture, group)),
     );
-    assert(observed.maxInFlight <= 8);
-    assert.equal(observed.rateLimitsVerified, true);
-    for (let group = 0; group < 4; group++) {
-      assert.deepEqual(
-        observed.payloadsByProfile[group],
-        expected[group].map((id) => ({
-          id,
-          kind: contract.profiles[group].kind,
-          title: `Replay rental ${id}${observed.name === "updated" ? " updated" : ""}`,
-          url: `https://www.list.am/ru/item/${id}`,
-          price: contract.profiles[group].price,
-          originalAmount: contract.profiles[group].originalAmount,
-          currency: contract.profiles[group].currency,
-          location: "Арабкир",
-          rooms: 2,
-          areaSqM: 60,
-          floor: "3/9",
-          postedAt: Date.parse(
-            Number(id) < 200000
-              ? "2026-09-15T23:59:59.999Z"
-              : "2026-09-16T23:59:59.999Z",
-          ),
-        })),
-      );
-    }
+    verifyNativePayloads(observed, expected);
   }
   const catchup = result.phases.find((p) => p.name === "catchup");
   assert.equal(catchup.announcements, users);

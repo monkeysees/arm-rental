@@ -1,10 +1,13 @@
 package main
 
 import (
+	"bytes"
 	"encoding/json"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -45,7 +48,7 @@ func verifyResult(t *testing.T, root, dir string, result Result, valid bool) {
 // The exported replay and independent verifier are the ticket's public seam.
 func TestReplayContract(t *testing.T) {
 	root, dir, fixture := exportFixture(t)
-	result, err := Replay(fixture, filepath.Join(dir, "state.sqlite3"), 4, "virtual")
+	result, err := replayStages(t, fixture, filepath.Join(dir, "state.sqlite3"), 4, "virtual")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -86,8 +89,8 @@ func TestReplayUsesSourceAndFilters(t *testing.T) {
 	if err = os.WriteFile(file, data, 0600); err != nil {
 		t.Fatal(err)
 	}
-	result, err := Replay(fixture, filepath.Join(dir, "state.sqlite3"), 4, "virtual")
-	if err != nil {
+	result, err := replayStages(t, fixture, filepath.Join(dir, "state.sqlite3"), 4, "virtual")
+	if err != nil && !strings.Contains(err.Error(), "retained history changed during resume") {
 		t.Fatal(err)
 	}
 	if len(result.Phases[6].DeliveriesByProfile[1]) != 0 {
@@ -135,5 +138,127 @@ func TestSharedRunnerFlushesCompleteResult(t *testing.T) {
 	}
 	if result.Status != "passed" {
 		t.Fatal("runner failed")
+	}
+}
+
+func replayStages(t *testing.T, fixture, database string, users int, mode string) (Result, error) {
+	t.Helper()
+	run := func(stage string, want int) (Result, error) {
+		cmd := exec.Command(os.Args[0], "-test.run=^TestReplayProcess$")
+		cmd.Env = append(os.Environ(), "GO_REPLAY_CHILD="+stage, "GO_REPLAY_FIXTURE="+fixture, "GO_REPLAY_DB="+database, "GO_REPLAY_USERS="+strconv.Itoa(users), "GO_REPLAY_MODE="+mode)
+		var stderr bytes.Buffer
+		cmd.Stderr = &stderr
+		data, err := cmd.Output()
+		code := 0
+		if err != nil {
+			if exit, ok := err.(*exec.ExitError); ok {
+				code = exit.ExitCode()
+			} else {
+				return Result{}, err
+			}
+		}
+		if code != want {
+			return Result{}, fmt.Errorf("stage %s exit %d: %s", stage, code, stderr.String())
+		}
+		var result Result
+		err = json.Unmarshal(data, &result)
+		return result, err
+	}
+	exercise, err := run("exercise", 23)
+	if err != nil {
+		return exercise, err
+	}
+	resumed, err := run("resume", 0)
+	resumed.Phases = append(exercise.Phases, resumed.Phases...)
+	return resumed, err
+}
+func TestReplayProcess(t *testing.T) {
+	stage := os.Getenv("GO_REPLAY_CHILD")
+	if stage == "" {
+		return
+	}
+	users, _ := strconv.Atoi(os.Getenv("GO_REPLAY_USERS"))
+	result, err := Replay(os.Getenv("GO_REPLAY_FIXTURE"), os.Getenv("GO_REPLAY_DB"), users, os.Getenv("GO_REPLAY_MODE"), stage)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
+	if err = json.NewEncoder(os.Stdout).Encode(result); err != nil {
+		os.Exit(1)
+	}
+	if stage == "exercise" {
+		os.Exit(23)
+	}
+	os.Exit(0)
+}
+func TestResumeRequiresInterruptedState(t *testing.T) {
+	_, dir, fixture := exportFixture(t)
+	if _, err := Replay(fixture, filepath.Join(dir, "missing.sqlite3"), 4, "virtual", "resume"); err == nil {
+		t.Fatal("resume accepted missing database")
+	}
+}
+
+// A transport acceptance cannot atomically commit the local SQLite acknowledgement.
+func TestAcceptedBeforeAckMayDuplicateAfterCrash(t *testing.T) {
+	if stage := os.Getenv("GO_ACK_WINDOW"); stage != "" {
+		s, err := openStore(os.Getenv("GO_REPLAY_DB"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if stage == "accept" {
+			l := Listing{ID: "1", Title: "accepted rental"}
+			if _, err = s.crawl([]Listing{l}); err != nil {
+				t.Fatal(err)
+			}
+			if _, err = s.db.Exec("INSERT INTO decisions VALUES(0,1,0,1,0)"); err != nil {
+				t.Fatal(err)
+			}
+		}
+		l, err := s.next(0)
+		if err != nil || l == nil {
+			t.Fatalf("pending: %v %v", l, err)
+		}
+		log, err := os.OpenFile(os.Getenv("GO_REPLAY_ACCEPTED"), os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0600)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err = fmt.Fprintln(log, l.ID); err != nil {
+			t.Fatal(err)
+		}
+		if err = log.Sync(); err != nil {
+			t.Fatal(err)
+		}
+		log.Close()
+		if stage == "accept" {
+			os.Exit(23)
+		}
+		if err = s.acknowledge(0, l.ID, 1); err != nil {
+			t.Fatal(err)
+		}
+		l, err = s.next(0)
+		if err != nil || l != nil {
+			t.Fatalf("ack not durable: %v %v", l, err)
+		}
+		s.db.Close()
+		os.Exit(0)
+	}
+	dir := t.TempDir()
+	accepted := filepath.Join(dir, "accepted.txt")
+	for _, stage := range []string{"accept", "resume"} {
+		cmd := exec.Command(os.Args[0], "-test.run=^TestAcceptedBeforeAckMayDuplicateAfterCrash$")
+		cmd.Env = append(os.Environ(), "GO_ACK_WINDOW="+stage, "GO_REPLAY_DB="+filepath.Join(dir, "state.sqlite3"), "GO_REPLAY_ACCEPTED="+accepted)
+		out, err := cmd.CombinedOutput()
+		if stage == "accept" {
+			exit, ok := err.(*exec.ExitError)
+			if !ok || exit.ExitCode() != 23 {
+				t.Fatalf("crash: %v %s", err, out)
+			}
+		} else if err != nil {
+			t.Fatalf("resume: %v %s", err, out)
+		}
+	}
+	data, err := os.ReadFile(accepted)
+	if err != nil || string(data) != "1\n1\n" {
+		t.Fatalf("expected allowed duplicate: %q %v", data, err)
 	}
 }

@@ -3,10 +3,17 @@ package main
 import (
 	"fmt"
 	"reflect"
+	"sort"
 	"time"
 )
 
 type PhaseResult struct {
+	CpuMs                    float64             `json:"cpuMs"`
+	QueueAgeOffsetMs         float64             `json:"queueAgeOffsetMs"`
+	QueueAgeP50Ms            float64             `json:"queueAgeP50Ms"`
+	QueueAgeP95Ms            float64             `json:"queueAgeP95Ms"`
+	QueueAgeMaxMs            float64             `json:"queueAgeMaxMs"`
+	ThroughputPerSecond      *float64            `json:"throughputPerSecond"`
 	Name                     string              `json:"name"`
 	Sent                     int                 `json:"sent"`
 	Announcements            int                 `json:"announcements"`
@@ -45,11 +52,13 @@ func (s *Store) deliver(m Manifest, users int, catchup bool, mode string, now in
 		listing *Listing
 		end     float64
 		retry   bool
+		fail    bool
 	}
 	states := make([]recipient, users)
 	for i := range states {
 		states[i] = recipient{tokens: float64(m.Transport.RecipientBurst), announcement: catchup, sent: []Listing{}}
 	}
+	ages := []float64{}
 	start := time.Now()
 	clock := 0.0
 	global := 0.0
@@ -67,6 +76,11 @@ func (s *Store) deliver(m Manifest, users int, catchup bool, mode string, now in
 				continue
 			}
 			r := &states[f.user]
+			if f.fail {
+				r.done = true
+				finished++
+				continue
+			}
 			if f.retry {
 				r.retried = true
 				r.ready = clock + float64(m.Transport.RetryAfterMs)
@@ -87,6 +101,11 @@ func (s *Store) deliver(m Manifest, users int, catchup bool, mode string, now in
 				}
 				r.sent = append(r.sent, *f.listing)
 				out.Sent++
+				age := clock + out.QueueAgeOffsetMs
+				if mode == "wall" {
+					age += out.ClassificationWallMs
+				}
+				ages = append(ages, age)
 			}
 		}
 		flights = pending
@@ -106,6 +125,14 @@ func (s *Store) deliver(m Manifest, users int, catchup bool, mode string, now in
 			}
 			u := cursor
 			cursor = (cursor + 1) % users
+			// A retry whose deadline has elapsed gets its first progress before another sweep.
+			for candidate := 0; candidate < users; candidate++ {
+				waiting := &states[candidate]
+				if waiting.retried && !waiting.done && len(waiting.sent) == 0 && waiting.ready <= clock {
+					u = candidate
+					break
+				}
+			}
 			r := &states[u]
 			if r.done {
 				continue
@@ -158,7 +185,7 @@ func (s *Store) deliver(m Manifest, users int, catchup bool, mode string, now in
 			}
 			retry := catchup && l != nil && len(r.sent) == 0 && u%m.Transport.RetryRecipientsModulo == 0 && !r.retried
 			end := clock + float64(m.Transport.LatencyMs)
-			flights = append(flights, flight{u, l, end, retry})
+			flights = append(flights, flight{u, l, end, retry, out.Name == "interrupted" && len(r.sent) == 2})
 			r.ready = 1e30
 			global = clock + 1000/float64(m.Transport.GlobalAttemptsPerSecond)
 			out.Attempts++
@@ -187,6 +214,12 @@ func (s *Store) deliver(m Manifest, users int, catchup bool, mode string, now in
 		}
 	}
 	out.DrainMs = clock
+	sort.Float64s(ages)
+	if len(ages) > 0 {
+		out.QueueAgeP50Ms = ages[(len(ages)-1)*50/100]
+		out.QueueAgeP95Ms = ages[(len(ages)-1)*95/100]
+		out.QueueAgeMaxMs = ages[len(ages)-1]
+	}
 	for _, attempts := range history {
 		logical := []float64{}
 		for i, a := range attempts {

@@ -46,7 +46,9 @@ const manifest = {
   image,
   runtime: values.runtime,
   scope:
-    values.runtime !== "node" ? `${values.runtime}-500-slice` : "full-contract",
+    values.runtime !== "node"
+      ? `${values.runtime}-full-contract`
+      : "full-contract",
   imageId: command("docker", [
     "image",
     "inspect",
@@ -73,7 +75,7 @@ const save = () =>
     JSON.stringify(manifest, null, 2),
   );
 save();
-for (const users of values.runtime !== "node" ? [500] : contract.populations) {
+for (const users of contract.populations) {
   for (const [mode, count] of [
     ["virtual", 1],
     ["wall", contract.measurement.repeats],

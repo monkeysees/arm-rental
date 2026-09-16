@@ -28,6 +28,19 @@ pub struct PhaseResult {
     pub first_progress_max_ms: f64,
     pub max_in_flight: usize,
     pub rate_limits_verified: bool,
+    pub failures: usize,
+    pub queue_age_p50_ms: f64,
+    pub queue_age_p95_ms: f64,
+    pub queue_age_max_ms: f64,
+    pub throughput_per_second: Option<f64>,
+    pub queue_age_offset_ms: f64,
+    pub queue_age_ms: serde_json::Value,
+    pub first_recipient_progress_ms: serde_json::Value,
+    pub wall_messages_per_second: Option<f64>,
+    pub cpu_ms: f64,
+    pub memory_before: serde_json::Value,
+    pub memory_after: serde_json::Value,
+    pub sampled_peak_rss_bytes: u64,
 }
 struct Recipient {
     tokens: f64,
@@ -45,6 +58,7 @@ struct Flight {
     listing: Option<Listing>,
     end: f64,
     retry: bool,
+    failed: bool,
 }
 pub fn elapsed(start: Instant) -> f64 {
     start.elapsed().as_secs_f64() * 1000.0
@@ -61,6 +75,9 @@ pub fn deliver(
     out: &mut PhaseResult,
 ) -> Result<()> {
     let t = &m.transport;
+    let interrupt = out.name == "interrupted";
+    let mut ages = Vec::new();
+    let mut first = Vec::new();
     let mut states: Vec<_> = (0..users)
         .map(|_| Recipient {
             tokens: t.recipient_burst,
@@ -89,6 +106,12 @@ pub fn deliver(
                 continue;
             }
             let r = &mut states[f.user];
+            if f.failed {
+                r.done = true;
+                finished += 1;
+                out.failures += 1;
+                continue;
+            }
             if f.retry {
                 r.retried = true;
                 r.ready = clock + t.retry_after_ms;
@@ -101,7 +124,24 @@ pub fn deliver(
                 store.acknowledge(f.user, &l.id, now)?;
                 if r.sent.is_empty() {
                     out.first_progress_max_ms = out.first_progress_max_ms.max(clock);
+                    first.push(
+                        clock
+                            + if wall {
+                                out.classification_wall_ms
+                            } else {
+                                0.0
+                            },
+                    );
                 }
+                ages.push(
+                    out.queue_age_offset_ms
+                        + clock
+                        + if wall {
+                            out.classification_wall_ms
+                        } else {
+                            0.0
+                        },
+                );
                 r.sent.push(l);
                 out.sent += 1;
             } else {
@@ -112,6 +152,13 @@ pub fn deliver(
         flights = pending;
         let mut next = flights.iter().map(|f| f.end).fold(f64::INFINITY, f64::min);
         let mut launched = false;
+        // Ready retries with no progress must not wait another full recipient sweep.
+        if let Some(user) = states
+            .iter()
+            .position(|r| !r.done && r.retried && r.sent.is_empty() && r.ready <= clock)
+        {
+            cursor = user;
+        }
         for _ in 0..users {
             if flights.len() >= 8 {
                 break;
@@ -171,6 +218,7 @@ pub fn deliver(
                 listing,
                 end: clock + t.latency_ms,
                 retry,
+                failed: interrupt && r.sent.len() == 2,
             });
             r.ready = f64::INFINITY;
             global = clock + 1000.0 / t.global_attempts_per_second;
@@ -198,6 +246,12 @@ pub fn deliver(
         }
     }
     out.drain_ms = clock;
+    out.queue_age_ms = distribution(ages);
+    out.queue_age_p50_ms = out.queue_age_ms["p50"].as_f64().unwrap();
+    out.queue_age_p95_ms = out.queue_age_ms["p95"].as_f64().unwrap();
+    out.queue_age_max_ms = out.queue_age_ms["max"].as_f64().unwrap();
+    out.first_recipient_progress_ms = distribution(first);
+    out.wall_messages_per_second = wall.then(|| out.sent as f64 / (elapsed(start) / 1000.0));
     for (user, r) in states.into_iter().enumerate() {
         let mut logical = Vec::new();
         for (i, &(at, retry)) in r.history.iter().enumerate() {
@@ -245,4 +299,15 @@ pub fn observe(store: &Store, users: usize, ids: &[String], out: &mut PhaseResul
         out.classified_recipients += 1;
     }
     Ok(())
+}
+
+fn distribution(mut values: Vec<f64>) -> serde_json::Value {
+    values.sort_by(f64::total_cmp);
+    let at = |p: f64| {
+        values
+            .get(((values.len() as f64 * p).ceil() as usize).saturating_sub(1))
+            .copied()
+            .unwrap_or(0.0)
+    };
+    serde_json::json!({"p50":at(0.5),"p95":at(0.95),"p99":at(0.99),"max":at(1.0)})
 }

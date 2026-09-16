@@ -5,7 +5,7 @@ import { mkdtempSync, readFileSync, readdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { verifyNativeSlice } from "./verify.js";
+import { verifyReplayResult } from "./verify.js";
 import { evaluateCapacity } from "./capacity.js";
 import { memory } from "./metrics.js";
 
@@ -34,33 +34,60 @@ export async function runNativeReplay({ users, mode, binary, runtime }) {
       path.join(root, "experiments/node-replay/export.js"),
       fixtures,
     ]);
-    const output = await new Promise((resolve, reject) => {
-      const child = spawn(
-        binary,
-        [
-          "--fixtures",
-          fixtures,
-          "--database",
-          path.join(directory, "state.sqlite3"),
-          "--users",
-          String(users),
-          "--mode",
-          mode,
-        ],
-        { stdio: ["ignore", "pipe", "inherit"] },
-      );
-      const chunks = [];
-      child.stdout.on("data", (chunk) => chunks.push(chunk));
-      child.on("error", reject);
-      child.on("close", (code) =>
-        code === 0
-          ? resolve(Buffer.concat(chunks))
-          : reject(new Error(`${runtime} replay exit ${code}`)),
-      );
-    });
-    const result = JSON.parse(output);
-    assert.equal(result.scope, `${runtime}-500-slice`);
-    verifyNativeSlice(result);
+    const workers = [];
+    for (const stage of ["exercise", "resume"]) {
+      const output = await new Promise((resolve, reject) => {
+        const child = spawn(
+          binary,
+          [
+            "--fixtures",
+            fixtures,
+            "--database",
+            path.join(directory, "state.sqlite3"),
+            "--users",
+            String(users),
+            "--mode",
+            mode,
+            "--stage",
+            stage,
+          ],
+          { stdio: ["ignore", "pipe", "inherit"] },
+        );
+        const chunks = [];
+        child.stdout.on("data", (chunk) => chunks.push(chunk));
+        child.on("error", reject);
+        child.on("close", (code) =>
+          code === (stage === "exercise" ? 23 : 0)
+            ? resolve(Buffer.concat(chunks))
+            : reject(new Error(`${runtime} ${stage} replay exit ${code}`)),
+        );
+      });
+      workers.push(JSON.parse(output));
+    }
+    const result = {
+      ...workers[1],
+      workers,
+      phases: workers.flatMap((worker) => worker.phases),
+      resources: {
+        ...workers[1].resources,
+        cpuMs: workers.reduce((sum, worker) => sum + worker.resources.cpuMs, 0),
+        wallMs: workers.reduce(
+          (sum, worker) => sum + worker.resources.wallMs,
+          0,
+        ),
+        processPeakRssBytes: Math.max(
+          ...workers.map((worker) => worker.resources.processPeakRssBytes),
+        ),
+        memorySnapshots: workers.flatMap((worker, index) =>
+          worker.resources.memorySnapshots.map((sample) => ({
+            ...sample,
+            stage: index === 0 ? "exercise" : "resume",
+          })),
+        ),
+      },
+    };
+    assert.equal(result.scope, `${runtime}-full-contract`);
+    verifyReplayResult(result);
     result.sourceHashes = {};
     for (const folder of [
       `experiments/${runtime}-replay`,

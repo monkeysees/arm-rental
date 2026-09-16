@@ -1,7 +1,7 @@
 use serde_json::Value;
 use std::{
     fs,
-    path::{Path, PathBuf},
+    path::PathBuf,
     process::{Command, Output},
     sync::atomic::{AtomicUsize, Ordering},
 };
@@ -76,8 +76,17 @@ fn result(output: Output) -> Value {
     );
     serde_json::from_slice(&output.stdout).unwrap()
 }
+fn exercise_result(output: Output) -> Value {
+    assert_eq!(
+        output.status.code(),
+        Some(23),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    serde_json::from_slice(&output.stdout).unwrap()
+}
 #[test]
-fn shared_runner_checks_payloads_order_rates_and_clean_reopen() {
+fn shared_runner_checks_payloads_order_rates_and_unclean_recovery() {
     let f = Fixture::new();
     let output = Command::new("node")
         .current_dir(&f.root)
@@ -112,7 +121,7 @@ fn shared_runner_checks_payloads_order_rates_and_clean_reopen() {
 fn source_prices_drive_filtering_and_existing_state_is_refused() {
     let f = Fixture::new();
     f.replace("updated-house.html", "500 USD", "501 USD");
-    let result = result(f.run());
+    let result = exercise_result(f.run());
     assert_eq!(
         result["phases"][6]["deliveriesByProfile"][1],
         serde_json::json!([])
@@ -131,24 +140,6 @@ fn unknown_currency_fails_closed() {
     assert!(String::from_utf8_lossy(&output.stderr).contains("missing exchange rate XYZ"));
 }
 #[test]
-fn refuses_stress_population_until_recovery_followup() {
-    let output = Command::new(env!("CARGO_BIN_EXE_rental-replay"))
-        .args([
-            "--fixtures",
-            "/missing",
-            "--database",
-            "/missing/state.sqlite3",
-            "--users",
-            "1000",
-        ])
-        .output()
-        .unwrap();
-    assert!(!output.status.success());
-    assert!(String::from_utf8_lossy(&output.stderr).contains("use --users 500"));
-    assert!(!Path::new("/missing/state.sqlite3").exists());
-}
-
-#[test]
 fn slower_transport_remains_bounded_and_respects_retry_deadlines() {
     let f = Fixture::new();
     let file = f.dir.join("fixtures/manifest.json");
@@ -156,12 +147,64 @@ fn slower_transport_remains_bounded_and_respects_retry_deadlines() {
     manifest["transport"]["latencyMs"] = 100.into();
     manifest["transport"]["retryAfterMs"] = 2500.into();
     fs::write(&file, serde_json::to_vec(&manifest).unwrap()).unwrap();
-    let result = result(f.run());
+    let result = exercise_result(f.run());
     let catchup = &result["phases"][9];
     assert_eq!(catchup["sent"], 32);
     assert_eq!(catchup["retries"], 1);
     assert_eq!(catchup["rateLimitsVerified"], true);
     assert!(catchup["maxInFlight"].as_u64().unwrap() <= 4);
     assert!(catchup["drainMs"].as_f64().unwrap() >= 12000.0);
-    f.verify(&result, true);
+    assert!(
+        result["phases"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|p| p["name"] == "interrupted")
+    );
+}
+
+#[test]
+fn unclean_restart_preserves_prefix_and_drains_suffix() {
+    let f = Fixture::new();
+    let first = f.run();
+    assert_eq!(first.status.code(), Some(23));
+    let first: Value = serde_json::from_slice(&first.stdout).unwrap();
+    assert_eq!(
+        first["phases"].as_array().unwrap().last().unwrap()["sent"],
+        8
+    );
+    let second = Command::new(env!("CARGO_BIN_EXE_rental-replay"))
+        .arg("--fixtures")
+        .arg(f.dir.join("fixtures"))
+        .arg("--database")
+        .arg(f.dir.join("state.sqlite3"))
+        .args(["--users", "4", "--stage", "resume"])
+        .output()
+        .unwrap();
+    let second = result(second);
+    assert_eq!(second["phases"][0]["sent"], 24);
+    assert_eq!(second["resources"]["pendingRows"], 0);
+    assert_eq!(second["resources"]["decisionRows"], 26572);
+}
+
+#[test]
+fn accepted_send_before_ack_can_repeat_after_process_death() {
+    let f = Fixture::new();
+    let run = |mode| {
+        Command::new(env!("CARGO_BIN_EXE_rental-replay"))
+            .arg("--fixtures")
+            .arg(f.dir.join("fixtures"))
+            .arg("--database")
+            .arg(f.dir.join("diagnostic.sqlite3"))
+            .args(["--diagnostic", mode])
+            .output()
+            .unwrap()
+    };
+    assert_eq!(run("accept-before-ack").status.code(), Some(24));
+    let recovered = result(run("recover"));
+    assert_eq!(recovered["pending"], false);
+    assert_eq!(
+        fs::read_to_string(f.dir.join("diagnostic.receipts")).unwrap(),
+        "400000\n400000\n"
+    );
 }

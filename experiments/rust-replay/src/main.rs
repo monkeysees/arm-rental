@@ -52,15 +52,56 @@ fn process_resources() -> Result<(u64, f64)> {
         .parse()?;
     Ok((peak * 1024, nanos / 1e6))
 }
-fn replay(directory: &Path, database: &Path, users: usize, mode: &str) -> Result<Value> {
-    if ![4, 500].contains(&users) || !["virtual", "wall"].contains(&mode) {
-        return Err("use --users 500 (4 diagnostic), --mode virtual|wall".into());
+fn unix_ms() -> f64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_secs_f64()
+        * 1000.0
+}
+fn memory() -> Value {
+    let rss = fs::read_to_string("/proc/self/status")
+        .unwrap()
+        .lines()
+        .find_map(|l| l.strip_prefix("VmRSS:"))
+        .unwrap()
+        .split_whitespace()
+        .next()
+        .unwrap()
+        .parse::<u64>()
+        .unwrap()
+        * 1024;
+    json!({"rss":rss})
+}
+fn snapshot(phase: &str) -> Result<Value> {
+    Ok(
+        json!({"phase":phase,"processRssBytes":memory()["rss"],"processPeakRssBytes":process_resources()?.0,"cgroupCurrentBytes":cgroup("memory.current")}),
+    )
+}
+fn replay(
+    directory: &Path,
+    database: &Path,
+    users: usize,
+    mode: &str,
+    stage: &str,
+) -> Result<Value> {
+    if ![4, 500, 1000].contains(&users)
+        || !["virtual", "wall"].contains(&mode)
+        || !["exercise", "resume"].contains(&stage)
+    {
+        return Err(
+            "use --users 500|1000 (4 diagnostic), --mode virtual|wall, --stage exercise|resume"
+                .into(),
+        );
     }
-    // Refuse existing state, including dangling symlinks, before SQLite opens it.
-    fs::OpenOptions::new()
-        .write(true)
-        .create_new(true)
-        .open(database)?;
+    if stage == "exercise" {
+        fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(database)?;
+    } else if !database.is_file() {
+        return Err("resume requires existing database".into());
+    }
     let m: Manifest = serde_json::from_str(&fs::read_to_string(directory.join("manifest.json"))?)?;
     let t = &m.transport;
     if m.version != 1
@@ -78,16 +119,69 @@ fn replay(directory: &Path, database: &Path, users: usize, mode: &str) -> Result
     let epoch = timestamp(&m.clock_epoch)?;
     let mut store = Store::open(database)?;
     let start = Instant::now();
+    let mut snapshots = vec![snapshot("open")?];
     let mut results = Vec::new();
-    for phase in m.phases.iter().take_while(|p| p.name != "interrupted") {
+    let mut offset = 0.0;
+    if stage == "resume" {
+        let changed:i64 = store.db.query_row("WITH current AS (SELECT user,status,revision,at,count(*) AS n,sum(id) AS ids FROM decisions WHERE id<400000 GROUP BY user,status,revision,at) SELECT (SELECT count(*) FROM (SELECT * FROM current EXCEPT SELECT * FROM history))+(SELECT count(*) FROM (SELECT * FROM history EXCEPT SELECT * FROM current))", [], |r|r.get(0))?;
+        if changed != 0 {
+            return Err("restart changed historical decisions".into());
+        }
+        let interrupted = m
+            .phases
+            .iter()
+            .find(|p| p.name == "interrupted")
+            .ok_or("missing interrupted")?;
+        let listings = read_phase(directory, interrupted, &m)?;
+        for user in 0..users {
+            let states = store.classifications(user, &interrupted.ids)?;
+            let mut matching: Vec<_> = listings
+                .iter()
+                .filter(|l| {
+                    interrupted.ids.contains(&l.id)
+                        && m.recipients.filters_by_group[user % 4].matches(l)
+                })
+                .collect();
+            matching.sort_by(|a, b| (a.posted_at, &a.id).cmp(&(b.posted_at, &b.id)));
+            for (i, l) in matching.iter().enumerate() {
+                if states.get(&l.id).map(String::as_str)
+                    != Some(if i < 2 { "notified" } else { "pending" })
+                {
+                    return Err("restart lost acknowledged prefix or pending suffix".into());
+                }
+            }
+        }
+        let (drain, stamp): (f64, f64) =
+            store
+                .db
+                .query_row("SELECT drain,stamp FROM recovery", [], |r| {
+                    Ok((r.get(0)?, r.get(1)?))
+                })?;
+        offset = drain
+            + if mode == "wall" {
+                (unix_ms() - stamp).max(0.0)
+            } else {
+                1000.0
+            };
+    }
+    for phase in &m.phases {
+        let resume_phase = ["resumed", "drained", "returning"].contains(&phase.name.as_str());
+        if (stage == "resume") != resume_phase {
+            continue;
+        }
         for _ in 0..phase.repeats.max(1) {
             let started = Instant::now();
+            let cpu = process_resources()?.1;
             let mut out = PhaseResult {
                 name: phase.name.clone(),
+                memory_before: memory(),
+                queue_age_offset_ms: if phase.name == "resumed" { offset } else { 0.0 },
                 ..Default::default()
             };
             let changed = store.crawl(read_phase(directory, phase, &m)?)?;
-            if phase.action == "deliver" || phase.name == "catchup" {
+            if phase.action == "deliver"
+                || ["catchup", "interrupted", "resumed"].contains(&phase.name.as_str())
+            {
                 store.classify(&m, users, &changed, phase.name == "catchup", epoch)?;
                 out.classification_wall_ms = elapsed(started);
                 deliver(
@@ -102,52 +196,52 @@ fn replay(directory: &Path, database: &Path, users: usize, mode: &str) -> Result
                 observe(&store, users, &phase.ids, &mut out)?;
             }
             out.wall_ms = elapsed(started);
+            out.throughput_per_second =
+                (mode == "wall").then(|| out.sent as f64 * 1000.0 / out.wall_ms);
+            out.wall_messages_per_second = out.throughput_per_second;
+            out.cpu_ms = process_resources()?.1 - cpu;
+            out.memory_after = memory();
+            out.sampled_peak_rss_bytes = process_resources()?.0;
+            snapshots.push(snapshot(&phase.name)?);
             results.push(out);
             if phase.name == "seed" {
                 let started = Instant::now();
+                let cpu = process_resources()?.1;
+                let before = memory();
                 store.seed(&m, users)?;
+                snapshots.push(snapshot("seed-decisions")?);
                 results.push(PhaseResult {
                     name: "seed-decisions".into(),
                     wall_ms: elapsed(started),
+                    cpu_ms: process_resources()?.1 - cpu,
+                    memory_before: before,
+                    memory_after: memory(),
+                    sampled_peak_rss_bytes: process_resources()?.0,
                     ..Default::default()
                 });
             }
         }
     }
-    let before = &results
-        .last()
-        .ok_or("missing phases")?
-        .classifications_by_profile;
-    store.db.close().map_err(|(_, e)| e)?;
-    let mut store = Store::open(database)?;
-    let catchup = m
-        .phases
-        .iter()
-        .find(|p| p.name == "catchup")
-        .ok_or("missing catchup phase")?;
-    let mut out = PhaseResult {
-        name: "reopen-unchanged".into(),
-        ..Default::default()
-    };
-    observe(&store, users, &catchup.ids, &mut out)?;
-    if &out.classifications_by_profile != before {
-        return Err("reopen changed acknowledgements".into());
-    }
-    let started = Instant::now();
-    let changed = store.crawl(read_phase(directory, catchup, &m)?)?;
-    store.classify(&m, users, &changed, false, epoch)?;
-    out.classification_wall_ms = elapsed(started);
-    deliver(&store, &m, users, false, mode == "wall", epoch, &mut out)?;
-    if out.sent != 0 {
-        return Err("unchanged replay duplicated acknowledgements".into());
-    }
-    out.wall_ms = elapsed(started);
-    results.push(out);
     let count: i64 = store
         .db
         .query_row("SELECT count(*) FROM decisions", [], |r| r.get(0))?;
-    if count != (users * (m.seed.decisions_per_recipient + 48)) as i64 {
+    let pending: i64 =
+        store
+            .db
+            .query_row("SELECT count(*) FROM decisions WHERE status=0", [], |r| {
+                r.get(0)
+            })?;
+    if count != (users * (m.seed.decisions_per_recipient + 80)) as i64 {
         return Err("retained decision count changed".into());
+    }
+    if pending
+        != if stage == "exercise" {
+            (users * 6) as i64
+        } else {
+            0
+        }
+    {
+        return Err("pending suffix count changed".into());
     }
     let first = m
         .seed_decisions
@@ -159,23 +253,84 @@ fn replay(directory: &Path, database: &Path, users: usize, mode: &str) -> Result
     if absent != (users * m.seed_decisions.absent_ids.len()) as i64 || invalid != 0 {
         return Err("absent decisions changed".into());
     }
+    if stage == "resume" {
+        let changed:i64 = store.db.query_row("WITH current AS (SELECT user,status,revision,at,count(*) AS n,sum(id) AS ids FROM decisions WHERE id<400000 GROUP BY user,status,revision,at) SELECT (SELECT count(*) FROM (SELECT * FROM current EXCEPT SELECT * FROM history))+(SELECT count(*) FROM (SELECT * FROM history EXCEPT SELECT * FROM current))", [], |r|r.get(0))?;
+        if changed != 0 {
+            return Err("recovery changed historical decisions".into());
+        }
+    }
+    let interrupted_at = unix_ms();
+    let drain = results
+        .last()
+        .map(|r| {
+            r.drain_ms
+                + if mode == "wall" {
+                    r.classification_wall_ms
+                } else {
+                    0.0
+                }
+        })
+        .unwrap_or(0.0);
+    if stage == "exercise" {
+        store.db.execute_batch(
+            "CREATE TABLE recovery(drain REAL NOT NULL,stamp REAL NOT NULL) STRICT; CREATE TABLE history AS SELECT user,status,revision,at,count(*) AS n,sum(id) AS ids FROM decisions WHERE id<400000 GROUP BY user,status,revision,at",
+        )?;
+        store.db.execute(
+            "INSERT INTO recovery VALUES(?,?)",
+            rusqlite::params![drain, interrupted_at],
+        )?;
+    }
     let (peak, cpu) = process_resources()?;
     let sqlite: String = store
         .db
         .query_row("SELECT sqlite_version()", [], |r| r.get(0))?;
-    Ok(
-        json!({"version":1,"status":"passed","scope":"rust-500-slice","runtime":"rust",
+    let result = json!({"version":1,"status":"passed","scope":"rust-full-contract","runtime":"rust",
         "mode":mode,"workload":{"users":users,"decisionsPerRecipient":m.seed.decisions_per_recipient},
-        "phases":results,"restart":{"cleanReopen":true,"acknowledgementsPreserved":true,"unchangedSendsNothing":true},
-        "resources":{"wallMs":elapsed(start),"cpuMs":cpu,"processPeakRssBytes":peak,
-        "primaryRamBytes":cgroup("memory.peak"),"memoryLimit":cgroup("memory.max"),"swapLimit":cgroup("memory.swap.max"),"cpuLimit":cgroup("cpu.max"),"sqliteVersion":sqlite,"decisionRows":count,
-        "databaseBytes":fs::metadata(database)?.len(),"database-walBytes":fs::metadata(format!("{}-wal",database.display())).map(|s| s.len()).unwrap_or(0)}}),
-    )
+        "phases":results,"restart":{"uncleanExitCode":23,"acknowledgedPrefixPreserved":stage=="resume","unsentSuffixDelivered":stage=="resume"},
+        "resources":{"memorySnapshots":snapshots,"wallMs":elapsed(start),"cpuMs":cpu,"processPeakRssBytes":peak,
+        "interruptionDrainMs":drain,"interruptedAtUnixMs":interrupted_at,
+        "primaryRamBytes":cgroup("memory.peak"),"memoryLimit":cgroup("memory.max"),"swapLimit":cgroup("memory.swap.max"),"cpuLimit":cgroup("cpu.max"),"sqliteVersion":sqlite,"decisionRows":count,"pendingRows":pending,
+        "databaseBytes":fs::metadata(database)?.len(),"database-walBytes":fs::metadata(format!("{}-wal",database.display())).map(|s| s.len()).unwrap_or(0)}});
+    // The exercise process exits without SQLite destructors or a clean checkpoint.
+    if stage == "exercise" {
+        std::mem::forget(store);
+    }
+    Ok(result)
+}
+fn diagnostic(directory: &Path, database: &Path, mode: &str) -> Result<Value> {
+    let m: Manifest = serde_json::from_str(&fs::read_to_string(directory.join("manifest.json"))?)?;
+    let mut store = Store::open(database)?;
+    if mode == "accept-before-ack" {
+        let phase = m.phases.iter().find(|p| p.name == "interrupted").unwrap();
+        let listing = read_phase(directory, phase, &m)?
+            .into_iter()
+            .find(|l| l.id == phase.ids[0])
+            .unwrap();
+        let changed = store.crawl(vec![listing])?;
+        store.classify(&m, 1, &changed, false, timestamp(&m.clock_epoch)?)?;
+    } else if mode != "recover" {
+        return Err("unknown diagnostic".into());
+    }
+    let listing = store.next(0)?.ok_or("diagnostic has no pending send")?;
+    let path = database.with_extension("receipts");
+    let mut receipt = fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(path)?;
+    writeln!(receipt, "{}", listing.id)?;
+    receipt.sync_all()?;
+    if mode == "accept-before-ack" {
+        std::process::exit(24);
+    }
+    store.acknowledge(0, &listing.id, timestamp(&m.clock_epoch)?)?;
+    Ok(json!({"accepted":listing.id,"pending":store.next(0)?.is_some()}))
 }
 fn run() -> Result<()> {
     let mut args = std::env::args().skip(1);
     let (mut fixtures, mut database) = (None, None);
     let (mut users, mut mode) = (500, "virtual".to_owned());
+    let mut stage = "exercise".to_owned();
+    let mut diagnostic_mode = None;
     while let Some(key) = args.next() {
         let value = args.next().ok_or("missing argument value")?;
         match key.as_str() {
@@ -183,19 +338,25 @@ fn run() -> Result<()> {
             "--database" => database = Some(PathBuf::from(value)),
             "--users" => users = value.parse()?,
             "--mode" => mode = value,
+            "--stage" => stage = value,
+            "--diagnostic" => diagnostic_mode = Some(value),
             _ => return Err(format!("unknown argument {key}").into()),
         }
     }
-    let result = replay(
-        &fixtures.ok_or("--fixtures is required")?,
-        &database.ok_or("--database is required")?,
-        users,
-        &mode,
-    )?;
+    let fixtures = fixtures.ok_or("--fixtures is required")?;
+    let database = database.ok_or("--database is required")?;
+    let result = if let Some(ref diagnostic_mode) = diagnostic_mode {
+        diagnostic(&fixtures, &database, diagnostic_mode)?
+    } else {
+        replay(&fixtures, &database, users, &mode, &stage)?
+    };
     let mut stdout = io::BufWriter::new(io::stdout().lock());
     serde_json::to_writer(&mut stdout, &result)?;
     writeln!(stdout)?;
     stdout.flush()?;
+    if stage == "exercise" && diagnostic_mode.is_none() {
+        std::process::exit(23);
+    }
     Ok(())
 }
 fn main() {

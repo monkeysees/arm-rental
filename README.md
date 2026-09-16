@@ -347,6 +347,8 @@ Build and inspect the deployment versions:
 
 ```sh
 docker build --platform linux/amd64 --target production \
+  --build-arg SOURCE_REVISION="$(git rev-parse HEAD)" \
+  --build-arg PACKAGE_LOCK_SHA256="$(sha256sum package-lock.json | cut -d ' ' -f 1)" \
   --tag rental-apartments-bot:local .
 docker image inspect --format '{{json .Config.Labels}}' \
   rental-apartments-bot:local

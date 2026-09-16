@@ -292,18 +292,6 @@ export function compatibleChannelState(state, config) {
   );
 }
 
-function newChannelState(config, filterFingerprint) {
-  return {
-    version: CHANNEL_STATE_VERSION,
-    type: CHANNEL_STATE_TYPE,
-    channelId: config.telegramChannelId,
-    urlTemplate: config.listUrlTemplate,
-    initialized: true,
-    filterFingerprint,
-    apartments: {},
-  };
-}
-
 function missingChannelMessage(error) {
   return /message (?:to edit )?not found|message_id_invalid/iu.test(
     error?.message || "",
@@ -372,112 +360,53 @@ export async function publishChannelApartments(
   if (!stateStore) {
     throw new Error("Channel delivery storage is not configured");
   }
-  const stored = await stateStore.load();
-  const compatible = compatibleChannelState(stored, config);
-  let state = compatible
-    ? structuredClone(stored)
-    : newChannelState(config, fingerprint);
-  const apartments = apartmentState?.apartments || {};
-  const orderedIds = new Set();
-  const takeUnorderedId = (itemId) => {
-    if (!Object.hasOwn(apartments, itemId) || orderedIds.has(itemId)) {
-      return false;
-    }
-    orderedIds.add(itemId);
-    return true;
-  };
-  const apartmentOrder = [
-    ...(apartmentState?.apartmentOrder || []).filter(takeUnorderedId),
-    ...Object.keys(apartments).filter(takeUnorderedId),
-  ];
-  let filteredCount = 0;
-  let skippedCount = 0;
+  const reference = now();
+  const prepared = await stateStore.prepare(config, apartmentState, reference);
+  const { skippedCount } = prepared;
   let readmittedCount = 0;
-
-  if (!compatible) {
-    const classifiedAt = now().toISOString();
-    const matchingIds = apartmentOrder.filter((itemId) =>
-      apartmentMatchesFilters(apartments[itemId], config.channelFilters),
-    );
-    const matchingSet = new Set(matchingIds);
-    const selectedSet = new Set(
-      matchingIds.slice(0, config.initialDeliveryLimit),
-    );
-
-    state.apartments = Object.fromEntries(
-      apartmentOrder.map((itemId) => {
-        let status = "filtered";
-        if (selectedSet.has(itemId)) status = "pending";
-        else if (matchingSet.has(itemId)) status = "skipped_initial";
-        if (status === "filtered") filteredCount += 1;
-        if (status === "skipped_initial") skippedCount += 1;
-        return [itemId, { status, classifiedAt }];
-      }),
-    );
-    // The whole initial admission decision is durable before the first send.
-    await stateStore.save(state);
-  } else {
-    // Every re-admission in this publication measures List.am activity against
-    // the same instant.
-    const sourceActivityReference = now().getTime();
-    if (state.filterFingerprint !== fingerprint) {
-      onFilterFingerprintChange({
-        channelId: config.telegramChannelId,
-        previousFingerprint: state.filterFingerprint,
-        filterFingerprint: fingerprint,
-      });
-      state.filterFingerprint = fingerprint;
-      await stateStore.save(state);
-    }
-
-    // Classification records source activity in flags that never expire, so a
-    // changed filter fingerprint would otherwise release every apartment
-    // List.am has ever touched since it was set aside. Re-admission therefore
-    // also requires that activity to be current: an encounter or update inside
-    // the window, or a card List.am posted inside it. Older history keeps its
-    // status until List.am touches it again.
-    const readmitted = apartmentOrder.flatMap((itemId) => {
-      const entry = state.apartments[itemId];
-      const apartment = apartments[itemId];
-      if (!apartmentMatchesFilters(apartment, config.channelFilters)) return [];
-      if (
-        entry?.status === "skipped_initial" &&
-        encounteredAfterClassification(apartment, entry) &&
-        withinSourceActivityWindow(
-          apartment.lastSeenAt,
-          sourceActivityReference,
-        )
-      ) {
-        return [{ itemId, reason: "reencountered" }];
-      }
-      if (entry?.status !== "filtered") return [];
-      if (
-        updatedAfterClassification(apartment, entry) &&
-        withinSourceActivityWindow(apartment.updatedAt, sourceActivityReference)
-      ) {
-        return [{ itemId, reason: "updated_match" }];
-      }
-      if (
-        postedWithinSourceActivityWindow(apartment, sourceActivityReference)
-      ) {
-        return [{ itemId, reason: "recent_match" }];
-      }
-      return [];
+  if (
+    prepared.previousFingerprint &&
+    prepared.previousFingerprint !== fingerprint
+  ) {
+    onFilterFingerprintChange({
+      channelId: config.telegramChannelId,
+      previousFingerprint: prepared.previousFingerprint,
+      filterFingerprint: fingerprint,
     });
-    if (readmitted.length > 0) {
-      readmittedCount = readmitted.length;
-      for (const { itemId } of readmitted) {
-        state.apartments[itemId] = {
-          ...state.apartments[itemId],
-          status: "pending",
-          reencounteredAt: apartments[itemId].lastSeenAt,
+  }
+  let sentCount = 0;
+  let editedCount = 0;
+  let cursor = 0;
+  for (;;) {
+    const candidates = await stateStore.loadCandidates(cursor, 100);
+    if (candidates.length === 0) break;
+    for (const { workId, apartment, entry: storedEntry } of candidates) {
+      cursor = workId;
+      const itemId = apartment.itemId;
+      let entry = storedEntry;
+      if (!entry) {
+        entry = {
+          status: apartmentMatchesFilters(apartment, config.channelFilters)
+            ? "pending"
+            : "filtered",
+          classifiedAt: now().toISOString(),
         };
+        await stateStore.classify({ [itemId]: entry });
+        if (entry.status === "filtered") prepared.filteredCount += 1;
       }
-      // Persist admission before sending so a failed or interrupted Telegram
-      // request remains pending and is retried without depending on another
-      // List.am encounter.
-      await stateStore.save(state);
-      for (const { itemId, reason } of readmitted) {
+      const reason = channelReadmissionReason(
+        apartment,
+        entry,
+        config.channelFilters,
+        reference.getTime(),
+      );
+      if (reason) {
+        await stateStore.readmit(
+          itemId,
+          apartment.lastSeenAt || now().toISOString(),
+        );
+        entry = { ...entry, status: "pending" };
+        readmittedCount += 1;
         operationEvent(onOperation, {
           channelId: config.telegramChannelId,
           itemId,
@@ -486,184 +415,105 @@ export async function publishChannelApartments(
           reason,
         });
       }
-    }
-
-    const unclassified = apartmentOrder.filter(
-      (itemId) => !state.apartments[itemId],
-    );
-    if (unclassified.length > 0) {
-      const classifiedAt = now().toISOString();
-      for (const itemId of unclassified) {
-        const status = apartmentMatchesFilters(
-          apartments[itemId],
-          config.channelFilters,
-        )
-          ? "pending"
-          : "filtered";
-        if (status === "filtered") filteredCount += 1;
-        state.apartments[itemId] = { status, classifiedAt };
+      if (!["pending", "published"].includes(entry.status)) {
+        await stateStore.complete(itemId);
+        continue;
       }
-      await stateStore.save(state);
-    }
-  }
-
-  let sentCount = 0;
-  let editedCount = 0;
-  const pendingIds = [...apartmentOrder]
-    .reverse()
-    .filter((itemId) => state.apartments[itemId]?.status === "pending");
-
-  for (const itemId of pendingIds) {
-    const apartment = apartments[itemId];
-    if (!apartment) continue;
-    let message;
-    let contentHash;
-    try {
-      message = formatChannelApartmentMessage(apartment);
-      contentHash = channelContentHash(message);
-      const result = await api.sendMessage(
-        config.telegramChannelId,
-        message,
-        signal,
-      );
-      if (!Number.isSafeInteger(result?.message_id) || result.message_id <= 0) {
-        throw new Error("Telegram sendMessage returned an invalid message_id");
-      }
-      const publishedAt = now().toISOString();
-      state.apartments[itemId] = {
-        ...state.apartments[itemId],
-        status: "published",
-        messageId: result.message_id,
-        contentHash,
-        publishedAt,
-      };
-      await stateStore.save(state);
-      sentCount += 1;
-      operationEvent(onOperation, {
-        channelId: config.telegramChannelId,
-        itemId,
-        operation: "send",
-        outcome: "success",
-        messageId: result.message_id,
-      });
-    } catch (error) {
-      operationEvent(onOperation, {
-        channelId: config.telegramChannelId,
-        itemId,
-        operation: "send",
-        outcome: "failed",
-        error,
-      });
-    }
-  }
-
-  const publishedIds = apartmentOrder.filter(
-    (itemId) => state.apartments[itemId]?.status === "published",
-  );
-  for (const itemId of publishedIds) {
-    const apartment = apartments[itemId];
-    const entry = state.apartments[itemId];
-    if (!apartment) continue;
-
-    let message;
-    let contentHash;
-    let operation = "edit";
-    try {
-      message = formatChannelApartmentMessage(apartment);
-      contentHash = channelContentHash(message);
-      if (contentHash === entry.contentHash) continue;
-
-      if (shouldRepost(entry, now())) {
-        operation = "repost";
-        const result = await api.sendMessage(
-          config.telegramChannelId,
-          message,
-          signal,
-        );
-        if (
-          !Number.isSafeInteger(result?.message_id) ||
-          result.message_id <= 0
-        ) {
+      let operation = entry.status === "pending" ? "send" : "edit";
+      try {
+        const message = formatChannelApartmentMessage(apartment);
+        const contentHash = channelContentHash(message);
+        if (entry.status === "published" && contentHash === entry.contentHash) {
+          await stateStore.complete(itemId);
+          continue;
+        }
+        let messageId = entry.messageId;
+        let publishedAt = entry.publishedAt;
+        let updatedAt;
+        if (entry.status === "pending" || shouldRepost(entry, now())) {
+          if (entry.status === "published") operation = "repost";
+          const result = await api.sendMessage(
+            config.telegramChannelId,
+            message,
+            signal,
+          );
+          messageId = result?.message_id;
+          publishedAt = now().toISOString();
+        } else {
+          try {
+            await api.editMessageText(
+              config.telegramChannelId,
+              messageId,
+              message,
+              signal,
+            );
+          } catch (error) {
+            if (!missingChannelMessage(error)) throw error;
+            const result = await api.sendMessage(
+              config.telegramChannelId,
+              message,
+              signal,
+            );
+            messageId = result?.message_id;
+          }
+          updatedAt = now().toISOString();
+        }
+        if (!Number.isSafeInteger(messageId) || messageId <= 0)
           throw new Error(
             "Telegram sendMessage returned an invalid message_id",
           );
-        }
-
-        const replacement = {
-          ...entry,
-          messageId: result.message_id,
+        await stateStore.acknowledge(itemId, {
+          messageId,
           contentHash,
-          publishedAt: now().toISOString(),
-        };
-        delete replacement.updatedAt;
-        state.apartments[itemId] = replacement;
-        await stateStore.save(state);
-        sentCount += 1;
+          publishedAt,
+          ...(updatedAt ? { updatedAt } : {}),
+        });
+        await stateStore.complete(itemId);
+        if (operation === "edit") editedCount += 1;
+        else sentCount += 1;
         operationEvent(onOperation, {
           channelId: config.telegramChannelId,
           itemId,
           operation,
           outcome: "success",
-          messageId: result.message_id,
+          messageId,
         });
-        continue;
-      }
-
-      try {
-        await api.editMessageText(
-          config.telegramChannelId,
-          entry.messageId,
-          message,
-          signal,
-        );
       } catch (error) {
-        if (!missingChannelMessage(error)) throw error;
-
-        const result = await api.sendMessage(
-          config.telegramChannelId,
-          message,
-          signal,
-        );
-        if (
-          !Number.isSafeInteger(result?.message_id) ||
-          result.message_id <= 0
-        ) {
-          throw new Error(
-            "Telegram sendMessage returned an invalid message_id",
-            { cause: error },
-          );
-        }
-        entry.messageId = result.message_id;
+        operationEvent(onOperation, {
+          channelId: config.telegramChannelId,
+          itemId,
+          operation,
+          outcome: "failed",
+          messageId: entry.messageId,
+          error,
+        });
       }
-
-      entry.contentHash = contentHash;
-      entry.updatedAt = now().toISOString();
-      await stateStore.save(state);
-      editedCount += 1;
-      operationEvent(onOperation, {
-        channelId: config.telegramChannelId,
-        itemId,
-        operation,
-        outcome: "success",
-        messageId: entry.messageId,
-      });
-    } catch (error) {
-      operationEvent(onOperation, {
-        channelId: config.telegramChannelId,
-        itemId,
-        operation,
-        outcome: "failed",
-        messageId: entry.messageId,
-        error,
-      });
     }
   }
-
   return {
     sentCount,
     editedCount,
-    filteredCount,
+    filteredCount: prepared.filteredCount,
     skippedCount,
     readmittedCount,
   };
+}
+
+export function channelReadmissionReason(apartment, entry, filters, reference) {
+  if (!apartmentMatchesFilters(apartment, filters)) return null;
+  if (
+    entry.status === "skipped_initial" &&
+    encounteredAfterClassification(apartment, entry) &&
+    withinSourceActivityWindow(apartment.lastSeenAt, reference)
+  )
+    return "reencountered";
+  if (entry.status !== "filtered") return null;
+  if (
+    updatedAfterClassification(apartment, entry) &&
+    withinSourceActivityWindow(apartment.updatedAt, reference)
+  )
+    return "updated_match";
+  return postedWithinSourceActivityWindow(apartment, reference)
+    ? "recent_match"
+    : null;
 }

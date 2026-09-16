@@ -1,3 +1,4 @@
+import { createMemoryChannelStore } from "../test-support/memory-channel.js";
 import assert from "node:assert/strict";
 import test from "node:test";
 
@@ -63,12 +64,12 @@ function memoryState(initial) {
     get value() {
       return structuredClone(value);
     },
-    stateStore: {
-      load: async () => structuredClone(value),
-      save: async (state) => {
-        value = structuredClone(state);
+    stateStore: createMemoryChannelStore({
+      getState: () => value,
+      setState: (state) => {
+        value = state;
       },
-    },
+    }),
   };
 }
 

@@ -11,6 +11,7 @@ import {
   decisionStatusCode,
   decisionTimestamp,
 } from "./sqlite-decision-values.js";
+import { apartmentCandidates } from "./sqlite-apartment-values.js";
 
 function decodedDecision(row) {
   return {
@@ -109,6 +110,80 @@ export class SqlitePrivateDeliveriesRepository {
       "DELETE FROM private_delivery_decisions",
     );
     this.clearRecipients = database.prepare("DELETE FROM private_recipients");
+    this.selectProgress = database.prepare(
+      "SELECT initial_selection_applied, source_cursor, filter_fingerprint FROM private_recipients WHERE recipient_id = ?",
+    );
+    this.selectSequence = database.prepare(
+      "SELECT sequence FROM crawl_state WHERE singleton = 1",
+    );
+    this.stageHistory =
+      database.prepare(`INSERT OR IGNORE INTO private_delivery_work(recipient_id, item_id)
+      SELECT ?, item_id FROM apartments`);
+    this.stageChanges =
+      database.prepare(`INSERT OR IGNORE INTO private_delivery_work(recipient_id, item_id)
+      SELECT ?, item_id FROM apartments WHERE changed_sequence > ?`);
+    this.stageItem = database.prepare(
+      "INSERT OR REPLACE INTO private_delivery_work(recipient_id, item_id) VALUES (?, ?)",
+    );
+    this.updateProgress = database.prepare(
+      "UPDATE private_recipients SET source_cursor = ?, filter_fingerprint = ? WHERE recipient_id = ?",
+    );
+    this.selectWork =
+      database.prepare(`SELECT w.work_id, a.item_id, a.payload_json, a.last_seen_at
+      FROM private_delivery_work w JOIN apartments a ON a.item_id = w.item_id
+      WHERE w.recipient_id = ? ORDER BY a.encounter_sequence DESC, a.encounter_position ASC`);
+    this.pruneWork =
+      database.prepare(`DELETE FROM private_delivery_work WHERE recipient_id = ?
+      AND work_id IN (SELECT value FROM json_each(?))
+      AND item_id NOT IN (SELECT value FROM json_each(?))`);
+  }
+
+  loadCandidates(value, fingerprint) {
+    const id = recipientId(value);
+    return this.database.transaction("private_delivery_prepare", () => {
+      this.ensureRecipientStatement.run(id);
+      const progress = this.selectProgress.get(id);
+      const sequence = this.selectSequence.get()?.sequence ?? 0;
+      if (
+        progress.source_cursor === null ||
+        !progress.initial_selection_applied ||
+        progress.filter_fingerprint !== fingerprint
+      ) {
+        this.stageHistory.run(id);
+      } else if (progress.source_cursor < sequence) {
+        this.stageChanges.run(id, progress.source_cursor);
+      }
+      if (
+        progress.source_cursor !== sequence ||
+        progress.filter_fingerprint !== fingerprint
+      )
+        this.updateProgress.run(sequence, fingerprint, id);
+      // The queue and cursor commit together, before any classification or send.
+      // An interrupted worker must never advance past work it has not retained.
+      const rows = this.selectWork.all(id);
+      return {
+        ...apartmentCandidates(rows),
+        workIds: rows.map(({ work_id }) => work_id),
+      };
+    });
+  }
+
+  retainPending(value, itemIds, workIds) {
+    const id = recipientId(value);
+    const pending = itemIdentifiers(itemIds, "Pending");
+    if (
+      !Array.isArray(workIds) ||
+      workIds.some((id) => !Number.isSafeInteger(id) || id <= 0)
+    )
+      throw new TypeError("Private work IDs must be positive integers");
+    // A menu answer can requeue the same listing while this worker awaits I/O.
+    // Retire only the captured work token, never the newer acceptance.
+    return this.database.transaction("private_delivery_pending", () =>
+      Number(
+        this.pruneWork.run(id, JSON.stringify(workIds), JSON.stringify(pending))
+          .changes,
+      ),
+    );
   }
 
   loadAllDecisions() {
@@ -332,7 +407,13 @@ export class SqlitePrivateDeliveriesRepository {
       this.database,
       "private_delivery_readmit",
       transaction,
-      () => Number(this.deleteFiltered.run(id, normalizedItemId).changes),
+      () => {
+        const removed = Number(
+          this.deleteFiltered.run(id, normalizedItemId).changes,
+        );
+        if (removed) this.stageItem.run(id, normalizedItemId);
+        return removed;
+      },
     );
   }
 

@@ -2,8 +2,8 @@
 
 `PRAGMA user_version` and the transactional `schema_migrations` ledger describe
 the physical database schema. The SQLite application ID is `0x41524d52`.
-Release metadata and the image label accept schemas 1 through 4; opening any
-older supported schema advances it to 4 before repositories become available.
+Release metadata and the image label accept schemas 1 through 6; opening any
+older supported schema advances it to 6 before repositories become available.
 A newer schema, missing application identity, or wrong source/channel binding
 fails before journal configuration or migration can change the database.
 
@@ -13,13 +13,38 @@ indexes retained apartment metadata and replaces the serialized listing order
 with encounter sequence/position columns. Version 4 compacts private delivery
 decisions; channel delivery storage keeps its existing representation because
 the measured storage bottleneck is the private recipient/listing history.
+Version 5 adds shared listing change sequences and private delivery progress.
+Version 6 adds channel publication progress and queued work.
+
+## Incremental delivery progress
+
+`apartments.changed_sequence` advances with payload changes in the same
+transaction as crawl persistence. Both delivery consumers use this indexed
+sequence; encounter metadata independently records unchanged source returns.
+Private recipients store a source cursor and normalized filter fingerprint.
+`private_delivery_work` retains recipient/item candidates before the cursor
+advances, and cascades when its recipient is deleted. Initial selection and
+filter changes reconcile retained history once; routine crawls read only source
+changes and outstanding work. Explicit history acceptance queues released IDs.
+
+`channel_state.source_sequence` and `channel_work` similarly retain changes,
+pending sends, and failed edits across restart. Initially skipped listings also
+become candidates on source re-encounter. The channel status index supports that
+admission query. Initial classification remains atomic, and routine candidate
+reads are paged. Acknowledgements remain durable per message; the Telegram/SQLite
+boundary still carries an at-least-once duplicate risk.
+
+Neither cursor replaces a terminal decision: notified, skipped, and filtered
+rows remain available when listings return. Migration preserves those rows and
+reconciles existing state on the first pass. Both new migrations participate in
+the same all-or-nothing transaction as the schema ledger.
 
 ## Private decision representation
 
 `private_delivery_decisions` is a `STRICT, WITHOUT ROWID` table whose primary
 key is `(recipient_id, item_id)`. Each decision contains an integer status:
-`0` means notified, `1` skipped, and `2` filtered. An absent row still means
-pending; no checkpoint substitutes for a historical decision. The decision time
+`0` means notified, `1` skipped, and `2` filtered. An absent row means
+undecided; queued work identifies pending processing, and no checkpoint substitutes for a historical decision. The decision time
 is a signed integer count of milliseconds from the Unix epoch, bounded to
 JavaScript's valid date range, inclusive ±8,640,000,000,000,000. Repository APIs
 continue returning and accepting the original status names and canonical ISO
@@ -48,7 +73,7 @@ All pending version transitions, data copies, table replacements, ledger rows,
 and `user_version` changes commit in one `BEGIN IMMEDIATE` transaction. A late
 ledger failure, invalid timestamp, or process interruption rolls back that whole
 transaction. A foreign-key check runs before commit. This preserves restartable
-upgrades from schemas 1, 2, and 3, as well as fresh initialization.
+upgrades from schemas 1 through 5, as well as fresh initialization.
 
 Dropping the old table leaves reusable pages in the database. To actually shrink
 both the main file and future SQLite backup snapshots, version 4 adds
@@ -63,6 +88,6 @@ The benchmark's WAL measurements are observations, not a disk-space upper bound.
 
 Keep the stopped-service pre-deploy snapshot and previous immutable image until
 the candidate is accepted. Schemas advance forward only. An old image whose
-range ends below 4 must first restore its matching pre-deploy snapshot; it must
-never open the schema-4 database. See [release rollback](release-and-rollback.md)
+range ends below 6 must first restore its matching pre-deploy snapshot; it must
+never open the schema-6 database. See [release rollback](release-and-rollback.md)
 and [state recovery](state-recovery.md).

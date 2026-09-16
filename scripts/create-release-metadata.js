@@ -95,8 +95,8 @@ export async function createReleaseMetadata({
     sourceRevision,
     stateBackend: "sqlite",
     // The range this image can serve, not the schema it writes: it opens a
-    // database still at schema 1 and migrates it to 4 on the first open, so a
-    // host running any supported schema is deployable; rollback below 4 needs a restore.
+    // database still at schema 1 and migrates it to 6 on the first open, so a
+    // host running any supported schema is deployable; rollback below 6 needs a restore.
     minimumStateSchema: 1,
     maximumStateSchema: 4,
     // What this release's own deployer will accept as a candidate, which is

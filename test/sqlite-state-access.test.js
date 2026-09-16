@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import { spawnSync } from "node:child_process";
 import test from "node:test";
 
 import { openApplicationState } from "../src/application-state.js";
@@ -72,6 +73,7 @@ async function deliveryCrawl(t, { onMetric = () => {} } = {}) {
   const stateAccess = createSqliteStateAccess(database, repositories);
   return {
     config,
+    database,
     repositories,
     stateAccess,
     crawl: (options) =>
@@ -170,6 +172,292 @@ test("domain stores translate their callers into bounded row writes", async (t) 
       ({ operation }) => operation === "private_delivery_state_commit",
     ),
     false,
+  );
+});
+
+test("routine private delivery reads no retained history after its work drains", async (t) => {
+  const { repositories, stateAccess, crawl } = await deliveryCrawl(t);
+  const target = { recipientId: "42", deliverApartment: async () => {} };
+  await crawl({
+    fetchPage: async () =>
+      new Response(listPage(["1", 110_000], ["2", 120_000])),
+    privateDeliveries: [target],
+  });
+  repositories.apartments.load = () => {
+    throw new Error("full history read");
+  };
+  const candidates = [];
+  const read = stateAccess.privateDeliveries.loadRecipient;
+  stateAccess.privateDeliveries.loadRecipient = (id, ids) => {
+    candidates.push(ids);
+    return read(id, ids);
+  };
+  await crawl({
+    fetchPage: async () =>
+      new Response(listPage(["1", 110_000], ["2", 120_000])),
+    privateDeliveries: [target],
+  });
+  assert.deepEqual(candidates, [[]]);
+  await crawl({
+    fetchPage: async () =>
+      new Response(listPage(["1", 130_000], ["2", 120_000])),
+    privateDeliveries: [target],
+    now: () => new Date("2026-08-18T10:12:00.000Z"),
+  });
+  assert.deepEqual(candidates, [[], ["1"]]);
+});
+
+test("incremental private selection preserves accepted, declined, and limited history", async (t) => {
+  const { config, repositories, stateAccess, crawl } = await deliveryCrawl(t);
+  config.initialDeliveryLimit = 1;
+  const delivered = [];
+  const target = {
+    recipientId: "42",
+    filters: { ...emptyFilters(), price: { min: null, max: 100_000 } },
+    deliverApartment: async ({ itemId }) => delivered.push(itemId),
+  };
+  const fetchPage = async () =>
+    new Response(
+      listPage(["1", 110_000], ["2", 120_000], ["3", 130_000], ["4", 140_000]),
+    );
+  await crawl({ fetchPage, privateDeliveries: [target] });
+  target.filters = emptyFilters();
+  await crawl({ fetchPage, privateDeliveries: [target] });
+  assert.deepEqual(delivered, []);
+  stateAccess.privateDeliveries.decisions.readmitFiltered("42", ["1"]);
+  stateAccess.privateDeliveries.decisions.declineHistory("42", { 2: TIME });
+  await crawl({ fetchPage, privateDeliveries: [target] });
+  assert.deepEqual(delivered, ["1"]);
+  stateAccess.privateDeliveries.decisions.requestSelection("42");
+  await crawl({ fetchPage, privateDeliveries: [target] });
+  assert.deepEqual(delivered, ["1", "3"]);
+  assert.deepEqual(
+    Object.keys(
+      repositories.privateDeliveries.loadRecipient("42", ["1", "2", "3", "4"])
+        .skipped,
+    ),
+    ["2", "4"],
+  );
+  await crawl({
+    fetchPage: async () =>
+      new Response(
+        listPage(
+          ["5", 150_000],
+          ["1", 110_000],
+          ["2", 120_000],
+          ["3", 130_000],
+          ["4", 140_000],
+        ),
+      ),
+  });
+  stateAccess.privateDeliveries.decisions.requestSelection("42");
+  await crawl({
+    fetchPage,
+    privateDeliveries: [{ ...target, sendInitialApartments: false }],
+  });
+  assert.deepEqual(delivered, ["1", "3"]);
+  assert.equal(
+    repositories.privateDeliveries.loadRecipient("42", ["5"]).skipped[5],
+    TIME,
+  );
+});
+
+test("a filter edit classifies expired undecided history without sending it", async (t) => {
+  const { repositories, crawl } = await deliveryCrawl(t);
+  const target = {
+    recipientId: "42",
+    deliverApartment: async () => assert.fail("expired listing sent"),
+  };
+  const options = {
+    fetchPage: async () => new Response(listPage(["1", 110_000])),
+    now: () => new Date("2026-08-21T10:12:00.000Z"),
+  };
+  await crawl({ ...options, privateDeliveries: [target] });
+  assert.deepEqual(
+    repositories.privateDeliveries.loadRecipient("42", ["1"]).filtered,
+    {},
+  );
+  const result = await crawl({
+    ...options,
+    privateDeliveries: [
+      {
+        ...target,
+        filters: { ...emptyFilters(), price: { min: null, max: 100_000 } },
+      },
+    ],
+  });
+  assert.equal(result.filteredCount, 1);
+  assert.equal(
+    repositories.privateDeliveries.loadRecipient("42", ["1"]).filtered[1],
+    "2026-08-21T10:12:00.000Z",
+  );
+});
+
+test("a concurrent history acceptance survives pruning an older candidate snapshot", async (t) => {
+  const { stateAccess, database, crawl } = await deliveryCrawl(t);
+  const delivered = [];
+  const target = {
+    recipientId: "42",
+    filters: { ...emptyFilters(), price: { min: null, max: 100_000 } },
+    deliverApartment: async ({ itemId }) => delivered.push(itemId),
+  };
+  const fetchPage = async () => new Response(listPage(["1", 110_000]));
+  await crawl({ fetchPage, privateDeliveries: [target] });
+  target.filters = emptyFilters();
+  const read = stateAccess.privateDeliveries.loadRecipient;
+  stateAccess.privateDeliveries.loadRecipient = async (...args) => {
+    const snapshot = await read(...args);
+    // The menu accepts this exact listing after the worker captured its old rejection.
+    stateAccess.privateDeliveries.decisions.readmitFiltered("42", ["1"]);
+    return snapshot;
+  };
+  await crawl({ fetchPage, privateDeliveries: [target] });
+  assert.deepEqual(delivered, []);
+  assert.equal(
+    database.prepare("SELECT count(*) n FROM private_delivery_work").get().n,
+    1,
+  );
+  stateAccess.privateDeliveries.loadRecipient = read;
+  await crawl({ fetchPage, privateDeliveries: [target] });
+  assert.deepEqual(delivered, ["1"]);
+  assert.equal(
+    database.prepare("SELECT count(*) n FROM private_delivery_work").get().n,
+    0,
+  );
+});
+
+test("private classification and pending sends resume after reopening the database", async (t) => {
+  const { config, database, crawl } = await deliveryCrawl(t);
+  const target = {
+    recipientId: "42",
+    deliverApartment: async () => {
+      throw new Error("Telegram interrupted");
+    },
+  };
+  await assert.rejects(
+    crawl({
+      fetchPage: async () =>
+        new Response(listPage(["1", 110_000], ["2", 120_000])),
+      privateDeliveries: [target],
+    }),
+    /Telegram interrupted/,
+  );
+  assert.equal(
+    database.prepare("SELECT count(*) n FROM private_delivery_work").get().n,
+    2,
+  );
+  database.close();
+  const reopened = openStateDatabase({
+    dataDirectory: config.dataDirectory,
+    listUrlTemplate: LIST_URL,
+  });
+  t.after(() => reopened.close());
+  const access = createSqliteStateAccess(
+    reopened,
+    createSqliteRepositories(reopened, { listUrlTemplate: LIST_URL }),
+  );
+  const delivered = [];
+  await crawlApartments(config, {
+    stateAccess: access,
+    fetchPage: async () =>
+      new Response(listPage(["1", 110_000], ["2", 120_000])),
+    privateDeliveries: [
+      {
+        ...target,
+        deliverApartment: async ({ itemId }) => delivered.push(itemId),
+      },
+    ],
+    now: () => new Date("2026-08-18T10:12:00.000Z"),
+  });
+  assert.deepEqual(delivered, ["2", "1"]);
+  assert.equal(
+    reopened.prepare("SELECT count(*) n FROM private_delivery_work").get().n,
+    0,
+  );
+  // A history answer can enqueue work without any subsequent source change.
+  access.privateDeliveries.decisions.classifyFiltered("99", { 1: TIME });
+  const { workIds } = access.privateDeliveries.loadCandidates("99", "filters");
+  access.privateDeliveries.retainPending("99", [], workIds);
+  access.privateDeliveries.decisions.readmitFiltered("99", ["1"]);
+  assert.equal(
+    reopened
+      .prepare(
+        "SELECT count(*) n FROM private_delivery_work WHERE recipient_id = '99'",
+      )
+      .get().n,
+    1,
+  );
+  access.deleteUserData(99);
+  assert.equal(
+    reopened
+      .prepare(
+        "SELECT count(*) n FROM private_delivery_work WHERE recipient_id = '99'",
+      )
+      .get().n,
+    0,
+  );
+});
+
+test("a process crash after one private acknowledgement resumes only the unsent work", async (t) => {
+  const { config, database } = await deliveryCrawl(t);
+  database.close();
+  const html = listPage(["1", 110_000], ["2", 120_000]);
+  const child = spawnSync(
+    process.execPath,
+    [
+      "--input-type=module",
+      "-e",
+      `
+    import { openStateDatabase } from './src/sqlite-database.js';
+    import { createSqliteRepositories } from './src/sqlite-repositories.js';
+    import { createSqliteStateAccess } from './src/sqlite-state-access.js';
+    import { crawlApartments } from './src/crawler.js';
+    const [config, html] = JSON.parse(process.argv[1]);
+    const database = openStateDatabase(config);
+    const stateAccess = createSqliteStateAccess(database, createSqliteRepositories(database, config));
+    let attempts = 0;
+    await crawlApartments(config, {
+      stateAccess,
+      fetchPage: async () => new Response(html),
+      now: () => new Date('${TIME}'),
+      privateDeliveries: [{ recipientId: '42', deliverApartment: async () => {
+        if (++attempts === 2) process.exit(23);
+      } }],
+    });
+  `,
+      JSON.stringify([config, html]),
+    ],
+    { encoding: "utf8" },
+  );
+  assert.equal(child.status, 23, child.stderr);
+  const reopened = openStateDatabase({
+    dataDirectory: config.dataDirectory,
+    listUrlTemplate: LIST_URL,
+  });
+  t.after(() => reopened.close());
+  const repositories = createSqliteRepositories(reopened, {
+    listUrlTemplate: LIST_URL,
+  });
+  assert.deepEqual(
+    repositories.privateDeliveries.loadRecipient("42", ["1", "2"]).notified,
+    { 2: TIME },
+  );
+  const delivered = [];
+  await crawlApartments(config, {
+    stateAccess: createSqliteStateAccess(reopened, repositories),
+    fetchPage: async () => new Response(html),
+    now: () => new Date(TIME),
+    privateDeliveries: [
+      {
+        recipientId: "42",
+        deliverApartment: async ({ itemId }) => delivered.push(itemId),
+      },
+    ],
+  });
+  assert.deepEqual(delivered, ["1"]);
+  assert.equal(
+    reopened.prepare("SELECT count(*) n FROM private_delivery_work").get().n,
+    0,
   );
 });
 
@@ -520,7 +808,7 @@ test("re-admission and later classification stay one bounded write each", async 
       )
       .map(({ operation, rowsChanged }) => [operation, rowsChanged]),
     [
-      ["private_delivery_readmit", 1],
+      ["private_delivery_readmit", 2],
       ["private_delivery_classify", 1],
     ],
   );

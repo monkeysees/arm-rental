@@ -1,8 +1,10 @@
 import { migrateIncrementalCrawl } from "./sqlite-crawl-migration.js";
 import { migrateCompactDecisions } from "./sqlite-decisions-migration.js";
+import { migrateIncrementalPrivate } from "./sqlite-private-migration.js";
+import { migrateIncrementalChannel } from "./sqlite-channel-migration.js";
 
 export const SQLITE_APPLICATION_ID = 0x41524d52;
-export const SQLITE_SCHEMA_VERSION = 4;
+export const SQLITE_SCHEMA_VERSION = 6;
 
 const SCHEMA_V1 = `
   CREATE TABLE schema_migrations (
@@ -137,6 +139,8 @@ const MIGRATIONS = [
   { version: 2, sql: SCHEMA_V2 },
   { version: 3, migrate: migrateIncrementalCrawl },
   { version: 4, migrate: migrateCompactDecisions },
+  { version: 5, migrate: migrateIncrementalPrivate },
+  { version: 6, migrate: migrateIncrementalChannel },
 ];
 
 function exactIsoTimestamp(value) {

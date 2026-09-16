@@ -1,4 +1,10 @@
-import { compatibleChannelState } from "./channel.js";
+import {
+  compatibleChannelState,
+  channelFilterFingerprint,
+  channelReadmissionReason,
+} from "./channel.js";
+import { apartmentMatchesFilters } from "./filters.js";
+import { storedApartment } from "./sqlite-apartment-values.js";
 import {
   canonicalIsoTimestamp,
   nonEmptyIdentifier,
@@ -107,30 +113,144 @@ export class SqliteChannelDeliveriesRepository {
     this.clearState = database.prepare("DELETE FROM channel_state");
   }
 
+  prepare(config, _apartmentState, now) {
+    return this.database.transaction("channel_prepare", () => {
+      const fingerprint = channelFilterFingerprint(config.channelFilters);
+      const previous = this.selectState.get();
+      const sequence = Number(
+        this.database
+          .prepare("SELECT sequence FROM crawl_state WHERE singleton = 1")
+          .get()?.sequence || 0,
+      );
+      const enqueue = this.database.prepare(
+        "INSERT OR IGNORE INTO channel_work(item_id) VALUES (?)",
+      );
+      let filteredCount = 0;
+      let skippedCount = 0;
+      if (!previous) {
+        this.insertState.run(this.channelId, this.listUrlTemplate, fingerprint);
+        let selected = 0;
+        for (const row of this.database
+          .prepare(
+            "SELECT * FROM apartments ORDER BY encounter_sequence DESC, encounter_position ASC",
+          )
+          .iterate()) {
+          const matches = apartmentMatchesFilters(
+            storedApartment(row),
+            config.channelFilters,
+          );
+          const status = !matches
+            ? "filtered"
+            : selected++ < config.initialDeliveryLimit
+              ? "pending"
+              : "skipped_initial";
+          if (status === "filtered") filteredCount += 1;
+          if (status === "skipped_initial") skippedCount += 1;
+          this.insertEntry(row.item_id, {
+            status,
+            classifiedAt: now.toISOString(),
+          });
+        }
+        this.database
+          .prepare(
+            `INSERT OR IGNORE INTO channel_work(item_id)
+          SELECT a.item_id FROM apartments a JOIN channel_deliveries d USING(item_id)
+          WHERE d.status = 'pending' ORDER BY a.encounter_sequence ASC, a.encounter_position DESC`,
+          )
+          .run();
+      } else {
+        const ids = `SELECT a.item_id FROM apartments a INDEXED BY apartments_encounter_order_idx JOIN channel_deliveries d USING(item_id)
+          WHERE a.encounter_sequence > ? AND d.status = 'skipped_initial'
+          UNION SELECT item_id FROM apartments WHERE changed_sequence > ?`;
+        // SQL orders only this crawl's bounded candidates, never retained history.
+        for (const row of this.database
+          .prepare(
+            `SELECT a.item_id FROM apartments a JOIN (${ids}) c USING(item_id)
+          ORDER BY a.encounter_sequence ASC, a.encounter_position DESC`,
+          )
+          .iterate(previous.source_sequence, previous.source_sequence))
+          enqueue.run(row.item_id);
+        if (previous.filter_fingerprint !== fingerprint) {
+          for (const row of this.database
+            .prepare(
+              `SELECT a.*, d.* FROM channel_deliveries d JOIN apartments a USING(item_id)
+            WHERE d.status IN ('filtered', 'skipped_initial') ORDER BY a.encounter_sequence ASC, a.encounter_position DESC`,
+            )
+            .iterate()) {
+            if (
+              channelReadmissionReason(
+                storedApartment(row),
+                channelEntry(row),
+                config.channelFilters,
+                now.getTime(),
+              )
+            )
+              enqueue.run(row.item_id);
+          }
+          this.updateFingerprintStatement.run(fingerprint);
+        }
+      }
+      // Rebuild only outstanding work so retries and newly discovered cards
+      // share the original oldest-first order, regardless of enqueue time.
+      this.database
+        .prepare(
+          `CREATE TEMP TABLE channel_work_ordered AS
+        SELECT w.item_id FROM channel_work w JOIN apartments a USING(item_id)
+        ORDER BY a.encounter_sequence ASC, a.encounter_position DESC`,
+        )
+        .run();
+      this.database.prepare("DELETE FROM channel_work").run();
+      this.database
+        .prepare(
+          "INSERT INTO channel_work(item_id) SELECT item_id FROM channel_work_ordered",
+        )
+        .run();
+      this.database.prepare("DROP TABLE channel_work_ordered").run();
+      this.database
+        .prepare(
+          "UPDATE channel_state SET source_sequence = ? WHERE singleton = 1",
+        )
+        .run(sequence);
+      return {
+        filteredCount,
+        skippedCount,
+        previousFingerprint: previous?.filter_fingerprint,
+      };
+    });
+  }
+
+  loadCandidates(afterWorkId = 0, limit = 100) {
+    return this.database
+      .prepare(
+        `SELECT w.work_id, a.*, d.* FROM channel_work w
+      JOIN apartments a USING(item_id) LEFT JOIN channel_deliveries d USING(item_id)
+      WHERE w.work_id > ? ORDER BY w.work_id LIMIT ?`,
+      )
+      .all(afterWorkId, limit)
+      .map((row) => ({
+        workId: Number(row.work_id),
+        apartment: storedApartment(row),
+        entry: row.status ? channelEntry(row) : undefined,
+      }));
+  }
+
+  complete(itemId) {
+    return this.database.transaction("channel_complete", () =>
+      Number(
+        this.database
+          .prepare("DELETE FROM channel_work WHERE item_id = ?")
+          .run(itemId).changes,
+      ),
+    );
+  }
+
   load() {
     const stored = this.selectState.get();
     if (!stored) return undefined;
     const apartments = Object.fromEntries(
-      this.selectDeliveries.all().map((row) => [
-        row.item_id,
-        {
-          status: row.status,
-          classifiedAt: row.classified_at,
-          ...(row.reencountered_at === null
-            ? {}
-            : { reencounteredAt: row.reencountered_at }),
-          ...(row.message_id === null
-            ? {}
-            : { messageId: Number(row.message_id) }),
-          ...(row.content_hash === null
-            ? {}
-            : { contentHash: row.content_hash }),
-          ...(row.published_at === null
-            ? {}
-            : { publishedAt: row.published_at }),
-          ...(row.updated_at === null ? {} : { updatedAt: row.updated_at }),
-        },
-      ]),
+      this.selectDeliveries
+        .all()
+        .map((row) => [row.item_id, channelEntry(row)]),
     );
     const state = {
       version: 1,
@@ -291,4 +411,18 @@ export class SqliteChannelDeliveriesRepository {
       entry.updatedAt ?? null,
     );
   }
+}
+
+function channelEntry(row) {
+  return {
+    status: row.status,
+    classifiedAt: row.classified_at,
+    ...(row.reencountered_at === null
+      ? {}
+      : { reencounteredAt: row.reencountered_at }),
+    ...(row.message_id === null ? {} : { messageId: Number(row.message_id) }),
+    ...(row.content_hash === null ? {} : { contentHash: row.content_hash }),
+    ...(row.published_at === null ? {} : { publishedAt: row.published_at }),
+    ...(row.updated_at === null ? {} : { updatedAt: row.updated_at }),
+  };
 }

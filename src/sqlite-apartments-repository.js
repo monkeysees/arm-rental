@@ -8,6 +8,7 @@ import {
   postingDateSortValue,
 } from "./posting-date.js";
 import { propertyKindOf } from "./property-kind.js";
+import { storedApartment } from "./sqlite-apartment-values.js";
 import {
   canonicalIsoTimestamp,
   nonEmptyIdentifier,
@@ -93,6 +94,9 @@ export class SqliteApartmentsRepository {
       posting_date_key = excluded.posting_date_key, posting_date = excluded.posting_date`);
     this.touchApartment = database.prepare(`UPDATE apartments SET
       encounter_sequence = ?, encounter_position = ?, last_seen_at = ? WHERE item_id = ?`);
+    this.markChanged = database.prepare(
+      "UPDATE apartments SET changed_sequence = ? WHERE item_id = ?",
+    );
     this.upsertCrawl = database.prepare(`INSERT INTO crawl_state(
       singleton, checked_at, last_crawl_json, source_integrity_json, sequence, total_count
     ) VALUES (1, ?, ?, ?, ?, ?)
@@ -117,12 +121,6 @@ export class SqliteApartmentsRepository {
     };
   }
 
-  apartment(row) {
-    const apartment = parseStoredJson(row.payload_json, "apartment payload");
-    if (row.last_seen_at !== null) apartment.lastSeenAt = row.last_seen_at;
-    return apartment;
-  }
-
   load() {
     const metadata = this.metadata(this.selectMetadata.get());
     if (!metadata) return undefined;
@@ -135,7 +133,7 @@ export class SqliteApartmentsRepository {
       {
         ...state,
         apartments: Object.fromEntries(
-          rows.map((row) => [row.item_id, this.apartment(row)]),
+          rows.map((row) => [row.item_id, storedApartment(row)]),
         ),
         apartmentOrder: rows.map((row) => row.item_id),
       },
@@ -189,13 +187,13 @@ export class SqliteApartmentsRepository {
         const row = this.selectApartment.get(
           nonEmptyIdentifier(itemId, "Apartment item ID"),
         );
-        return row ? [[row.item_id, this.apartment(row)]] : [];
+        return row ? [[row.item_id, storedApartment(row)]] : [];
       }),
     );
   }
 
   findLegacyPrices() {
-    return this.selectLegacyPrices.all().map((row) => this.apartment(row));
+    return this.selectLegacyPrices.all().map(storedApartment);
   }
 
   writePayload(apartment) {
@@ -229,6 +227,7 @@ export class SqliteApartmentsRepository {
         for (const apartment of changes) {
           if (!this.selectApartment.get(String(apartment.itemId))) totalCount++;
           this.writePayload(apartment);
+          this.markChanged.run(sequence, String(apartment.itemId));
         }
         encounteredOrder.forEach((itemId, position) => {
           if (

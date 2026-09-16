@@ -1,3 +1,4 @@
+import { createMemoryChannelStore } from "./memory-channel.js";
 import { migrateApartmentState } from "../src/apartment-state.js";
 import { postingDateSortValue } from "../src/posting-date.js";
 import { propertyKindOf } from "../src/property-kind.js";
@@ -145,6 +146,12 @@ export function createMemoryStateAccess({
       },
     },
     privateDeliveries: {
+      loadCandidates: async () =>
+        clone({
+          apartments: apartmentState?.apartments || {},
+          apartmentOrder: apartmentState?.apartmentOrder || [],
+        }),
+      retainPending: async () => {},
       loadRecipient: async (recipientId, itemIds) => {
         if (!Array.isArray(itemIds))
           throw new TypeError("Private delivery reads require listing IDs");
@@ -239,14 +246,14 @@ export function createMemoryStateAccess({
       },
     },
     channelDeliveries: channelConfigured
-      ? {
-          load: async () => clone(channelState),
-          save: async (state) => {
-            await write("channelDeliveries", { state });
-            channelState = structuredClone(state);
-            return state;
+      ? createMemoryChannelStore({
+          getState: () => channelState,
+          setState: (state) => {
+            channelState = state;
           },
-        }
+          getApartments: () => apartmentState,
+          onWrite: (state) => write("channelDeliveries", { state }),
+        })
       : null,
     telegram: {
       load: async () => clone(telegramState),

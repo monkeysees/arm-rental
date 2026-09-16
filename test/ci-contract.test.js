@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
+import { execFileSync } from "node:child_process";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -363,4 +364,48 @@ test("declared deployable backends are the ones this release's verifier accepts"
     metadata.deployableStateBackends.toSorted(),
     accepted.toSorted(),
   );
+});
+
+test("publication accepts the current SQLite image schema and rejects a mismatched label", async () => {
+  const workflow = await readProjectFile(
+    ".github/workflows/publish-production.yml",
+  );
+  const step = workflow
+    .split("      - name: Verify pinned runtime and OCI provenance\n")[1]
+    ?.split("\n      - name:")[0];
+  const script = step
+    ?.split("        run: |\n")[1]
+    ?.replace(/^ {10}/gmu, "");
+  assert.ok(script, "publication must verify image provenance before pushing");
+  const docker = `
+    docker() {
+      case "$*" in
+        *org.opencontainers.image.revision*) printf '%s\\n' "$SOURCE_REVISION" ;;
+        *org.opencontainers.image.node.version*) cat .nvmrc ;;
+        *org.opencontainers.image.curl-impersonate.version*) printf '%s\\n' '2.2.2' ;;
+        *org.opencontainers.image.package-lock.sha256*) sha256sum package-lock.json | cut -d ' ' -f 1 ;;
+        *com.rental-apartments.state.backend*) printf '%s\\n' sqlite ;;
+        *com.rental-apartments.state.schema.minimum*) printf '%s\\n' 1 ;;
+        *com.rental-apartments.state.schema.maximum*) printf '%s\\n' "$TEST_SCHEMA_MAXIMUM" ;;
+        *--entrypoint*node*) printf 'v%s\\n' "$(cat .nvmrc)" ;;
+        *) return 99 ;;
+      esac
+    }
+  `;
+  const verify = (maximum) =>
+    execFileSync(
+      "/bin/bash",
+      ["--noprofile", "--norc", "-eu", "-c", `${docker}\n${script}`],
+      {
+        cwd: new URL("..", import.meta.url),
+        env: {
+          PATH: process.env.PATH,
+          SOURCE_REVISION: "a".repeat(40),
+          TEST_SCHEMA_MAXIMUM: String(maximum),
+        },
+        stdio: "pipe",
+      },
+    );
+  assert.doesNotThrow(() => verify(SQLITE_SCHEMA_VERSION));
+  assert.throws(() => verify(SQLITE_SCHEMA_VERSION - 1));
 });

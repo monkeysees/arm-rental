@@ -57,13 +57,14 @@ jobs:
           SOURCE_REVISION: ${{ github.event.workflow_run.head_sha }}
         run: |
           PACKAGE_LOCK_SHA256="$(sha256sum package-lock.json | cut -d ' ' -f 1)"
+          MAXIMUM_STATE_SCHEMA="$(node --input-type=module -e 'import { SQLITE_SCHEMA_VERSION } from "./src/sqlite-schema.js"; console.log(SQLITE_SCHEMA_VERSION)')"
           test "$(docker image inspect --format '{{ index .Config.Labels "org.opencontainers.image.revision" }}' rental-apartments-bot:publication)" = "$SOURCE_REVISION"
           test "$(docker image inspect --format '{{ index .Config.Labels "org.opencontainers.image.node.version" }}' rental-apartments-bot:publication)" = "24.18.0"
           test "$(docker image inspect --format '{{ index .Config.Labels "org.opencontainers.image.curl-impersonate.version" }}' rental-apartments-bot:publication)" = "2.2.2"
           test "$(docker image inspect --format '{{ index .Config.Labels "org.opencontainers.image.package-lock.sha256" }}' rental-apartments-bot:publication)" = "$PACKAGE_LOCK_SHA256"
           test "$(docker image inspect --format '{{ index .Config.Labels "com.rental-apartments.state.backend" }}' rental-apartments-bot:publication)" = "sqlite"
           test "$(docker image inspect --format '{{ index .Config.Labels "com.rental-apartments.state.schema.minimum" }}' rental-apartments-bot:publication)" = "1"
-          test "$(docker image inspect --format '{{ index .Config.Labels "com.rental-apartments.state.schema.maximum" }}' rental-apartments-bot:publication)" = "2"
+          test "$(docker image inspect --format '{{ index .Config.Labels "com.rental-apartments.state.schema.maximum" }}' rental-apartments-bot:publication)" = "$MAXIMUM_STATE_SCHEMA"
           test "$(docker run --rm --entrypoint node rental-apartments-bot:publication --version)" = "v24.18.0"
 
       - name: Verify production HTTP executable and restrictions

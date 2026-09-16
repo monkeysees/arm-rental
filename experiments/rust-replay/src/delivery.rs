@@ -29,6 +29,7 @@ pub struct PhaseResult {
     pub max_in_flight: usize,
     pub rate_limits_verified: bool,
     pub failures: usize,
+    pub maximum_recipient_lead: usize,
     pub queue_age_p50_ms: f64,
     pub queue_age_p95_ms: f64,
     pub queue_age_max_ms: f64,
@@ -78,6 +79,9 @@ pub fn deliver(
     let interrupt = out.name == "interrupted";
     let mut ages = Vec::new();
     let mut first = Vec::new();
+    let mut progress_counts = vec![users];
+    let mut minimum_progress = 0;
+    let mut maximum_progress = 0;
     let mut states: Vec<_> = (0..users)
         .map(|_| Recipient {
             tokens: t.recipient_burst,
@@ -142,7 +146,19 @@ pub fn deliver(
                             0.0
                         },
                 );
+                progress_counts[r.sent.len()] -= 1;
                 r.sent.push(l);
+                if progress_counts.len() <= r.sent.len() {
+                    progress_counts.push(0);
+                }
+                progress_counts[r.sent.len()] += 1;
+                while progress_counts[minimum_progress] == 0 {
+                    minimum_progress += 1;
+                }
+                maximum_progress = maximum_progress.max(r.sent.len());
+                out.maximum_recipient_lead = out
+                    .maximum_recipient_lead
+                    .max(maximum_progress - minimum_progress);
                 out.sent += 1;
             } else {
                 r.announcement = false;

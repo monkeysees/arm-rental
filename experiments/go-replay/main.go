@@ -38,17 +38,14 @@ func cgroup(name string) any {
 	}
 	return v
 }
-func Replay(directory, database string, users int, mode string, stages ...string) (Result, error) {
+func Replay(directory, database string, users int, mode string, stage string) (Result, error) {
+	resumeStartedAt := time.Now().UnixMilli()
 	result := Result{Version: 1, Scope: "go-full-contract", Runtime: runtime.Version(), Mode: mode}
 	if directory == "" || database == "" {
 		return result, fmt.Errorf("--fixtures and --database are required")
 	}
 	if (users != 4 && users != 500 && users != 1000) || (mode != "virtual" && mode != "wall") {
 		return result, fmt.Errorf("use --users 500|1000 (4 diagnostic), --mode virtual|wall")
-	}
-	stage := "exercise"
-	if len(stages) > 0 {
-		stage = stages[0]
 	}
 	if stage != "exercise" && stage != "resume" {
 		return result, fmt.Errorf("invalid stage")
@@ -145,7 +142,7 @@ func Replay(directory, database string, users int, mode string, stages ...string
 				if phase.Name == "resumed" {
 					out.QueueAgeOffsetMs = interruptedDrain + 1000
 					if mode == "wall" {
-						out.QueueAgeOffsetMs = interruptedDrain + float64(started.UnixMilli()-interruptedAt)
+						out.QueueAgeOffsetMs = interruptedDrain + float64(resumeStartedAt-interruptedAt)
 					}
 				}
 				out.ClassificationWallMs = float64(time.Since(started).Microseconds()) / 1000
@@ -255,6 +252,13 @@ func Replay(directory, database string, users int, mode string, stages ...string
 	if stage == "resume" {
 		result.Restart["uncleanExitCode"] = 23
 		result.Restart["unsentSuffixDelivered"] = true
+	}
+	if stage == "exercise" {
+		interruptedAt = time.Now().UnixMilli()
+		if _, e = s.db.Exec("UPDATE recovery SET at=? WHERE id=1", interruptedAt); e != nil {
+			return result, e
+		}
+		result.Resources["interruptedAtUnixMs"] = interruptedAt
 	}
 	result.Status = "passed"
 	return result, nil

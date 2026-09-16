@@ -2,12 +2,23 @@ package main
 
 import (
 	"fmt"
+	"math"
 	"reflect"
 	"sort"
 	"time"
 )
 
+type Distribution struct {
+	P50 float64 `json:"p50"`
+	P95 float64 `json:"p95"`
+	P99 float64 `json:"p99"`
+	Max float64 `json:"max"`
+}
 type PhaseResult struct {
+	FirstRecipientProgressMs Distribution        `json:"firstRecipientProgressMs"`
+	MaximumRecipientLead     int                 `json:"maximumRecipientLead"`
+	RecipientsWithProgress   int                 `json:"recipientsWithProgress"`
+	QueueAgeP99Ms            float64             `json:"queueAgeP99Ms"`
 	CpuMs                    float64             `json:"cpuMs"`
 	QueueAgeOffsetMs         float64             `json:"queueAgeOffsetMs"`
 	QueueAgeP50Ms            float64             `json:"queueAgeP50Ms"`
@@ -59,6 +70,10 @@ func (s *Store) deliver(m Manifest, users int, catchup bool, mode string, now in
 		states[i] = recipient{tokens: float64(m.Transport.RecipientBurst), announcement: catchup, sent: []Listing{}}
 	}
 	ages := []float64{}
+	first := []float64{}
+	progressCounts := make([]int, 1)
+	progressCounts[0] = users
+	minimumProgress, maximumProgress := 0, 0
 	start := time.Now()
 	clock := 0.0
 	global := 0.0
@@ -96,8 +111,29 @@ func (s *Store) deliver(m Manifest, users int, catchup bool, mode string, now in
 				if e := s.acknowledge(f.user, f.listing.ID, now); e != nil {
 					return e
 				}
-				if len(r.sent) == 0 && clock > out.FirstProgressMaxMs {
-					out.FirstProgressMaxMs = clock
+				if len(r.sent) == 0 {
+					progress := clock
+					if mode == "wall" {
+						progress += out.ClassificationWallMs
+					}
+					first = append(first, progress)
+					if clock > out.FirstProgressMaxMs {
+						out.FirstProgressMaxMs = clock
+					}
+				}
+				progressCounts[len(r.sent)]--
+				if len(progressCounts) == len(r.sent)+1 {
+					progressCounts = append(progressCounts, 0)
+				}
+				progressCounts[len(r.sent)+1]++
+				for progressCounts[minimumProgress] == 0 {
+					minimumProgress++
+				}
+				if len(r.sent)+1 > maximumProgress {
+					maximumProgress = len(r.sent) + 1
+				}
+				if maximumProgress-minimumProgress > out.MaximumRecipientLead {
+					out.MaximumRecipientLead = maximumProgress - minimumProgress
 				}
 				r.sent = append(r.sent, *f.listing)
 				out.Sent++
@@ -214,12 +250,13 @@ func (s *Store) deliver(m Manifest, users int, catchup bool, mode string, now in
 		}
 	}
 	out.DrainMs = clock
-	sort.Float64s(ages)
-	if len(ages) > 0 {
-		out.QueueAgeP50Ms = ages[(len(ages)-1)*50/100]
-		out.QueueAgeP95Ms = ages[(len(ages)-1)*95/100]
-		out.QueueAgeMaxMs = ages[len(ages)-1]
-	}
+	out.FirstRecipientProgressMs = distribution(first)
+	out.RecipientsWithProgress = len(first)
+	ageDistribution := distribution(ages)
+	out.QueueAgeP50Ms = ageDistribution.P50
+	out.QueueAgeP95Ms = ageDistribution.P95
+	out.QueueAgeP99Ms = ageDistribution.P99
+	out.QueueAgeMaxMs = ageDistribution.Max
 	for _, attempts := range history {
 		logical := []float64{}
 		for i, a := range attempts {
@@ -257,4 +294,13 @@ func (s *Store) deliver(m Manifest, users int, catchup bool, mode string, now in
 		out.RecipientsAsserted++
 	}
 	return nil
+}
+
+func distribution(values []float64) Distribution {
+	sort.Float64s(values)
+	if len(values) == 0 {
+		return Distribution{}
+	}
+	quantile := func(q float64) float64 { return values[int(math.Ceil(float64(len(values))*q))-1] }
+	return Distribution{quantile(.5), quantile(.95), quantile(.99), quantile(1)}
 }

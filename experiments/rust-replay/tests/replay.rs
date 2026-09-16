@@ -208,3 +208,40 @@ fn accepted_send_before_ack_can_repeat_after_process_death() {
         "400000\n400000\n"
     );
 }
+
+#[test]
+fn recovery_detects_historical_changes_even_when_group_counts_and_id_sums_match() {
+    let f = Fixture::new();
+    exercise_result(f.run());
+    let db = rusqlite::Connection::open(f.dir.join("state.sqlite3")).unwrap();
+    let aggregates = || {
+        let mut query = db.prepare("SELECT status,revision,at,count(*),sum(id) FROM decisions WHERE user=0 AND id<400000 GROUP BY status,revision,at ORDER BY status,revision,at").unwrap();
+        query
+            .query_map([], |r| {
+                Ok((
+                    r.get::<_, i64>(0)?,
+                    r.get::<_, i64>(1)?,
+                    r.get::<_, i64>(2)?,
+                    r.get::<_, i64>(3)?,
+                    r.get::<_, i64>(4)?,
+                ))
+            })
+            .unwrap()
+            .collect::<rusqlite::Result<Vec<_>>>()
+            .unwrap()
+    };
+    let before = aggregates();
+    db.execute("UPDATE decisions SET status=CASE status WHEN 1 THEN 2 ELSE 1 END WHERE user=0 AND id IN (100008,100012,100009,100011)", []).unwrap();
+    assert_eq!(aggregates(), before);
+    drop(db);
+    let output = Command::new(env!("CARGO_BIN_EXE_rental-replay"))
+        .arg("--fixtures")
+        .arg(f.dir.join("fixtures"))
+        .arg("--database")
+        .arg(f.dir.join("state.sqlite3"))
+        .args(["--users", "4", "--stage", "resume"])
+        .output()
+        .unwrap();
+    assert!(!output.status.success());
+    assert!(String::from_utf8_lossy(&output.stderr).contains("changed historical decisions"));
+}

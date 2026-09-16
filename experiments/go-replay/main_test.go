@@ -53,6 +53,18 @@ func TestReplayContract(t *testing.T) {
 		t.Fatal(err)
 	}
 	verifyResult(t, root, dir, result, true)
+	fresh := result.Phases[7]
+	if fresh.FirstRecipientProgressMs != (Distribution{10, 20, 20, 20}) || fresh.MaximumRecipientLead != 1 || fresh.RecipientsWithProgress != 4 {
+		t.Fatalf("unexpected fair first progress: %+v", fresh)
+	}
+	interrupted, resumed := result.Phases[10], result.Phases[11]
+	if resumed.QueueAgeOffsetMs != interrupted.DrainMs+1000 {
+		t.Fatalf("virtual recovery offset = %v", resumed.QueueAgeOffsetMs)
+	}
+	if resumed.ThroughputPerSecond != nil {
+		t.Fatal("virtual throughput is not capacity evidence")
+	}
+
 	t.Run("oracle rejects wrong ordering", func(t *testing.T) {
 		copy := result
 		copy.Phases = append([]PhaseResult{}, result.Phases...)
@@ -73,7 +85,7 @@ func TestReplayContract(t *testing.T) {
 		verifyResult(t, root, dir, copy, false)
 	})
 	t.Run("existing state is refused", func(t *testing.T) {
-		if _, err := Replay(fixture, filepath.Join(dir, "state.sqlite3"), 4, "virtual"); err == nil {
+		if _, err := Replay(fixture, filepath.Join(dir, "state.sqlite3"), 4, "virtual", "exercise"); err == nil {
 			t.Fatal("overwrote state")
 		}
 	})
@@ -108,7 +120,7 @@ func TestReplayRejectsUnknownCurrency(t *testing.T) {
 	if err = os.WriteFile(file, []byte(strings.ReplaceAll(string(data), "USD", "XYZ")), 0600); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := Replay(fixture, filepath.Join(dir, "state.sqlite3"), 4, "virtual"); err == nil || !strings.Contains(err.Error(), "missing exchange rate XYZ") {
+	if _, err := Replay(fixture, filepath.Join(dir, "state.sqlite3"), 4, "virtual", "exercise"); err == nil || !strings.Contains(err.Error(), "missing exchange rate XYZ") {
 		t.Fatalf("expected missing rate, got %v", err)
 	}
 }

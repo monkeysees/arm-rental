@@ -78,6 +78,31 @@ fn snapshot(phase: &str) -> Result<Value> {
         json!({"phase":phase,"processRssBytes":memory()["rss"],"processPeakRssBytes":process_resources()?.0,"cgroupCurrentBytes":cgroup("memory.current")}),
     )
 }
+// DefaultHasher is deterministic within this pinned executable. Stream every ordered
+// integer field rather than aggregate IDs, so reassigned rows change the fingerprint.
+fn history_digest(store: &Store) -> Result<String> {
+    use std::hash::Hasher;
+    let mut digest = std::collections::hash_map::DefaultHasher::new();
+    let mut query = store.db.prepare(
+        "SELECT user,id,status,revision,at FROM decisions WHERE id<400000 ORDER BY user,id",
+    )?;
+    let mut rows = query.query([])?;
+    while let Some(row) = rows.next()? {
+        for column in 0..5 {
+            digest.write(&row.get::<_, i64>(column)?.to_le_bytes());
+        }
+    }
+    Ok(format!("{:016x}", digest.finish()))
+}
+fn verify_history(store: &Store) -> Result<()> {
+    let expected: String = store
+        .db
+        .query_row("SELECT digest FROM history", [], |r| r.get(0))?;
+    if history_digest(store)? != expected {
+        return Err("recovery changed historical decisions".into());
+    }
+    Ok(())
+}
 fn replay(
     directory: &Path,
     database: &Path,
@@ -85,6 +110,7 @@ fn replay(
     mode: &str,
     stage: &str,
 ) -> Result<Value> {
+    let entered_at = unix_ms();
     if ![4, 500, 1000].contains(&users)
         || !["virtual", "wall"].contains(&mode)
         || !["exercise", "resume"].contains(&stage)
@@ -123,10 +149,7 @@ fn replay(
     let mut results = Vec::new();
     let mut offset = 0.0;
     if stage == "resume" {
-        let changed:i64 = store.db.query_row("WITH current AS (SELECT user,status,revision,at,count(*) AS n,sum(id) AS ids FROM decisions WHERE id<400000 GROUP BY user,status,revision,at) SELECT (SELECT count(*) FROM (SELECT * FROM current EXCEPT SELECT * FROM history))+(SELECT count(*) FROM (SELECT * FROM history EXCEPT SELECT * FROM current))", [], |r|r.get(0))?;
-        if changed != 0 {
-            return Err("restart changed historical decisions".into());
-        }
+        verify_history(&store)?;
         let interrupted = m
             .phases
             .iter()
@@ -159,7 +182,7 @@ fn replay(
                 })?;
         offset = drain
             + if mode == "wall" {
-                (unix_ms() - stamp).max(0.0)
+                (entered_at - stamp).max(0.0)
             } else {
                 1000.0
             };
@@ -254,12 +277,8 @@ fn replay(
         return Err("absent decisions changed".into());
     }
     if stage == "resume" {
-        let changed:i64 = store.db.query_row("WITH current AS (SELECT user,status,revision,at,count(*) AS n,sum(id) AS ids FROM decisions WHERE id<400000 GROUP BY user,status,revision,at) SELECT (SELECT count(*) FROM (SELECT * FROM current EXCEPT SELECT * FROM history))+(SELECT count(*) FROM (SELECT * FROM history EXCEPT SELECT * FROM current))", [], |r|r.get(0))?;
-        if changed != 0 {
-            return Err("recovery changed historical decisions".into());
-        }
+        verify_history(&store)?;
     }
-    let interrupted_at = unix_ms();
     let drain = results
         .last()
         .map(|r| {
@@ -273,8 +292,14 @@ fn replay(
         .unwrap_or(0.0);
     if stage == "exercise" {
         store.db.execute_batch(
-            "CREATE TABLE recovery(drain REAL NOT NULL,stamp REAL NOT NULL) STRICT; CREATE TABLE history AS SELECT user,status,revision,at,count(*) AS n,sum(id) AS ids FROM decisions WHERE id<400000 GROUP BY user,status,revision,at",
+            "CREATE TABLE recovery(drain REAL NOT NULL,stamp REAL NOT NULL) STRICT; CREATE TABLE history(digest TEXT NOT NULL) STRICT",
         )?;
+        store
+            .db
+            .execute("INSERT INTO history VALUES(?)", [history_digest(&store)?])?;
+    }
+    let interrupted_at = unix_ms();
+    if stage == "exercise" {
         store.db.execute(
             "INSERT INTO recovery VALUES(?,?)",
             rusqlite::params![drain, interrupted_at],

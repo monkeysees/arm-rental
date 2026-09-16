@@ -43,8 +43,8 @@ test("production packaging verifies the pinned HTTP binary and removes build too
   assert.match(dockerfile, /ARG CURL_IMPERSONATE_VERSION=2\.2\.2/u);
   assert.match(dockerfile, /RUN npm ci --omit=dev\b/u);
   assert.doesNotMatch(dockerfile, /chromium|puppeteer|SYS_ADMIN/iu);
-  assert.match(dockerfile, /apt-get purge --yes --auto-remove curl/u);
-  assert.match(dockerfile, /\/usr\/local\/lib\/node_modules\/npm/u);
+  assert.match(dockerfile, /FROM scratch AS production/u);
+  assert.match(dockerfile, /COPY --from=build \/runtime\/ \//u);
   assert.match(installer, /sha256sum --check --status/u);
   assert.match(installer, /LICENSE\*/u);
   assert.match(versions, /CURL_IMPERSONATE_AMD64_SHA256=[a-f0-9]{64}/u);

@@ -1,0 +1,102 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+if (($# != 1)); then
+  printf 'Usage: %s IMAGE\n' "${0##*/}" >&2
+  exit 64
+fi
+image="$1"
+scripts/smoke-production-http-image "$image"
+docker run --rm --interactive --init \
+  --user node --read-only --cap-drop ALL --security-opt no-new-privileges \
+  --network none \
+  --tmpfs /app/.data:rw,size=16777216,mode=0700,uid=1000,gid=1000,nosuid,nodev,noexec \
+  --tmpfs /backup:rw,size=33554432,mode=0700,uid=1000,gid=1000,nosuid,nodev,noexec \
+  --tmpfs /restore:rw,size=16777216,mode=0700,uid=1000,gid=1000,nosuid,nodev,noexec \
+  --tmpfs /tmp:rw,size=16777216,mode=1777,nosuid,nodev,noexec \
+  --tmpfs /sqlite-tmp:rw,size=16777216,mode=1777,nosuid,nodev,noexec \
+  --env DATA_DIRECTORY=/app/.data --env BACKUP_DIRECTORY=/backup \
+  --env SQLITE_TMPDIR=/sqlite-tmp \
+  --env TELEGRAM_BOT_TOKEN=fixture-token --env TELEGRAM_OWNER_ID=42 \
+  "$image" node --input-type=module <<'NODE'
+import assert from "node:assert/strict";
+import { execFile } from "node:child_process";
+import { existsSync } from "node:fs";
+import { readFile, readdir } from "node:fs/promises";
+import { promisify } from "node:util";
+import { HealthMonitor, startHealthServer } from "./src/health.js";
+const execute = promisify(execFile);
+const cli = (args, env = process.env) => execute(process.execPath, args, { env, timeout: 20_000 });
+for (const filename of ["/bin/sh", "/usr/bin/apt-get", "/usr/local/bin/npm", "/usr/local/include/node"]) {
+  assert.equal(existsSync(filename), false, `${filename} must remain build-only`);
+}
+for (const filename of ["/usr/local/LICENSE", "/usr/local/share/licenses/curl-impersonate", "/etc/ssl/certs/ca-certificates.crt", "/etc/debian_version", "/var/lib/dpkg/status"]) {
+  assert.equal(existsSync(filename), true, `${filename} must ship`);
+}
+await cli(["src/state-init-cli.js"]);
+await cli(["src/maintenance-cli.js", "report"]);
+await cli(["src/recovery-cli.js", "disk-check"]);
+await cli(["src/recovery-cli.js", "backup"]);
+const [snapshotName] = await readdir("/backup/daily");
+assert.ok(snapshotName);
+const snapshot = `/backup/daily/${snapshotName}`;
+await cli(["src/recovery-cli.js", "validate", snapshot]);
+await cli(["src/recovery-cli.js", "restore", snapshot], { ...process.env, DATA_DIRECTORY: "/restore" });
+assert.deepEqual(await readFile("/restore/state.sqlite3"), await readFile(`${snapshot}/data/state.sqlite3`));
+await cli(["src/maintenance-cli.js", "report"], { ...process.env, DATA_DIRECTORY: "/restore" });
+const health = new HealthMonitor({ version: "image-smoke" });
+health.setConfigurationValid();
+health.setPreflight({ status: "ready", checks: {} });
+const server = await startHealthServer(health, { host: "127.0.0.1", port: 0 });
+try {
+  const env = { ...process.env, HEALTH_PORT: String(server.address.port) };
+  await cli(["src/health-check.js"], env);
+  assert.equal((await fetch(`http://127.0.0.1:${server.address.port}/ready`)).status, 200);
+} finally {
+  await server.close();
+}
+// Run the application lifecycle against real SQLite/lease/configuration, with
+// only external Telegram/List.am/CBA responses supplied by local fixtures.
+const { runApplication } = await import("./src/application.js");
+const { getConfig } = await import("./src/config.js");
+const { runStartupPreflight } = await import("./src/preflight.js");
+const { runSourceSmoke } = await import("./src/list-am-operation.js");
+const { EventEmitter } = await import("node:events");
+const config = getConfig();
+const signals = new EventEmitter();
+const html = '<div id="contentr"><a class="fav-item-info-container" href="/ru/item/200"><div class="dltitle"><div class="pt">Apartment</div></div><div class="p">220000 ֏</div><div class="at">Кентрон, 2 ком., 50 кв.м., 3/5 этаж</div><div class="d">Сегодня</div></a></div>';
+let closed = 0;
+const sourceFetcherFactory = () => ({
+  start: async () => execute(process.env.CURL_IMPERSONATE_PATH, ["--version"]),
+  fetch: async () => new Response(html),
+  close: async () => { closed += 1; },
+});
+const sourceResult = await runSourceSmoke(config, { sourceFetcherFactory });
+assert.equal(sourceResult.pages.length, 2);
+const now = new Date().toISOString();
+const snapshotRates = { version: 1, type: "cba-exchange-rates", baseCurrency: "AMD", fetchedAt: now, effectiveDate: now.slice(0, 10), rates: { USD: { amount: 1, rate: 382 }, EUR: { amount: 1, rate: 448 }, RUB: { amount: 1, rate: 4.8 } } };
+let enteredBot = false;
+await runApplication({
+  config, signalEmitter: signals,
+  logger: { info() {}, warn() {}, error() {} },
+  sourceFetcherFactory,
+  exchangeRateServiceFactory: () => ({ getSnapshot: async () => snapshotRates }),
+  preflight: (settings, options) => runStartupPreflight(settings, { ...options, api: { getMe: async () => ({ id: 100, is_bot: true }) } }),
+  runBot: async (_settings, { signal }) => {
+    enteredBot = true;
+    signals.emit("SIGTERM");
+    assert.equal(signal.aborted, true);
+  },
+});
+assert.equal(enteredBot, true);
+assert.equal(closed, 2);
+// A stopped application releases its singleton lease for recovery commands.
+await cli(["src/maintenance-cli.js", "report"]);
+// Starting the real entrypoint without initialized state must fail closed before
+// contacting external services.
+await assert.rejects(cli(["src/index.js"], { ...process.env, DATA_DIRECTORY: "/tmp/uninitialized" }), (error) => {
+  assert.match(error.stdout + error.stderr, /application.started/u);
+  assert.match(error.stdout + error.stderr, /ERR_STATE_DATABASE_ABSENT/u);
+  return true;
+});
+process.stdout.write("Production image initialization, recovery, maintenance, health, source smoke, startup and shutdown passed\n");
+NODE

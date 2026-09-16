@@ -338,6 +338,9 @@ npm run check:production-contract
 The production image pins Node.js 24.18.0 and checksum-verified
 curl-impersonate 2.2.2. Application dependencies are installed with
 `npm ci --omit=dev`; the host needs a Linux AMD64 OCI runtime.
+The final image contains only runtime components, certificates, licenses, and
+scanner metadata. It has no shell or package manager; operational commands
+invoke `node` directly. See [runtime image measurements and verification](docs/runtime-image.md).
 
 Build and inspect the deployment versions:
 

@@ -40,7 +40,7 @@ test("required CI gates quality and an ephemeral production candidate", async ()
   assert.match(workflow, /exit-code: 1/u);
   assert.match(
     workflow,
-    /scripts\/smoke-production-http-image rental-apartments-bot:ci/u,
+    /scripts\/smoke-production-runtime-image rental-apartments-bot:ci/u,
   );
   // Publication performs its own gated GHCR push. Retaining a Docker archive
   // here wastes Actions storage and is not part of the deployment handoff.
@@ -64,6 +64,13 @@ test("required CI gates quality and an ephemeral production candidate", async ()
     /test-coverage-include='src\/\*\*\/\*\.js'/u,
   );
 
+  assert.match(
+    dockerfile,
+    new RegExp(
+      `com.rental-apartments.state.schema.maximum="${SQLITE_SCHEMA_VERSION}"`,
+      "u",
+    ),
+  );
   for (const label of [
     "org.opencontainers.image.revision",
     "org.opencontainers.image.node.version",

@@ -85,11 +85,15 @@ flushes its entire JSON result beyond the pipe-buffer boundary.
 
 Rust 1.94.0 is pinned with the compiler image digest in `Dockerfile.build`.
 `rusqlite` 0.40.2 compiles bundled SQLite through `libsqlite3-sys`; there is no
-system SQLite dependency. STRICT tables, WITHOUT ROWID decisions, WAL,
+system SQLite dependency. On this amd64 build, `ldd` reports libgcc_s, libm,
+libc and the ELF loader; the executable is not fully static. STRICT tables,
+WITHOUT ROWID decisions, WAL,
 `synchronous=FULL`, and a five-second busy timeout are explicit. Transactions
 contain only local classification/seed/crawl work, never transport or sleeps.
 This is a separate experimental schema, with no production compatibility or
-migration claim.
+migration claim. The measured bundled SQLite is 3.53.2 (the Go slice used
+3.53.4); driver, SQLite version and statement reuse differ, so timings cannot
+be attributed to language alone.
 
 Dependency health checked September 16, 2026: [rusqlite](https://github.com/rusqlite/rusqlite)
 released 0.40.2 on August 8, was active September 14, and has about 4,400 stars;
@@ -139,4 +143,56 @@ establish whole-machine or Pi fit.
 
 ## Acceptance measurements
 
-Measurements and final validation are recorded after review below.
+All four 500-recipient runs passed the independent oracle: one virtual run and
+three wall runs. The [raw manifest](benchmarks/rust-replay/final/manifest.json)
+records exact commands, host/image identity, timestamps and individual verdicts;
+[wall run 1](benchmarks/rust-replay/final/500-wall-1.json),
+[run 2](benchmarks/rust-replay/final/500-wall-2.json),
+[run 3](benchmarks/rust-replay/final/500-wall-3.json) and the
+[virtual result](benchmarks/rust-replay/final/500-virtual-1.json) include source
+and executable hashes. All hashes were checked against the final implementation.
+Containers ran sequentially after tests finished on the same x86-64 KVM host as
+the Node/Go baselines, with one CPU, 512 MiB RAM, zero swap and networking disabled.
+
+| Metric                                                     | Wall-run median |   Range across three runs |
+| ---------------------------------------------------------- | --------------: | ------------------------: |
+| Whole-container peak RAM (MiB)                             |          185.72 |             183.88–185.90 |
+| Rust process peak RSS (MiB)                                |           16.09 |               16.04–16.22 |
+| Whole Rust replay CPU / wall (s)                           |    6.22 / 38.70 |   6.15–6.25 / 38.65–38.74 |
+| Steady unchanged crawl wall (ms)                           |           43.26 |               42.85–45.29 |
+| Routine classification / total wall (s)                    |   0.054 / 10.39 | 0.052–0.067 / 10.36–10.40 |
+| Catch-up classification / total wall (s)                   |    1.44 / 24.81 |   1.44–1.50 / 24.80–24.85 |
+| Last recipient first listing, including classification (s) |            9.06 |                 9.05–9.11 |
+| Permitted first-progress deadline, including tolerance (s) |            8.19 |                 8.19–8.25 |
+| Final SQLite / WAL after reopen (MiB)                      |       74.99 / 0 |                 74.99 / 0 |
+
+Steady wall time first takes each run's median of its three post-bootstrap
+unchanged cycles. Routine totals combine update and fresh-card phases. Each run
+retained 3,305,500 decisions, delivered 4,000 catch-up listings with 500
+announcements and 50 retries, then sent zero listings after clean reopen.
+
+All three wall runs met routine classification/crawl, application-memory and
+25.025-second catch-up targets. **All three missed the first-progress fairness
+deadline.** The round-robin cursor can defer a retried recipient to the next
+sweep; bounded slots, valid rate/retry behavior and eventual progress do not
+ensure this latency target. The miss remains evidence for the parent runtime
+comparison, not a relaxed threshold or a production-readiness claim. This ticket
+implements and measures the requested slice; the broader runtime decision and
+recovery/stress gates remain open.
+
+Verification: all 425 repository tests passed on Node 24.18.0 with 94.57% line
+and 88.39% branch coverage. Rust's five executable tests, Cargo check, Clippy with
+warnings denied, formatting and release compilation passed. The Go integration
+suite and vet passed through the refactored native runner, as did the focused
+Node replay test, ESLint, changed-file Prettier and the production deployment
+contract validator. Independent standards and spec reviews have no outstanding
+findings; a review suggestion replaced bare classification codes with an enum.
+Production runtime/deployment files are unchanged.
+
+Implementation effort was approximately 15 minutes of elapsed agent work through
+completed acceptance measurements, covering investigation, implementation,
+focused tests, two review axes, repository validation and four constrained runs.
+Initial focused checks caught compiler integer conversions, missing runner
+integration and the fixture weekday prefix; those were fixed before measurement.
+No measurement run failed behavior verification, and no human acceptance
+execution or production operation was required.

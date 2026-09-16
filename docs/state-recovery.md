@@ -31,7 +31,8 @@ apartment or user data.
 Manifest-v2 snapshots remain restorable: every archived file is checksum
 validated and the database summary must match. Their obsolete browser profile
 is not installed. Existing profile directories in the live data volume are
-left untouched; cleanup is documented in [state maintenance](state-maintenance.md).
+left untouched by restore; use the default-dry-run `ops/browser-cleanup`
+procedure in [state maintenance](state-maintenance.md#http-session-storage-and-former-profiles).
 New snapshots use manifest-v3 and contain no browser artifacts.
 
 ### The stranded pre-SQLite recovery point

@@ -422,3 +422,39 @@ test("version 2 SQLite snapshots restore durable state without reinstalling thei
     /checksum failed/u,
   );
 });
+
+test("new snapshots exclude retired profile and remain restorable without touching retained backups", async (t) => {
+  const { config, backupDirectory } = await fixture(t);
+  const profile = path.join(config.dataDirectory, "chrome-profile");
+  await mkdir(profile);
+  await writeFile(path.join(profile, "Cookies"), "retired browser data");
+  const protectedDirectory = path.join(backupDirectory, "protected", "keep");
+  await mkdir(protectedDirectory, { recursive: true });
+  await writeFile(path.join(protectedDirectory, "evidence"), "preserve");
+  const backup = await createSnapshot(config);
+  const manifest = JSON.parse(
+    await readFile(path.join(backup.snapshot, "manifest.json"), "utf8"),
+  );
+  assert.equal(manifest.version, 3);
+  assert.ok(
+    Object.keys(manifest.hashes).every(
+      (name) => !name.includes("chrome-profile"),
+    ),
+  );
+  assert.ok(
+    !(await readdir(path.join(backup.snapshot, "data"))).includes(
+      "chrome-profile",
+    ),
+  );
+  await validateSnapshot(config, backup.snapshot);
+  const restored = await restoreSnapshot(config, backup.snapshot);
+  assert.equal(restored.summary.database.updateOffset, 815);
+  assert.equal(
+    await readFile(path.join(profile, "Cookies"), "utf8"),
+    "retired browser data",
+  );
+  assert.equal(
+    await readFile(path.join(protectedDirectory, "evidence"), "utf8"),
+    "preserve",
+  );
+});

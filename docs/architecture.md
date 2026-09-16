@@ -723,6 +723,14 @@ history stores the previous aggregate sample for growth reporting. Maintenance
 does not delete domain records. Retention and capacity response are documented
 in [state maintenance](state-maintenance.md).
 
+`ops/browser-cleanup` serializes with production operations, verifies the active
+HTTP-only image and a valid browser-free snapshot, and reports retained backup
+usage without altering retention. Both dry-run and apply stop the application
+briefly and restart it through the cleanup trap. The Node cleanup command takes
+the singleton lease and considers only the fixed `chrome-profile` directory;
+ownership, symlink, hardlink, and filesystem checks fail closed before deletion.
+SQLite, HTTP cookies, leases, and unrelated paths are outside its deletion scope.
+
 ### Release and rollback boundary
 
 `scripts/release-operations.js` is the non-interactive release contract. Before

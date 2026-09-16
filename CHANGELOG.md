@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Add guarded, dry-run-first cleanup of the retired Chromium profile with separate backup usage reporting and recovery validation.
 - Build a minimal production runtime image and verify initialization, recovery, maintenance, health, and shutdown without network access.
 - Install the patched PCRE2 runtime library so the Chromium-free image passes the production vulnerability scan.
 - Replace Chromium and Puppeteer with pinned Safari-profile HTTP fetching, private cookies, bounded redirects, paced requests, and server-directed retry cooldowns; remove browser verification, sandbox privileges, and profile backups.

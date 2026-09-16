@@ -94,7 +94,11 @@ esac
   await executable(
     path.join(fakeBin, "docker"),
     `${commandPrelude}
-if [[ "\${1:-}" == "inspect" ]]; then
+if [[ "\${1:-}" == "image" && "\${2:-}" == "inspect" ]]; then
+  printf '%s\\n' "image-id"
+elif [[ "$*" == "inspect --format {{.Image}} "* ]]; then
+  printf '%s\\n' "\${FAKE_ACTIVE_IMAGE:-image-id}"
+elif [[ "\${1:-}" == "inspect" ]]; then
   name="\${*: -1}"
   if [[ "$name" == rental-apartments-restore-drill-* ]]; then
     run_id="\${name#rental-apartments-restore-drill-}"
@@ -475,4 +479,62 @@ test("systemd operations use bounded runtimes, persistent UTC timers, and the de
     /EnvironmentFile=\/var\/lib\/rental-apartments-ops\/current-image\.env/u,
   );
   assert.match(application, /up --detach --wait --wait-timeout 240 bot/u);
+});
+
+test("browser cleanup serializes, verifies the active artifact and backup, and restarts after failure", async (t) => {
+  for (const scenario of [
+    "dry-run",
+    "apply-failure",
+    "busy",
+    "wrong-image",
+    "old-snapshot",
+  ]) {
+    const { log, environment } = await fixture(t);
+    const snapshot = path.join(
+      environment.RENTAL_BACKUP_ROOT,
+      "daily",
+      "2026-07-25T03-15-00-000Z",
+      "manifest.json",
+    );
+    await writeFile(
+      snapshot,
+      JSON.stringify({
+        version: scenario === "old-snapshot" ? 2 : 3,
+        hashes: { "state.sqlite3": "hash" },
+      }),
+    );
+    if (scenario === "apply-failure")
+      environment.FAKE_FAIL_CONTAINS = "src/browser-cleanup-cli.js --apply";
+    if (scenario === "busy") environment.FAKE_FLOCK_STATUS = "75";
+    if (scenario === "wrong-image")
+      environment.FAKE_ACTIVE_IMAGE = "different-image";
+    const result = await runScript(
+      "browser-cleanup",
+      environment,
+      scenario === "apply-failure" ? ["--apply"] : [],
+    );
+    const commands = await commandLog(log);
+    assert.equal(result.status === 0, scenario === "dry-run", result.stderr);
+    assert.match(commands, /flock --exclusive/u);
+    if (["dry-run", "apply-failure"].includes(scenario)) {
+      assert.match(
+        commands,
+        /docker exec rental-apartments-bot node --input-type=module/u,
+      );
+      assert.match(commands, /src\/recovery-cli.js validate/u);
+      assert.match(commands, /systemctl stop rental-apartments.service/u);
+      assert.match(commands, /systemctl start rental-apartments.service/u);
+      assert.match(commands, /src\/browser-cleanup-cli.js --(dry-run|apply)/u);
+      assert.match(commands, /src\/browser-cleanup-cli.js --backup-report/u);
+      assert.ok(
+        commands.indexOf("src/recovery-cli.js validate") <
+          commands.indexOf("systemctl stop"),
+      );
+    } else {
+      assert.doesNotMatch(
+        commands,
+        /systemctl stop|src\/browser-cleanup-cli.js --/u,
+      );
+    }
+  }
 });

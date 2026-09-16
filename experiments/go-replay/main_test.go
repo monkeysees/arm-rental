@@ -274,3 +274,16 @@ func TestAcceptedBeforeAckMayDuplicateAfterCrash(t *testing.T) {
 		t.Fatalf("expected allowed duplicate: %q %v", data, err)
 	}
 }
+
+func TestRetryFirstProgressKeepsOrdinaryRecipientTurn(t *testing.T) {
+	_, dir, fixture := exportFixture(t)
+	result, err := replayStages(t, fixture, filepath.Join(dir, "state.sqlite3"), 500, "virtual")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, phase := range result.Phases {
+		if phase.Name == "catchup" && phase.FirstProgressMaxMs > 6605.5 {
+			t.Fatalf("catch-up first progress %.1fms exceeds frozen 6605.5ms deadline", phase.FirstProgressMaxMs)
+		}
+	}
+}

@@ -160,14 +160,18 @@ func (s *Store) deliver(m Manifest, users int, catchup bool, mode string, now in
 				break
 			}
 			u := cursor
-			cursor = (cursor + 1) % users
+			urgent := false
 			// A retry whose deadline has elapsed gets its first progress before another sweep.
 			for candidate := 0; candidate < users; candidate++ {
 				waiting := &states[candidate]
 				if waiting.retried && !waiting.done && len(waiting.sent) == 0 && waiting.ready <= clock {
 					u = candidate
+					urgent = true
 					break
 				}
+			}
+			if !urgent {
+				cursor = (cursor + 1) % users
 			}
 			r := &states[u]
 			if r.done {

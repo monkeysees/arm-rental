@@ -168,13 +168,10 @@ pub fn deliver(
         flights = pending;
         let mut next = flights.iter().map(|f| f.end).fold(f64::INFINITY, f64::min);
         let mut launched = false;
-        // Ready retries with no progress must not wait another full recipient sweep.
-        if let Some(user) = states
+        // Urgent retries do not disturb the ordinary recipient sweep.
+        let mut urgent = states
             .iter()
-            .position(|r| !r.done && r.retried && r.sent.is_empty() && r.ready <= clock)
-        {
-            cursor = user;
-        }
+            .position(|r| !r.done && r.retried && r.sent.is_empty() && r.ready <= clock);
         for _ in 0..users {
             if flights.len() >= 8 {
                 break;
@@ -183,8 +180,11 @@ pub fn deliver(
                 next = next.min(global);
                 break;
             }
-            let user = cursor;
-            cursor = (cursor + 1) % users;
+            let user = urgent.take().unwrap_or_else(|| {
+                let user = cursor;
+                cursor = (cursor + 1) % users;
+                user
+            });
             let r = &mut states[user];
             if r.done {
                 continue;

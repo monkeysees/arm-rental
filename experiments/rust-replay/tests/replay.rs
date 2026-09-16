@@ -245,3 +245,30 @@ fn recovery_detects_historical_changes_even_when_group_counts_and_id_sums_match(
     assert!(!output.status.success());
     assert!(String::from_utf8_lossy(&output.stderr).contains("changed historical decisions"));
 }
+
+#[test]
+fn five_hundred_recipients_make_first_progress_within_shared_deadline() {
+    let f = Fixture::new();
+    let output = Command::new(env!("CARGO_BIN_EXE_rental-replay"))
+        .arg("--fixtures")
+        .arg(f.dir.join("fixtures"))
+        .arg("--database")
+        .arg(f.dir.join("state.sqlite3"))
+        .args(["--users", "500", "--mode", "virtual"])
+        .output()
+        .unwrap();
+    let value = exercise_result(output);
+    let phase = value["phases"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|p| p["name"] == "catchup")
+        .unwrap();
+    let first = phase["firstProgressMaxMs"].as_f64().unwrap();
+    assert!(
+        first <= 6605.5,
+        "last recipient first progress took {first}ms"
+    );
+    assert_eq!(phase["rateLimitsVerified"], true);
+    assert_eq!(phase["recipientsAsserted"], 500);
+}

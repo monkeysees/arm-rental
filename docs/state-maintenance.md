@@ -106,7 +106,9 @@ fails closed before stopping the service; run a normal backup first if needed.
 The profile report gives exact candidate paths and allocated bytes; `--apply`
 reports reclaimed bytes. Missing data is a successful zero-byte no-op. The
 command refuses symbolic links (including ancestors), foreign ownership,
-mounted subtrees, hardlinked files and unexpected entry types. Investigate an
+mounted subtrees (including same-device bind mounts), hardlinked files and
+unexpected entry types. Linux mount boundaries are checked before traversal
+and again before each removal. Investigate an
 unsafe path; do not bypass the check. SQLite, WAL, cookies, unrelated files and
 live singleton leases are preserved. No rollback image or snapshot is deleted;
 restoring a retained legacy snapshot does not reinstall its browser profile.

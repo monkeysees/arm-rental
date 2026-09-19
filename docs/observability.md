@@ -127,6 +127,9 @@ snapshot retains `readinessReasons` and `readinessAlertReasons` so the host
 monitor honors the application's runtime challenge grace period. Probe
 timeouts, invalid responses, and transport failures remain alertable and
 appear as distinct stable codes in host readiness notifications.
+An already firing host readiness alert clears only after a successful fresh
+probe. Sampling gaps and container replacement reset the consecutive-failure
+count but do not establish recovery.
 It also reads the monitor's atomic alert state, so its human firing count and the
 JSON `monitorAlerts` array include database, capacity, deployment, and timer
 alerts as well as application alerts evaluated by the monitor. `metrics`

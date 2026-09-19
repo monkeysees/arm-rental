@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Keep firing host readiness alerts active across sampling gaps and container replacements until a fresh probe confirms recovery.
+
 - Preserve distinct and recurring application alert transitions instead of suppressing them as duplicate warnings.
 
 - Send the List.am navigation referrer with category requests to avoid the observed edge challenge while preserving browserless one-minute crawling.

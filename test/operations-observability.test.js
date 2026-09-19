@@ -693,6 +693,42 @@ test("host monitoring preserves challenge grace without hiding stale crawling", 
   );
 });
 
+test("a firing readiness alert survives gaps and replacement until a ready probe", async (t) => {
+  const host = await fakeHost(t);
+  const stateFile = join(host.state, "alerts.json");
+  await writeFile(host.readinessExit, "1\n");
+  await execute(monitor, [], { env: host.env });
+  await execute(monitor, [], { env: host.env });
+  let state = JSON.parse(await readFile(stateFile, "utf8"));
+  assert.equal(
+    state.alerts.find(({ name }) => name === "host_readiness_failure")?.status,
+    "firing",
+  );
+
+  state.updatedAt = "2000-01-01T00:00:00Z";
+  await writeFile(stateFile, JSON.stringify(state));
+  await execute(monitor, [], { env: host.env });
+  state = JSON.parse(await readFile(stateFile, "utf8"));
+  assert.equal(state.readinessFailureCount, 1);
+  assert.equal(
+    state.alerts.find(({ name }) => name === "host_readiness_failure")?.status,
+    "firing",
+  );
+
+  await writeFile(host.containerStarted, "2026-07-25T11:56:00Z\n");
+  await execute(monitor, [], { env: host.env });
+  assert.doesNotMatch(
+    await readFile(host.env.RENTAL_TEST_CURL_PAYLOADS, "utf8"),
+    /alert resolved: host_readiness_failure/u,
+  );
+  await writeFile(host.readinessExit, "0\n");
+  await execute(monitor, [], { env: host.env });
+  assert.match(
+    await readFile(host.env.RENTAL_TEST_CURL_PAYLOADS, "utf8"),
+    /alert resolved: host_readiness_failure/u,
+  );
+});
+
 test("readiness failures either side of a replaced container are not consecutive", async (t) => {
   const host = await fakeHost(t);
   await writeFile(host.readinessExit, "1\n");

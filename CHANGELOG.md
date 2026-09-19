@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Send the List.am navigation referrer with category requests to avoid the observed edge challenge while preserving browserless one-minute crawling.
+
 - Validate published image schema labels against the application schema version so upgrades no longer fail a stale publication check.
 
 - Bound private delivery to eight fair concurrent operations, release capacity during rate-limit and retry waits, and keep pending payloads out of recipient queues while preserving deletion and restart recovery.

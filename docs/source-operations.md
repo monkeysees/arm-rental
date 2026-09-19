@@ -1,7 +1,10 @@
 # List.am source operations
 
 List.am HTML is fetched by curl-impersonate 2.2.2 using the fixed Safari
-`safari2601` profile. The transport runs no JavaScript. It spaces requests by
+`safari2601` profile and the `https://www.list.am/ru/` navigation referrer.
+Controlled production probes returned edge challenges without that referrer
+and parser-valid category pages with it, including fresh cookie sessions.
+The transport runs no JavaScript. It spaces requests by
 at least two seconds, persists private HTTP cookies, and follows at most five
 redirects within the same HTTPS origin. Sustained access still depends on
 List.am's responses; a successful smoke is a current observation, not a

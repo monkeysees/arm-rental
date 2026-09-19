@@ -42,7 +42,9 @@ const cookieFile = value('--cookie');
 const cookie = fs.readFileSync(cookieFile, 'utf8');
 const calls = fs.existsSync(${JSON.stringify(log)}) ? fs.readFileSync(${JSON.stringify(log)}, 'utf8').trim().split('\\n').length : 0;
 fs.appendFileSync(${JSON.stringify(log)}, JSON.stringify({args, cookie, pid: process.pid}) + '\\n');
-const response = config.responses?.[calls] || config;
+const response = config.requireNavigationReferer && value('--referer') !== 'https://www.list.am/ru/'
+  ? { status: 403, headers: { 'cf-mitigated': 'challenge' }, body: 'Security verification' }
+  : config.responses?.[calls] || config;
 if (response.wait) {
   setInterval(() => {}, 1000);
 } else if (response.exit) {
@@ -108,6 +110,20 @@ test("uses pinned Safari profile, ignores curlrc, and persists private cookies a
     ),
     false,
   );
+});
+
+test("loads protected category pages with the List.am navigation referrer", async (t) => {
+  const { fetcher, events } = await fixture(t, {
+    requireNavigationReferer: true,
+  });
+  for (const category of [56, 1377]) {
+    const response = await fetcher.fetch(
+      `https://www.list.am/ru/category/${category}/1`,
+    );
+    assert.equal(response.status, 200);
+    assert.match(await response.text(), /contentr/u);
+  }
+  assert.deepEqual(events, []);
 });
 
 test("ordinary curl and unavailable binaries fail startup", async (t) => {

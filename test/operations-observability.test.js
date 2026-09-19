@@ -154,6 +154,7 @@ esac
 available=900
 case "\${!#}" in
   *rental-apartments-data*) available=$(cat "$RENTAL_TEST_DISK_AVAILABLE") ;;
+  /var/log/journal) available="\${RENTAL_TEST_JOURNAL_AVAILABLE:-900}" ;;
 esac
 used=$((1000 - available))
 printf 'Filesystem 1024-blocks Used Available Capacity Mounted\\n'
@@ -491,6 +492,35 @@ test("database busy exhaustion and other operation failures alert separately", a
       ?.reason,
     "database operation failure count for checkpoint is 1 (SQLite result codes: 10=1)",
   );
+});
+
+test("journal capacity follows filesystem pressure rather than retained log size", async (t) => {
+  const host = await fakeHost(t);
+  await executable(
+    join(host.bin, "du"),
+    "#!/bin/sh\nprintf '1048576\\t/var/log/journal\\n'\n",
+  );
+  for (const [available, firing] of [
+    [900, false],
+    [199, true],
+    [210, true],
+    [260, false],
+  ]) {
+    await execute(monitor, [], {
+      env: { ...host.env, RENTAL_TEST_JOURNAL_AVAILABLE: String(available) },
+    });
+    const state = JSON.parse(
+      await readFile(join(host.state, "alerts.json"), "utf8"),
+    );
+    assert.equal(
+      state.alerts.some(({ name }) => name === "journal_capacity"),
+      false,
+    );
+    assert.equal(
+      state.alerts.some(({ name }) => name === "filesystem_capacity_journal"),
+      firing,
+    );
+  }
 });
 
 test("filesystem alerts share the free-space calculation and resolve with hysteresis", async (t) => {

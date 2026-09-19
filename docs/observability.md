@@ -183,10 +183,13 @@ capacity, and failed systemd jobs. Transaction latency is evaluated per bounded
 operation name only after at least 20 observations in the one-hour window. It
 fires when p95 exceeds 500 ms and, once firing, resolves only when p95 is at or
 below 250 ms (or the operation no longer has the minimum sample count).
-Filesystem capacity uses
+Data, backup, and journal filesystem capacity use
 the same available-bytes/total-bytes fraction as the hourly application storage
-check. It fires below 20% free and resolves only after reaching 25% free, which
-prevents integer `df` rounding from flapping the alert at one boundary. Messages include a safe,
+check. Each fires below 20% free and resolves only after reaching 25% free, which
+prevents integer `df` rounding from flapping the alert at one boundary.
+Journal bytes remain visible as a metric; reaching the normal retention limit
+does not fire an alert when the filesystem has adequate free space.
+Messages include a safe,
 bounded reason alongside the name, severity, first/last observation, host
 alias, source revision, and local runbook command. Application alerts may emit
 one `reason` or a `reasons` array; the monitor accepts only stable uppercase

@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Alert on journal filesystem free space instead of normal retention usage, with the same recovery hysteresis as data and backups.
+
 - Keep firing host readiness alerts active across sampling gaps and container replacements until a fresh probe confirms recovery.
 
 - Preserve distinct and recurring application alert transitions instead of suppressing them as duplicate warnings.

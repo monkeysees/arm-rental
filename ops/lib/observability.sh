@@ -486,7 +486,7 @@ optional_json_file() {
 write_metrics_snapshot() {
   local target="${1:-$RENTAL_OPS_STATE_DIR/metrics-latest.json}"
   local target_directory temporary_directory temporary_file
-  local application container readiness data_fs backup_fs journal timers
+  local application container readiness data_fs backup_fs journal_fs journal timers
   local backup maintenance snapshot deployment_block deployment_alerts
 
   target_directory="$(dirname -- "$target")"
@@ -500,6 +500,7 @@ write_metrics_snapshot() {
   readiness="$(probe_readiness_json)"
   data_fs="$(filesystem_status_json "$RENTAL_DATA_PATH" data)"
   backup_fs="$(filesystem_status_json "$RENTAL_BACKUP_PATH" backup)"
+  journal_fs="$(filesystem_status_json /var/log/journal journal)"
   journal="$(journal_status_json)"
   timers="$(timer_status_json)"
   deployment_block="$(deployment_block_json)"
@@ -513,6 +514,7 @@ write_metrics_snapshot() {
     --argjson readiness "$readiness" \
     --argjson data "$data_fs" \
     --argjson backupFs "$backup_fs" \
+    --argjson journalFs "$journal_fs" \
     --argjson journal "$journal" \
     --argjson timers "$timers" \
     --argjson deploymentBlock "$deployment_block" \
@@ -568,7 +570,7 @@ write_metrics_snapshot() {
                   or ($observed != null and $observed >= $containerStarted)
                 )
             ]),
-          filesystems: [$data, $backupFs],
+          filesystems: [$data, $backupFs, $journalFs],
           timers: $timers,
           newestValidSnapshot:
             (if $backup == null then null else {

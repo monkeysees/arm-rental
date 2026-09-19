@@ -313,11 +313,6 @@ main() {
                  + (((.freeFraction * 1000) | round) / 10 | tostring)
                  + "% free")
                end))),
-        (select(($metrics.journal.diskBytes // 0) >= 966367642)
-          | alert("journal_capacity"; "warning";
-              "journalctl --disk-usage";
-              ("journal uses " + ($metrics.journal.diskBytes | tostring)
-                + " bytes; warning threshold is 966367642 bytes"))),
         ($metrics.timers[]?
           | select(
               (.activeState != null and .activeState != "active")

@@ -169,6 +169,8 @@ bounded 24-hour snapshot. If both edges occur between monitor runs, the monitor
 delivers both in order exactly once after a successful state update; a failed
 Telegram attempt remains retryable. This prevents a short source-integrity
 failure and recovery from disappearing between five-minute evaluations.
+Application alert transitions bypass the logger's repeated-failure suppression,
+so simultaneous alerts and a recurrence after recovery each reach the monitor.
 
 The evaluator covers application alerts, restart loops, two consecutive
 readiness failures, exhausted/missing containers, a quarantined candidate

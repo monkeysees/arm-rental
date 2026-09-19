@@ -139,3 +139,35 @@ test("application version comes only from immutable package metadata", (t) => {
   logger.info("Version provenance");
   assert.equal(JSON.parse(records[0]).applicationVersion, "1.0.0");
 });
+
+test("distinct and recurring alert transitions survive failure suppression", () => {
+  const { logger, records } = recordingLogger();
+  const firing = (alertName) =>
+    logger.warn("Production alert firing", {
+      event: "alert.firing",
+      alertName,
+      status: "firing",
+    });
+  firing("five_consecutive_crawl_failures");
+  firing("list_am_challenge");
+  firing("readiness_failure");
+  logger.info("Production alert resolved", {
+    event: "alert.resolved",
+    alertName: "list_am_challenge",
+    status: "resolved",
+  });
+  firing("list_am_challenge");
+  assert.deepEqual(
+    records.map((record) => {
+      const { event, alertName } = JSON.parse(record);
+      return [event, alertName];
+    }),
+    [
+      ["alert.firing", "five_consecutive_crawl_failures"],
+      ["alert.firing", "list_am_challenge"],
+      ["alert.firing", "readiness_failure"],
+      ["alert.resolved", "list_am_challenge"],
+      ["alert.firing", "list_am_challenge"],
+    ],
+  );
+});

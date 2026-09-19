@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Preserve distinct and recurring application alert transitions instead of suppressing them as duplicate warnings.
+
 - Send the List.am navigation referrer with category requests to avoid the observed edge challenge while preserving browserless one-minute crawling.
 
 - Validate published image schema labels against the application schema version so upgrades no longer fail a stale publication check.

@@ -71,9 +71,9 @@ server's `Retry-After` can extend the wait beyond the ordinary backoff cap.
 A validated source recovery clears the challenge. Readiness changes
 immediately; the dedicated alert waits for five challenged crawls without
 validated recovery. Startup challenges mark preflight non-ready immediately,
-then wait at least the poll interval or a longer valid `Retry-After` before
-exiting for bounded supervisor retries. The lease and live health endpoint
-remain available during this cooldown; a stop signal cancels it immediately.
+then retry preflight at the poll interval or a longer valid `Retry-After`
+until recovery. Telegram controls, the lease, and the live health endpoint
+remain available during these waits; a stop signal cancels them immediately.
 
 For persistent failure, check the installed executable, host DNS/outbound
 HTTPS, and the source response codes. Preserve the cookie jar while diagnosing

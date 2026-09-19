@@ -46,6 +46,29 @@ export async function runApplication({
     }
   };
 
+  const reportPreflightFailure = (error) => {
+    const preflightResult =
+      error.preflightResult || startupFailureResult(startupComponent, error);
+    if (preflightResult.status === "source_challenge") {
+      logger.warn?.("Startup preflight completed", {
+        preflight: preflightResult,
+      });
+    } else {
+      logger.error?.("Startup preflight completed", error, {
+        preflight: preflightResult,
+      });
+    }
+    healthMonitor?.setPreflight(preflightResult);
+    if (preflightResult.failure?.code === LIST_AM_SOURCE_INTEGRITY_ERROR) {
+      logger.error?.("List.am source integrity failed", error, {
+        event: "source.integrity.failed",
+        phase: "preflight",
+        ...sourceIntegrityFailureSummary(error),
+      });
+    }
+    preflightLogged = true;
+  };
+
   // Observe event-loop stalls across startup, crawling, and delivery.
   const eventLoopDelay = eventLoopDelayMonitorFactory({
     onMetric: ({ name: event, ...metric }) =>
@@ -116,34 +139,84 @@ export async function runApplication({
         }),
     });
 
-    const preflightResult = await preflight(config, {
-      storageValidated: true,
-      singletonLock,
-      sourceFetcher,
-      exchangeRateService,
-      signal: controller.signal,
-      onRetry: (event) =>
-        logger.warn("External request retry scheduled", {
-          event: "retry.scheduled",
-          ...event,
-        }),
-      onSourceIntegrityChecked: (observation) =>
-        recordSourceIntegrityChecked({ ...observation, phase: "preflight" }),
-      stateAccess,
-    });
-    logger.info("Startup preflight completed", {
-      preflight: preflightResult,
-    });
-    healthMonitor?.setPreflight(preflightResult);
-    healthMonitor?.recordExchangeRateSnapshot(
-      exchangeRateService.currentSnapshot?.(),
-    );
-    preflightLogged = true;
+    const checkPreflight = async () => {
+      try {
+        const preflightResult = await preflight(config, {
+          storageValidated: true,
+          singletonLock,
+          sourceFetcher,
+          exchangeRateService,
+          signal: controller.signal,
+          onRetry: (event) =>
+            logger.warn("External request retry scheduled", {
+              event: "retry.scheduled",
+              ...event,
+            }),
+          onSourceIntegrityChecked: (observation) =>
+            recordSourceIntegrityChecked({
+              ...observation,
+              phase: "preflight",
+            }),
+          stateAccess,
+        });
+        logger.info("Startup preflight completed", {
+          preflight: preflightResult,
+        });
+        healthMonitor?.setPreflight(preflightResult);
+        healthMonitor?.recordExchangeRateSnapshot(
+          exchangeRateService.currentSnapshot?.(),
+        );
+        preflightLogged = true;
+      } catch (error) {
+        reportPreflightFailure(error);
+        const result = error.preflightResult;
+        if (
+          result &&
+          !result.terminal &&
+          result.failure?.component === "list_am"
+        )
+          return error;
+        throw error;
+      }
+    };
+    let sourceFailure = await checkPreflight();
+    if (controller.signal.aborted) return;
 
     logger.info(
       "Telegram bot is running; send /start in a private chat to configure monitoring",
     );
     await runBot(config, {
+      beforeMonitoring: async () => {
+        while (sourceFailure && !controller.signal.aborted) {
+          const retryAfterMs =
+            Number.isSafeInteger(sourceFailure.retryAfterMs) &&
+            sourceFailure.retryAfterMs >= 0
+              ? sourceFailure.retryAfterMs
+              : 0;
+          const delayMs = Math.max(
+            config.pollIntervalMs || 60_000,
+            retryAfterMs,
+          );
+          logger.warn?.("Startup source retry cooling down", {
+            event: "startup.cooldown",
+            component: "list_am",
+            delayMs,
+          });
+          try {
+            // Chunk long Retry-After dates to avoid Node's timer overflow.
+            for (let remaining = delayMs; remaining > 0;) {
+              const interval = Math.min(remaining, 2_147_483_647);
+              await sleep(interval, undefined, { signal: controller.signal });
+              remaining -= interval;
+            }
+            if (!controller.signal.aborted)
+              sourceFailure = await checkPreflight();
+          } catch (error) {
+            if (controller.signal.aborted) return;
+            throw error;
+          }
+        }
+      },
       signal: controller.signal,
       stateAccess,
       exchangeRateService,
@@ -327,53 +400,8 @@ export async function runApplication({
         }),
     });
   } catch (error) {
-    if (!preflightLogged) {
-      const preflightResult =
-        error.preflightResult || startupFailureResult(startupComponent, error);
-      if (preflightResult.status === "source_challenge") {
-        logger.warn?.("Startup preflight completed", {
-          preflight: preflightResult,
-        });
-      } else {
-        logger.error?.("Startup preflight completed", error, {
-          preflight: preflightResult,
-        });
-      }
-      healthMonitor?.setPreflight(preflightResult);
-      if (preflightResult.failure?.code === LIST_AM_SOURCE_INTEGRITY_ERROR) {
-        logger.error?.("List.am source integrity failed", error, {
-          event: "source.integrity.failed",
-          phase: "preflight",
-          ...sourceIntegrityFailureSummary(error),
-        });
-      }
-      if (
-        !preflightResult.terminal &&
-        preflightResult.failure?.component === "list_am" &&
-        !controller.signal.aborted
-      ) {
-        const retryAfterMs =
-          Number.isSafeInteger(error.retryAfterMs) && error.retryAfterMs >= 0
-            ? error.retryAfterMs
-            : 0;
-        const delayMs = Math.max(config.pollIntervalMs || 60_000, retryAfterMs);
-        logger.warn?.("Startup source retry cooling down", {
-          event: "startup.cooldown",
-          component: "list_am",
-          delayMs,
-        });
-        try {
-          // Chunk long Retry-After dates to avoid Node's timer overflow.
-          for (let remaining = delayMs; remaining > 0;) {
-            const interval = Math.min(remaining, 2_147_483_647);
-            await sleep(interval, undefined, { signal: controller.signal });
-            remaining -= interval;
-          }
-        } catch (sleepError) {
-          if (!controller.signal.aborted) throw sleepError;
-        }
-      }
-    }
+    controller.abort();
+    if (!preflightLogged) reportPreflightFailure(error);
     throw error;
   } finally {
     // Report whatever the last, unfinished window saw before dropping it: a

@@ -943,6 +943,7 @@ export async function runTelegramBot(
     publishChannel = publishChannelApartments,
     pageFetch = globalThis.fetch,
     sleep = delay,
+    beforeMonitoring = async () => {},
     onResult = () => {},
     onError = () => {},
     onMonitoringState = () => {},
@@ -1281,6 +1282,7 @@ export async function runTelegramBot(
   };
 
   const monitorLoop = async () => {
+    await beforeMonitoring();
     while (!signal?.aborted) {
       let wokeFromDormancy = false;
       if (

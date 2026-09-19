@@ -532,86 +532,19 @@ test("application lifecycle drives crawl and exchange-rate readiness", async () 
   );
 });
 
-test("startup source failures publish readiness before cooling down for supervisor retry", async () => {
-  for (const scenario of [
-    {
-      component: "list_am",
-      terminal: false,
-      retryAfterMs: undefined,
-      expected: 60_000,
-    },
-    {
-      component: "list_am",
-      terminal: false,
-      retryAfterMs: 120_000,
-      expected: 120_000,
-    },
-    { component: "source_transport", terminal: true, expected: undefined },
-    { component: "telegram", terminal: true, expected: undefined },
-    { component: "state", terminal: true, expected: undefined },
-  ]) {
+test("startup source retries keep bot controls running until recovery", async () => {
+  for (const retryAfterMs of [undefined, 120_000, 2_147_483_648]) {
     const events = [];
-    const failure = Object.assign(new Error("startup failed"), {
-      retryAfterMs: scenario.retryAfterMs,
-      preflightResult: {
-        ready: false,
-        status: "failed",
-        terminal: scenario.terminal,
-        failure: { component: scenario.component },
-      },
-    });
-    await assert.rejects(
-      runApplication({
-        config: { dataDirectory: "/data" },
-        logger: { info: () => {}, warn: () => {}, error: () => {} },
-        healthMonitor: {
-          setConfigurationValid: () => {},
-          setPreflight: () => events.push("not-ready"),
-        },
-        validateConfig: async () => {},
-        stateBackendFactory,
-        acquireLock: async () => ({
-          dataDirectory: "/data",
-          owner: { pid: 42 },
-          release: async () => events.push("released"),
-        }),
-        sourceFetcherFactory: () => ({
-          close: async () => events.push("closed"),
-        }),
-        exchangeRateServiceFactory: () => ({}),
-        preflight: async () => {
-          throw failure;
-        },
-        sleep: async (milliseconds) => events.push(milliseconds),
-        runBot: async () => assert.fail("polling must not start"),
-      }),
-      (error) => error === failure,
-    );
-    assert.deepEqual(events, [
-      "not-ready",
-      ...(scenario.expected === undefined ? [] : [scenario.expected]),
-      "closed",
-      "released",
-    ]);
-  }
-});
-
-test("SIGTERM interrupts startup cooldown and still releases resources", async () => {
-  const signalEmitter = new EventEmitter();
-  const events = [];
-  const failure = Object.assign(new Error("challenge"), {
-    preflightResult: {
-      ready: false,
-      status: "source_challenge",
-      terminal: false,
-      failure: { component: "list_am" },
-    },
-  });
-  await assert.rejects(
-    runApplication({
-      config: { dataDirectory: "/data", pollIntervalMs: 75_000 },
-      signalEmitter,
+    const readiness = [];
+    let attempts = 0;
+    await runApplication({
+      config: { dataDirectory: "/data" },
       logger: { info: () => {}, warn: () => {}, error: () => {} },
+      healthMonitor: {
+        setConfigurationValid: () => {},
+        setPreflight: ({ ready }) => readiness.push(ready),
+        recordExchangeRateSnapshot: () => {},
+      },
       validateConfig: async () => {},
       stateBackendFactory,
       acquireLock: async () => ({
@@ -624,19 +557,117 @@ test("SIGTERM interrupts startup cooldown and still releases resources", async (
       }),
       exchangeRateServiceFactory: () => ({}),
       preflight: async () => {
-        throw failure;
+        attempts += 1;
+        if (attempts <= 7)
+          throw Object.assign(new Error("source unavailable"), {
+            retryAfterMs,
+            preflightResult: {
+              ready: false,
+              status: "source_challenge",
+              terminal: false,
+              failure: { component: "list_am" },
+            },
+          });
+        return { ready: true, status: "ready", checks: {} };
       },
-      sleep: async (milliseconds, _value, { signal }) => {
-        assert.equal(milliseconds, 75_000);
-        assert.equal(signal.aborted, false);
-        signalEmitter.emit("SIGTERM");
-        assert.equal(signal.aborted, true);
-        throw new DOMException("aborted", "AbortError");
+      sleep: async (milliseconds) => {
+        assert.equal(events[0], "bot");
+        events.push(milliseconds);
       },
-      runBot: async () => assert.fail("polling must not start"),
+      runBot: async (_config, { beforeMonitoring }) => {
+        events.push("bot");
+        await beforeMonitoring();
+        assert.equal(attempts, 8);
+        events.push("crawl");
+      },
+    });
+    const intervals =
+      retryAfterMs === 2_147_483_648
+        ? [2_147_483_647, 1]
+        : [retryAfterMs || 60_000];
+    assert.deepEqual(events, [
+      "bot",
+      ...Array.from({ length: 7 }, () => intervals).flat(),
+      "crawl",
+      "closed",
+      "released",
+    ]);
+    assert.deepEqual(readiness, [...Array(7).fill(false), true]);
+  }
+});
+
+test("terminal startup failures never enter bot loops", async () => {
+  for (const component of ["source_transport", "telegram", "state"]) {
+    const failure = Object.assign(new Error("startup failed"), {
+      preflightResult: {
+        ready: false,
+        status: "failed",
+        terminal: true,
+        failure: { component },
+      },
+    });
+    await assert.rejects(
+      runApplication({
+        config: { dataDirectory: "/data" },
+        logger: { info: () => {}, warn: () => {}, error: () => {} },
+        validateConfig: async () => {},
+        stateBackendFactory,
+        acquireLock: async () => ({
+          dataDirectory: "/data",
+          owner: { pid: 42 },
+          release: async () => {},
+        }),
+        sourceFetcherFactory: () => ({ close: async () => {} }),
+        exchangeRateServiceFactory: () => ({}),
+        preflight: async () => {
+          throw failure;
+        },
+        sleep: async () => assert.fail("no cooldown"),
+        runBot: async () => assert.fail("polling must not start"),
+      }),
+      (error) => error === failure,
+    );
+  }
+});
+
+test("SIGTERM interrupts startup retry and releases resources without another request", async () => {
+  const signalEmitter = new EventEmitter();
+  const events = [];
+  await runApplication({
+    config: { dataDirectory: "/data", pollIntervalMs: 75_000 },
+    signalEmitter,
+    logger: { info: () => {}, warn: () => {}, error: () => {} },
+    validateConfig: async () => {},
+    stateBackendFactory,
+    acquireLock: async () => ({
+      dataDirectory: "/data",
+      owner: { pid: 42 },
+      release: async () => events.push("released"),
     }),
-    (error) => error === failure,
-  );
-  assert.deepEqual(events, ["closed", "released"]);
+    sourceFetcherFactory: () => ({ close: async () => events.push("closed") }),
+    exchangeRateServiceFactory: () => ({}),
+    preflight: async () => {
+      events.push("preflight");
+      throw Object.assign(new Error("challenge"), {
+        preflightResult: {
+          ready: false,
+          status: "source_challenge",
+          terminal: false,
+          failure: { component: "list_am" },
+        },
+      });
+    },
+    sleep: async (milliseconds, _value, { signal }) => {
+      assert.equal(milliseconds, 75_000);
+      assert.equal(signal.aborted, false);
+      signalEmitter.emit("SIGTERM");
+      assert.equal(signal.aborted, true);
+      throw new DOMException("aborted", "AbortError");
+    },
+    runBot: async (_config, { beforeMonitoring }) => {
+      await beforeMonitoring();
+    },
+  });
+  assert.deepEqual(events, ["preflight", "closed", "released"]);
   assert.equal(signalEmitter.listenerCount("SIGTERM"), 0);
 });

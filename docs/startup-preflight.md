@@ -1,7 +1,7 @@
 # Startup preflight remediation
 
 The process is not ready until every startup preflight check passes. Diagnose
-the single structured log record whose message is
+the latest structured log record whose message is
 `Startup preflight completed`; use its `failure.component`, `failure.code`, and
 component statuses. The record does not contain the Telegram token, bot
 identity, or Telegram response payload.
@@ -19,9 +19,9 @@ volume is uncertain.
 ## List.am challenge or transport failure
 
 Status `source_challenge` means List.am returned an explicit mitigation or
-recognizable verification interstitial. It is non-ready and does not start
-Telegram polling or crawling. Missing listing content without a challenge is
-reported through source-integrity checks instead.
+recognizable verification interstitial. It is non-ready and gates crawling
+while Telegram controls remain available. Missing listing content without a
+challenge is reported through source-integrity checks instead.
 
 Check `source_transport` for executable startup errors and `list_am` for HTTP
 or integrity failures. Use the stopped-service
@@ -30,10 +30,12 @@ from the production network with the pinned transport and cookie jar. Wait
 before a challenge or rate-limit recheck; repeated restarts are not remediation.
 After a passing smoke, start the service and require ready preflight.
 
-Recoverable List.am failures report not-ready immediately, then hold the lease
-and responsive health endpoint for at least `POLL_INTERVAL_MS` (60 seconds by
-default) or a longer valid `Retry-After`. They then exit for the supervisor's
-bounded retries. SIGTERM/SIGINT cancel that wait and clean up immediately.
+Recoverable List.am failures report not-ready immediately. After validating
+state, credentials, transport, and exchange rates, the process starts Telegram
+controls and retries preflight every `POLL_INTERVAL_MS` (60 seconds by default),
+honoring a longer valid `Retry-After`. Crawling begins only after preflight
+passes. These retries retain the lease and responsive health endpoint without
+consuming supervisor restarts. SIGTERM/SIGINT cancel the wait and clean up immediately.
 Terminal configuration, state, executable, and credential failures do not wait.
 
 ## Incompatible state

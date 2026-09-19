@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Keep Telegram controls available during recoverable startup source failures and retry preflight every minute without exhausting supervisor restarts; begin crawling only after recovery.
+
 - Alert on journal filesystem free space instead of normal retention usage, with the same recovery hysteresis as data and backups.
 
 - Keep firing host readiness alerts active across sampling gaps and container replacements until a fresh probe confirms recovery.

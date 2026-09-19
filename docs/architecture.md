@@ -591,23 +591,23 @@ domain, not a failure.
 External checks use Telegram `getMe`, `getChat`, and `getChatMember` to verify
 credentials, channel reachability, and the bot's Post Messages and Edit
 Messages administrator permissions. Preflight validates the native executable
-and parses the configured List.am targets, then asks
-the exchange-rate service for either a compatible persisted snapshot or a
-successful CBA retrieval. Invalid credentials and channel configuration are
-terminal. A List.am challenge instead produces the distinct
+and asks the exchange-rate service for either a compatible persisted snapshot
+or a successful CBA retrieval before parsing the configured List.am target.
+Invalid credentials and channel configuration are terminal. A List.am challenge instead produces the distinct
 `source_challenge` non-ready state and source-operations remediation.
 
-Startup emits exactly one structured `Startup preflight completed` result. It
+Each startup preflight attempt emits a structured `Startup preflight completed` result. It
 contains component states, a stable failure code, terminal/readiness flags, and
 when applicable the affected state domain and the reason its stored rows were
 rejected, or the source remediation command. It
 never contains the bot token, Telegram API URL, bot identity, or response
 payload. Recoverable List.am startup failures report not-ready immediately,
-then retain the lease and live health endpoint for at least `POLL_INTERVAL_MS`
-or a longer valid `Retry-After` before exiting for bounded supervisor retries.
-Signals cancel this cooldown immediately. Terminal configuration, state,
-executable, and Telegram credential failures exit without waiting. All failed
-preflights release the HTTP transport and lease before exit.
+then start Telegram controls while gating crawling behind a preflight retry.
+Retries wait at least `POLL_INTERVAL_MS` or a longer valid `Retry-After` and
+continue until recovery without consuming supervisor restarts. The lease and
+health endpoint remain live; signals cancel the wait immediately. Terminal
+configuration, state, executable, and Telegram credential failures exit without
+waiting. Process shutdown releases the HTTP transport and lease.
 Operational diagnosis and recovery are documented in
 [`docs/startup-preflight.md`](startup-preflight.md).
 

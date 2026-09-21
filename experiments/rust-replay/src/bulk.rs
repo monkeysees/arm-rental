@@ -1,7 +1,7 @@
 use crate::{
     Result,
     model::{Manifest, timestamp},
-    store::Store,
+    store::{Decision, Store},
 };
 use rusqlite::{Connection, OpenFlags, OptionalExtension, params};
 use serde_json::{Value, json};
@@ -149,7 +149,11 @@ impl Store {
                     insert.execute(params![
                         user as i64,
                         id,
-                        if id % 4 == (user % 4) as i64 { 1 } else { 2 },
+                        (if id % 4 == (user % 4) as i64 {
+                            Decision::Notified
+                        } else {
+                            Decision::Filtered
+                        }) as i64,
                         1,
                         stamp
                     ])?;

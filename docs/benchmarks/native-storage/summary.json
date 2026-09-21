@@ -142,87 +142,87 @@
   "after": {
     "runs": [
       {
-        "servicePeakMiB": 101.66796875,
-        "processPeakMiB": 15.8125,
-        "idleMiB": 90.9375,
+        "servicePeakMiB": 102.15625,
+        "processPeakMiB": 15.9921875,
+        "idleMiB": 91.05078125,
         "fileIdleMiB": 77.046875,
-        "anonIdleMiB": 11.078125,
-        "kernelIdleMiB": 2.6875,
-        "walSamplePeakMiB": 4.19635009765625,
+        "anonIdleMiB": 11.30078125,
+        "kernelIdleMiB": 2.69921875,
+        "walSamplePeakMiB": 4.310295104980469,
         "dbWalSamplePeakMiB": 80.70262908935547,
         "databaseMiB": 76.76953125,
-        "seedMs": 3575.3729879999996,
-        "catchupMs": 24793.738623,
-        "catchupClassificationMs": 1430.485761,
-        "serviceCpuMs": 9927.246,
-        "catchupThroughput": 161.33105461914428,
-        "catchupQueueP95Ms": 23710.944529,
-        "ioWriteMiB": 359.796875,
-        "seedWriteMs": 2816.939372000001,
-        "seedCommitMs": 739.7349280000011,
-        "checkpointMs": 12.287897999999998,
+        "seedMs": 3529.590744,
+        "catchupMs": 24762.550408,
+        "catchupClassificationMs": 1394.552075,
+        "serviceCpuMs": 9975.068,
+        "catchupThroughput": 161.53424966709915,
+        "catchupQueueP95Ms": 23669.686977,
+        "ioWriteMiB": 359.6640625,
+        "seedWriteMs": 2721.4934719999974,
+        "seedCommitMs": 787.5248579999998,
+        "checkpointMs": 14.856565,
         "walObservedPeakMiB": 8.553764343261719
       },
       {
-        "servicePeakMiB": 101.90625,
-        "processPeakMiB": 16.08984375,
-        "idleMiB": 91.12890625,
+        "servicePeakMiB": 102.0234375,
+        "processPeakMiB": 16.26171875,
+        "idleMiB": 91.34765625,
         "fileIdleMiB": 77.046875,
-        "anonIdleMiB": 11.30078125,
+        "anonIdleMiB": 11.41796875,
         "kernelIdleMiB": 2.703125,
-        "walSamplePeakMiB": 8.553764343261719,
-        "dbWalSamplePeakMiB": 85.31548309326172,
+        "walSamplePeakMiB": 4.25921630859375,
+        "dbWalSamplePeakMiB": 80.70262908935547,
         "databaseMiB": 76.76953125,
-        "seedMs": 3463.212927,
-        "catchupMs": 24770.010184,
-        "catchupClassificationMs": 1378.623924,
-        "serviceCpuMs": 9829.868,
-        "catchupThroughput": 161.48560175335615,
-        "catchupQueueP95Ms": 23689.815382,
-        "ioWriteMiB": 359.546875,
-        "seedWriteMs": 2740.279815000001,
-        "seedCommitMs": 704.2948900000002,
-        "checkpointMs": 12.474093,
+        "seedMs": 3545.546062,
+        "catchupMs": 24725.354794000003,
+        "catchupClassificationMs": 1344.738717,
+        "serviceCpuMs": 9982.265,
+        "catchupThroughput": 161.77725388881632,
+        "catchupQueueP95Ms": 23628.399669000002,
+        "ioWriteMiB": 359.96484375,
+        "seedWriteMs": 2768.5681929999982,
+        "seedCommitMs": 749.4693299999999,
+        "checkpointMs": 21.942834,
         "walObservedPeakMiB": 8.553764343261719
       },
       {
         "servicePeakMiB": 101.921875,
-        "processPeakMiB": 15.99609375,
-        "idleMiB": 91.3046875,
+        "processPeakMiB": 15.796875,
+        "idleMiB": 90.91015625,
         "fileIdleMiB": 77.046875,
-        "anonIdleMiB": 11.3203125,
-        "kernelIdleMiB": 2.69921875,
-        "walSamplePeakMiB": 8.553764343261719,
-        "dbWalSamplePeakMiB": 83.60454559326172,
+        "anonIdleMiB": 11.078125,
+        "kernelIdleMiB": 2.6796875,
+        "walSamplePeakMiB": 5.6344146728515625,
+        "dbWalSamplePeakMiB": 80.70262908935547,
         "databaseMiB": 76.76953125,
-        "seedMs": 3494.327414,
-        "catchupMs": 24760.840433999998,
-        "catchupClassificationMs": 1370.3404429999998,
-        "serviceCpuMs": 9944.83,
-        "catchupThroughput": 161.54540515948952,
-        "catchupQueueP95Ms": 23659.830007,
-        "ioWriteMiB": 359.85546875,
-        "seedWriteMs": 2717.0488540000006,
-        "seedCommitMs": 757.564279,
-        "checkpointMs": 13.405228000000001,
+        "seedMs": 3453.326968,
+        "catchupMs": 24798.793955,
+        "catchupClassificationMs": 1435.253825,
+        "serviceCpuMs": 9810.671,
+        "catchupThroughput": 161.29816664707232,
+        "catchupQueueP95Ms": 23718.35114,
+        "ioWriteMiB": 359.859375,
+        "seedWriteMs": 2683.058263000001,
+        "seedCommitMs": 750.3183980000005,
+        "checkpointMs": 14.002185,
         "walObservedPeakMiB": 8.553764343261719
       }
     ],
     "summary": {
       "servicePeakMiB": {
-        "median": 101.90625,
-        "min": 101.66796875,
-        "max": 101.921875
+        "median": 102.0234375,
+        "min": 101.921875,
+        "max": 102.15625
       },
       "processPeakMiB": {
-        "median": 15.99609375,
-        "min": 15.8125,
-        "max": 16.08984375
+        "median": 15.9921875,
+        "min": 15.796875,
+        "max": 16.26171875
       },
       "idleMiB": {
-        "median": 91.12890625,
-        "min": 90.9375,
-        "max": 91.3046875
+        "median": 91.05078125,
+        "min": 90.91015625,
+        "max": 91.34765625
       },
       "fileIdleMiB": {
         "median": 77.046875,
@@ -232,22 +232,22 @@
       "anonIdleMiB": {
         "median": 11.30078125,
         "min": 11.078125,
-        "max": 11.3203125
+        "max": 11.41796875
       },
       "kernelIdleMiB": {
         "median": 2.69921875,
-        "min": 2.6875,
+        "min": 2.6796875,
         "max": 2.703125
       },
       "walSamplePeakMiB": {
-        "median": 8.553764343261719,
-        "min": 4.19635009765625,
-        "max": 8.553764343261719
+        "median": 4.310295104980469,
+        "min": 4.25921630859375,
+        "max": 5.6344146728515625
       },
       "dbWalSamplePeakMiB": {
-        "median": 83.60454559326172,
+        "median": 80.70262908935547,
         "min": 80.70262908935547,
-        "max": 85.31548309326172
+        "max": 80.70262908935547
       },
       "databaseMiB": {
         "median": 76.76953125,
@@ -255,54 +255,54 @@
         "max": 76.76953125
       },
       "seedMs": {
-        "median": 3494.327414,
-        "min": 3463.212927,
-        "max": 3575.3729879999996
+        "median": 3529.590744,
+        "min": 3453.326968,
+        "max": 3545.546062
       },
       "catchupMs": {
-        "median": 24770.010184,
-        "min": 24760.840433999998,
-        "max": 24793.738623
+        "median": 24762.550408,
+        "min": 24725.354794000003,
+        "max": 24798.793955
       },
       "catchupClassificationMs": {
-        "median": 1378.623924,
-        "min": 1370.3404429999998,
-        "max": 1430.485761
+        "median": 1394.552075,
+        "min": 1344.738717,
+        "max": 1435.253825
       },
       "serviceCpuMs": {
-        "median": 9927.246,
-        "min": 9829.868,
-        "max": 9944.83
+        "median": 9975.068,
+        "min": 9810.671,
+        "max": 9982.265
       },
       "catchupThroughput": {
-        "median": 161.48560175335615,
-        "min": 161.33105461914428,
-        "max": 161.54540515948952
+        "median": 161.53424966709915,
+        "min": 161.29816664707232,
+        "max": 161.77725388881632
       },
       "catchupQueueP95Ms": {
-        "median": 23689.815382,
-        "min": 23659.830007,
-        "max": 23710.944529
+        "median": 23669.686977,
+        "min": 23628.399669000002,
+        "max": 23718.35114
       },
       "ioWriteMiB": {
-        "median": 359.796875,
-        "min": 359.546875,
-        "max": 359.85546875
+        "median": 359.859375,
+        "min": 359.6640625,
+        "max": 359.96484375
       },
       "seedWriteMs": {
-        "median": 2740.279815000001,
-        "min": 2717.0488540000006,
-        "max": 2816.939372000001
+        "median": 2721.4934719999974,
+        "min": 2683.058263000001,
+        "max": 2768.5681929999982
       },
       "seedCommitMs": {
-        "median": 739.7349280000011,
-        "min": 704.2948900000002,
-        "max": 757.564279
+        "median": 750.3183980000005,
+        "min": 749.4693299999999,
+        "max": 787.5248579999998
       },
       "checkpointMs": {
-        "median": 12.474093,
-        "min": 12.287897999999998,
-        "max": 13.405228000000001
+        "median": 14.856565,
+        "min": 14.002185,
+        "max": 21.942834
       },
       "walObservedPeakMiB": {
         "median": 8.553764343261719,

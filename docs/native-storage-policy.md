@@ -106,36 +106,35 @@ Values are medians of three wall runs:
 
 | Metric                            |        Before |         After |
 | --------------------------------- | ------------: | ------------: |
-| Service lifetime peak (MiB)       |        170.90 |        101.91 |
-| Peak range (MiB)                  | 170.85–170.90 | 101.67–101.92 |
-| Post-bootstrap idle (MiB)         |        169.07 |         91.13 |
+| Service lifetime peak (MiB)       |        170.90 |        102.02 |
+| Peak range (MiB)                  | 170.85–170.90 | 101.92–102.16 |
+| Post-bootstrap idle (MiB)         |        169.07 |         91.05 |
 | Idle file/cache charge (MiB)      |        152.49 |         77.05 |
 | Idle anonymous charge (MiB)       |         11.40 |         11.30 |
 | Idle kernel charge (MiB)          |          4.93 |          2.70 |
-| Process peak RSS (MiB)            |         16.16 |         16.00 |
+| Process peak RSS (MiB)            |         16.16 |         15.99 |
 | Observed WAL peak (MiB)           |         75.39 |          8.55 |
-| Sampled database + WAL peak (MiB) |        152.10 |         83.60 |
+| Sampled database + WAL peak (MiB) |        152.10 |         80.70 |
 | Final database (MiB)              |         76.71 |         76.77 |
-| Seed wall time (s)                |          2.89 |          3.49 |
-| Service CPU (s)                   |          9.59 |          9.93 |
-| Cgroup writes (MiB)               |        344.56 |        359.80 |
-| Catch-up classification (s)       |          1.37 |          1.38 |
-| Complete catch-up (s)             |         24.77 |         24.77 |
-| Catch-up listings/s               |        161.47 |        161.49 |
-| Catch-up queue age p95 (s)        |         23.69 |         23.69 |
+| Seed wall time (s)                |          2.89 |          3.53 |
+| Service CPU (s)                   |          9.59 |          9.98 |
+| Cgroup writes (MiB)               |        344.56 |        359.86 |
+| Catch-up classification (s)       |          1.37 |          1.39 |
+| Complete catch-up (s)             |         24.77 |         24.76 |
+| Catch-up listings/s               |        161.47 |        161.53 |
+| Catch-up queue age p95 (s)        |         23.69 |         23.67 |
 
-The roughly 40.4% service peak reduction comes primarily from file/cache
+The roughly 40.3% service peak reduction comes primarily from file/cache
 charges, not a reduced Rust heap. The 64 KiB database increase holds import
-metadata. Seeding is about 20.8% slower and measured writes rise about 4.4%;
+metadata. Seeding is about 22.0% slower and measured writes rise about 4.4%;
 those are costs of additional durable commits and checkpoint work, not hidden
 regressions. Memory remains above the later 75 MB/50 MB goals.
 
-Seed writes now use 401 transactions. Median row-writing time is 2,740 ms;
-aggregate commit time is 740 ms, including SQLite's automatic checkpoints.
-All explicit checkpoints together take a median 12.47 ms across a complete
-replay. The unchanged baseline has no explicit checkpoint timing: automatic
-checkpoint work is included in its 2.89-second seed and phase timings, so this
-evidence does not isolate the baseline's internal checkpoint cost. Classification
+Seed writes now use 401 transactions. Median row-writing time is 2,721 ms;
+aggregate commit time is 750 ms, including SQLite's automatic checkpoints.
+All explicit checkpoints together take a median 14.86 ms across a complete
+replay. Automatic checkpoint work is included in baseline seed/phase timings;
+the supplemental experiment below isolates it for both implementations. Classification
 still atomically writes 4,000 decisions for each routine phase, 20,000 for
 catch-up, and 16,000 for interrupted delivery. Its largest observed WAL is
 8,969,272 bytes; the seed's is 4,342,512 bytes. A 250 ms file sampler misses some
@@ -156,14 +155,75 @@ After the reader closed, import resumed from its durable progress marker.
 The busy-reader recovery also completed exercise/resume and passed the same
 independent oracle; its combined result is retained beside the crash result.
 
-The existing Node 24.18.0 suite passes 433/433 tests with 94.54% line and
-88.36% branch coverage. All eight Rust executable tests, Cargo check, Clippy
+The Node 24.18.0 suite passes 433/433 tests with 94.53% line and
+88.33% branch coverage. All eleven Rust executable tests, Cargo check, Clippy
 with warnings denied, formatting, and the production-contract validator pass.
 ESLint excludes the pre-existing untracked `.scratch/` directory; generated Rust
 `target` output is now excluded by configuration to avoid racing Cargo's
 temporary directories. New raw evidence is excluded from formatting to preserve
 recorded hashes. The production validator used ShellCheck 0.11.0 extracted from
 its existing local image into a task-local tools directory.
+
+Three added CLI regressions cover repeated before/after-commit and
+after-checkpoint exits followed by the independent 500-recipient recovery
+oracle, a held reader followed by recovery, and invalid crash-injection flags.
+The last test initially failed: diagnostics silently ignored `--seed-stop` and
+created state. Validation now rejects that combination before database access.
+
+## Supplemental checkpoint timing
+
+[The timing manifest](benchmarks/native-storage/checkpoint-profile/manifest.json)
+and [summary](benchmarks/native-storage/checkpoint-profile/summary.json) record
+three fresh runs per implementation. Both compiled against a task-local copy of
+the same pinned SQLite amalgamation, instrumented with monotonic entry/exit
+timing around `sqlite3_wal_checkpoint_v2`. The original default automatic hook,
+1,000-page threshold, durability settings and checkpoint policy remain intact.
+The repository and registry cache are not patched. The baseline additionally
+times its existing seed writes and commit, without changing their transaction.
+Source, amalgamation, binary and output hashes are recorded.
+
+All six full 500-recipient exercise/resume runs passed the independent oracle.
+They ran sequentially in fresh one-CPU, 512 MiB, no-swap, offline containers.
+Transport uses virtual time, but the reported SQLite operations use actual
+monotonic wall time. The Node coordinator shares this supplemental container;
+these results isolate storage latency and are not service-memory or capacity
+evidence. The primary table above uses uninstrumented workers and wall transport.
+
+| Timing metric (median of three runs)              |   Before |    After |
+| ------------------------------------------------- | -------: | -------: |
+| Seed row-writing time (ms)                        | 2,740.03 | 2,561.84 |
+| Seed commit time, including auto-checkpoints (ms) |   142.99 |   769.21 |
+| Automatic PASSIVE checkpoint calls                |       24 |       44 |
+| Total automatic checkpoint time (ms)              |   500.08 |   523.18 |
+| Largest automatic checkpoint per run (ms)         |   128.06 |    29.47 |
+| Explicit TRUNCATE commands                        |        0 |       12 |
+| Total explicit TRUNCATE command time (ms)         |        0 |    14.84 |
+
+Automatic-checkpoint totals range from 482.14–523.35 ms before and
+502.71–533.54 ms after. The largest calls range from 110.59–156.34 ms before
+and 25.53–38.73 ms after. Batching trades one large seed commit/checkpoint for
+more smaller operations; lower maximum latency does not imply less total I/O.
+
+The C API trace observes the automatic PASSIVE calls. SQLite's PRAGMA path
+bypasses that API, so explicit TRUNCATE counts/times come from the candidate's
+existing native `storage.operations` observations and include SQL wrapper
+overhead. The manifest's API mode-3 count is zero; it is not a count of those
+PRAGMA commands. Shutdown's internal last-connection checkpoint is outside both
+timing boundaries. Stderr logging follows the measured C call and can add small
+instrumentation overhead to the enclosing commit. These boundaries are kept
+separate rather than adding checkpoint time to commit time that already includes
+it.
+
+To reproduce, use the already populated Cargo registry from the Rust build and
+the existing pinned Rust/Node images. The script creates a new output directory,
+builds generated baseline/candidate copies offline, records commands and retains
+all raw output:
+
+```bash
+node experiments/service-replay/profile-sqlite.js \
+  /tmp/native-checkpoint-profile \
+  /tmp/arm-rental-rust-cargo/src/index.crates.io-1949cf8c6b5b557f/libsqlite3-sys-0.38.2
+```
 
 ## Reproduce the comparison
 

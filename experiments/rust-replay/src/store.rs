@@ -11,7 +11,7 @@ use std::{
 
 #[derive(Clone, Copy)]
 #[repr(i64)]
-enum Decision {
+pub(crate) enum Decision {
     Pending = 0,
     Notified = 1,
     Filtered = 2,

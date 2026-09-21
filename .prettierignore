@@ -8,3 +8,4 @@ docs/benchmarks/runtime-comparison/
 .scratch/
 experiments/rust-replay/target/
 docs/benchmarks/service-replay/
+docs/benchmarks/native-storage/

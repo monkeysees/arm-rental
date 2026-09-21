@@ -1408,3 +1408,13 @@ harness container exports fixtures, coordinates workers, samples both boundaries
 and runs the independent oracle. Production code and deployment are unchanged;
 see [service replay](service-replay.md) for commands, resource attribution and
 limits on comparisons with the original whole-replay measurements.
+
+The follow-up [native storage policy](native-storage-policy.md) bounds Rust seed
+imports to 8,192 decision rows per durable transaction. Immutable import inputs
+and a separately updated progress row make interrupted batches resumable; an
+incomplete or previously consumed seed cannot begin replay delivery. Atomic
+crawl/classification and per-message FULL-durability acknowledgements remain
+intact. Explicit checkpoints at completed-write boundaries constrain retained
+WAL growth and stop further writes if a reader blocks truncation. The 4 MiB
+retention threshold is not a hard limit on an active transaction. Storage and
+service-cgroup measurements stay separate from the frozen comparison baseline.

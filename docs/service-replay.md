@@ -15,6 +15,15 @@ SHA-256 and checks native sources against that binary's recorded source hashes.
 Rebuild those exact sources with the documented pinned toolchains if images are
 missing. This experiment deliberately does not accept a different native worker.
 
+For later experiments such as [the Rust storage policy](native-storage-policy.md),
+`--image IMAGE --native-baseline FILE` selects an explicitly identified candidate.
+The JSON file must contain `binarySha256` and native `sourceHashes`; the launcher
+checks the image executable and current native sources against them. Omitting
+these options retains the original comparison baseline. New reports also sample
+database/WAL file lengths and cgroup `io.stat` from outside the service. Those
+250 ms samples can miss short peaks; native storage observations cover known
+transaction boundaries separately. Original #36 reports remain unchanged.
+
 Prerequisites: local Linux Docker Engine with cgroup v2, host PID/cgroup visibility,
 GNU `time`, `getconf`, a C compiler supporting static linking, and Node 24.18.0.
 Run from the repository root. Docker socket access is required for the external

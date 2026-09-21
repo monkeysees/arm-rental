@@ -5,6 +5,7 @@ import {
   mkdirSync,
   readFileSync,
   rmSync,
+  statSync,
   writeFileSync,
 } from "node:fs";
 import path from "node:path";
@@ -118,6 +119,14 @@ try {
         stage,
         elapsedMs: Date.now() - started,
         ...cgroupSample(serviceGroup),
+        ioStat: readFileSync(path.join(serviceGroup, "io.stat"), "utf8"),
+        databaseBytes:
+          statSync(path.join(data, "state.sqlite3"), { throwIfNoEntry: false })
+            ?.size ?? 0,
+        walBytes:
+          statSync(path.join(data, "state.sqlite3-wal"), {
+            throwIfNoEntry: false,
+          })?.size ?? 0,
         processes,
       });
     } catch (error) {

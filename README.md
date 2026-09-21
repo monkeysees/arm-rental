@@ -68,6 +68,10 @@ The separate [native service-only replay](docs/service-replay.md) keeps the
 external Node harness outside the measured service cgroup while preserving the
 original native workers, recovery contract and comparison results.
 
+The experimental Rust [bulk-write and WAL policy](docs/native-storage-policy.md)
+adds resumable seed batches and explicit checkpoint boundaries, with separate
+before/after measurements and unchanged per-message acknowledgement durability.
+
 Private delivery makes one promise about time: a user is only ever sent
 apartments List.am posted or changed within the last 24 hours. Everything the
 crawl discovers is still stored, but an older card waits for its next List.am

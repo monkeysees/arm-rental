@@ -42,6 +42,30 @@ impl Fixture {
             .output()
             .unwrap()
     }
+    fn stage(&self, users: &str, stage: &str, extra: &[&str]) -> Output {
+        Command::new(env!("CARGO_BIN_EXE_rental-replay"))
+            .arg("--fixtures")
+            .arg(self.dir.join("fixtures"))
+            .arg("--database")
+            .arg(self.dir.join("state.sqlite3"))
+            .args(["--users", users, "--mode", "virtual", "--stage", stage])
+            .args(extra)
+            .output()
+            .unwrap()
+    }
+    fn verify_seeded_recovery(&self, users: &str, expected_rows: u64) {
+        let exercise = exercise_result(self.stage(users, "exercise-seeded", &[]));
+        let mut resumed = result(self.stage(users, "resume", &[]));
+        assert_eq!(resumed["resources"]["decisionRows"], expected_rows);
+        assert_eq!(resumed["resources"]["pendingRows"], 0);
+        let mut phases = exercise["phases"].as_array().unwrap().clone();
+        phases.extend(resumed["phases"].as_array().unwrap().iter().cloned());
+        resumed["phases"] = phases.into();
+        self.verify(&resumed, true);
+        let reused = self.stage(users, "exercise-seeded", &[]);
+        assert_eq!(reused.status.code(), Some(1));
+        assert!(String::from_utf8_lossy(&reused.stderr).contains("already consumed"));
+    }
     fn verify(&self, result: &Value, valid: bool) {
         let file = self.dir.join("result.json");
         fs::write(&file, serde_json::to_vec(result).unwrap()).unwrap();
@@ -62,6 +86,113 @@ impl Fixture {
         let path = self.dir.join("fixtures").join(file);
         fs::write(&path, fs::read_to_string(&path).unwrap().replace(old, new)).unwrap();
     }
+}
+
+#[test]
+fn seed_stop_is_rejected_for_diagnostics_before_creating_state() {
+    let f = Fixture::new();
+    let output = f.stage(
+        "4",
+        "seed",
+        &[
+            "--diagnostic",
+            "checkpoint",
+            "--seed-stop",
+            "before-commit:8192",
+        ],
+    );
+    assert_eq!(
+        output.status.code(),
+        Some(1),
+        "{}",
+        String::from_utf8_lossy(&output.stdout)
+    );
+    assert!(String::from_utf8_lossy(&output.stderr).contains("--seed-stop"));
+    assert!(!f.dir.join("state.sqlite3").exists());
+}
+
+#[test]
+fn repeated_seed_crashes_preserve_the_complete_five_hundred_recipient_contract() {
+    let f = Fixture::new();
+    for (stage, point) in [
+        ("seed", "before-commit:8192"),
+        ("seed-resume", "after-commit:8192"),
+        ("seed-resume", "before-commit:16384"),
+        ("seed-resume", "before-commit:16384"),
+    ] {
+        let output = f.stage("500", stage, &["--seed-stop", point]);
+        assert_eq!(
+            output.status.code(),
+            Some(25),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let premature = f.stage("500", "exercise-seeded", &[]);
+        assert_eq!(premature.status.code(), Some(1));
+        assert!(String::from_utf8_lossy(&premature.stderr).contains("incomplete"));
+    }
+    let changed_users = f.stage("4", "seed-resume", &[]);
+    assert_eq!(changed_users.status.code(), Some(1));
+    assert!(String::from_utf8_lossy(&changed_users.stderr).contains("seed input differs"));
+    let manifest_file = f.dir.join("fixtures/manifest.json");
+    let original = fs::read(&manifest_file).unwrap();
+    let mut changed: Value = serde_json::from_slice(&original).unwrap();
+    changed["seed"]["timestamp"] = "2026-09-01T00:00:00.000Z".into();
+    fs::write(&manifest_file, serde_json::to_vec(&changed).unwrap()).unwrap();
+    let changed_input = f.stage("500", "seed-resume", &[]);
+    assert_eq!(changed_input.status.code(), Some(1));
+    assert!(String::from_utf8_lossy(&changed_input.stderr).contains("seed input differs"));
+    fs::write(manifest_file, original).unwrap();
+    let checkpointed = f.stage(
+        "500",
+        "seed-resume",
+        &["--seed-stop", "after-checkpoint:3281500"],
+    );
+    assert_eq!(
+        checkpointed.status.code(),
+        Some(25),
+        "{}",
+        String::from_utf8_lossy(&checkpointed.stderr)
+    );
+    for _ in 0..2 {
+        let completed = result(f.stage("500", "seed-resume", &[]));
+        assert_eq!(completed["status"], "seeded");
+        assert_eq!(completed["rows"], 3_281_500);
+        let writes = completed["storage"]["operations"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|o| o["operation"] == "seed")
+            .unwrap();
+        assert_eq!(writes["rows"], 0);
+    }
+    f.verify_seeded_recovery("500", 3_321_500);
+}
+
+#[test]
+fn blocked_seed_checkpoint_stops_writes_and_resumes_after_reader_closes() {
+    let f = Fixture::new();
+    let stopped = f.stage("4", "seed", &["--seed-stop", "after-commit:8192"]);
+    assert_eq!(stopped.status.code(), Some(25));
+    let reader = rusqlite::Connection::open_with_flags(
+        f.dir.join("state.sqlite3"),
+        rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY,
+    )
+    .unwrap();
+    // An independent reader pins a snapshot while the CLI continues the import.
+    reader
+        .execute_batch("BEGIN; SELECT id FROM decisions LIMIT 1;")
+        .unwrap();
+    let blocked = f.stage("4", "seed-resume", &[]);
+    assert_eq!(blocked.status.code(), Some(1));
+    let stderr = String::from_utf8_lossy(&blocked.stderr);
+    assert!(stderr.contains("checkpoint blocked by reader"), "{stderr}");
+    let observation: Value = serde_json::from_str(stderr.lines().next().unwrap()).unwrap();
+    assert_eq!(observation["busy"], 1);
+    drop(reader);
+    let completed = result(f.stage("4", "seed-resume", &[]));
+    assert_eq!(completed["status"], "seeded");
+    f.verify_seeded_recovery("4", 26_572);
 }
 impl Drop for Fixture {
     fn drop(&mut self) {

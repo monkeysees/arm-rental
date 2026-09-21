@@ -8,6 +8,8 @@ deployment are unchanged.
 The current executable also implements the [full interruption/recovery and
 fair-progress follow-up](native-replay-recovery.md). Measurements below retain
 the original #31 slice scope; use the follow-up for current acceptance results.
+The subsequent [bulk-write policy](native-storage-policy.md) changes seed and
+WAL handling; its measurements are separate from the original frozen results.
 
 ## Reproduce
 

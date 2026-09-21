@@ -1,0 +1,79 @@
+{
+  "kind": "manual CLI acceptance record",
+  "users": 500,
+  "mode": "virtual",
+  "binarySha256": "51ef0175e0bfd9c93534e47384c8b62b5e88cc71d638c4f7d614246f36c36e21",
+  "fixturesDirectory": "/tmp/arm-rental-37/recovery-fixtures",
+  "commands": [
+    {
+      "stage": "seed",
+      "stop": "before-commit:8192",
+      "exit": 25
+    },
+    {
+      "stage": "exercise-seeded",
+      "exit": 1,
+      "message": "seed is incomplete, invalid, or already consumed by exercise"
+    },
+    {
+      "stage": "seed-resume",
+      "stop": "after-commit:8192",
+      "exit": 25
+    },
+    {
+      "stage": "seed-resume",
+      "stop": "before-commit:16384",
+      "exit": 25
+    },
+    {
+      "stage": "seed-resume",
+      "stop": "after-checkpoint:3281500",
+      "exit": 25
+    },
+    {
+      "stage": "seed-resume",
+      "users": 4,
+      "exit": 1,
+      "message": "seed input differs from durable import contract"
+    },
+    {
+      "stage": "seed-resume",
+      "exit": 0,
+      "output": "seed-completed.json"
+    },
+    {
+      "stage": "seed-resume",
+      "exit": 0,
+      "output": "seed-repeated.json"
+    },
+    {
+      "stage": "exercise-seeded",
+      "exit": 23
+    },
+    {
+      "stage": "resume",
+      "exit": 0
+    },
+    {
+      "command": "experiments/node-replay/verify.js recovered-result.json",
+      "exit": 0
+    },
+    {
+      "stage": "exercise-seeded",
+      "exit": 1,
+      "message": "seed is incomplete, invalid, or already consumed by exercise"
+    }
+  ],
+  "busyReader": {
+    "setup": "Fresh seed process exited 25 after-commit:8192; external Python sqlite3 read-only connection held BEGIN plus SELECT count(*) FROM decisions. seed-resume failed, reader closed, seed-resume succeeded.",
+    "error": "{\"boundary\":\"seed-batch\",\"busy\":1,\"checkpointedPages\":497,\"logPages\":1019,\"operation\":\"checkpoint\",\"walAfterBytes\":4198312,\"walBeforeBytes\":4198312,\"wallMs\":5006.318764000001}\ncheckpoint blocked by reader; stop writes and retry after reader closes\n",
+    "resume": "busy-resumed.json"
+  },
+  "outputs": {
+    "seed-repeated.json": "c8c582c78bc1b8ff7d7b13e07735e9825a5af3db219c79116e31a70f35e290bc",
+    "busy-resumed.json": "6e884c4aa24c42ed86b4938a68d3b67a351378583161d4aabbdfa008c2a85f10",
+    "seed-completed.json": "6c3c1e17126f47eb1551cac195521fa9bc3e59f71f7d56cf8397e9b1f8303f47",
+    "recovered-result.json": "1ba991009875ec7be14b40d2eaa76d6c1794b47fdbd90189716d5ff994ad61bc",
+    "busy-result.json": "6788e46fd2c69d82aa9b2816ccaae45aa22b5375deba7b9cc84bdcc2d9f65785"
+  }
+}

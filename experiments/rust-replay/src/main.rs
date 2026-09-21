@@ -1,3 +1,4 @@
+mod bulk;
 mod delivery;
 mod model;
 mod store;
@@ -109,17 +110,25 @@ fn replay(
     users: usize,
     mode: &str,
     stage: &str,
+    seed_stop: Option<&bulk::SeedStop>,
 ) -> Result<Value> {
     let entered_at = unix_ms();
     if ![4, 500].contains(&users)
         || !["virtual", "wall"].contains(&mode)
-        || !["exercise", "resume"].contains(&stage)
+        || ![
+            "exercise",
+            "resume",
+            "seed",
+            "seed-resume",
+            "exercise-seeded",
+        ]
+        .contains(&stage)
     {
         return Err(
-            "use --users 500 (4 diagnostic), --mode virtual|wall, --stage exercise|resume".into(),
+            "use --users 500 (4 diagnostic), --mode virtual|wall, --stage exercise|resume|seed|seed-resume|exercise-seeded".into(),
         );
     }
-    if stage == "exercise" {
+    if ["exercise", "seed"].contains(&stage) {
         fs::OpenOptions::new()
             .write(true)
             .create_new(true)
@@ -142,8 +151,31 @@ fn replay(
         return Err("unsupported replay contract".into());
     }
     let epoch = timestamp(&m.clock_epoch)?;
+    if ["seed-resume", "exercise-seeded"].contains(&stage) {
+        bulk::validate_seed(database, &m, users, stage == "exercise-seeded")?;
+    }
     let mut store = Store::open(database)?;
     let start = Instant::now();
+    if ["seed", "seed-resume"].contains(&stage) {
+        if stage == "seed" {
+            let phase = m
+                .phases
+                .iter()
+                .find(|p| p.name == "seed")
+                .ok_or("missing seed phase")?;
+            store.crawl(read_phase(directory, phase, &m)?)?;
+        }
+        store.seed(&m, users, seed_stop)?;
+        return Ok(
+            json!({"status":"seeded","rows":users*m.seed.decisions_per_recipient,
+            "storage":store.storage_report(),"wallMs":elapsed(start),"snapshot":snapshot("seed-complete")?}),
+        );
+    }
+    let stage = if stage == "exercise-seeded" {
+        "exercise"
+    } else {
+        stage
+    };
     let mut snapshots = vec![snapshot("open")?];
     let mut results = Vec::new();
     let mut offset = 0.0;
@@ -230,7 +262,8 @@ fn replay(
                 let started = Instant::now();
                 let cpu = process_resources()?.1;
                 let before = memory();
-                store.seed(&m, users)?;
+                store.seed(&m, users, None)?;
+                store.consume_seed()?;
                 snapshots.push(snapshot("seed-decisions")?);
                 results.push(PhaseResult {
                     name: "seed-decisions".into(),
@@ -311,6 +344,7 @@ fn replay(
     let result = json!({"version":1,"status":"passed","scope":"rust-full-contract","runtime":"rust",
         "mode":mode,"workload":{"users":users,"decisionsPerRecipient":m.seed.decisions_per_recipient},
         "phases":results,"restart":{"uncleanExitCode":23,"acknowledgedPrefixPreserved":stage=="resume","unsentSuffixDelivered":stage=="resume"},
+        "storage":store.storage_report(),
         "resources":{"memorySnapshots":snapshots,"wallMs":elapsed(start),"cpuMs":cpu,"processPeakRssBytes":peak,
         "interruptionDrainMs":drain,"interruptedAtUnixMs":interrupted_at,
         "primaryRamBytes":cgroup("memory.peak"),"memoryLimit":cgroup("memory.max"),"swapLimit":cgroup("memory.swap.max"),"cpuLimit":cgroup("cpu.max"),"sqliteVersion":sqlite,"decisionRows":count,"pendingRows":pending,
@@ -324,6 +358,10 @@ fn replay(
 fn diagnostic(directory: &Path, database: &Path, mode: &str) -> Result<Value> {
     let m: Manifest = serde_json::from_str(&fs::read_to_string(directory.join("manifest.json"))?)?;
     let mut store = Store::open(database)?;
+    if mode == "checkpoint" {
+        store.checkpoint("diagnostic")?;
+        return Ok(store.storage_report());
+    }
     if mode == "accept-before-ack" {
         let phase = m.phases.iter().find(|p| p.name == "interrupted").unwrap();
         let listing = read_phase(directory, phase, &m)?
@@ -355,6 +393,7 @@ fn run() -> Result<()> {
     let (mut users, mut mode) = (500, "virtual".to_owned());
     let mut stage = "exercise".to_owned();
     let mut diagnostic_mode = None;
+    let mut seed_stop = None;
     while let Some(key) = args.next() {
         let value = args.next().ok_or("missing argument value")?;
         match key.as_str() {
@@ -364,21 +403,34 @@ fn run() -> Result<()> {
             "--mode" => mode = value,
             "--stage" => stage = value,
             "--diagnostic" => diagnostic_mode = Some(value),
+            "--seed-stop" => seed_stop = Some(bulk::SeedStop::parse(&value)?),
             _ => return Err(format!("unknown argument {key}").into()),
         }
+    }
+    if seed_stop.is_some()
+        && (diagnostic_mode.is_some() || !["seed", "seed-resume"].contains(&stage.as_str()))
+    {
+        return Err("--seed-stop requires --stage seed or seed-resume without diagnostics".into());
     }
     let fixtures = fixtures.ok_or("--fixtures is required")?;
     let database = database.ok_or("--database is required")?;
     let result = if let Some(ref diagnostic_mode) = diagnostic_mode {
         diagnostic(&fixtures, &database, diagnostic_mode)?
     } else {
-        replay(&fixtures, &database, users, &mode, &stage)?
+        replay(
+            &fixtures,
+            &database,
+            users,
+            &mode,
+            &stage,
+            seed_stop.as_ref(),
+        )?
     };
     let mut stdout = io::BufWriter::new(io::stdout().lock());
     serde_json::to_writer(&mut stdout, &result)?;
     writeln!(stdout)?;
     stdout.flush()?;
-    if stage == "exercise" && diagnostic_mode.is_none() {
+    if ["exercise", "exercise-seeded"].contains(&stage.as_str()) && diagnostic_mode.is_none() {
         std::process::exit(23);
     }
     Ok(())

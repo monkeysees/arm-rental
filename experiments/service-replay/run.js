@@ -20,6 +20,8 @@ const {
   allowPositionals: true,
   options: {
     runtime: { type: "string" },
+    image: { type: "string" },
+    "native-baseline": { type: "string" },
     holder: { type: "string" },
     "memory-bytes": { type: "string", default: "536870912" },
     users: { type: "string", default: "500" },
@@ -60,7 +62,7 @@ assert.equal(
 );
 const root = process.cwd();
 const runtime = values.runtime;
-const image = `arm-rental-comparison-${runtime}:local`;
+const image = values.image ?? `arm-rental-comparison-${runtime}:local`;
 const imageInfo = JSON.parse(command("docker", ["image", "inspect", image]))[0];
 assert.equal(
   imageInfo.Config.Labels["com.rental-apartments.experiment.runtime"],
@@ -101,14 +103,15 @@ const sourceHashes = Object.fromEntries(
 );
 const baseline = JSON.parse(
   readFileSync(
-    `docs/benchmarks/runtime-comparison/final/${runtime}/500-wall-1.json`,
+    values["native-baseline"] ??
+      `docs/benchmarks/runtime-comparison/final/${runtime}/500-wall-1.json`,
     "utf8",
   ),
 );
 assert.equal(
   binarySha256,
   baseline.binarySha256,
-  "image must contain the unchanged comparison binary",
+  "image must contain the identified baseline binary",
 );
 const nativeSourceHashes = Object.fromEntries(
   Object.entries(baseline.sourceHashes).filter(([file]) =>

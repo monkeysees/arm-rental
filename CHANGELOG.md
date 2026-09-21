@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Bound experimental Rust seed writes with durable resumable batches, explicit WAL retention/checkpoint policies, and independent storage/recovery measurements while preserving atomic classification and per-message acknowledgements.
+
 - Limit replay workloads and acceptance criteria to 500 recipients, remove larger-population results, and retain the measured 500-recipient evidence.
 
 - Measure unchanged Go and Rust replays in a persistent service-only cgroup with separately accounted external harnesses, exact-byte memory limits, recovery verification, and preserved original comparison results.

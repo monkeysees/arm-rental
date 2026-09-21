@@ -1,9 +1,13 @@
 use crate::{
     Result,
-    model::{Listing, Manifest, timestamp},
+    model::{Listing, Manifest},
 };
 use rusqlite::{Connection, OptionalExtension, params};
-use std::{collections::BTreeMap, path::Path, time::Duration};
+use std::{
+    collections::BTreeMap,
+    path::{Path, PathBuf},
+    time::{Duration, Instant},
+};
 
 #[derive(Clone, Copy)]
 #[repr(i64)]
@@ -32,19 +36,28 @@ impl Decision {
 
 pub struct Store {
     pub db: Connection,
+    pub path: PathBuf,
+    pub storage: std::cell::RefCell<Vec<serde_json::Value>>,
 }
 impl Store {
     pub fn open(path: &Path) -> Result<Self> {
         let db = Connection::open(path)?;
         db.busy_timeout(Duration::from_secs(5))?;
-        db.execute_batch("PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL;
+        db.execute_batch("PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL; PRAGMA wal_autocheckpoint=1000; PRAGMA journal_size_limit=4194304;
+            CREATE TABLE IF NOT EXISTS seed_input(id INTEGER PRIMARY KEY CHECK(id=1),input TEXT NOT NULL) STRICT;
+            CREATE TABLE IF NOT EXISTS seed_progress(id INTEGER PRIMARY KEY CHECK(id=1),next_row INTEGER NOT NULL,consumed INTEGER NOT NULL) STRICT;
             CREATE TABLE IF NOT EXISTS listings(id INTEGER PRIMARY KEY,payload TEXT NOT NULL,revision INTEGER NOT NULL,posted INTEGER NOT NULL) STRICT;
             CREATE TABLE IF NOT EXISTS decisions(user INTEGER NOT NULL,id INTEGER NOT NULL,status INTEGER NOT NULL,revision INTEGER NOT NULL,at INTEGER NOT NULL,PRIMARY KEY(user,id)) WITHOUT ROWID, STRICT;
             CREATE INDEX IF NOT EXISTS pending ON decisions(user,status,id) WHERE status=0;
             CREATE INDEX IF NOT EXISTS recent ON listings(posted,id);")?;
-        Ok(Self { db })
+        Ok(Self {
+            db,
+            path: path.to_path_buf(),
+            storage: std::cell::RefCell::new(Vec::new()),
+        })
     }
     pub fn crawl(&mut self, list: Vec<Listing>) -> Result<Vec<Listing>> {
+        let started = Instant::now();
         let tx = self.db.transaction()?;
         let mut changed = Vec::new();
         {
@@ -63,38 +76,14 @@ impl Store {
                 changed.push(listing);
             }
         }
+        let write_ms = started.elapsed().as_secs_f64() * 1000.0;
+        let committed = Instant::now();
         tx.commit()?;
-        Ok(changed)
-    }
-    pub fn seed(&mut self, m: &Manifest, users: usize) -> Result<()> {
-        let stamp = timestamp(&m.seed.timestamp)?;
-        let tx = self.db.transaction()?;
-        {
-            let mut insert = tx.prepare("INSERT INTO decisions VALUES(?,?,?,?,?)")?;
-            for user in 0..users {
-                for id in m
-                    .seed_decisions
-                    .listing_ids
-                    .iter()
-                    .chain(&m.seed_decisions.absent_ids)
-                {
-                    let id: i64 = id.parse()?;
-                    insert.execute(params![
-                        user as i64,
-                        id,
-                        (if id % 4 == (user % 4) as i64 {
-                            Decision::Notified
-                        } else {
-                            Decision::Filtered
-                        }) as i64,
-                        1,
-                        stamp
-                    ])?;
-                }
-            }
+        self.storage.borrow_mut().push(serde_json::json!({"operation":"crawl","rows":changed.len(),"writeMs":write_ms,"commitMs":committed.elapsed().as_secs_f64()*1000.0,"walBytes":self.wal_bytes()}));
+        if self.wal_bytes() >= crate::bulk::WAL_RETAIN_BYTES {
+            self.checkpoint("crawl")?;
         }
-        tx.commit()?;
-        Ok(())
+        Ok(changed)
     }
     pub fn classify(
         &mut self,
@@ -104,7 +93,9 @@ impl Store {
         catchup: bool,
         now: i64,
     ) -> Result<()> {
+        let started = Instant::now();
         let tx = self.db.transaction()?;
+        let initial_changes = tx.query_row("SELECT total_changes()", [], |r| r.get::<_, i64>(0))?;
         {
             let mut recent = tx.prepare("SELECT l.payload,l.revision FROM listings l LEFT JOIN decisions d ON d.user=? AND d.id=l.id WHERE l.posted>=? AND (d.revision IS NULL OR d.revision!=l.revision) ORDER BY l.posted,l.id")?;
             let mut revision = tx.prepare("SELECT revision FROM listings WHERE id=?")?;
@@ -156,7 +147,15 @@ impl Store {
                 }
             }
         }
+        let rows =
+            tx.query_row("SELECT total_changes()", [], |r| r.get::<_, i64>(0))? - initial_changes;
+        let write_ms = started.elapsed().as_secs_f64() * 1000.0;
+        let committed = Instant::now();
         tx.commit()?;
+        self.storage.borrow_mut().push(serde_json::json!({"operation":"classify","rows":rows,"writeMs":write_ms,"commitMs":committed.elapsed().as_secs_f64()*1000.0,"walBytes":self.wal_bytes()}));
+        if self.wal_bytes() >= crate::bulk::WAL_RETAIN_BYTES {
+            self.checkpoint("classification-before-delivery")?;
+        }
         Ok(())
     }
     pub fn next(&self, user: usize) -> Result<Option<Listing>> {
@@ -173,6 +172,9 @@ impl Store {
             != 1
         {
             return Err("acknowledgement must change one pending decision".into());
+        }
+        if self.wal_bytes() >= crate::bulk::WAL_RETAIN_BYTES {
+            self.checkpoint("acknowledgement")?;
         }
         Ok(())
     }

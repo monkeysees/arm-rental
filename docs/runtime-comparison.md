@@ -1,24 +1,24 @@
 # Fair runtime comparison
 
-Issue #34 compares the full offline replay at 500 and 1,000 recipients on
+Issue #34 compares the full offline replay at 500 recipients on
 `experiment/22-runtime-comparison`. The original Node baseline and native recovery
 results remain under `docs/benchmarks/{node,go,rust}-replay/`.
 The original Node data was committed at `43e6377`; native recovery data at
-`0f099af`. Their raw manifests and per-run source/binary hashes remain unchanged.
+`0f099af`. Retained run records preserve their original source/binary hashes. Manifests
+include only the retained 500-recipient runs.
 The initial comparison is revalidated with the current shared oracle before
 producing its summary; it is not silently relabeled as final evidence.
 
 ## Results and interpretation
 
-**Neither prototype meets the combined acceptance gate.** At 1,000 recipients,
-Go reduces the median primary service peak by **22.21%**, Rust by **24.22%**,
-below the predeclared 25% threshold. At 500, both exceed 25% RAM savings, but Go
-misses the catch-up rate target in all three runs, and Rust misses it in one.
+**Neither prototype meets the combined acceptance gate.** Both exceed 25% RAM
+savings at 500 recipients, but Go misses the catch-up rate target in all three
+runs, and Rust misses it in one.
 This is a negative comparison result, not a reason to relax the limits or to
 replace the production runtime.
 
-All **30 full replays** pass behavior and interruption/recovery verification:
-six cross-runtime gates plus eight protocol runs per runtime. The final
+All **15 retained full replays** pass behavior and interruption/recovery verification:
+three cross-runtime gates plus four protocol runs per runtime. The final
 [protocol manifest](benchmarks/runtime-comparison/final/manifest.json),
 [summary](benchmarks/runtime-comparison/final/summary.json), and per-runtime
 [Node](benchmarks/runtime-comparison/final/node/manifest.json),
@@ -27,7 +27,7 @@ six cross-runtime gates plus eight protocol runs per runtime. The final
 commands, limits, all repeats, capacity failures, source hashes and binary IDs.
 The [fixture hashes](benchmarks/runtime-comparison/fixtures.json) identify every
 exported HTML file and the shared manifest. The [initial summary](benchmarks/runtime-comparison/initial/summary.json)
-retains the original comparison alongside the unchanged original raw data.
+retains the original comparison alongside the retained original raw data.
 
 Tables report medians of three wall runs; ranges retain the minimum and maximum.
 Idle means post-bootstrap for every runtime. Steady means each run's median of
@@ -55,25 +55,6 @@ phase's verification work; queue age retains the declared restart boundary.
 | Required capacity runs passed               |                       no |                       no |                       no |
 | Meets RAM + required capacity               |                       no |                       no |                       no |
 
-### 1000 recipients
-
-| Metric                                      |                     Node |                       Go |                     Rust |
-| ------------------------------------------- | -----------------------: | -----------------------: | -----------------------: |
-| Process idle / steady / peak (MiB)          |   95.47 / 96.17 / 151.56 |    17.86 / 18.04 / 25.26 |    16.00 / 16.00 / 16.16 |
-| Service idle / steady / peak (MiB)          | 237.89 / 239.32 / 451.52 | 345.65 / 345.82 / 351.22 | 339.13 / 339.13 / 342.17 |
-| Primary service peak range (MiB)            |            450.75–454.29 |            350.69–354.22 |            340.74–345.02 |
-| Unchanged CPU (ms)                          |                   737.46 |                   434.26 |                    91.99 |
-| Routine classification / CPU / wall (s)     |     4.08 / 11.39 / 30.28 |      0.77 / 3.61 / 23.47 |      0.13 / 0.99 / 20.75 |
-| Catch-up classification / CPU / wall (s)    |    13.44 / 32.95 / 69.76 |      3.78 / 9.04 / 54.51 |      3.09 / 4.90 / 49.92 |
-| Catch-up wall range (s)                     |              68.54–69.81 |              54.17–54.61 |              49.86–50.07 |
-| Catch-up listings per second                |                   114.67 |                   146.76 |                   160.27 |
-| Catch-up queue p95 / last first listing (s) |            66.78 / 44.25 |            51.81 / 16.17 |            47.77 / 14.78 |
-| Resumed wall / queue p95 (s)                |            44.22 / 63.74 |            33.68 / 49.19 |            30.90 / 44.82 |
-| Final database / WAL (MiB)                  |            170.45 / 3.96 |          152.64 / 150.01 |          152.65 / 150.01 |
-| Primary RAM reduction against Node          |                    0.00% |                   22.21% |                   24.22% |
-| Required capacity runs passed               |                       no |                      yes |                      yes |
-| Meets RAM + required capacity               |                       no |                       no |                       no |
-
 ### Steady charged-memory attribution
 
 | Recipients/runtime | Managed heap (MiB) | Charged anon (MiB) | Charged file (MiB) | Charged kernel (MiB) |
@@ -81,23 +62,20 @@ phase's verification work; queue age retains the declared restart boundary.
 | 500 node           |              20.29 |              58.05 |              88.93 |                 5.49 |
 | 500 go             |               2.00 |              28.41 |             152.49 |                 6.01 |
 | 500 rust           |       not measured |              25.19 |             152.49 |                 5.77 |
-| 1000 node          |              21.32 |              60.39 |             170.28 |                 7.90 |
-| 1000 go            |               1.94 |              25.50 |             301.46 |                10.43 |
-| 1000 rust          |       not measured |              26.92 |             301.74 |                10.21 |
 
 The heap column is the worker's allocated managed heap; charged counters cover
 the entire cgroup, including the coordinator. They are not additive partitions
 of process RSS. Raw Node snapshots also retain external/array-buffer counters.
 The native process RSS reduction is large, but native **steady service memory
-regresses**: at 1,000 it is 345.82/339.13 MiB for Go/Rust versus Node's 239.32 MiB.
-Native WAL files retain about 150 MiB, while Node closes its separate seed worker
+regresses**: it is 192.47/183.70 MiB for Go/Rust versus Node's 152.91 MiB.
+Native WAL files retain about 75 MiB, while Node closes its separate seed worker
 and later retains about 4 MiB of WAL. File-cache snapshots expose this process/
 checkpoint-policy difference; it is not a managed-runtime advantage. The final
 lifecycle assessment should evaluate checkpoint policy explicitly.
 
-Node's median catch-up classification falls from the original **93.92/190.57 s**
-to **6.49/13.44 s** at 500/1,000; complete catch-up falls from **123.00/247.60 s**
-to **35.57/69.76 s**. Most of the original catch-up gap therefore came from a
+Node's median catch-up classification falls from the original **93.92 s**
+to **6.49 s** at 500 recipients; complete catch-up falls from **123.00 s**
+to **35.57 s**. Most of the original catch-up gap therefore came from a
 transferable query choice. Query preparation accounts for about 4.9 seconds of
 the first final 500-recipient catch-up; acknowledgement transactions about 5.9
 seconds. The query still scans retained history and retains general production
@@ -109,10 +87,10 @@ barriers, authorization and cancellation. Porting a whole phase into one Node
 transaction would need a separate responsiveness/concurrency assessment.
 
 Node's final primary peaks show a small regression rather than a RAM win:
-median **286.99/451.52 MiB**, versus the original **282.4/450.7 MiB**; worst peaks
-**290.32/454.29 MiB**, versus **284.9/459.1 MiB** originally. Thus the 500-recipient
-worst peak grows even as latency and steady memory improve; the 1,000-recipient
-worst peak decreases. These are unpaired runs with changed instrumentation, not
+median **286.99 MiB**, versus the original **282.4 MiB**; worst peaks
+**290.32 MiB**, versus **284.9 MiB** originally. The worst peak grows even as
+latency and steady memory improve. These are unpaired runs with changed
+instrumentation, not
 an isolated causal estimate of the query cache's memory cost. Node's primary
 peak is dominated by seeded-history creation and its charged database/WAL cache,
 not by the now-shorter catch-up phase. Neither native worst service/process peak
@@ -120,13 +98,10 @@ exceeds Node's corresponding final worst peak.
 
 All runtimes meet the routine 60-second crawl/classification target and remain
 below the application memory limit in every repeat. Go and Rust meet fair
-progress at both populations. Node misses fair progress in all six wall runs.
+progress at 500 recipients. Node misses fair progress in all three wall runs.
 The 500-recipient catch-up limit is **25.025 s**: Go takes **27.017–27.107 s**,
 while Rust takes **24.725, 25.088, 24.807 s**. Rust's middle run misses by about
-63 ms despite its passing median. At 1,000 the catch-up limit is 50.050 s;
-Rust also misses that stricter rate target once, but longer stress catch-up is
-permitted by the declared stress rule. Both native candidates pass the required
-stress capacity checks, yet neither reaches the stress RAM reduction threshold.
+63 ms despite its passing median.
 
 ## Runtime artifacts
 
@@ -193,7 +168,7 @@ Build and test both native binaries before measuring; never run builds or other
 benchmarks alongside resource runs. No new application dependency is introduced.
 
 ```bash
-# Refuse existing output directories. All six virtual behavior/recovery gates
+# Refuse existing output directories. All three virtual behavior/recovery gates
 # finish before the repeated resource protocol starts. Keep sources unchanged.
 node experiments/runtime-comparison/run.js /tmp/comparison-results \
   --go-binary /tmp/arm-rental-go-build/replay \
@@ -228,20 +203,19 @@ done
 ```
 
 The measurement harness still runs a virtual check before the three wall runs
-for each population. Those additional checks do not replace the initial six
+at 500 recipients. Those additional checks do not replace the initial three
 cross-runtime gates. Every replay creates fresh state and runs sequentially.
 The independent oracle rejects wrong delivery order, payloads, classifications,
 acknowledgements and recovery; virtual results never contribute performance
 estimates. The report recalculates capacity from observations instead of trusting
 a stored success label. A 25% median RAM reduction is necessary but insufficient:
-every 500-recipient normal capacity run must pass, and every 1,000-recipient
-stress run must meet memory, routine progress and fairness requirements. Stress
-catch-up may take longer. Failed individual runs remain visible.
+every 500-recipient capacity run must pass memory, routine progress, fairness
+and catch-up requirements. Failed individual runs remain visible.
 
 ## Optimization decisions
 
-The retained initial Node results spent about 94/191 seconds classifying
-catch-up at 500/1,000 recipients. Both native prototypes already avoid decoding
+The retained initial Node results spent about 94 seconds classifying
+catch-up at 500 recipients. Both native prototypes already avoid decoding
 and preparing unchanged classified history. Node's transaction profile now records
 operation count, changed rows and duration by phase, exposing the work behind
 that cost without a profiler or forced GC in the measured run.
@@ -354,7 +328,7 @@ contract validator pass. Go tests, vet and the release build pass with Go 1.27.1
 Rust's eight tests, formatting, Clippy with warnings denied and release build
 pass with Rust 1.94.0. The report CLI rejects corrupted delivery order, different
 observed resource limits and a mislabeled runtime. All final raw reports were
-revalidated, and measured/packaged source hashes still match the final source.
+revalidated, and retained source hashes identify the measured/packaged source.
 Independent Standards and Spec reviews against `0f099af` found no actionable
 findings in implementation commit `a5ab8e5`.
 

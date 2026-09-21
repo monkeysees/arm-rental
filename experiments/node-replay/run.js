@@ -22,7 +22,7 @@ const users = Number(values.users),
   mode = values.mode;
 assert(
   [4, ...contract.populations].includes(users),
-  "Use 500 or 1000 recipients (4 is a diagnostic)",
+  "Use 500 recipients (4 is a diagnostic)",
 );
 assert(["virtual", "wall"].includes(mode));
 assert(["node", "go", "rust"].includes(values.runtime));

@@ -3,7 +3,7 @@
 Issues [#32](https://github.com/monkeysees/arm-rental/issues/32) and
 [#33](https://github.com/monkeysees/arm-rental/issues/33) extend the native
 prototypes to the full [shared replay contract](node-replay-baseline.md), at
-500 and 1,000 recipients. Production state, runtime and deployment are unchanged.
+500 recipients. Production state, runtime and deployment are unchanged.
 All work remains on `experiment/22-runtime-comparison`.
 
 ## Reproduce
@@ -98,19 +98,19 @@ acceptance is implied.
 
 ## Acceptance results
 
-All sixteen final replays passed the independent behavior oracle: one virtual
-and three wall runs per population per language. All twelve wall runs passed
+All eight retained replays passed the independent behavior oracle: one virtual
+and three wall runs per language. All six wall runs passed
 routine classification/crawl, fair progress and the 512 MiB application-memory
-gate. Each completed replay retained 3,321,500 decisions at 500 recipients or
-6,643,000 at 1,000, preserved historical/absent decisions, and had zero pending
+gate. Each completed replay retained 3,321,500 decisions at 500 recipients,
+preserved historical/absent decisions, and had zero pending
 work. All recipients received exactly two interrupted acknowledgements and six
 resumed listings in order, with zero sends in drained and returning phases.
 
 The [Go manifest](benchmarks/go-replay/recovery/manifest.json) and
 [Rust manifest](benchmarks/rust-replay/recovery/manifest.json) record all commands,
 timestamps, host/image details and individual verdicts. Each directory contains
-the eight complete raw results. Archived JSON values were compared with the
-original output; all sixteen source/binary hash sets match the final code and
+the four complete raw results. Archived JSON values were compared with the
+original output; all eight source/binary hash sets identify the measured code and
 executables. Runs were sequential and source stayed frozen throughout.
 
 Values below are medians of three wall runs, except the explicitly labeled
@@ -119,28 +119,26 @@ ranges. Queue age includes the boundaries described above. Each replay retains
 three post-bootstrap unchanged samples. The primary peak is the entire cgroup,
 not the native process alone.
 
-| Metric                                      |        Go 500 |        Go 1,000 |      Rust 500 |      Rust 1,000 |
-| ------------------------------------------- | ------------: | --------------: | ------------: | --------------: |
-| Container peak RAM (MiB)                    |        197.89 |          355.03 |        185.58 |          341.07 |
-| Container peak range (MiB)                  | 196.32–198.55 |   351.35–355.20 | 185.29–187.48 |   340.45–342.44 |
-| Native process peak RSS (MiB)               |         23.08 |           27.24 |         16.08 |           16.32 |
-| Native CPU / wall (s)                       | 35.99 / 90.48 |  72.68 / 182.54 | 10.27 / 65.02 |  20.94 / 130.44 |
-| Routine classification / wall (s)           | 0.355 / 11.61 |   0.772 / 23.38 | 0.053 / 10.37 |   0.147 / 20.88 |
-| Catch-up classification / complete wall (s) | 1.810 / 27.09 |   3.881 / 54.30 | 1.489 / 24.89 |   3.207 / 49.93 |
-| Catch-up listings per wall second           |        147.65 |          147.34 |        160.74 |          160.24 |
-| Catch-up queue age p95 (s)                  |         25.70 |           51.55 |         23.79 |           47.78 |
-| Last first listing / allowed deadline (s)   | 8.377 / 8.596 | 16.200 / 16.375 | 7.714 / 8.243 | 14.788 / 15.633 |
-| Maximum recipient lead (listings)           |             2 |               2 |             2 |               2 |
-| Resumed transport drain / queue age p95 (s) | 16.56 / 24.58 |   32.99 / 49.07 | 15.37 / 22.36 |   30.76 / 44.76 |
-| Final SQLite / WAL before close (MiB)       | 76.70 / 75.39 | 152.64 / 150.01 | 76.71 / 75.39 | 152.65 / 150.01 |
+| Metric                                      |        Go 500 |      Rust 500 |
+| ------------------------------------------- | ------------: | ------------: |
+| Container peak RAM (MiB)                    |        197.89 |        185.58 |
+| Container peak range (MiB)                  | 196.32–198.55 | 185.29–187.48 |
+| Native process peak RSS (MiB)               |         23.08 |         16.08 |
+| Native CPU / wall (s)                       | 35.99 / 90.48 | 10.27 / 65.02 |
+| Routine classification / wall (s)           | 0.355 / 11.61 | 0.053 / 10.37 |
+| Catch-up classification / complete wall (s) | 1.810 / 27.09 | 1.489 / 24.89 |
+| Catch-up listings per wall second           |        147.65 |        160.74 |
+| Catch-up queue age p95 (s)                  |         25.70 |         23.79 |
+| Last first listing / allowed deadline (s)   | 8.377 / 8.596 | 7.714 / 8.243 |
+| Maximum recipient lead (listings)           |             2 |             2 |
+| Resumed transport drain / queue age p95 (s) | 16.56 / 24.58 | 15.37 / 22.36 |
+| Final SQLite / WAL before close (MiB)       | 76.70 / 75.39 | 76.71 / 75.39 |
 
-**Catch-up is not a consistently passing capacity claim.** Go missed the
-25.025-second target in all three 500-recipient runs (26.825–27.128 seconds),
-and the 50.050-second target in all three 1,000-recipient runs
-(54.048–54.834 seconds). Rust passed twice at 500 (24.879 and 24.885 seconds)
-but missed once (25.163 seconds); all three Rust 1,000-recipient runs passed
-(49.872–49.985 seconds). No threshold, workload or rate was relaxed, and the
-passing Rust median does not erase its failed individual run.
+**Catch-up is not a passing capacity claim.** Go missed the
+25.025-second target in all three runs (26.825–27.128 seconds).
+Rust passed twice (24.879 and 24.885 seconds) but missed once (25.163 seconds).
+No threshold, workload or rate was relaxed, and the passing Rust median does
+not erase its failed individual run.
 
 The scheduler fix establishes the declared fair-progress target in these runs;
 it does not eliminate classification and local persistence costs. Native CPU
@@ -153,7 +151,7 @@ migrations/backups, health/alerts, deployment and graceful shutdown integration.
 Implementation and acceptance took approximately 45 minutes of elapsed agent
 work, including parallel Astra-low native implementation, regression tests,
 independent reviews, review fixes, repository checks, two interrupted diagnostic
-attempts and the final sixteen sequential constrained replays. No human
+attempts and the sequential constrained replays. No human
 acceptance execution or production operation was required.
 
 ## Verification

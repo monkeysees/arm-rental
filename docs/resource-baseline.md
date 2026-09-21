@@ -15,12 +15,12 @@ node scripts/resource-baseline.js --scenario all > baseline-all.json
 node scripts/resource-baseline.js --scenario mixed > baseline-mixed.json
 ```
 
-Defaults are 1,000 active monitorings, 250 retained decisions per recipient,
+Defaults are 500 active monitorings, 250 retained decisions per recipient,
 20 fresh listings per batch, and two batches. `all` matches every recipient to
 every listing; `mixed` uses four price cohorts that each match one quarter of
 the listings. This is a synthetic fixture, not measured production traffic.
 
-Use `--history 4000` to exercise four million retained decisions. For a quick
+Use `--history 4000` to exercise two million retained decisions. For a quick
 harness check, use `--users 8 --listings 8 --history 10 --rate 20000`.
 `--users`, `--listings`, and `--history` control the workload. The default
 `--rate 20` uses the production per-recipient delivery rate, including history
@@ -79,59 +79,6 @@ node --test --test-name-pattern='a crawl never materializes' test/sqlite-state-a
 Additional tests cover returning notified/skipped/filtered listings,
 source-update redelivery, expired-listing classification, selection gates,
 large ID sets, scoped menu offers, and user deletion.
-
-## Historical measurements: September 10, 2026
-
-These results predate Chromium removal. They used Node 24.18.0 and Chromium
-152.0.7977.82, one CPU quota, no swap, and isolated disk-backed state. The old
-benchmark optionally fetched synthetic pages through Chromium; that mode has
-been removed. These files document the original diagnosis and are not current
-HTTP-runtime measurements or commands to reproduce the old browser setup.
-
-| Workload, 1,000 active monitorings                  | Memory limit | Worker peak RSS | Result                       |
-| --------------------------------------------------- | ------------ | --------------- | ---------------------------- |
-| All match; 250 decisions/recipient, before fix      | 512 MiB      | 138.5 MiB       | Passed                       |
-| Mixed filters; 250 decisions/recipient, before fix  | 512 MiB      | 125.9 MiB       | Passed                       |
-| All match; 4,000 decisions/recipient, before fix    | 512 MiB      | Not captured    | V8 heap exhausted            |
-| All match; 4,000 decisions/recipient, before fix    | 1 GiB        | 541.8 MiB       | Passed under memory pressure |
-| All match; 4,000 decisions/recipient, after fix     | 512 MiB      | 113.4 MiB       | Passed                       |
-| Mixed filters; 4,000 decisions/recipient, after fix | 512 MiB      | 108.8 MiB       | Passed                       |
-
-The fixed runs retained all four million decisions and delivered 40,000
-all-match or 10,000 mixed-filter messages without duplicates or pending work.
-Whole-container peaks still reached 512 MiB, including charged filesystem cache.
-These single runs establish removal of the heap failure, not spare capacity.
-
-Raw evidence:
-
-- [All-match baseline](benchmarks/2026-09-10-all-512m.json)
-- [Mixed-filter baseline](benchmarks/2026-09-10-mixed-512m.json)
-- [Larger history with 1 GiB](benchmarks/2026-09-10-history-4000-1g.json)
-- [Pre-fix failure with 512 MiB](benchmarks/2026-09-10-history-4000-before-512m.json)
-- [Fixed all-match run](benchmarks/2026-09-10-history-4000-all-scoped-512m.json)
-- [Fixed mixed-filter run](benchmarks/2026-09-10-history-4000-mixed-scoped-512m.json)
-
-## Current runtime verification: September 15, 2026
-
-Both offline scenarios passed on the Chromium-free application with Node
-24.18.0, 1,000 active monitorings, 4,000 retained decisions per recipient, and
-the default delivery rate. The coordinator and workers used a 256 MiB V8
-old-generation heap limit:
-
-```sh
-node --max-old-space-size=256 scripts/resource-baseline.js --history 4000 --scenario all
-node --max-old-space-size=256 scripts/resource-baseline.js --history 4000 --scenario mixed
-```
-
-The [all-match run](benchmarks/2026-09-15-history-4000-all-offline.json) delivered
-40,000 messages; the [mixed-filter run](benchmarks/2026-09-15-history-4000-mixed-offline.json)
-delivered 10,000. Each preserved all four million historical decisions, recovered
-pending deliveries after interruption, and detected zero duplicate deliveries.
-
-These runs validate the current integration and bounded-heap completion. They
-ran on a shared development host alongside tests, without a container memory
-limit, so their timings and RSS are not directly comparable to the historical
-512 MiB container results and do not establish production capacity.
 
 ## Production-shaped retained history
 

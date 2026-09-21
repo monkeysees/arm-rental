@@ -19,14 +19,14 @@ node experiments/node-replay/export.js /tmp/rental-replay-contract
 # Small integration/negative-oracle check, without performance claims.
 node --test test/node-replay.test.js
 
-# One full behavior run. Change 500 to 1000 for stress.
+# One full behavior run at the required population.
 docker run --rm --network none --cpus 1 --memory 512m --memory-swap 512m \
   -v "$PWD:/app:ro" -w /app node:24.18.0-bookworm-slim \
   node experiments/node-replay/run.js --users 500 --mode virtual \
   > /tmp/rental-replay-result.json
 node experiments/node-replay/verify.js /tmp/rental-replay-result.json
 
-# Complete protocol: virtual once, wall three times, at each population.
+# Complete protocol: virtual once, wall three times, at 500 recipients.
 # The output directory must not exist. Keep the source unchanged during runs.
 node experiments/node-replay/measure.js /tmp/rental-replay-measurements
 ```
@@ -51,8 +51,7 @@ can consume these JSON/HTML files without running Node application code. The
 fixture generator and independent result verifier are experiment tools only.
 
 Every recipient retains **6,563 decisions**: 5,442 extant listings and 1,121
-absent listings. That is 3,281,500 decisions at 500 recipients and 6,563,000 at
-1,000. This preserves the rounded per-recipient density of the earlier
+absent listings. That is 3,281,500 decisions at 500 recipients. This preserves the rounded per-recipient density of the earlier
 577,501-decision/88-recipient harness, using its real HTML → crawl → SQLite
 approach. Four equal recipient cohorts match one quarter of listings through
 exact AMD price filters: 100,000, 200,000, 300,000, or 400,000. One cohort also
@@ -62,7 +61,7 @@ fixed 400 AMD/USD snapshot. Locations, room counts, area, floor, canonical URL,
 original/canonical price, kind, title, and per-recipient order are asserted.
 
 The seed marks matching extant/absent IDs notified and nonmatches filtered.
-All four cohorts exist in both populations. Seed timestamps and listing IDs are
+All four cohorts exist in the workload. Seed timestamps and listing IDs are
 synthetic. Category HTML is descending by ID; expected deliveries are ascending
 within each cohort, reflecting oldest-first delivery with the stable source
 order for equal displayed posting dates. The September 15 retained cards and
@@ -104,8 +103,8 @@ and may fail.
 ## Rate, time, fairness, and interruption
 
 The declared routine workload is **8 source updates plus 8 fresh cards per
-60-second interval**: four delivered listings per recipient, or 2,000/4,000
-messages at the two populations. Catch-up is a separate burst of eight selected
+60-second interval**: four delivered listings per recipient, or 2,000
+messages at 500 recipients. Catch-up is a separate burst of eight selected
 listings plus an announcement per recipient. Transport takes 5 ms per attempt.
 The global simulated ceiling is 200 attempts/second, in addition to the real
 per-recipient limiter's 20 messages/minute and initial burst of five. Announcements
@@ -166,7 +165,7 @@ charges. It is broader than process RSS and includes fixture seeding and bootstr
 No forced GC or deliberate host cache flush is performed. Separate worker
 processes seed, exercise/interruption, and resume. The seed database is not reused
 between runs. Runs execute sequentially, with one virtual run followed by three
-wall runs per population. Source SHA-256 hashes accompany every result; the
+wall runs at 500 recipients. Source SHA-256 hashes accompany every result; the
 measurement manifest records exact Docker arguments and image identity.
 
 Idle memory is sampled just after each worker opens SQLite. Steady memory is
@@ -199,19 +198,15 @@ whole-machine fit or a meaningful language improvement.
 
 ## Results and acceptance
 
-All eight full replays passed the independent behavior verifier: one virtual run
-and three wall runs at each population. All measured source hashes match the
-checked-in implementation. The [raw manifest](benchmarks/node-replay/final/manifest.json)
+All four retained full replays passed the independent behavior verifier: one virtual run
+and three wall runs at 500 recipients. Original source hashes identify the
+measured implementation. The [raw manifest](benchmarks/node-replay/final/manifest.json)
 records exact commands, host details, image identity, timestamps, and individual
 capacity verdicts. Raw wall results are available for
 [500 run 1](benchmarks/node-replay/final/500-wall-1.json),
 [run 2](benchmarks/node-replay/final/500-wall-2.json),
-[run 3](benchmarks/node-replay/final/500-wall-3.json), and
-[1,000 run 1](benchmarks/node-replay/final/1000-wall-1.json),
-[run 2](benchmarks/node-replay/final/1000-wall-2.json),
-[run 3](benchmarks/node-replay/final/1000-wall-3.json).
-The [500](benchmarks/node-replay/final/500-virtual-1.json) and
-[1,000](benchmarks/node-replay/final/1000-virtual-1.json) virtual results are
+[run 3](benchmarks/node-replay/final/500-wall-3.json). The
+[virtual result](benchmarks/node-replay/final/500-virtual-1.json) is
 behavioral evidence only.
 
 The table reports medians of the three wall runs. Steady entries first take the
@@ -220,47 +215,37 @@ worker immediately after opening the seeded database. Process peak is the maximu
 worker lifetime RSS high-water mark in each replay; the primary service peak is
 the whole-container cgroup peak. MiB means 1,048,576 bytes.
 
-| Metric                                                      |          500 recipients |         1,000 recipients |
-| ----------------------------------------------------------- | ----------------------: | -----------------------: |
-| Process RSS, idle / steady / peak (MiB)                     |    79.6 / 115.2 / 147.4 |     80.6 / 115.1 / 148.2 |
-| Service memory, idle / steady / peak (MiB)                  |   132.7 / 173.1 / 282.4 |    217.6 / 256.7 / 450.7 |
-| Primary service-peak range (MiB)                            |             281.6–284.9 |              450.0–459.1 |
-| Unchanged crawl CPU / wall (ms)                             |           414.5 / 600.9 |          733.0 / 1,092.7 |
-| One-time seeded-history reconciliation wall (s)             |                    86.4 |                    175.5 |
-| Routine classification / CPU / wall (s)                     |     2.12 / 4.52 / 15.27 |     4.18 / 11.57 / 30.45 |
-| Catch-up classification / CPU / drain (s)                   | 93.92 / 101.13 / 123.00 | 190.57 / 211.60 / 247.60 |
-| Catch-up listings per wall second, including classification |                   32.52 |                    32.31 |
-| Catch-up queue age p95 (s)                                  |                  121.46 |                   244.50 |
-| First listing per recipient, p95 / maximum age (s)          |         102.16 / 106.23 |          209.16 / 220.01 |
-| Resumed drain / resumed queue age p95 (s)                   |           22.51 / 32.64 |            44.80 / 64.50 |
-| Final database / WAL (MiB)                                  |            87.06 / 4.16 |            170.47 / 4.19 |
+| Metric                                                      |          500 recipients |
+| ----------------------------------------------------------- | ----------------------: |
+| Process RSS, idle / steady / peak (MiB)                     |    79.6 / 115.2 / 147.4 |
+| Service memory, idle / steady / peak (MiB)                  |   132.7 / 173.1 / 282.4 |
+| Primary service-peak range (MiB)                            |             281.6–284.9 |
+| Unchanged crawl CPU / wall (ms)                             |           414.5 / 600.9 |
+| One-time seeded-history reconciliation wall (s)             |                    86.4 |
+| Routine classification / CPU / wall (s)                     |     2.12 / 4.52 / 15.27 |
+| Catch-up classification / CPU / drain (s)                   | 93.92 / 101.13 / 123.00 |
+| Catch-up listings per wall second, including classification |                   32.52 |
+| Catch-up queue age p95 (s)                                  |                  121.46 |
+| First listing per recipient, p95 / maximum age (s)          |         102.16 / 106.23 |
+| Resumed drain / resumed queue age p95 (s)                   |           22.51 / 32.64 |
+| Final database / WAL (MiB)                                  |            87.06 / 4.16 |
 
-Routine work met the 60-second crawl target in all six wall runs: 15.22–15.44
-seconds at 500 and 30.36–31.06 at 1,000. Routine classification alone took
-2.11–2.13 and 4.01–4.70 seconds respectively. Unchanged-crawl per-run median CPU
-varied from 377.0–418.6 ms at 500 and 685.6–740.9 ms at 1,000.
+Routine work met the 60-second crawl target in all three wall runs:
+15.22–15.44 seconds. Routine classification alone took 2.11–2.13 seconds.
+Unchanged-crawl per-run median CPU varied from 377.0–418.6 ms.
 
 **Catch-up failed the permitted-rate target in every wall run.** Its allowed
-drain time was 25.025 seconds at 500 and 50.050 at 1,000, whereas measured drain
-was 122.44–123.17 and 245.90–248.98 seconds. Full-history classification dominated
-this cost and itself exceeded a 60-second interval. The one-time bootstrap cost
-is also above that interval; it remains separately reported rather than being
-included in steady unchanged-crawl timings. A synchronized catch-up burst can
-therefore delay subsequent crawls even though routine incremental work keeps pace.
+drain time was 25.025 seconds, whereas measured drain was 122.44–123.17 seconds.
+Full-history classification dominated this cost and itself exceeded a 60-second
+interval. The one-time bootstrap cost is also above that interval; it remains
+separately reported. A synchronized catch-up burst can delay subsequent crawls
+even though routine incremental work keeps pace.
 
-The 500-recipient fair-progress target passed in all three runs. At 1,000 it
-passed twice and failed once: the first run's last recipient received its first
-listing at 224.562 seconds against an allowed 223.810 seconds. The other runs
-recorded 220.007/220.486 and 217.375/221.728 seconds (observed/allowed). Every
-recipient eventually progressed, but the declared stress fairness target was
-not met consistently. These individual results and maximum-recipient-lead
-measurements are retained rather than replaced with a passing median verdict.
-
-Both populations completed under the 512 MiB application limit without swap or
-OOM. Process RSS alone would understate the accounting boundary substantially,
-especially at 1,000 recipients. Whole-machine/Pi fit remains unvalidated for the
-reasons above. No workload, history density, rate, or acceptance threshold was
-relaxed after measurement.
+The fair-progress target passed in all three runs. All runs completed under
+the 512 MiB application limit without swap or OOM. Process RSS alone would
+understate the accounting boundary substantially. Whole-machine/Pi fit remains
+unvalidated for the reasons above. The retained 500-recipient measurements,
+history density, rates and acceptance thresholds are unchanged.
 
 Local verification passed all **425 tests** on Node 24.18.0, including the replay
 and negative-oracle checks. Coverage was 94.56% lines, 88.22% branches, and 92.02%

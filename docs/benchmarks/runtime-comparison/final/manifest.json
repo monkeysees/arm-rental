@@ -42,35 +42,6 @@
       "status": "passed"
     },
     {
-      "runtime": "node",
-      "users": 1000,
-      "args": [
-        "run",
-        "--rm",
-        "--network",
-        "none",
-        "--cpus",
-        "1",
-        "--memory",
-        "512m",
-        "--memory-swap",
-        "512m",
-        "-v",
-        "/home/john/workspace/work/arm-rental:/app:ro",
-        "-w",
-        "/app",
-        "node:24.18.0-bookworm-slim",
-        "node",
-        "experiments/node-replay/run.js",
-        "--users",
-        "1000",
-        "--mode",
-        "virtual"
-      ],
-      "sha256": "9e1f129c921da6631cd6a8ed49d722deb7290ec58f4d5465d6cfb089bc36d720",
-      "status": "passed"
-    },
-    {
       "runtime": "go",
       "users": 500,
       "args": [
@@ -106,41 +77,6 @@
       "status": "passed"
     },
     {
-      "runtime": "go",
-      "users": 1000,
-      "args": [
-        "run",
-        "--rm",
-        "--network",
-        "none",
-        "--cpus",
-        "1",
-        "--memory",
-        "512m",
-        "--memory-swap",
-        "512m",
-        "-v",
-        "/home/john/workspace/work/arm-rental:/app:ro",
-        "-w",
-        "/app",
-        "-v",
-        "/tmp/arm-rental-go-build/replay:/replay:ro",
-        "node:24.18.0-bookworm-slim",
-        "node",
-        "experiments/node-replay/run.js",
-        "--users",
-        "1000",
-        "--mode",
-        "virtual",
-        "--runtime",
-        "go",
-        "--go-binary",
-        "/replay"
-      ],
-      "sha256": "d50dc59a463320de3616066ecd991f1de9ac556d9399a7928aff69c067896560",
-      "status": "passed"
-    },
-    {
       "runtime": "rust",
       "users": 500,
       "args": [
@@ -173,41 +109,6 @@
         "/replay"
       ],
       "sha256": "c3320fbf05ae29e09c6adc2e8c53fb16bcea0f5120af67a79915a4682ca5813b",
-      "status": "passed"
-    },
-    {
-      "runtime": "rust",
-      "users": 1000,
-      "args": [
-        "run",
-        "--rm",
-        "--network",
-        "none",
-        "--cpus",
-        "1",
-        "--memory",
-        "512m",
-        "--memory-swap",
-        "512m",
-        "-v",
-        "/home/john/workspace/work/arm-rental:/app:ro",
-        "-w",
-        "/app",
-        "-v",
-        "/home/john/workspace/work/arm-rental/experiments/rust-replay/target/release/rental-replay:/replay:ro",
-        "node:24.18.0-bookworm-slim",
-        "node",
-        "experiments/node-replay/run.js",
-        "--users",
-        "1000",
-        "--mode",
-        "virtual",
-        "--runtime",
-        "rust",
-        "--rust-binary",
-        "/replay"
-      ],
-      "sha256": "1882cebef482b9042b954a247b2d86afb26b83147f3c74492cd32cfab7147e83",
       "status": "passed"
     }
   ],

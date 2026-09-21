@@ -85,7 +85,7 @@ for (const runtime of ["node", "go", "rust"]) {
   const manifest = json(path.join(values[runtime], "manifest.json"));
   assert(manifest.finishedAt, "Incomplete measurement manifest");
   assert.match(manifest.imageId, /^sha256:[a-f0-9]{64}$/);
-  assert.equal(manifest.runs.length, 8);
+  assert.equal(manifest.runs.length, contract.populations.length * 4);
   const results = {};
   let sourceHashes, binary;
   for (const users of contract.populations) {
@@ -198,11 +198,7 @@ for (const users of contract.populations) {
     );
     const failures = runs.flatMap(({ capacity }, index) =>
       Object.entries(capacity)
-        .filter(
-          ([key, value]) =>
-            (value === false || value === null) &&
-            !(users === 1000 && key === "catchupWithinPermittedRateTarget"),
-        )
+        .filter(([, value]) => value === false || value === null)
         .map(([key]) => ({ run: index + 1, criterion: key })),
     );
     const reduction = 1 - metrics.servicePeakBytes.median / nodePeak;
@@ -245,7 +241,7 @@ console.log(
         ]),
       ),
       populations,
-      qualifiesAtBothPopulations: Object.fromEntries(
+      qualifiesAtRequiredPopulation: Object.fromEntries(
         ["go", "rust"].map((runtime) => [
           runtime,
           contract.populations.every(

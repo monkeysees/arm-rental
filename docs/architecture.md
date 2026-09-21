@@ -1372,20 +1372,20 @@ measurement boundary. This work does not deploy or replace production.
 
 `experiments/node-replay/` exercises the existing parser, normalization, filters,
 SQLite classification, private scheduler, acknowledgements, and process restart
-with deterministic 500/1,000-recipient fixtures. Its exported JSON/HTML contract
+with deterministic 500-recipient fixtures. Its exported JSON/HTML contract
 and independent result oracle are shared comparison inputs, not production
 components. The [baseline protocol](node-replay-baseline.md) separates virtual
 behavior checks from wall measurements and defines the cgroup RAM boundary;
 local application-container results do not establish whole-machine Pi capacity.
 
 `experiments/go-replay/` consumes the exported fixture contract for the isolated
-500/1,000-recipient Go replay. A single SQLite writer stores source revisions and
+500-recipient Go replay. A single SQLite writer stores source revisions and
 compact decisions, queries recent catch-up candidates, and supplies pending
 payloads to a bounded fair event loop. The shared runner/verifier executes an
 unclean exercise exit and a new resume process. See [Go replay choices and
 measurements](go-replay-slice.md).
 
-`experiments/rust-replay/` implements the same isolated 500/1,000-recipient replay in
+`experiments/rust-replay/` implements the same isolated 500-recipient replay in
 Rust with HTML5 fixture parsing, bundled SQLite, incremental revisions, compact
 integer decisions, and a single bounded delivery scheduler. The native runner
 and independent full-contract oracle are shared with Go. No production component imports

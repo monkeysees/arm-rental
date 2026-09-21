@@ -6,7 +6,7 @@ The runtime and deployment in production are unchanged. All experiment work stay
 on `experiment/22-runtime-comparison`.
 
 The current executable also implements the [full interruption/recovery and
-1,000-recipient follow-up](native-replay-recovery.md). Measurements below retain
+fair-progress follow-up](native-replay-recovery.md). Measurements below retain
 the original #30 slice scope; use the follow-up for current acceptance results.
 
 ## Reproduce
@@ -49,7 +49,7 @@ The standalone executable accepts `--fixtures EXPORTED_DIRECTORY --database
 NEW_SQLITE_PATH --users 500 --mode virtual|wall`; it refuses existing database
 files in `--stage exercise`, then exits 23 after interrupted delivery.
 `--stage resume` requires the existing database. The shared runner invokes both
-stages. Populations 500 and 1,000 are supported; four recipients are diagnostic.
+stages. 500 recipients are supported; four recipients are diagnostic.
 
 ## Implemented boundary
 
@@ -124,7 +124,7 @@ every recipient. Both are potentially transferable Node improvements, but their
 impact needs a separate production-contract review before adoption.
 
 The original #30 slice did not include forced interruption, a new-process crash recovery
-suffix, the returning-absent-card phase, or the 1,000-recipient stress gate. The
+suffix or the returning-absent-card phase. The
 full Node verifier retained those requirements; the original Go scope did not
 claim to pass them. The follow-up linked above implements them. The original
 clean close/reopen was within the same process. The prototype still omits bot

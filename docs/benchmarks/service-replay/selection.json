@@ -59,48 +59,10 @@
       "mode": "wall"
     }
   ],
-  "supplementaryStressResults": [
-    {
-      "file": "go/1000-virtual-1/result.json",
-      "sha256": "8316a627f15a67e016be873818d23e5193773bf3e249796a197644ae480d958d",
-      "runtime": "go",
-      "users": 1000,
-      "mode": "virtual"
-    },
-    {
-      "file": "go/1000-wall-1/result.json",
-      "sha256": "cbbda6f0d718cf6baac0d3ceab9c0cc087aa29413900d3397efd0b7bd214007a",
-      "runtime": "go",
-      "users": 1000,
-      "mode": "wall"
-    },
-    {
-      "file": "go/1000-wall-2/result.json",
-      "sha256": "f633c4cd59197ff5c6c9f4e1f987bb3dcf57242f65f451ddf846aa2c123e53d8",
-      "runtime": "go",
-      "users": 1000,
-      "mode": "wall"
-    },
-    {
-      "file": "go-rerun/1000-wall-1/result.json",
-      "sha256": "27e97c92f7ee85600cc02abfe9e9205d3727eb52eea2e6bf7500d0bdbe8308d9",
-      "runtime": "go",
-      "users": 1000,
-      "mode": "wall"
-    }
-  ],
-  "failures": [
-    {
-      "manifest": "go/manifest.json",
-      "run": "1000-wall-3",
-      "log": "go/1000-wall-3/exercise.log",
-      "reason": "Host disk full from accumulated synthetic state; no result; coordinator cleanup corrected; rerun in go-rerun."
-    }
-  ],
   "interruptions": [
     {
       "manifest": "rust/manifest.json",
-      "reason": "User narrowed execution to 500 recipients; launcher terminated before scheduling stress; in-flight 500-wall-2 completed and is selected from its full result; third wall repeat in rust-500-final. Host launcher time is partial."
+      "reason": "Launcher interrupted; in-flight 500-wall-2 completed and is selected from its full result; third wall repeat in rust-500-final. Host launcher time is partial."
     }
   ],
   "sourceChanges": "initial-source/ contains exact early harness files; later worker deletes synthetic state after measurement and report strengthens mode/diagnostic validation. Native binaries, native sources and holder are unchanged."

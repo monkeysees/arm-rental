@@ -6,7 +6,7 @@ All changes stay on `experiment/22-runtime-comparison`; production runtime and
 deployment are unchanged.
 
 The current executable also implements the [full interruption/recovery and
-1,000-recipient follow-up](native-replay-recovery.md). Measurements below retain
+fair-progress follow-up](native-replay-recovery.md). Measurements below retain
 the original #31 slice scope; use the follow-up for current acceptance results.
 
 ## Reproduce
@@ -46,7 +46,7 @@ the JavaScript repository has no separate typechecking command. Cargo.lock pins
 all dependencies. Build downloads happen before measurement; replay containers
 have networking disabled. The standalone binary accepts `--fixtures DIRECTORY
 --database NEW_SQLITE_PATH --users 500 --mode virtual|wall`. Four recipients are
-supported for diagnostics; 500 and 1,000 run the full recovery contract.
+supported for diagnostics; 500 runs the full recovery contract.
 `--stage exercise` refuses existing database paths and exits 23 after interrupted
 delivery; `--stage resume` requires existing state. The shared runner invokes both.
 
@@ -82,7 +82,7 @@ against independently authored expected outputs. Clean reopen checks persisted
 acknowledgements before another unchanged crawl, requires zero additional sends,
 and verifies retained decision counts and absent-history status/timestamps.
 Focused executable tests also mutate source USD prices, reject unknown currency,
-check slower transport/retry behavior, refuse existing state and stress scope,
+check slower transport/retry behavior and refuse existing state,
 and demonstrate that the oracle rejects wrong ordering and currency. The runner
 flushes its entire JSON result beyond the pipe-buffer boundary.
 
@@ -118,7 +118,7 @@ production behavior review. Delivery observations are retained for the oracle,
 so their memory is part of this experiment, not a production queue design.
 
 The original #31 slice omitted forced interruption, new-process crash recovery,
-returning absent cards and 1,000 recipients; the follow-up linked above adds them.
+returning absent cards; the follow-up linked above adds them.
 Remaining omissions: bot polling/conversations, deletion and filter-release
 prompts, public channels, live HTTP and CBA refresh, arbitrary date parsing,
 pagination/watermarks, migrations, backup, health/alerts, deployment and shutdown
@@ -184,7 +184,7 @@ sweep; bounded slots, valid rate/retry behavior and eventual progress do not
 ensure this latency target. The miss remains evidence for the parent runtime
 comparison, not a relaxed threshold or a production-readiness claim. This ticket
 implements and measures the requested slice; the broader runtime decision and
-recovery/stress gates remain open.
+recovery gates remained open until the follow-up.
 
 Verification: all 425 repository tests passed on Node 24.18.0 with 94.57% line
 and 88.39% branch coverage. Rust's five executable tests, Cargo check, Clippy with

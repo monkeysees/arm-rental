@@ -32,6 +32,11 @@ test("comparison report gates RAM claims on complete behavior and capacity evide
       stdio: ["ignore", "pipe", "pipe"],
     });
   const report = JSON.parse(run());
+  assert.deepEqual(Object.keys(report.populations), ["500"]);
+  assert.deepEqual(report.qualifiesAtRequiredPopulation, {
+    go: false,
+    rust: false,
+  });
   assert.equal(report.populations["500"].go.qualifies, false);
   assert.equal(report.populations["500"].go.ramReductionAtLeast25Percent, true);
   assert.equal(report.populations["500"].go.allCapacityRunsPassed, false);

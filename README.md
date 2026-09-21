@@ -45,7 +45,7 @@ for bounded memory and fair progress as the recipient population grows. See the
 [concurrency benchmark](docs/private-concurrency-benchmark.md) for measurements.
 
 The isolated [Node replay baseline](docs/node-replay-baseline.md) defines the
-500/1,000-recipient behavior contract and resource measurements for the runtime
+500-recipient behavior contract and resource measurements for the runtime
 comparison experiment. It does not change production deployment.
 
 The [Go offline slice](docs/go-replay-slice.md) runs the shared 500-recipient
@@ -55,7 +55,7 @@ and clean reopen using the same local runner.
 The [Rust offline slice](docs/rust-replay-slice.md) runs the same 500-recipient
 fixture workload and clean-reopen checks through the shared local runner.
 
-Both prototypes now exercise [interruption recovery and 1,000-recipient
+Both prototypes now exercise [interruption recovery and fair
 progress](docs/native-replay-recovery.md) through separate processes using the
 full shared workload.
 

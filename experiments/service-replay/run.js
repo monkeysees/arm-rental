@@ -22,7 +22,7 @@ const {
     runtime: { type: "string" },
     holder: { type: "string" },
     "memory-bytes": { type: "string", default: "536870912" },
-    users: { type: "string", default: "500,1000" },
+    users: { type: "string", default: "500" },
     mode: { type: "string", default: "all" },
     repeats: { type: "string", default: "3" },
   },

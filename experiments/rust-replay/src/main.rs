@@ -111,13 +111,12 @@ fn replay(
     stage: &str,
 ) -> Result<Value> {
     let entered_at = unix_ms();
-    if ![4, 500, 1000].contains(&users)
+    if ![4, 500].contains(&users)
         || !["virtual", "wall"].contains(&mode)
         || !["exercise", "resume"].contains(&stage)
     {
         return Err(
-            "use --users 500|1000 (4 diagnostic), --mode virtual|wall, --stage exercise|resume"
-                .into(),
+            "use --users 500 (4 diagnostic), --mode virtual|wall, --stage exercise|resume".into(),
         );
     }
     if stage == "exercise" {

@@ -44,8 +44,8 @@ func Replay(directory, database string, users int, mode string, stage string) (R
 	if directory == "" || database == "" {
 		return result, fmt.Errorf("--fixtures and --database are required")
 	}
-	if (users != 4 && users != 500 && users != 1000) || (mode != "virtual" && mode != "wall") {
-		return result, fmt.Errorf("use --users 500|1000 (4 diagnostic), --mode virtual|wall")
+	if (users != 4 && users != 500) || (mode != "virtual" && mode != "wall") {
+		return result, fmt.Errorf("use --users 500 (4 diagnostic), --mode virtual|wall")
 	}
 	if stage != "exercise" && stage != "resume" {
 		return result, fmt.Errorf("invalid stage")
@@ -282,7 +282,7 @@ func observe(s *Store, users int, ids []string, out *PhaseResult) error {
 func main() {
 	fixtures := flag.String("fixtures", "", "exported contract directory")
 	database := flag.String("database", "", "new offline SQLite file")
-	users := flag.Int("users", 500, "500 or 1000 recipients (4 diagnostic)")
+	users := flag.Int("users", 500, "500 recipients (4 diagnostic)")
 	mode := flag.String("mode", "virtual", "virtual or wall")
 	stage := flag.String("stage", "exercise", "exercise or resume")
 	flag.Parse()

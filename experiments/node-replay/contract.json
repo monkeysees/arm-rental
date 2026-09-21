@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "populations": [500, 1000],
+  "populations": [500],
   "seed": {
     "listingCount": 5442,
     "absentCount": 1121,

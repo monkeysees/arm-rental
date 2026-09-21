@@ -68,7 +68,7 @@ async function execute(program, args, stdoutFile) {
 }
 // Gate every runtime and population before starting the final resource protocol.
 for (const runtime of ["node", "go", "rust"]) {
-  for (const users of [500, 1000]) {
+  for (const users of [500]) {
     const filename = path.join(output, "gates", `${runtime}-${users}.json`);
     const args = [
       "run",

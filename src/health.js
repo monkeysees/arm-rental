@@ -192,9 +192,8 @@ export class HealthMonitor {
         this.#setAlert("invalid_telegram_channel_permissions", true);
       }
       if (result.status === "source_challenge") {
-        // Preflight has no crawl behind it to answer the challenge, so a
-        // startup challenge is terminal and alerts on sight rather than
-        // waiting for a streak of crawls that will never run.
+        // Crawling is gated by startup preflight, so alert immediately;
+        // a successful preflight retry clears the challenge.
         this.sourceChallenge = {
           duringCrawl: false,
           consecutiveCrawls: this.sourceChallengeAlertCrawls,

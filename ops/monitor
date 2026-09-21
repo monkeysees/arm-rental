@@ -213,11 +213,16 @@ main() {
               "rentalctl logs --since 30m --event application.started";
               (($metrics.windows["10m"].applicationStarts | tostring)
                 + " application starts occurred within 10 minutes"))),
-        (select($readinessFailures >= 2)
+        (select($readinessFailures >= 2
+            or (was_firing("host_readiness_failure")
+              and $metrics.deployment.readiness != "ready"))
           | alert("host_readiness_failure"; "error"; "rentalctl status";
-              (($readinessFailures | tostring)
+              (if $readinessFailures >= 2 then (($readinessFailures | tostring)
                 + " consecutive readiness probes failed: "
-                + ($metrics.deployment.readinessAlertReasons | join(", "))))),
+                + ($metrics.deployment.readinessAlertReasons | join(", ")))
+               else ("readiness has not recovered: "
+                 + ($metrics.deployment.readinessReasons | join(", ")))
+               end))),
         (select($metrics.deployment.blockedCandidate != null)
           | alert("deployment_blocked"; "error";
               "journalctl -u rental-deploy.service --since -1h";
@@ -308,11 +313,6 @@ main() {
                  + (((.freeFraction * 1000) | round) / 10 | tostring)
                  + "% free")
                end))),
-        (select(($metrics.journal.diskBytes // 0) >= 966367642)
-          | alert("journal_capacity"; "warning";
-              "journalctl --disk-usage";
-              ("journal uses " + ($metrics.journal.diskBytes | tostring)
-                + " bytes; warning threshold is 966367642 bytes"))),
         ($metrics.timers[]?
           | select(
               (.activeState != null and .activeState != "active")

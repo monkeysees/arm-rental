@@ -252,6 +252,9 @@ export class ListAmHttpFetcher {
             "--disable",
             "--impersonate",
             PROFILE,
+            // Category navigation without this referrer can receive an edge challenge.
+            "--referer",
+            "https://www.list.am/ru/",
             "--compressed",
             "--silent",
             "--proto",

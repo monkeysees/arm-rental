@@ -127,6 +127,9 @@ snapshot retains `readinessReasons` and `readinessAlertReasons` so the host
 monitor honors the application's runtime challenge grace period. Probe
 timeouts, invalid responses, and transport failures remain alertable and
 appear as distinct stable codes in host readiness notifications.
+An already firing host readiness alert clears only after a successful fresh
+probe. Sampling gaps and container replacement reset the consecutive-failure
+count but do not establish recovery.
 It also reads the monitor's atomic alert state, so its human firing count and the
 JSON `monitorAlerts` array include database, capacity, deployment, and timer
 alerts as well as application alerts evaluated by the monitor. `metrics`
@@ -169,6 +172,8 @@ bounded 24-hour snapshot. If both edges occur between monitor runs, the monitor
 delivers both in order exactly once after a successful state update; a failed
 Telegram attempt remains retryable. This prevents a short source-integrity
 failure and recovery from disappearing between five-minute evaluations.
+Application alert transitions bypass the logger's repeated-failure suppression,
+so simultaneous alerts and a recurrence after recovery each reach the monitor.
 
 The evaluator covers application alerts, restart loops, two consecutive
 readiness failures, exhausted/missing containers, a quarantined candidate
@@ -178,10 +183,13 @@ capacity, and failed systemd jobs. Transaction latency is evaluated per bounded
 operation name only after at least 20 observations in the one-hour window. It
 fires when p95 exceeds 500 ms and, once firing, resolves only when p95 is at or
 below 250 ms (or the operation no longer has the minimum sample count).
-Filesystem capacity uses
+Data, backup, and journal filesystem capacity use
 the same available-bytes/total-bytes fraction as the hourly application storage
-check. It fires below 20% free and resolves only after reaching 25% free, which
-prevents integer `df` rounding from flapping the alert at one boundary. Messages include a safe,
+check. Each fires below 20% free and resolves only after reaching 25% free, which
+prevents integer `df` rounding from flapping the alert at one boundary.
+Journal bytes remain visible as a metric; reaching the normal retention limit
+does not fire an alert when the filesystem has adequate free space.
+Messages include a safe,
 bounded reason alongside the name, severity, first/last observation, host
 alias, source revision, and local runbook command. Application alerts may emit
 one `reason` or a `reasons` array; the monitor accepts only stable uppercase

@@ -120,7 +120,12 @@ export function createLogger(
       ...details,
     });
 
-    if (severity === "warn" || severity === "error") {
+    // Alert producers emit state transitions; suppressing an edge loses it forever.
+    if (
+      (severity === "warn" || severity === "error") &&
+      event !== "alert.firing" &&
+      event !== "alert.resolved"
+    ) {
       const signature = failureSignature(record);
       const previous = failures.get(signature);
       if (previous && timestampMs - previous.lastEmittedAt < failureWindowMs) {

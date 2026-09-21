@@ -402,10 +402,12 @@ Before either long-running loop starts, preflight validates the installed
 database identity/schema/pragmas/target and domain invariants, proves
 the singleton lease is held, authenticates the bot with Telegram, checks
 optional channel posting/editing permissions, verifies curl-impersonate,
-parses the List.am Regular Ads container, and obtains usable CBA rates.
+and obtains usable CBA rates before parsing the List.am Regular Ads container.
 Unsupported or target-mismatched state fails closed without changing the
-database. Startup emits one secret-free structured preflight result; only
-`status: "ready"` starts the bot.
+database. Each attempt emits a secret-free structured preflight result.
+Recoverable source failures keep Telegram controls available while preflight
+retries every minute (or after a longer valid `Retry-After`). Only
+`status: "ready"` permits crawling; source retries do not exhaust supervisor restarts.
 
 List.am challenges report the non-ready `source_challenge` status. Stop the
 service before running `npm run source:smoke`, which acquires its singleton

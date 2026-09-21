@@ -182,8 +182,8 @@ test("preflight validates every state target and all external boundaries before 
     "telegram:getChat",
     "telegram:getChatMember",
     "source:start",
-    "list:fetch",
     "rates:getSnapshot",
+    "list:fetch",
   ]);
 });
 
@@ -537,13 +537,14 @@ test("HTTP challenge is a distinct non-ready result", async (t) => {
       assert.equal(error.terminal, false);
       assert.equal(error.preflightResult.status, "source_challenge");
       assert.equal(error.preflightResult.checks.source_transport, "passed");
+      assert.equal(error.preflightResult.checks.exchange_rates, "passed");
       assert.equal(error.preflightResult.checks.list_am, "source_challenge");
       return true;
     },
   );
 });
 
-test("application logs one safe preflight result and never enters loops on challenge", async (t) => {
+test("application logs a safe source challenge and starts bot controls", async (t) => {
   const config = await temporaryConfig(t);
   const events = [];
   const records = [];
@@ -563,39 +564,36 @@ test("application logs one safe preflight result and never enters loops on chall
     close: async () => events.push("source:close"),
   };
 
-  await assert.rejects(
-    runApplication({
-      config,
-      sleep: async (milliseconds) => events.push(`cooldown:${milliseconds}`),
-      signalEmitter: new EventEmitter(),
-      logger: {
-        info: (message, context) => records.push({ message, context }),
-        warn: (message, context) => records.push({ message, context }),
-        error: (message, error, context) =>
-          records.push({ message, error, context }),
-      },
-      validateConfig: async () => events.push("storage"),
-      acquireLock: async () => singletonLock(config, events),
-      sourceFetcherFactory: (_sourceConfig, options) => {
-        sourceOptions = options;
-        return fakeSource;
-      },
-      exchangeRateServiceFactory: () => ({
-        getSnapshot: async () => ratesSnapshot(),
-      }),
-      stateBackendFactory: async () => ({
-        stateAccess: storedState(config),
-        close: () => events.push("state:close"),
-      }),
-      preflight: (preflightConfig, options) =>
-        runStartupPreflight(preflightConfig, {
-          ...options,
-          api: telegramApi(),
-        }),
-      runBot: async () => events.push("bot"),
+  await runApplication({
+    config,
+    sleep: async (milliseconds) => events.push(`cooldown:${milliseconds}`),
+    signalEmitter: new EventEmitter(),
+    logger: {
+      info: (message, context) => records.push({ message, context }),
+      warn: (message, context) => records.push({ message, context }),
+      error: (message, error, context) =>
+        records.push({ message, error, context }),
+    },
+    validateConfig: async () => events.push("storage"),
+    acquireLock: async () => singletonLock(config, events),
+    sourceFetcherFactory: (_sourceConfig, options) => {
+      sourceOptions = options;
+      return fakeSource;
+    },
+    exchangeRateServiceFactory: () => ({
+      getSnapshot: async () => ratesSnapshot(),
     }),
-    /challenged the HTTP session/iu,
-  );
+    stateBackendFactory: async () => ({
+      stateAccess: storedState(config),
+      close: () => events.push("state:close"),
+    }),
+    preflight: (preflightConfig, options) =>
+      runStartupPreflight(preflightConfig, {
+        ...options,
+        api: telegramApi(),
+      }),
+    runBot: async () => events.push("bot"),
+  });
 
   const preflightRecords = records.filter(
     ({ message }) => message === "Startup preflight completed",
@@ -626,7 +624,7 @@ test("application logs one safe preflight result and never enters loops on chall
   ]);
   assert.deepEqual(events, [
     "storage",
-    "cooldown:60000",
+    "bot",
     "source:close",
     "state:close",
     "lock:release",

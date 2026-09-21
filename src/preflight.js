@@ -393,6 +393,25 @@ export async function runStartupPreflight(
     }
     result.checks.source_transport = "passed";
 
+    let snapshot;
+    try {
+      snapshot = await exchangeRateService.getSnapshot(signal);
+    } catch (error) {
+      throw new PreflightError(
+        "exchange_rates",
+        "No usable persisted exchange rates exist and CBA retrieval failed.",
+        { cause: error, code: "ERR_PREFLIGHT_EXCHANGE_RATES" },
+      );
+    }
+    if (!compatibleExchangeRateSnapshot(snapshot)) {
+      throw new PreflightError(
+        "exchange_rates",
+        "Exchange-rate preflight did not produce a usable snapshot.",
+        { code: "ERR_PREFLIGHT_EXCHANGE_RATES" },
+      );
+    }
+    result.checks.exchange_rates = "passed";
+
     try {
       const response = await sourceFetcher.fetch(
         pageUrl(1, config.listUrlTemplate),
@@ -452,25 +471,6 @@ export async function runStartupPreflight(
       );
     }
     result.checks.list_am = "passed";
-
-    let snapshot;
-    try {
-      snapshot = await exchangeRateService.getSnapshot(signal);
-    } catch (error) {
-      throw new PreflightError(
-        "exchange_rates",
-        "No usable persisted exchange rates exist and CBA retrieval failed.",
-        { cause: error, code: "ERR_PREFLIGHT_EXCHANGE_RATES" },
-      );
-    }
-    if (!compatibleExchangeRateSnapshot(snapshot)) {
-      throw new PreflightError(
-        "exchange_rates",
-        "Exchange-rate preflight did not produce a usable snapshot.",
-        { code: "ERR_PREFLIGHT_EXCHANGE_RATES" },
-      );
-    }
-    result.checks.exchange_rates = "passed";
 
     return {
       ...result,

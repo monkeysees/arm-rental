@@ -12,6 +12,16 @@
 
 - Add an offline 500/1,000-recipient Node replay contract, independent result verification, durable restart checks, and repeated constrained-container resource measurements for the runtime experiment.
 
+- Keep Telegram controls available during recoverable startup source failures and retry preflight every minute without exhausting supervisor restarts; begin crawling only after recovery.
+
+- Alert on journal filesystem free space instead of normal retention usage, with the same recovery hysteresis as data and backups.
+
+- Keep firing host readiness alerts active across sampling gaps and container replacements until a fresh probe confirms recovery.
+
+- Preserve distinct and recurring application alert transitions instead of suppressing them as duplicate warnings.
+
+- Send the List.am navigation referrer with category requests to avoid the observed edge challenge while preserving browserless one-minute crawling.
+
 - Validate published image schema labels against the application schema version so upgrades no longer fail a stale publication check.
 
 - Bound private delivery to eight fair concurrent operations, release capacity during rate-limit and retry waits, and keep pending payloads out of recipient queues while preserving deletion and restart recovery.

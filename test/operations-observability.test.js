@@ -154,6 +154,7 @@ esac
 available=900
 case "\${!#}" in
   *rental-apartments-data*) available=$(cat "$RENTAL_TEST_DISK_AVAILABLE") ;;
+  /var/log/journal) available="\${RENTAL_TEST_JOURNAL_AVAILABLE:-900}" ;;
 esac
 used=$((1000 - available))
 printf 'Filesystem 1024-blocks Used Available Capacity Mounted\\n'
@@ -493,6 +494,35 @@ test("database busy exhaustion and other operation failures alert separately", a
   );
 });
 
+test("journal capacity follows filesystem pressure rather than retained log size", async (t) => {
+  const host = await fakeHost(t);
+  await executable(
+    join(host.bin, "du"),
+    "#!/bin/sh\nprintf '1048576\\t/var/log/journal\\n'\n",
+  );
+  for (const [available, firing] of [
+    [900, false],
+    [199, true],
+    [210, true],
+    [260, false],
+  ]) {
+    await execute(monitor, [], {
+      env: { ...host.env, RENTAL_TEST_JOURNAL_AVAILABLE: String(available) },
+    });
+    const state = JSON.parse(
+      await readFile(join(host.state, "alerts.json"), "utf8"),
+    );
+    assert.equal(
+      state.alerts.some(({ name }) => name === "journal_capacity"),
+      false,
+    );
+    assert.equal(
+      state.alerts.some(({ name }) => name === "filesystem_capacity_journal"),
+      firing,
+    );
+  }
+});
+
 test("filesystem alerts share the free-space calculation and resolve with hysteresis", async (t) => {
   const host = await fakeHost(t);
   await writeFile(host.diskAvailable, "199\n");
@@ -690,6 +720,42 @@ test("host monitoring preserves challenge grace without hiding stale crawling", 
   assert.match(
     state.alerts.find(({ name }) => name === "host_readiness_failure").reason,
     /CRAWL_STALE/u,
+  );
+});
+
+test("a firing readiness alert survives gaps and replacement until a ready probe", async (t) => {
+  const host = await fakeHost(t);
+  const stateFile = join(host.state, "alerts.json");
+  await writeFile(host.readinessExit, "1\n");
+  await execute(monitor, [], { env: host.env });
+  await execute(monitor, [], { env: host.env });
+  let state = JSON.parse(await readFile(stateFile, "utf8"));
+  assert.equal(
+    state.alerts.find(({ name }) => name === "host_readiness_failure")?.status,
+    "firing",
+  );
+
+  state.updatedAt = "2000-01-01T00:00:00Z";
+  await writeFile(stateFile, JSON.stringify(state));
+  await execute(monitor, [], { env: host.env });
+  state = JSON.parse(await readFile(stateFile, "utf8"));
+  assert.equal(state.readinessFailureCount, 1);
+  assert.equal(
+    state.alerts.find(({ name }) => name === "host_readiness_failure")?.status,
+    "firing",
+  );
+
+  await writeFile(host.containerStarted, "2026-07-25T11:56:00Z\n");
+  await execute(monitor, [], { env: host.env });
+  assert.doesNotMatch(
+    await readFile(host.env.RENTAL_TEST_CURL_PAYLOADS, "utf8"),
+    /alert resolved: host_readiness_failure/u,
+  );
+  await writeFile(host.readinessExit, "0\n");
+  await execute(monitor, [], { env: host.env });
+  assert.match(
+    await readFile(host.env.RENTAL_TEST_CURL_PAYLOADS, "utf8"),
+    /alert resolved: host_readiness_failure/u,
   );
 });
 

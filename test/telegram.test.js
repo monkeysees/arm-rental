@@ -1124,6 +1124,61 @@ test("bot startup begins metadata synchronization without blocking polling", asy
   );
 });
 
+test("source preflight gate allows Telegram polling but blocks crawling until recovery", async () => {
+  const controller = new AbortController();
+  const waiting = Promise.withResolvers();
+  const recovered = Promise.withResolvers();
+  let crawls = 0;
+  let polls = 0;
+  await runTelegramBot(
+    {
+      telegramBotToken: "token",
+      telegramOwnerId: 42,
+      telegramPollTimeoutSeconds: 25,
+      timeoutMs: 1_000,
+      pollIntervalMs: 60_000,
+    },
+    {
+      signal: controller.signal,
+      telegramState: {
+        version: 2,
+        type: "telegram-bot",
+        updateOffset: 0,
+        users: { 42: { active: true, chatId: 42 } },
+      },
+      beforeMonitoring: async () => {
+        waiting.resolve();
+        await recovered.promise;
+      },
+      api: {
+        getUpdates: async () => {
+          polls += 1;
+          await waiting.promise;
+          assert.equal(crawls, 0);
+          const stopped = new Promise((resolve) =>
+            controller.signal.addEventListener("abort", () => resolve([]), {
+              once: true,
+            }),
+          );
+          recovered.resolve();
+          return stopped;
+        },
+      },
+      crawl: async () => {
+        crawls += 1;
+        controller.abort();
+        return {
+          status: "no-new-apartments",
+          discoveredCount: 0,
+          notifiedCount: 0,
+        };
+      },
+    },
+  );
+  assert.equal(polls, 1);
+  assert.equal(crawls, 1);
+});
+
 test("metadata synchronization retries hourly after failure and stops after success", async () => {
   const controller = new AbortController();
   const failures = [];

@@ -1,0 +1,632 @@
+[
+  {
+    "file": "docs/benchmarks/service-replay/go/1000-virtual-1/result.json",
+    "runtime": "go",
+    "users": 1000,
+    "mode": "virtual",
+    "boundary": "native-service-only-v1",
+    "capacity": null,
+    "servicePeakBytes": 345640960,
+    "idleBytes": 327847936,
+    "steadyBytes": [
+      327974912,
+      327782400,
+      327892992
+    ],
+    "processPeakRssBytes": 28745728,
+    "serviceCpuStat": "usage_usec 63290521\nuser_usec 58725739\nsystem_usec 4564782\nnr_periods 713\nnr_throttled 504\nthrottled_usec 3106923\nnr_bursts 0\nburst_usec 0",
+    "harnessPeakBytes": 37593088,
+    "harnessCpuStat": "usage_usec 409218\nuser_usec 237610\nsystem_usec 171607\nnr_periods 218\nnr_throttled 0\nthrottled_usec 0\nnr_bursts 0\nburst_usec 0",
+    "phases": [
+      {
+        "name": "fresh",
+        "wallMs": 1534.791,
+        "drainMs": 10000,
+        "queueAgeP95Ms": 9500,
+        "queueAgeMaxMs": 10000,
+        "firstProgressMaxMs": 5000
+      },
+      {
+        "name": "catchup",
+        "wallMs": 8965.719,
+        "drainMs": 45500,
+        "queueAgeP95Ms": 43500,
+        "queueAgeMaxMs": 45500,
+        "firstProgressMaxMs": 11365
+      },
+      {
+        "name": "resumed",
+        "wallMs": 3667.005,
+        "drainMs": 30000,
+        "queueAgeP95Ms": 44500,
+        "queueAgeMaxMs": 46000,
+        "firstProgressMaxMs": 5000
+      }
+    ]
+  },
+  {
+    "file": "docs/benchmarks/service-replay/go/1000-wall-1/result.json",
+    "runtime": "go",
+    "users": 1000,
+    "mode": "wall",
+    "boundary": "native-service-only-v1",
+    "capacity": {
+      "routineWithinCrawlInterval": true,
+      "classificationWithinCrawlInterval": true,
+      "catchupIdealDrainMs": 45500,
+      "catchupWithinPermittedRateTarget": false,
+      "tolerance": 1.1,
+      "allRecipientsProgressed": true,
+      "fairProgressDeadlineMs": 15060.937,
+      "fairProgress": true,
+      "withinApplicationMemoryLimit": true
+    },
+    "servicePeakBytes": 346542080,
+    "idleBytes": 325857280,
+    "steadyBytes": [
+      325505024,
+      325443584,
+      326418432
+    ],
+    "processPeakRssBytes": 27922432,
+    "serviceCpuStat": "usage_usec 71231284\nuser_usec 64032648\nsystem_usec 7198635\nnr_periods 1818\nnr_throttled 498\nthrottled_usec 2934681\nnr_bursts 0\nburst_usec 0",
+    "harnessPeakBytes": 41463808,
+    "harnessCpuStat": "usage_usec 702403\nuser_usec 440870\nsystem_usec 261533\nnr_periods 572\nnr_throttled 1\nthrottled_usec 704\nnr_bursts 0\nburst_usec 0",
+    "phases": [
+      {
+        "name": "fresh",
+        "wallMs": 11338.832,
+        "drainMs": 10852.587,
+        "queueAgeP95Ms": 10620.73,
+        "queueAgeMaxMs": 11178.476999999999,
+        "firstProgressMaxMs": 5386.285
+      },
+      {
+        "name": "catchup",
+        "wallMs": 55189.527,
+        "drainMs": 50610.042,
+        "queueAgeP95Ms": 52441.383,
+        "queueAgeMaxMs": 54665.979,
+        "firstProgressMaxMs": 12099.906
+      },
+      {
+        "name": "resumed",
+        "wallMs": 33196.39,
+        "drainMs": 32811.071,
+        "queueAgeP95Ms": 48946.045,
+        "queueAgeMaxMs": 50559.546,
+        "firstProgressMaxMs": 5520.802
+      }
+    ]
+  },
+  {
+    "file": "docs/benchmarks/service-replay/go/1000-wall-2/result.json",
+    "runtime": "go",
+    "users": 1000,
+    "mode": "wall",
+    "boundary": "native-service-only-v1",
+    "capacity": {
+      "routineWithinCrawlInterval": true,
+      "classificationWithinCrawlInterval": true,
+      "catchupIdealDrainMs": 45500,
+      "catchupWithinPermittedRateTarget": false,
+      "tolerance": 1.1,
+      "allRecipientsProgressed": true,
+      "fairProgressDeadlineMs": 15115.615,
+      "fairProgress": true,
+      "withinApplicationMemoryLimit": true
+    },
+    "servicePeakBytes": 343330816,
+    "idleBytes": 327331840,
+    "steadyBytes": [
+      327622656,
+      327446528,
+      325672960
+    ],
+    "processPeakRssBytes": 29495296,
+    "serviceCpuStat": "usage_usec 71383011\nuser_usec 64081851\nsystem_usec 7301160\nnr_periods 1812\nnr_throttled 503\nthrottled_usec 2729852\nnr_bursts 0\nburst_usec 0",
+    "harnessPeakBytes": 40570880,
+    "harnessCpuStat": "usage_usec 646758\nuser_usec 376593\nsystem_usec 270164\nnr_periods 564\nnr_throttled 1\nthrottled_usec 10225\nnr_bursts 0\nburst_usec 0",
+    "phases": [
+      {
+        "name": "fresh",
+        "wallMs": 11379.875,
+        "drainMs": 10907.991,
+        "queueAgeP95Ms": 10687.501,
+        "queueAgeMaxMs": 11254.649,
+        "firstProgressMaxMs": 5426.014
+      },
+      {
+        "name": "catchup",
+        "wallMs": 54367.468,
+        "drainMs": 49755.474,
+        "queueAgeP95Ms": 51655.284,
+        "queueAgeMaxMs": 53866.089,
+        "firstProgressMaxMs": 12225.47
+      },
+      {
+        "name": "resumed",
+        "wallMs": 33487.197,
+        "drainMs": 33072.74,
+        "queueAgeP95Ms": 49368.239,
+        "queueAgeMaxMs": 51013.258,
+        "firstProgressMaxMs": 5552.074
+      }
+    ]
+  },
+  {
+    "file": "docs/benchmarks/service-replay/go/500-virtual-1/result.json",
+    "runtime": "go",
+    "users": 500,
+    "mode": "virtual",
+    "boundary": "native-service-only-v1",
+    "capacity": null,
+    "servicePeakBytes": 194293760,
+    "idleBytes": 190074880,
+    "steadyBytes": [
+      190132224,
+      190144512,
+      190291968
+    ],
+    "processPeakRssBytes": 32813056,
+    "serviceCpuStat": "usage_usec 31021201\nuser_usec 28986294\nsystem_usec 2034906\nnr_periods 348\nnr_throttled 246\nthrottled_usec 1553292\nnr_bursts 0\nburst_usec 0",
+    "harnessPeakBytes": 37486592,
+    "harnessCpuStat": "usage_usec 398719\nuser_usec 262984\nsystem_usec 135734\nnr_periods 117\nnr_throttled 1\nthrottled_usec 3988\nnr_bursts 0\nburst_usec 0",
+    "phases": [
+      {
+        "name": "fresh",
+        "wallMs": 709.026,
+        "drainMs": 5000,
+        "queueAgeP95Ms": 4750,
+        "queueAgeMaxMs": 5000,
+        "firstProgressMaxMs": 2500
+      },
+      {
+        "name": "catchup",
+        "wallMs": 4030.521,
+        "drainMs": 22750,
+        "queueAgeP95Ms": 21750,
+        "queueAgeMaxMs": 22750,
+        "firstProgressMaxMs": 6115
+      },
+      {
+        "name": "resumed",
+        "wallMs": 1815.456,
+        "drainMs": 15000,
+        "queueAgeP95Ms": 22750,
+        "queueAgeMaxMs": 23500,
+        "firstProgressMaxMs": 2500
+      }
+    ]
+  },
+  {
+    "file": "docs/benchmarks/service-replay/go/500-wall-1/result.json",
+    "runtime": "go",
+    "users": 500,
+    "mode": "wall",
+    "boundary": "native-service-only-v1",
+    "capacity": {
+      "routineWithinCrawlInterval": true,
+      "classificationWithinCrawlInterval": true,
+      "catchupIdealDrainMs": 22750,
+      "catchupWithinPermittedRateTarget": false,
+      "tolerance": 1.1,
+      "allRecipientsProgressed": true,
+      "fairProgressDeadlineMs": 7728.54,
+      "fairProgress": true,
+      "withinApplicationMemoryLimit": true
+    },
+    "servicePeakBytes": 189874176,
+    "idleBytes": 185925632,
+    "steadyBytes": [
+      186183680,
+      186253312,
+      186232832
+    ],
+    "processPeakRssBytes": 28778496,
+    "serviceCpuStat": "usage_usec 35433415\nuser_usec 31850544\nsystem_usec 3582870\nnr_periods 901\nnr_throttled 251\nthrottled_usec 1495304\nnr_bursts 0\nburst_usec 0",
+    "harnessPeakBytes": 40304640,
+    "harnessCpuStat": "usage_usec 542791\nuser_usec 353004\nsystem_usec 189787\nnr_periods 308\nnr_throttled 1\nthrottled_usec 9178\nnr_bursts 0\nburst_usec 0",
+    "phases": [
+      {
+        "name": "fresh",
+        "wallMs": 5655.208,
+        "drainMs": 5429.628,
+        "queueAgeP95Ms": 5312.461,
+        "queueAgeMaxMs": 5597.334,
+        "firstProgressMaxMs": 2711.987
+      },
+      {
+        "name": "catchup",
+        "wallMs": 26847.283,
+        "drainMs": 24857.332,
+        "queueAgeP95Ms": 25447.046000000002,
+        "queueAgeMaxMs": 26580.872,
+        "firstProgressMaxMs": 6515.56
+      },
+      {
+        "name": "resumed",
+        "wallMs": 16835.946,
+        "drainMs": 16599.035,
+        "queueAgeP95Ms": 24640.999,
+        "queueAgeMaxMs": 25507.369000000002,
+        "firstProgressMaxMs": 2787.175
+      }
+    ]
+  },
+  {
+    "file": "docs/benchmarks/service-replay/go/500-wall-2/result.json",
+    "runtime": "go",
+    "users": 500,
+    "mode": "wall",
+    "boundary": "native-service-only-v1",
+    "capacity": {
+      "routineWithinCrawlInterval": true,
+      "classificationWithinCrawlInterval": true,
+      "catchupIdealDrainMs": 22750,
+      "catchupWithinPermittedRateTarget": false,
+      "tolerance": 1.1,
+      "allRecipientsProgressed": true,
+      "fairProgressDeadlineMs": 7748.307,
+      "fairProgress": true,
+      "withinApplicationMemoryLimit": true
+    },
+    "servicePeakBytes": 191741952,
+    "idleBytes": 188317696,
+    "steadyBytes": [
+      188534784,
+      188190720,
+      188051456
+    ],
+    "processPeakRssBytes": 26218496,
+    "serviceCpuStat": "usage_usec 35301264\nuser_usec 31795634\nsystem_usec 3505629\nnr_periods 898\nnr_throttled 254\nthrottled_usec 1445917\nnr_bursts 0\nburst_usec 0",
+    "harnessPeakBytes": 38035456,
+    "harnessCpuStat": "usage_usec 474096\nuser_usec 332310\nsystem_usec 141786\nnr_periods 273\nnr_throttled 0\nthrottled_usec 0\nnr_bursts 0\nburst_usec 0",
+    "phases": [
+      {
+        "name": "fresh",
+        "wallMs": 5683.857,
+        "drainMs": 5463.182,
+        "queueAgeP95Ms": 5339.147,
+        "queueAgeMaxMs": 5627.465999999999,
+        "firstProgressMaxMs": 2740.631
+      },
+      {
+        "name": "catchup",
+        "wallMs": 26753.826,
+        "drainMs": 24747.332,
+        "queueAgeP95Ms": 25411.521,
+        "queueAgeMaxMs": 26490.639,
+        "firstProgressMaxMs": 6513.437
+      },
+      {
+        "name": "resumed",
+        "wallMs": 16513.914,
+        "drainMs": 16323.256,
+        "queueAgeP95Ms": 24316.116,
+        "queueAgeMaxMs": 25139.280000000002,
+        "firstProgressMaxMs": 2779.126
+      }
+    ]
+  },
+  {
+    "file": "docs/benchmarks/service-replay/go/500-wall-3/result.json",
+    "runtime": "go",
+    "users": 500,
+    "mode": "wall",
+    "boundary": "native-service-only-v1",
+    "capacity": {
+      "routineWithinCrawlInterval": true,
+      "classificationWithinCrawlInterval": true,
+      "catchupIdealDrainMs": 22750,
+      "catchupWithinPermittedRateTarget": false,
+      "tolerance": 1.1,
+      "allRecipientsProgressed": true,
+      "fairProgressDeadlineMs": 7739.677,
+      "fairProgress": true,
+      "withinApplicationMemoryLimit": true
+    },
+    "servicePeakBytes": 196739072,
+    "idleBytes": 188108800,
+    "steadyBytes": [
+      187760640,
+      187674624,
+      188403712
+    ],
+    "processPeakRssBytes": 28684288,
+    "serviceCpuStat": "usage_usec 35682704\nuser_usec 31744927\nsystem_usec 3937777\nnr_periods 906\nnr_throttled 255\nthrottled_usec 1567588\nnr_bursts 0\nburst_usec 0",
+    "harnessPeakBytes": 39968768,
+    "harnessCpuStat": "usage_usec 469957\nuser_usec 286753\nsystem_usec 183203\nnr_periods 300\nnr_throttled 0\nthrottled_usec 0\nnr_bursts 0\nburst_usec 0",
+    "phases": [
+      {
+        "name": "fresh",
+        "wallMs": 5761.747,
+        "drainMs": 5511.79,
+        "queueAgeP95Ms": 5410.472000000001,
+        "queueAgeMaxMs": 5696.193,
+        "firstProgressMaxMs": 2750.072
+      },
+      {
+        "name": "catchup",
+        "wallMs": 26902.619,
+        "drainMs": 24922.484,
+        "queueAgeP95Ms": 25545.016,
+        "queueAgeMaxMs": 26657.161,
+        "firstProgressMaxMs": 6523.393
+      },
+      {
+        "name": "resumed",
+        "wallMs": 16637.692,
+        "drainMs": 16437.783,
+        "queueAgeP95Ms": 24434.061999999998,
+        "queueAgeMaxMs": 25274.885,
+        "firstProgressMaxMs": 2767.088
+      }
+    ]
+  },
+  {
+    "file": "docs/benchmarks/service-replay/go-rerun/1000-wall-1/result.json",
+    "runtime": "go",
+    "users": 1000,
+    "mode": "wall",
+    "boundary": "native-service-only-v1",
+    "capacity": {
+      "routineWithinCrawlInterval": true,
+      "classificationWithinCrawlInterval": true,
+      "catchupIdealDrainMs": 45500,
+      "catchupWithinPermittedRateTarget": false,
+      "tolerance": 1.1,
+      "allRecipientsProgressed": true,
+      "fairProgressDeadlineMs": 14618.159,
+      "fairProgress": true,
+      "withinApplicationMemoryLimit": true
+    },
+    "servicePeakBytes": 351023104,
+    "idleBytes": 345165824,
+    "steadyBytes": [
+      345194496,
+      345186304,
+      345403392
+    ],
+    "processPeakRssBytes": 26365952,
+    "serviceCpuStat": "usage_usec 71398180\nuser_usec 64289511\nsystem_usec 7108669\nnr_periods 1807\nnr_throttled 512\nthrottled_usec 3220127\nnr_bursts 0\nburst_usec 0",
+    "harnessPeakBytes": 40841216,
+    "harnessCpuStat": "usage_usec 678863\nuser_usec 419298\nsystem_usec 259565\nnr_periods 577\nnr_throttled 1\nthrottled_usec 14045\nnr_bursts 0\nburst_usec 0",
+    "phases": [
+      {
+        "name": "fresh",
+        "wallMs": 11668.631,
+        "drainMs": 11116.832,
+        "queueAgeP95Ms": 10913.02,
+        "queueAgeMaxMs": 11496.002,
+        "firstProgressMaxMs": 5513.508
+      },
+      {
+        "name": "catchup",
+        "wallMs": 53813.066,
+        "drainMs": 49740.924,
+        "queueAgeP95Ms": 51189.329,
+        "queueAgeMaxMs": 53354.083,
+        "firstProgressMaxMs": 12174.926
+      },
+      {
+        "name": "resumed",
+        "wallMs": 33584.592,
+        "drainMs": 33189.985,
+        "queueAgeP95Ms": 49302.054000000004,
+        "queueAgeMaxMs": 50999.404,
+        "firstProgressMaxMs": 5520.697
+      }
+    ]
+  },
+  {
+    "file": "docs/benchmarks/service-replay/rust/500-virtual-1/result.json",
+    "runtime": "rust",
+    "users": 500,
+    "mode": "virtual",
+    "boundary": "native-service-only-v1",
+    "capacity": null,
+    "servicePeakBytes": 178864128,
+    "idleBytes": 176926720,
+    "steadyBytes": [
+      176926720,
+      176926720,
+      176926720
+    ],
+    "processPeakRssBytes": 16900096,
+    "serviceCpuStat": "usage_usec 8550109\nuser_usec 7309926\nsystem_usec 1240183\nnr_periods 125\nnr_throttled 6\nthrottled_usec 43\nnr_bursts 0\nburst_usec 0",
+    "harnessPeakBytes": 37900288,
+    "harnessCpuStat": "usage_usec 296003\nuser_usec 201625\nsystem_usec 94377\nnr_periods 53\nnr_throttled 0\nthrottled_usec 0\nnr_bursts 0\nburst_usec 0",
+    "phases": [
+      {
+        "name": "fresh",
+        "wallMs": 506.562097,
+        "drainMs": 5000,
+        "queueAgeP95Ms": 4750,
+        "queueAgeMaxMs": 5000,
+        "firstProgressMaxMs": 2500
+      },
+      {
+        "name": "catchup",
+        "wallMs": 3223.816367,
+        "drainMs": 22750,
+        "queueAgeP95Ms": 21750,
+        "queueAgeMaxMs": 22750,
+        "firstProgressMaxMs": 6115
+      },
+      {
+        "name": "resumed",
+        "wallMs": 1441.6544949999998,
+        "drainMs": 15000,
+        "queueAgeP95Ms": 22750,
+        "queueAgeMaxMs": 23500,
+        "firstProgressMaxMs": 2500
+      }
+    ]
+  },
+  {
+    "file": "docs/benchmarks/service-replay/rust/500-wall-1/result.json",
+    "runtime": "rust",
+    "users": 500,
+    "mode": "wall",
+    "boundary": "native-service-only-v1",
+    "capacity": {
+      "routineWithinCrawlInterval": true,
+      "classificationWithinCrawlInterval": true,
+      "catchupIdealDrainMs": 22750,
+      "catchupWithinPermittedRateTarget": true,
+      "tolerance": 1.1,
+      "allRecipientsProgressed": true,
+      "fairProgressDeadlineMs": 7392.971275,
+      "fairProgress": true,
+      "withinApplicationMemoryLimit": true
+    },
+    "servicePeakBytes": 179093504,
+    "idleBytes": 177328128,
+    "steadyBytes": [
+      177168384,
+      177168384,
+      177168384
+    ],
+    "processPeakRssBytes": 16945152,
+    "serviceCpuStat": "usage_usec 9809223\nuser_usec 8137842\nsystem_usec 1671381\nnr_periods 648\nnr_throttled 0\nthrottled_usec 0\nnr_bursts 0\nburst_usec 0",
+    "harnessPeakBytes": 37892096,
+    "harnessCpuStat": "usage_usec 456345\nuser_usec 299476\nsystem_usec 156868\nnr_periods 222\nnr_throttled 0\nthrottled_usec 0\nnr_bursts 0\nburst_usec 0",
+    "phases": [
+      {
+        "name": "fresh",
+        "wallMs": 5163.256083,
+        "drainMs": 5116.081646,
+        "queueAgeP95Ms": 4883.818253,
+        "queueAgeMaxMs": 5150.880843999999,
+        "firstProgressMaxMs": 2558.769793
+      },
+      {
+        "name": "catchup",
+        "wallMs": 24770.232821,
+        "drainMs": 23312.7556,
+        "queueAgeP95Ms": 23666.232528,
+        "queueAgeMaxMs": 24700.726875,
+        "firstProgressMaxMs": 6219.503703
+      },
+      {
+        "name": "resumed",
+        "wallMs": 15423.873467,
+        "drainMs": 15378.349871999999,
+        "queueAgeP95Ms": 22410.799420890624,
+        "queueAgeMaxMs": 23198.463130890625,
+        "firstProgressMaxMs": 2560.3522610000005
+      }
+    ]
+  },
+  {
+    "file": "docs/benchmarks/service-replay/rust/500-wall-2/result.json",
+    "runtime": "rust",
+    "users": 500,
+    "mode": "wall",
+    "boundary": "native-service-only-v1",
+    "capacity": {
+      "routineWithinCrawlInterval": true,
+      "classificationWithinCrawlInterval": true,
+      "catchupIdealDrainMs": 22750,
+      "catchupWithinPermittedRateTarget": true,
+      "tolerance": 1.1,
+      "allRecipientsProgressed": true,
+      "fairProgressDeadlineMs": 7345.732049,
+      "fairProgress": true,
+      "withinApplicationMemoryLimit": true
+    },
+    "servicePeakBytes": 178864128,
+    "idleBytes": 176943104,
+    "steadyBytes": [
+      176943104,
+      176943104,
+      176943104
+    ],
+    "processPeakRssBytes": 16801792,
+    "serviceCpuStat": "usage_usec 9608721\nuser_usec 7891573\nsystem_usec 1717148\nnr_periods 646\nnr_throttled 0\nthrottled_usec 0\nnr_bursts 0\nburst_usec 0",
+    "harnessPeakBytes": 37904384,
+    "harnessCpuStat": "usage_usec 425051\nuser_usec 279319\nsystem_usec 145732\nnr_periods 221\nnr_throttled 0\nthrottled_usec 0\nnr_bursts 0\nburst_usec 0",
+    "phases": [
+      {
+        "name": "fresh",
+        "wallMs": 5169.214478,
+        "drainMs": 5118.962887000001,
+        "queueAgeP95Ms": 4886.562400000001,
+        "queueAgeMaxMs": 5150.969696000001,
+        "firstProgressMaxMs": 2554.1884499999996
+      },
+      {
+        "name": "catchup",
+        "wallMs": 24685.318918,
+        "drainMs": 23273.827127,
+        "queueAgeP95Ms": 23583.235612999997,
+        "queueAgeMaxMs": 24614.559176000002,
+        "firstProgressMaxMs": 6219.74283
+      },
+      {
+        "name": "resumed",
+        "wallMs": 15429.975037,
+        "drainMs": 15387.987223,
+        "queueAgeP95Ms": 22437.179436109374,
+        "queueAgeMaxMs": 23226.821737109374,
+        "firstProgressMaxMs": 2560.264133
+      }
+    ]
+  },
+  {
+    "file": "docs/benchmarks/service-replay/rust-500-final/500-wall-1/result.json",
+    "runtime": "rust",
+    "users": 500,
+    "mode": "wall",
+    "boundary": "native-service-only-v1",
+    "capacity": {
+      "routineWithinCrawlInterval": true,
+      "classificationWithinCrawlInterval": true,
+      "catchupIdealDrainMs": 22750,
+      "catchupWithinPermittedRateTarget": true,
+      "tolerance": 1.1,
+      "allRecipientsProgressed": true,
+      "fairProgressDeadlineMs": 7386.7190900000005,
+      "fairProgress": true,
+      "withinApplicationMemoryLimit": true
+    },
+    "servicePeakBytes": 178843648,
+    "idleBytes": 176779264,
+    "steadyBytes": [
+      176779264,
+      176779264,
+      176779264
+    ],
+    "processPeakRssBytes": 16752640,
+    "serviceCpuStat": "usage_usec 9703477\nuser_usec 7990137\nsystem_usec 1713340\nnr_periods 646\nnr_throttled 0\nthrottled_usec 0\nnr_bursts 0\nburst_usec 0",
+    "harnessPeakBytes": 37756928,
+    "harnessCpuStat": "usage_usec 416176\nuser_usec 249705\nsystem_usec 166470\nnr_periods 219\nnr_throttled 1\nthrottled_usec 18808\nnr_bursts 0\nburst_usec 0",
+    "phases": [
+      {
+        "name": "fresh",
+        "wallMs": 5157.482676,
+        "drainMs": 5112.031847,
+        "queueAgeP95Ms": 4877.123212,
+        "queueAgeMaxMs": 5142.771332,
+        "firstProgressMaxMs": 2555.9142779999997
+      },
+      {
+        "name": "catchup",
+        "wallMs": 24755.402223,
+        "drainMs": 23324.51915,
+        "queueAgeP95Ms": 23675.001584999998,
+        "queueAgeMaxMs": 24706.23824,
+        "firstProgressMaxMs": 6221.400172
+      },
+      {
+        "name": "resumed",
+        "wallMs": 15433.096635,
+        "drainMs": 15387.781209,
+        "queueAgeP95Ms": 22445.252645843746,
+        "queueAgeMaxMs": 23223.87230784375,
+        "firstProgressMaxMs": 2558.9590639999997
+      }
+    ]
+  }
+]

@@ -1,0 +1,107 @@
+{
+  "boundary": "native-service-only-v1",
+  "requestedPopulation": 500,
+  "normalResults": [
+    {
+      "file": "go/500-virtual-1/result.json",
+      "sha256": "7e1b2ef869b94621d9b57a8d4677cc91813feaad5a552ccbf8c7059a59347c51",
+      "runtime": "go",
+      "users": 500,
+      "mode": "virtual"
+    },
+    {
+      "file": "go/500-wall-1/result.json",
+      "sha256": "2b86007f0b72c67e4a394f2ec27f4fd0c469e8da62f6bb4cd057eefdec732b8f",
+      "runtime": "go",
+      "users": 500,
+      "mode": "wall"
+    },
+    {
+      "file": "go/500-wall-2/result.json",
+      "sha256": "d4874f68be846c698ccca3759264e03fc01f7885604f97b7304290b94d3fd652",
+      "runtime": "go",
+      "users": 500,
+      "mode": "wall"
+    },
+    {
+      "file": "go/500-wall-3/result.json",
+      "sha256": "6fd6facafb557ed712670e7b6d4a9e41c738751b0e6d9e2afc70aa1e94b6cc55",
+      "runtime": "go",
+      "users": 500,
+      "mode": "wall"
+    },
+    {
+      "file": "rust/500-virtual-1/result.json",
+      "sha256": "fb12a148765ce40ef2e1c7f8c8dd3aa50d32b62be34bbfa03fb3b2172cc0c455",
+      "runtime": "rust",
+      "users": 500,
+      "mode": "virtual"
+    },
+    {
+      "file": "rust/500-wall-1/result.json",
+      "sha256": "74a37183904f26e28b939af0fc8e009ef644d51d0b8a3a8a03e79ce51dd0313a",
+      "runtime": "rust",
+      "users": 500,
+      "mode": "wall"
+    },
+    {
+      "file": "rust/500-wall-2/result.json",
+      "sha256": "c54f63431ddd587d7c95b10009b02750614990ceea0784e1135d30bfed499dab",
+      "runtime": "rust",
+      "users": 500,
+      "mode": "wall"
+    },
+    {
+      "file": "rust-500-final/500-wall-1/result.json",
+      "sha256": "17a924450feaf3644cdd8fe2ee416676b71355586451567ae38507fd709bb59c",
+      "runtime": "rust",
+      "users": 500,
+      "mode": "wall"
+    }
+  ],
+  "supplementaryStressResults": [
+    {
+      "file": "go/1000-virtual-1/result.json",
+      "sha256": "8316a627f15a67e016be873818d23e5193773bf3e249796a197644ae480d958d",
+      "runtime": "go",
+      "users": 1000,
+      "mode": "virtual"
+    },
+    {
+      "file": "go/1000-wall-1/result.json",
+      "sha256": "cbbda6f0d718cf6baac0d3ceab9c0cc087aa29413900d3397efd0b7bd214007a",
+      "runtime": "go",
+      "users": 1000,
+      "mode": "wall"
+    },
+    {
+      "file": "go/1000-wall-2/result.json",
+      "sha256": "f633c4cd59197ff5c6c9f4e1f987bb3dcf57242f65f451ddf846aa2c123e53d8",
+      "runtime": "go",
+      "users": 1000,
+      "mode": "wall"
+    },
+    {
+      "file": "go-rerun/1000-wall-1/result.json",
+      "sha256": "27e97c92f7ee85600cc02abfe9e9205d3727eb52eea2e6bf7500d0bdbe8308d9",
+      "runtime": "go",
+      "users": 1000,
+      "mode": "wall"
+    }
+  ],
+  "failures": [
+    {
+      "manifest": "go/manifest.json",
+      "run": "1000-wall-3",
+      "log": "go/1000-wall-3/exercise.log",
+      "reason": "Host disk full from accumulated synthetic state; no result; coordinator cleanup corrected; rerun in go-rerun."
+    }
+  ],
+  "interruptions": [
+    {
+      "manifest": "rust/manifest.json",
+      "reason": "User narrowed execution to 500 recipients; launcher terminated before scheduling stress; in-flight 500-wall-2 completed and is selected from its full result; third wall repeat in rust-500-final. Host launcher time is partial."
+    }
+  ],
+  "sourceChanges": "initial-source/ contains exact early harness files; later worker deletes synthetic state after measurement and report strengthens mode/diagnostic validation. Native binaries, native sources and holder are unchanged."
+}

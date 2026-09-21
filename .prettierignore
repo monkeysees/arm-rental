@@ -7,3 +7,4 @@ test/fixtures/list-am-real-shape/*.html
 docs/benchmarks/runtime-comparison/
 .scratch/
 experiments/rust-replay/target/
+docs/benchmarks/service-replay/

@@ -64,6 +64,10 @@ history classification and compares all three implementations with correctness
 gates, repeated measurements, curl transport accounting, and complete local
 runtime artifacts.
 
+The separate [native service-only replay](docs/service-replay.md) keeps the
+external Node harness outside the measured service cgroup while preserving the
+original native workers, recovery contract and comparison results.
+
 Private delivery makes one promise about time: a user is only ever sent
 apartments List.am posted or changed within the last 24 hours. Everything the
 crawl discovers is still stored, but an older card waits for its next List.am

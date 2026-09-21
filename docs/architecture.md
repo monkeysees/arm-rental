@@ -1397,3 +1397,14 @@ history and final queue exhaustion. The [recovery protocol and
 measurements](native-replay-recovery.md) retain the shared workload and memory
 boundary. A separate diagnostic models the external-acceptance/local-acknowledgement
 duplicate window; neither prototype claims exactly-once Telegram delivery.
+
+## Experimental service-only replay boundary
+
+`experiments/service-replay/` measures the unchanged native replay workers in a
+persistent service cgroup spanning exercise and unclean recovery. A small static
+native holder copies exported fixtures into service-owned tmpfs; SQLite state,
+filesystem cache and kernel charges remain in that cgroup. A separate Node
+harness container exports fixtures, coordinates workers, samples both boundaries
+and runs the independent oracle. Production code and deployment are unchanged;
+see [service replay](service-replay.md) for commands, resource attribution and
+limits on comparisons with the original whole-replay measurements.

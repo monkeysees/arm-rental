@@ -71,6 +71,10 @@ original native workers, recovery contract and comparison results.
 The native [backup and restore commands](docs/native-maintenance.md) preserve
 experimental replay state through validated, bounded-memory offline copies.
 
+The [native schema migration](docs/native-migration.md) upgrades the frozen
+unversioned Rust replay state to version 1 through a validated private copy,
+with source-preserving rollback and interruption/retry acceptance.
+
 The experimental Rust [bulk-write and WAL policy](docs/native-storage-policy.md)
 adds resumable seed batches and explicit checkpoint boundaries, with separate
 before/after measurements and unchanged per-message acknowledgement durability.

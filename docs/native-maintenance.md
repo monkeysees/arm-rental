@@ -14,7 +14,10 @@ writers can retain WAL indefinitely and invalidate the stopped-service disk budg
 Only the exact current native schema at the frozen shared replay contract's
 interrupted exercise boundary (4 diagnostic or 500 recipients) is supported.
 A completed resume has no pending suffix and is rejected. Incomplete seed imports, older schemas, production databases and unknown
-schema objects are rejected. There is no migration. Validation checks SQLite
+schema objects are rejected. Current commands require native schema version 1;
+use the explicit [version-0 migration](native-migration.md) for the supported
+older interrupted state. The historical evidence below used the pre-versioned
+#40 executable. Validation checks SQLite
 integrity, schema, decision domains, recovery metadata and the existing streaming
 historical-decision fingerprint. It also checks every active acknowledgement and
 pending decision against the frozen contract, including swaps that preserve totals.

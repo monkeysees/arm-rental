@@ -90,16 +90,17 @@ pub struct Store {
 }
 impl Store {
     pub fn open(path: &Path) -> Result<Self> {
+        // A rejected read-write connection can checkpoint a committed WAL on close.
+        // Validate existing state read-only before acquiring any writable connection.
+        if path.metadata().is_ok_and(|m| m.len() > 0) {
+            let existing =
+                Connection::open_with_flags(path, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY)?;
+            crate::schema::validate_current(&existing)?;
+        }
         let db = Connection::open(path)?;
         db.busy_timeout(Duration::from_secs(5))?;
-        db.execute_batch("PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL; PRAGMA wal_autocheckpoint=1000; PRAGMA journal_size_limit=4194304; PRAGMA cache_size=-512;
-            CREATE TABLE IF NOT EXISTS seed_input(id INTEGER PRIMARY KEY CHECK(id=1),input TEXT NOT NULL) STRICT;
-            CREATE TABLE IF NOT EXISTS seed_progress(id INTEGER PRIMARY KEY CHECK(id=1),next_row INTEGER NOT NULL,consumed INTEGER NOT NULL) STRICT;
-            CREATE TABLE IF NOT EXISTS listings(id INTEGER PRIMARY KEY,payload TEXT NOT NULL,revision INTEGER NOT NULL,posted INTEGER NOT NULL) STRICT;
-            CREATE TABLE IF NOT EXISTS decisions(user INTEGER NOT NULL,id INTEGER NOT NULL,status INTEGER NOT NULL,revision INTEGER NOT NULL,at INTEGER NOT NULL,PRIMARY KEY(user,id)) WITHOUT ROWID, STRICT;
-            CREATE INDEX IF NOT EXISTS pending ON decisions(user,status,id) WHERE status=0;
-            CREATE INDEX IF NOT EXISTS recent_revision ON listings(posted,id,revision);
-            DROP INDEX IF EXISTS recent;")?;
+        crate::schema::open(&db)?;
+        db.execute_batch("PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL; PRAGMA wal_autocheckpoint=1000; PRAGMA journal_size_limit=4194304; PRAGMA cache_size=-512;")?;
         Ok(Self {
             db,
             path: path.to_path_buf(),

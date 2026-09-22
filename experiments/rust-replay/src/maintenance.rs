@@ -30,20 +30,8 @@ fn open(path: &Path) -> Result<Connection> {
     db.execute_batch("PRAGMA trusted_schema=OFF; PRAGMA cache_size=-512; PRAGMA temp_store=FILE; PRAGMA query_only=ON; BEGIN")?;
     Ok(db)
 }
-fn schema(db: &Connection) -> Result<Vec<(String, String)>> {
-    let mut query = db.prepare(
-        "SELECT name,sql FROM sqlite_schema WHERE name NOT GLOB 'sqlite_*' ORDER BY name",
-    )?;
-    Ok(query
-        .query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?
-        .collect::<rusqlite::Result<_>>()?)
-}
-fn validate(db: Connection, path: &Path) -> Result<(Connection, Value)> {
-    let expected = Store::open(Path::new(":memory:"))?;
-    expected.db.execute_batch(crate::RECOVERY_SCHEMA)?;
-    if schema(&db)? != schema(&expected.db)? {
-        return Err("incompatible native replay schema; requires interrupted exercise".into());
-    }
+fn validate(db: Connection, path: &Path, version: i64) -> Result<(Connection, Value)> {
+    crate::schema::validate(&db, version, true)?;
     let integrity: String = db.query_row("PRAGMA integrity_check", [], |r| r.get(0))?;
     if integrity != "ok" {
         return Err(format!("corrupt database: {integrity}").into());
@@ -91,7 +79,7 @@ fn validate(db: Connection, path: &Path) -> Result<(Connection, Value)> {
             })?;
     Ok((store.db, json!({"decisionRows":rows,"pendingRows":pending})))
 }
-fn stop_at(stop: Option<&str>, boundary: &str) {
+pub(crate) fn stop_at(stop: Option<&str>, boundary: &str) {
     if stop == Some(boundary) {
         eprintln!("maintenance interruption at {boundary}");
         std::process::exit(26);
@@ -106,7 +94,7 @@ pub fn dispatch() -> Result<bool> {
     let Some(command) = args.next() else {
         return Ok(false);
     };
-    if !["backup", "validate", "restore"].contains(&command.as_str()) {
+    if !["backup", "validate", "restore", "migrate"].contains(&command.as_str()) {
         return Ok(false);
     }
     let (mut database, mut output, mut stop) = (None, None, None);
@@ -124,7 +112,11 @@ pub fn dispatch() -> Result<bool> {
     }
     if stop.as_deref().is_some_and(|s| {
         ![
+            "before-copy",
             "during-copy",
+            "during-migration",
+            "before-migration-commit",
+            "after-migration",
             "after-copy",
             "before-publish",
             "after-publish",
@@ -136,11 +128,24 @@ pub fn dispatch() -> Result<bool> {
     if command != "validate" && output.is_none() {
         return Err("--output NEW_DIRECTORY is required".into());
     }
+    if command != "migrate"
+        && stop
+            .as_deref()
+            .is_some_and(|s| s.contains("migration") || s == "before-copy")
+    {
+        return Err("migration interruption boundary requires migrate".into());
+    }
     let database = database.ok_or("--database is required")?;
     let start = Instant::now();
     let source_bytes = bytes(&database);
     let wal_bytes = bytes(&PathBuf::from(format!("{}-wal", database.display())));
-    let (source, counts) = validate(open(&database)?, &database)?;
+    let source_version = if command == "migrate" {
+        0
+    } else {
+        crate::schema::VERSION
+    };
+    let (source, counts) = validate(open(&database)?, &database, source_version)?;
+    stop_at(stop.as_deref(), "before-copy");
     let mut destination_bytes = 0;
     if let Some(output) = output {
         fs::DirBuilder::new().mode(0o700).create(&output)?;
@@ -179,8 +184,11 @@ pub fn dispatch() -> Result<bool> {
         stop_at(stop.as_deref(), "after-copy");
         // A backup of a WAL source may inherit WAL mode; publish one closed file.
         target.execute_batch("PRAGMA journal_mode=DELETE")?;
+        if command == "migrate" {
+            crate::migration::upgrade(&mut target, stop.as_deref())?;
+        }
         target.close().map_err(|(_, e)| e)?;
-        let (checked, _) = validate(open(&temporary)?, &temporary)?;
+        let (checked, _) = validate(open(&temporary)?, &temporary, crate::schema::VERSION)?;
         drop(checked);
         fs::File::open(&temporary)?.sync_all()?;
         stop_at(stop.as_deref(), "before-publish");
@@ -198,8 +206,9 @@ pub fn dispatch() -> Result<bool> {
         json!({"version":1,"operation":command,"status":"passed","state":counts,
         "wallMs":start.elapsed().as_secs_f64()*1000.0,"cpuMs":cpu,"processPeakRssBytes":rss,
         "cgroupPeakBytes":cgroup("memory.peak"),"sourceDatabaseBytes":source_bytes,"sourceWalBytes":wal_bytes,
-        "destinationDatabaseBytes":destination_bytes,"copyPagesPerStep":128,"cacheKiBPerConnection":512,
-        "peakDiskBudgetBytes":source_bytes+wal_bytes+destination_bytes+1024*1024})
+        "sourceVersion":source_version,"targetVersion":crate::schema::VERSION,
+        "migrationBatchRows":crate::migration::BATCH_ROWS,"destinationDatabaseBytes":destination_bytes,"copyPagesPerStep":128,"cacheKiBPerConnection":512,
+        "peakDiskBudgetBytes":source_bytes+wal_bytes+destination_bytes+if command == "migrate" { source_bytes+4*1024*1024 } else { 1024*1024 }})
     );
     Ok(true)
 }

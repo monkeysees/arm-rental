@@ -1451,3 +1451,12 @@ precede fsynced non-overwriting publication. The service must be stopped, and
 maintenance operations run separately with individual CPU/RSS/cgroup and disk
 accounting. The independent external oracle verifies 500-recipient restored replay;
 production recovery and state remain separate.
+
+The [native schema migration](native-migration.md) gives the Rust experiment an
+explicit version-0-to-1 transition, rebuilding decisions with database-enforced
+domain constraints. Runtime opens fail closed on incompatible versions or schema
+objects. The stopped-service migration operates on an unpublished copy in bounded
+keyset batches, commits schema identity with the rebuild, verifies every decision
+field, and publishes only validated state. The original database remains the
+rollback path for the retained old executable. This is not production Node-to-Rust
+conversion and introduces no production schema or deployment change.

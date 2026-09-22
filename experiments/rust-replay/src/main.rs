@@ -1,7 +1,9 @@
 mod bulk;
 mod delivery;
 mod maintenance;
+mod migration;
 mod model;
+mod schema;
 mod service;
 mod store;
 use delivery::{PhaseResult, deliver, elapsed, observe};

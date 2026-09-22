@@ -631,3 +631,180 @@ fn maintenance_rejects_corruption_incompatibility_and_symlinks_without_output() 
         assert!(!destination.exists());
     }
 }
+
+#[test]
+fn unsupported_native_versions_are_refused_without_mutation() {
+    let f = Fixture::new();
+    exercise_result(f.run());
+    let path = f.dir.join("state.sqlite3");
+    for version in [0, 99] {
+        let db = rusqlite::Connection::open(&path).unwrap();
+        db.pragma_update(None, "user_version", version).unwrap();
+        drop(db);
+        let before = fs::read(&path).unwrap();
+        let output = f.stage("4", "resume", &[]);
+        assert_eq!(output.status.code(), Some(1));
+        assert!(String::from_utf8_lossy(&output.stderr).contains("schema version"));
+        assert_eq!(fs::read(&path).unwrap(), before);
+    }
+}
+
+// Reproduce the exact pre-#41 decision table, independently of migration code.
+fn legacy_state(f: &Fixture) -> Value {
+    let exercise = exercise_result(f.run());
+    let db = rusqlite::Connection::open(f.dir.join("state.sqlite3")).unwrap();
+    db.execute_batch("BEGIN; DROP INDEX pending; ALTER TABLE decisions RENAME TO old_decisions;
+        CREATE TABLE decisions(user INTEGER NOT NULL,id INTEGER NOT NULL,status INTEGER NOT NULL,revision INTEGER NOT NULL,at INTEGER NOT NULL,PRIMARY KEY(user,id)) WITHOUT ROWID, STRICT;
+        INSERT INTO decisions SELECT * FROM old_decisions; DROP TABLE old_decisions;
+        CREATE INDEX pending ON decisions(user,status,id) WHERE status=0;
+        PRAGMA user_version=0; PRAGMA application_id=0; COMMIT;").unwrap();
+    exercise
+}
+
+#[test]
+fn migration_preserves_replay_and_enforces_the_new_decision_domain() {
+    let f = Fixture::new();
+    let exercise = legacy_state(&f);
+    let source = f.dir.join("state.sqlite3");
+    let before = fs::read(&source).unwrap();
+    let migrated = f.dir.join("migrated");
+    let output = Command::new(env!("CARGO_BIN_EXE_rental-replay"))
+        .arg("migrate")
+        .arg("--database")
+        .arg(&source)
+        .arg("--output")
+        .arg(&migrated)
+        .output()
+        .unwrap();
+    let report = result(output);
+    assert_eq!(report["sourceVersion"], 0);
+    assert_eq!(report["targetVersion"], 1);
+    assert_eq!(fs::read(&source).unwrap(), before);
+    let db = rusqlite::Connection::open(migrated.join("state.sqlite3")).unwrap();
+    assert!(
+        db.execute(
+            "UPDATE decisions SET status=4 WHERE user=0 AND id=400000",
+            []
+        )
+        .is_err()
+    );
+    drop(db);
+    let mut resumed = result(
+        Command::new(env!("CARGO_BIN_EXE_rental-replay"))
+            .arg("--fixtures")
+            .arg(f.dir.join("fixtures"))
+            .arg("--database")
+            .arg(migrated.join("state.sqlite3"))
+            .args(["--users", "4", "--mode", "virtual", "--stage", "resume"])
+            .output()
+            .unwrap(),
+    );
+    let mut phases = exercise["phases"].as_array().unwrap().clone();
+    phases.extend(resumed["phases"].as_array().unwrap().iter().cloned());
+    resumed["phases"] = phases.into();
+    f.verify(&resumed, true);
+}
+
+#[test]
+fn migration_interruptions_and_repeated_commands_preserve_the_source() {
+    let f = Fixture::new();
+    legacy_state(&f);
+    let source = f.dir.join("state.sqlite3");
+    let before = fs::read(&source).unwrap();
+    for point in [
+        "before-copy",
+        "during-copy",
+        "after-copy",
+        "during-migration",
+        "before-migration-commit",
+        "after-migration",
+        "before-publish",
+        "after-publish",
+    ] {
+        let destination = f.dir.join(point);
+        let run = |output: &PathBuf, stop: bool| {
+            let mut child = Command::new(env!("CARGO_BIN_EXE_rental-replay"));
+            child
+                .arg("migrate")
+                .arg("--database")
+                .arg(&source)
+                .arg("--output")
+                .arg(output);
+            if stop {
+                child.args(["--stop", point]);
+            }
+            child.output().unwrap()
+        };
+        assert_eq!(run(&destination, true).status.code(), Some(26));
+        assert_eq!(
+            destination.join("state.sqlite3").exists(),
+            point == "after-publish"
+        );
+        if point != "before-copy" {
+            assert_eq!(run(&destination, false).status.code(), Some(1));
+        }
+        let retry = f.dir.join(format!("{point}-retry"));
+        result(run(&retry, false));
+        assert_eq!(fs::read(&source).unwrap(), before);
+        let already = Command::new(env!("CARGO_BIN_EXE_rental-replay"))
+            .arg("migrate")
+            .arg("--database")
+            .arg(retry.join("state.sqlite3"))
+            .arg("--output")
+            .arg(f.dir.join("already"))
+            .output()
+            .unwrap();
+        assert_eq!(already.status.code(), Some(1));
+        assert!(String::from_utf8_lossy(&already.stderr).contains("schema version 1"));
+        assert!(!f.dir.join("already").exists());
+    }
+}
+
+#[test]
+fn migration_rejects_unknown_source_identity_and_schema_before_creating_output() {
+    let f = Fixture::new();
+    legacy_state(&f);
+    let source = f.dir.join("state.sqlite3");
+    for sql in [
+        "PRAGMA user_version=99",
+        "PRAGMA user_version=0; PRAGMA application_id=123",
+        "PRAGMA application_id=0; CREATE TABLE unknown(value INTEGER)",
+    ] {
+        let db = rusqlite::Connection::open(&source).unwrap();
+        db.execute_batch(sql).unwrap();
+        drop(db);
+        let before = fs::read(&source).unwrap();
+        let output = Command::new(env!("CARGO_BIN_EXE_rental-replay"))
+            .arg("migrate")
+            .arg("--database")
+            .arg(&source)
+            .arg("--output")
+            .arg(f.dir.join("rejected"))
+            .output()
+            .unwrap();
+        assert_eq!(output.status.code(), Some(1));
+        assert!(!f.dir.join("rejected").exists());
+        assert_eq!(fs::read(&source).unwrap(), before);
+    }
+}
+
+#[test]
+fn rejected_runtime_open_does_not_checkpoint_source_wal() {
+    let f = Fixture::new();
+    exercise_result(f.run());
+    let path = f.dir.join("state.sqlite3");
+    // Leave the version update committed in WAL with no live writer, as after a crash.
+    let changed = Command::new("node")
+        .args(["--input-type=module", "-e", "import { DatabaseSync } from 'node:sqlite'; const db = new DatabaseSync(process.argv[1]); db.exec('PRAGMA user_version=99'); process.kill(process.pid, 'SIGKILL');"])
+        .arg(&path).output().unwrap();
+    assert!(!changed.status.success());
+    let wal = f.dir.join("state.sqlite3-wal");
+    let database_before = fs::read(&path).unwrap();
+    let wal_before = fs::read(&wal).unwrap();
+    assert!(!wal_before.is_empty());
+    let refused = f.stage("4", "resume", &[]);
+    assert_eq!(refused.status.code(), Some(1));
+    assert!(String::from_utf8_lossy(&refused.stderr).contains("schema version 99"));
+    assert_eq!(fs::read(&path).unwrap(), database_before);
+    assert_eq!(fs::read(&wal).unwrap(), wal_before);
+}

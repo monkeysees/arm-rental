@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Add a versioned offline native Rust schema migration with bounded decision-table rebuilding, safe interruption/retry, source-preserving rollback and independent 500-recipient acceptance.
+
 - Add native experimental backup, validation and isolated restore commands with bounded SQLite copies, interruption recovery, and independent 500-recipient acceptance.
 
 - Add an offline native Rust service with pinned curl transport, bounded responses, native health and shutdown controls, and verified pending-delivery recovery.

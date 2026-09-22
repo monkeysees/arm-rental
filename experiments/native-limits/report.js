@@ -119,7 +119,9 @@ export function summarize(manifest) {
       })),
       variation: Object.fromEntries(
         labels.map((label) => {
-          const records = selected.filter((r) => r.label.endsWith(`-${label}`));
+          const records = selected.filter(
+            (r) => r.label.replace(/^mb\d+-r\d+-/, "") === label,
+          );
           return [
             label,
             {

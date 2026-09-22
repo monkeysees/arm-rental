@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Reduce the experimental Rust retained-history working set with a covering revision index, bounded catch-up payload loading and a measured SQLite cache policy, preserving all 500-recipient decisions and recovery behavior.
+
 - Bound experimental Rust seed writes with durable resumable batches, explicit WAL retention/checkpoint policies, and independent storage/recovery measurements while preserving atomic classification and per-message acknowledgements.
 
 - Limit replay workloads and acceptance criteria to 500 recipients, remove larger-population results, and retain the measured 500-recipient evidence.

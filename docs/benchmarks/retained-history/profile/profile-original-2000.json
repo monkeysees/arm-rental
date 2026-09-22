@@ -1,0 +1,208 @@
+{
+  "cacheKiB": 2000,
+  "cutoffMs": 1789473600000,
+  "database": "/tmp/arm-rental-38/original.sqlite3",
+  "queries": [
+    {
+      "cacheAfter": {
+        "hits": 2,
+        "misses": 19193,
+        "usedBytes": 4200312,
+        "writes": 0
+      },
+      "cacheBefore": {
+        "hits": 1,
+        "misses": 2,
+        "usedBytes": 9336,
+        "writes": 0
+      },
+      "decodedBytes": 0,
+      "decodedPayloads": 0,
+      "fullscanSteps": 3301499,
+      "name": "history",
+      "peakDecodedPayloads": 0,
+      "plan": [
+        "SCAN decisions"
+      ],
+      "rows": 3285500,
+      "sorts": 0,
+      "sql": "SELECT user,id,status,revision,at FROM decisions WHERE id<400000 ORDER BY user,id",
+      "vmSteps": 29617508,
+      "wallMs": 930.174804
+    },
+    {
+      "cacheAfter": {
+        "hits": 5721491,
+        "misses": 16934,
+        "usedBytes": 2102648,
+        "writes": 0
+      },
+      "cacheBefore": {
+        "hits": 1,
+        "misses": 2,
+        "usedBytes": 9336,
+        "writes": 0
+      },
+      "decodedBytes": 5025000,
+      "decodedPayloads": 20000,
+      "fullscanSteps": 0,
+      "name": "payloads",
+      "peakDecodedPayloads": 40,
+      "plan": [
+        "SEARCH l USING INDEX recent (posted>?)",
+        "SEARCH d USING PRIMARY KEY (user=? AND id=?) LEFT-JOIN"
+      ],
+      "rows": 20000,
+      "sorts": 0,
+      "sql": "SELECT l.payload,l.revision FROM listings l LEFT JOIN decisions d ON d.user=? AND d.id=l.id WHERE l.posted>=? AND (d.revision IS NULL OR d.revision!=l.revision) ORDER BY l.posted,l.id",
+      "vmSteps": 41481000,
+      "wallMs": 1153.199815
+    },
+    {
+      "cacheAfter": {
+        "hits": 8282072,
+        "misses": 17433,
+        "usedBytes": 2102648,
+        "writes": 0
+      },
+      "cacheBefore": {
+        "hits": 1,
+        "misses": 2,
+        "usedBytes": 9336,
+        "writes": 0
+      },
+      "decodedBytes": 10050,
+      "decodedPayloads": 40,
+      "fullscanSteps": 0,
+      "name": "keys",
+      "peakDecodedPayloads": 40,
+      "plan": [
+        "SEARCH l USING INDEX recent (posted>?)",
+        "SEARCH d USING PRIMARY KEY (user=? AND id=?) LEFT-JOIN"
+      ],
+      "rows": 20000,
+      "sorts": 0,
+      "sql": "SELECT l.id,l.revision FROM listings l LEFT JOIN decisions d ON d.user=? AND d.id=l.id WHERE l.posted>=? AND (d.revision IS NULL OR d.revision!=l.revision) ORDER BY l.posted DESC,l.id DESC",
+      "vmSteps": 44242000,
+      "wallMs": 1492.947128
+    },
+    {
+      "cacheAfter": {
+        "hits": 4995,
+        "misses": 20,
+        "usedBytes": 87672,
+        "writes": 0
+      },
+      "cacheBefore": {
+        "hits": 1,
+        "misses": 2,
+        "usedBytes": 9336,
+        "writes": 0
+      },
+      "decodedBytes": 125625,
+      "decodedPayloads": 500,
+      "fullscanSteps": 0,
+      "name": "next",
+      "peakDecodedPayloads": 1,
+      "plan": [
+        "SEARCH d USING COVERING INDEX pending (user=? AND status=?)",
+        "SEARCH l USING INTEGER PRIMARY KEY (rowid=?)",
+        "USE TEMP B-TREE FOR ORDER BY"
+      ],
+      "rows": 500,
+      "sorts": 500,
+      "sql": "SELECT l.payload FROM decisions d JOIN listings l ON l.id=d.id WHERE d.user=? AND d.status=0 ORDER BY l.posted,l.id LIMIT 1",
+      "vmSteps": 38999,
+      "wallMs": 3.378547
+    },
+    {
+      "cacheAfter": {
+        "hits": 5995,
+        "misses": 20,
+        "usedBytes": 87672,
+        "writes": 0
+      },
+      "cacheBefore": {
+        "hits": 1,
+        "misses": 2,
+        "usedBytes": 9336,
+        "writes": 0
+      },
+      "decodedBytes": 125625,
+      "decodedPayloads": 500,
+      "fullscanSteps": 0,
+      "name": "next-key",
+      "peakDecodedPayloads": 1,
+      "plan": [
+        "SEARCH listings USING INTEGER PRIMARY KEY (rowid=?)",
+        "SCALAR SUBQUERY 1",
+        "SEARCH d USING COVERING INDEX pending (user=? AND status=?)",
+        "SEARCH l USING INTEGER PRIMARY KEY (rowid=?)",
+        "USE TEMP B-TREE FOR ORDER BY"
+      ],
+      "rows": 500,
+      "sorts": 500,
+      "sql": "SELECT payload FROM listings WHERE id=(SELECT l.id FROM decisions d JOIN listings l ON l.id=d.id WHERE d.user=? AND d.status=0 ORDER BY l.posted,l.id LIMIT 1)",
+      "vmSteps": 41999,
+      "wallMs": 3.456062
+    }
+  ],
+  "sizes": [
+    {
+      "bytes": 78606336,
+      "name": "decisions",
+      "payloadBytes": 57747235,
+      "unusedBytes": 10724313
+    },
+    {
+      "bytes": 4096,
+      "name": "history",
+      "payloadBytes": 18,
+      "unusedBytes": 4066
+    },
+    {
+      "bytes": 1630208,
+      "name": "listings",
+      "payloadBytes": 1453737,
+      "unusedBytes": 131065
+    },
+    {
+      "bytes": 57344,
+      "name": "pending",
+      "payloadBytes": 26220,
+      "unusedBytes": 21960
+    },
+    {
+      "bytes": 122880,
+      "name": "recent",
+      "payloadBytes": 88352,
+      "unusedBytes": 17606
+    },
+    {
+      "bytes": 4096,
+      "name": "recovery",
+      "payloadBytes": 13,
+      "unusedBytes": 4071
+    },
+    {
+      "bytes": 61440,
+      "name": "seed_input",
+      "payloadBytes": 59108,
+      "unusedBytes": 2258
+    },
+    {
+      "bytes": 4096,
+      "name": "seed_progress",
+      "payloadBytes": 7,
+      "unusedBytes": 4077
+    },
+    {
+      "bytes": 4096,
+      "name": "sqlite_schema",
+      "payloadBytes": 977,
+      "unusedBytes": 2976
+    }
+  ],
+  "sqliteVersion": "3.53.2",
+  "users": 500
+}

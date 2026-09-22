@@ -1418,3 +1418,14 @@ intact. Explicit checkpoints at completed-write boundaries constrain retained
 WAL growth and stop further writes if a reader blocks truncation. The 4 MiB
 retention threshold is not a hard limit on an active transaction. Storage and
 service-cgroup measurements stay separate from the frozen comparison baseline.
+
+The [retained-history working-set experiment](retained-history-working-set.md)
+adds a covering `(posted,id,revision)` listing index and a 512 KiB SQLite cache
+target to the Rust replay. Catch-up materializes eligible keys per recipient,
+then decodes payloads through a transaction-local map capped at 128 entries.
+Selection runs newest first while pending delivery retains oldest-first order;
+all skipped, filtered and notified history remains durable. The cache ends with
+classification, so source updates and restarts cannot reuse stale payloads.
+Read-only query/cache profiles and separate service-cgroup measurements account
+for SQLite heap and kernel file cache independently. No production schema,
+runtime, parser or deployment changes accompany this experiment.

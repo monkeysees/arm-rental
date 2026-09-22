@@ -1,0 +1,11 @@
+{
+  "purpose": "Unclean baseline exercise (exit 23), then candidate resume against the same untouched synthetic state; index transition and full independent oracle passed",
+  "users": 500,
+  "beforeBinarySha256": "0b2eff3d73ff9213bb7e9be2db15e6b16606b1f252f22537a18e31580a7c742d",
+  "afterBinarySha256": "51b7408f6e6f96aa5e2e82ab5246ea6f9a7937af5401169185aec0ff1265759e",
+  "results": {
+    "baseline-exercise.json": "652925d12693647d7078fe548ea1d4128ec5e57cb86e5fa2e77244475bb5b2cb",
+    "candidate-resume.json": "5da97a9090c40578f42c8ac5f46f249a8823532694c487741120282ce51726f5",
+    "result.json": "faee5ecc5ccf6e2f79238b2999cd45c94ff75f2ff6fc088dbf5a404c91ea18e9"
+  }
+}

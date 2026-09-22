@@ -2,12 +2,61 @@ use crate::{
     Result,
     model::{Listing, Manifest},
 };
-use rusqlite::{Connection, OptionalExtension, params};
+use rusqlite::{Connection, OptionalExtension, Transaction, params};
 use std::{
-    collections::BTreeMap,
+    collections::{BTreeMap, HashMap},
     path::{Path, PathBuf},
     time::{Duration, Instant},
 };
+
+const HISTORY_PAYLOAD_LIMIT: usize = 128;
+const WRITE_DECISION: &str = "INSERT INTO decisions VALUES(?,?,?,?,?) ON CONFLICT(user,id) DO UPDATE SET status=excluded.status,revision=excluded.revision,at=excluded.at";
+
+fn classify_history(
+    tx: &Transaction<'_>,
+    m: &Manifest,
+    users: usize,
+    now: i64,
+) -> Result<(usize, usize)> {
+    let mut recent = tx.prepare("SELECT l.id,l.revision FROM listings l LEFT JOIN decisions d ON d.user=? AND d.id=l.id WHERE l.posted>=? AND (d.revision IS NULL OR d.revision!=l.revision) ORDER BY l.posted DESC,l.id DESC")?;
+    let mut payload = tx.prepare("SELECT payload FROM listings WHERE id=?")?;
+    let mut write = tx.prepare(WRITE_DECISION)?;
+    let mut cache: HashMap<i64, Listing> = HashMap::new();
+    let (mut decoded, mut peak) = (0, 0);
+    for user in 0..users {
+        // Finish the decision-dependent cursor before mutating its source table.
+        let keys = recent
+            .query_map(params![user as i64, now - 86400000], |r| {
+                Ok((r.get::<_, i64>(0)?, r.get::<_, i64>(1)?))
+            })?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        let mut matches = 0;
+        for (id, revision) in keys {
+            if !cache.contains_key(&id) {
+                if cache.len() == HISTORY_PAYLOAD_LIMIT {
+                    cache.clear();
+                }
+                let text: String = payload.query_row([id], |r| r.get(0))?;
+                cache.insert(id, serde_json::from_str(&text)?);
+                decoded += 1;
+                peak = peak.max(cache.len());
+            }
+            let status = if m.recipients.filters_by_group[user % 4].matches(&cache[&id]) {
+                matches += 1;
+                if matches > m.initial_delivery_limit {
+                    Decision::Skipped
+                } else {
+                    Decision::Pending
+                }
+            } else {
+                Decision::Filtered
+            };
+            write.execute(params![user as i64, id, status as i64, revision, now])?;
+        }
+    }
+    // Listings cannot change within this transaction; no cache survives a crawl.
+    Ok((decoded, peak))
+}
 
 #[derive(Clone, Copy)]
 #[repr(i64)]
@@ -43,13 +92,14 @@ impl Store {
     pub fn open(path: &Path) -> Result<Self> {
         let db = Connection::open(path)?;
         db.busy_timeout(Duration::from_secs(5))?;
-        db.execute_batch("PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL; PRAGMA wal_autocheckpoint=1000; PRAGMA journal_size_limit=4194304;
+        db.execute_batch("PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL; PRAGMA wal_autocheckpoint=1000; PRAGMA journal_size_limit=4194304; PRAGMA cache_size=-512;
             CREATE TABLE IF NOT EXISTS seed_input(id INTEGER PRIMARY KEY CHECK(id=1),input TEXT NOT NULL) STRICT;
             CREATE TABLE IF NOT EXISTS seed_progress(id INTEGER PRIMARY KEY CHECK(id=1),next_row INTEGER NOT NULL,consumed INTEGER NOT NULL) STRICT;
             CREATE TABLE IF NOT EXISTS listings(id INTEGER PRIMARY KEY,payload TEXT NOT NULL,revision INTEGER NOT NULL,posted INTEGER NOT NULL) STRICT;
             CREATE TABLE IF NOT EXISTS decisions(user INTEGER NOT NULL,id INTEGER NOT NULL,status INTEGER NOT NULL,revision INTEGER NOT NULL,at INTEGER NOT NULL,PRIMARY KEY(user,id)) WITHOUT ROWID, STRICT;
             CREATE INDEX IF NOT EXISTS pending ON decisions(user,status,id) WHERE status=0;
-            CREATE INDEX IF NOT EXISTS recent ON listings(posted,id);")?;
+            CREATE INDEX IF NOT EXISTS recent_revision ON listings(posted,id,revision);
+            DROP INDEX IF EXISTS recent;")?;
         Ok(Self {
             db,
             path: path.to_path_buf(),
@@ -96,48 +146,32 @@ impl Store {
         let started = Instant::now();
         let tx = self.db.transaction()?;
         let initial_changes = tx.query_row("SELECT total_changes()", [], |r| r.get::<_, i64>(0))?;
-        {
-            let mut recent = tx.prepare("SELECT l.payload,l.revision FROM listings l LEFT JOIN decisions d ON d.user=? AND d.id=l.id WHERE l.posted>=? AND (d.revision IS NULL OR d.revision!=l.revision) ORDER BY l.posted,l.id")?;
+        let (decoded, peak) = if catchup {
+            classify_history(&tx, m, users, now)?
+        } else {
             let mut revision = tx.prepare("SELECT revision FROM listings WHERE id=?")?;
             let mut previous =
                 tx.prepare("SELECT revision FROM decisions WHERE user=? AND id=?")?;
-            let mut write = tx.prepare("INSERT INTO decisions VALUES(?,?,?,?,?) ON CONFLICT(user,id) DO UPDATE SET status=excluded.status,revision=excluded.revision,at=excluded.at")?;
+            let mut write = tx.prepare(WRITE_DECISION)?;
             for user in 0..users {
                 let mut items: Vec<(Listing, i64, Decision)> = Vec::new();
-                if catchup {
-                    let mut rows = recent.query(params![user as i64, now - 86400000])?;
-                    while let Some(row) = rows.next()? {
-                        items.push((
-                            serde_json::from_str(&row.get::<_, String>(0)?)?,
-                            row.get(1)?,
-                            Decision::Pending,
-                        ));
+                for l in changed {
+                    if l.posted_at < now - 86400000 {
+                        continue;
                     }
-                } else {
-                    for l in changed {
-                        if l.posted_at < now - 86400000 {
-                            continue;
-                        }
-                        let rev: i64 = revision.query_row([&l.id], |r| r.get(0))?;
-                        let old: Option<i64> = previous
-                            .query_row(params![user as i64, l.id], |r| r.get(0))
-                            .optional()?;
-                        if old == Some(rev) {
-                            continue;
-                        }
-                        items.push((l.clone(), rev, Decision::Pending));
+                    let rev: i64 = revision.query_row([&l.id], |r| r.get(0))?;
+                    let old: Option<i64> = previous
+                        .query_row(params![user as i64, l.id], |r| r.get(0))
+                        .optional()?;
+                    if old == Some(rev) {
+                        continue;
                     }
-                    items.sort_by(|a, b| (a.0.posted_at, &a.0.id).cmp(&(b.0.posted_at, &b.0.id)));
+                    items.push((l.clone(), rev, Decision::Pending));
                 }
-                let mut matches = 0;
+                items.sort_by(|a, b| (a.0.posted_at, &a.0.id).cmp(&(b.0.posted_at, &b.0.id)));
                 for (listing, _, status) in items.iter_mut().rev() {
                     *status = if m.recipients.filters_by_group[user % 4].matches(listing) {
-                        matches += 1;
-                        if catchup && matches > m.initial_delivery_limit {
-                            Decision::Skipped
-                        } else {
-                            Decision::Pending
-                        }
+                        Decision::Pending
                     } else {
                         Decision::Filtered
                     };
@@ -146,13 +180,14 @@ impl Store {
                     write.execute(params![user as i64, l.id, status as i64, rev, now])?;
                 }
             }
-        }
+            (0, 0)
+        };
         let rows =
             tx.query_row("SELECT total_changes()", [], |r| r.get::<_, i64>(0))? - initial_changes;
         let write_ms = started.elapsed().as_secs_f64() * 1000.0;
         let committed = Instant::now();
         tx.commit()?;
-        self.storage.borrow_mut().push(serde_json::json!({"operation":"classify","rows":rows,"writeMs":write_ms,"commitMs":committed.elapsed().as_secs_f64()*1000.0,"walBytes":self.wal_bytes()}));
+        self.storage.borrow_mut().push(serde_json::json!({"operation":"classify","rows":rows,"writeMs":write_ms,"commitMs":committed.elapsed().as_secs_f64()*1000.0,"walBytes":self.wal_bytes(),"historyPayloadsDecoded":decoded,"peakHistoryPayloads":peak}));
         if self.wal_bytes() >= crate::bulk::WAL_RETAIN_BYTES {
             self.checkpoint("classification-before-delivery")?;
         }

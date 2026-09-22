@@ -1,0 +1,16 @@
+{
+  "binarySha256": "51b7408f6e6f96aa5e2e82ab5246ea6f9a7937af5401169185aec0ff1265759e",
+  "sourceHashes": {
+    "experiments/rust-replay/.gitignore": "306fd52e74fca6746e12acc750f232de15e71da917756a1270d74c91f5eb7368",
+    "experiments/rust-replay/Cargo.lock": "726fcaefb86f461dcdc6d714bd6fcc923d724a07a13de023f3b4871eda0922f8",
+    "experiments/rust-replay/Cargo.toml": "3f08e4267f6fa1b63df84bce7fe9a8beed01b011d650f7f09a9f3dbe3fc71069",
+    "experiments/rust-replay/Dockerfile.build": "41f340bbb165fb404ca02c01fdf54b5443639a93d3386d9c98a55683bfd4261a",
+    "experiments/rust-replay/examples/working_set.rs": "e258f5ce700eabcab3a3ee706052f7859ea454922dbc623a1d593a23a66495dc",
+    "experiments/rust-replay/src/bulk.rs": "f8eeeb8e735646ecfb706dfdcd4e4a111ed25ffaf397395aa072cec981d02dd5",
+    "experiments/rust-replay/src/delivery.rs": "8d751fffd265441ed38a48639757d5b3a56c07ac9db50426ffe390bc57598eea",
+    "experiments/rust-replay/src/main.rs": "84c27623542293d211b931f7540bd1eff520e8619f6b388d0a1fbf10f64f936a",
+    "experiments/rust-replay/src/model.rs": "88f750d47df051001a8b5f5506b1b4c7b97774e097ab49dd5ced7284f37207bc",
+    "experiments/rust-replay/src/store.rs": "d658364bbf33fcadcfdad6bfb3b1c3918932030fff39bb4bde293e29b68532a4",
+    "experiments/rust-replay/tests/replay.rs": "8e3f2eace2ee22130dac6a30a21c3bd33ccbde362b17c85504a3bb821d5b2bc0"
+  }
+}

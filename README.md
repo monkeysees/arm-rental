@@ -72,6 +72,10 @@ The experimental Rust [bulk-write and WAL policy](docs/native-storage-policy.md)
 adds resumable seed batches and explicit checkpoint boundaries, with separate
 before/after measurements and unchanged per-message acknowledgement durability.
 
+The Rust [retained-history working-set experiment](docs/retained-history-working-set.md)
+profiles covering queries, bounded payload loading and SQLite cache policy while
+preserving the full 500-recipient history and recovery contract.
+
 Private delivery makes one promise about time: a user is only ever sent
 apartments List.am posted or changed within the last 24 hours. Everything the
 crawl discovers is still stored, but an older card waits for its next List.am

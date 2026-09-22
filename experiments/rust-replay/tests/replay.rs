@@ -403,3 +403,61 @@ fn five_hundred_recipients_make_first_progress_within_shared_deadline() {
     assert_eq!(phase["rateLimitsVerified"], true);
     assert_eq!(phase["recipientsAsserted"], 500);
 }
+
+#[test]
+fn catchup_beyond_the_payload_cache_keeps_selection_and_recovery() {
+    let f = Fixture::new();
+    result(f.stage("4", "seed", &[]));
+    // Source updates make 160 older cards eligible in addition to the 40 new ones.
+    for id in 100100..100260 {
+        f.replace(
+            if id % 2 == 0 {
+                "seed-apartment.html"
+            } else {
+                "seed-house.html"
+            },
+            &format!("Replay rental {id}</div>"),
+            &format!("Replay rental {id} changed</div>"),
+        );
+    }
+    let manifest_file = f.dir.join("fixtures/manifest.json");
+    let mut manifest: Value = serde_json::from_slice(&fs::read(&manifest_file).unwrap()).unwrap();
+    manifest["phases"]
+        .as_array_mut()
+        .unwrap()
+        .iter_mut()
+        .find(|p| p["name"] == "catchup")
+        .unwrap()["ids"]
+        .as_array_mut()
+        .unwrap()
+        .push("100100".into());
+    fs::write(manifest_file, serde_json::to_vec(&manifest).unwrap()).unwrap();
+    let value = exercise_result(f.stage("4", "exercise-seeded", &[]));
+    let catchup = value["phases"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|p| p["name"] == "catchup")
+        .unwrap();
+    assert_eq!(
+        catchup["deliveriesByProfile"][0],
+        serde_json::json!([
+            "300008", "300012", "300016", "300020", "300024", "300028", "300032", "300036"
+        ])
+    );
+    assert_eq!(catchup["classificationsByProfile"][0]["100100"], "skipped");
+    assert_eq!(catchup["classificationsByProfile"][1]["100100"], "filtered");
+    assert_eq!(catchup["sent"], 32);
+    let observation = value["storage"]["operations"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|o| o["historyPayloadsDecoded"].as_u64().unwrap_or(0) > 0)
+        .unwrap();
+    assert!(observation["peakHistoryPayloads"].as_u64().unwrap() <= 128);
+    assert!(observation["historyPayloadsDecoded"].as_u64().unwrap() >= 200);
+    let resumed = result(f.stage("4", "resume", &[]));
+    assert_eq!(resumed["resources"]["decisionRows"], 26_572);
+    assert_eq!(resumed["resources"]["pendingRows"], 0);
+    assert_eq!(resumed["phases"][0]["sent"], 24);
+}

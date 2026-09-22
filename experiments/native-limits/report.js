@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { hash } from "../service-replay/common.js";
 
 function distribution(values) {
   const sorted = values.filter(Number.isFinite).sort((a, b) => a - b);
@@ -163,9 +164,21 @@ export function summarize(manifest) {
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
   assert(process.argv[2], "Usage: report.js ACCEPTANCE_DIRECTORY");
   const directory = path.resolve(process.argv[2]);
-  const summary = summarize(
-    JSON.parse(readFileSync(path.join(directory, "manifest.json"))),
-  );
+  const manifestFile = path.join(directory, "manifest.json");
+  const manifest = JSON.parse(readFileSync(manifestFile));
+  const audit = JSON.parse(readFileSync(path.join(directory, "audit.json")));
+  assert.equal(audit.originalManifestSha256, hash(manifestFile));
+  const summary = summarize({
+    ...manifest,
+    runs: audit.runs,
+    status: audit.status,
+  });
+  summary.audit = {
+    originalManifestSha256: audit.originalManifestSha256,
+    correctionDescription: audit.correctionDescription,
+    harnessHashes: audit.harnessHashes,
+    verificationStatus: audit.verificationStatus,
+  };
   summary.delivery = {};
   summary.steadyMemory = {};
   for (const limit of summary.limits)

@@ -16,7 +16,7 @@ import {
 } from "node:fs";
 import path from "node:path";
 import os from "node:os";
-import { evaluateCapacity } from "../node-replay/capacity.js";
+import { evaluateNativeCapacity } from "./capacity.js";
 import { verifyReplayResult } from "../node-replay/verify.js";
 import { cgroupSample, hashes, hash } from "../service-replay/common.js";
 
@@ -608,7 +608,7 @@ try {
               second,
               `${label}-service-result.json`,
             );
-            run.capacity = evaluateCapacity({
+            run.capacity = evaluateNativeCapacity({
               users: 500,
               mode: "wall",
               phases: combined.phases,

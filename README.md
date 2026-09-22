@@ -87,6 +87,11 @@ The experimental [native Rust service](docs/native-service.md) adds local curl
 transport, native health/shutdown controls and graceful pending-work recovery
 without Node inside the service container.
 
+The [minimal native image](docs/native-image.md) packages the executable's actual
+runtime dependencies. The [native memory-limit assessment](docs/native-limits.md)
+tests the complete implemented workload and separate maintenance operations at
+75 MB and 50 MB, with external verification and local transport.
+
 Private delivery makes one promise about time: a user is only ever sent
 apartments List.am posted or changed within the last 24 hours. Everything the
 crawl discovers is still stored, but an older card waits for its next List.am

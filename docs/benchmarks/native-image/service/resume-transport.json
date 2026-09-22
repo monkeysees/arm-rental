@@ -1,0 +1,12 @@
+{
+  "maxCurlConcurrency": 1,
+  "maxResponseBytes": 8388608,
+  "status": "stopped",
+  "transport": {
+    "cancelled": 1,
+    "completed": 117,
+    "largestBodyBytes": 868024,
+    "requests": 118,
+    "sampledChildPeakRssBytes": 9756672
+  }
+}

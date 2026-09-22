@@ -1,0 +1,22 @@
+{
+  "cacheKiBPerConnection": 512,
+  "cgroupPeakBytes": 49999872,
+  "copyPagesPerStep": 128,
+  "cpuMs": 6312.297393,
+  "destinationDatabaseBytes": 80420864,
+  "migrationBatchRows": 8192,
+  "operation": "restore",
+  "peakDiskBudgetBytes": 161890304,
+  "processPeakRssBytes": 5758976,
+  "sourceDatabaseBytes": 80420864,
+  "sourceVersion": 1,
+  "sourceWalBytes": 0,
+  "state": {
+    "decisionRows": 3321500,
+    "pendingRows": 3000
+  },
+  "status": "passed",
+  "targetVersion": 1,
+  "version": 1,
+  "wallMs": 11329.885581999999
+}

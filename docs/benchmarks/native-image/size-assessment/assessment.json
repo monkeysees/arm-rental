@@ -1,0 +1,82 @@
+{
+  "architecture": "linux/amd64",
+  "boundary": "Single sequential 500-recipient virtual replay/recovery acceptance per variant, one CPU/512MiB no swap, external Node oracle. Wall time includes container startup and synthetic fixture setup; not a repeated performance benchmark or Pi measurement.",
+  "variants": [
+    {
+      "name": "rust-default",
+      "runtime": "rust",
+      "binarySha256": "fe71686031cb7b7ad884af82af9d44b8b4e8264a073b2fc505dca9d081f5151a",
+      "binaryBytes": 4250672,
+      "gzipLevel9BinaryBytes": 1904972,
+      "wallSeconds": 8.433218694999999,
+      "oraclePassed": true,
+      "resultSha256": "2689c1ccba8e953189be24b0bbbbfe465c34533a82917185160190dff48c7076",
+      "hasEmbeddedDebugInfo": false,
+      "hasSymbolTable": false,
+      "externalSymbols": {
+        "bytes": 22235352,
+        "sha256": "ef361f6aec0adbc8905db9beb6a1bc0153797f225dda72f3475bd0077696839a",
+        "symbolization": "_ZN13rental_replay3run17h488db084316cc727E\n/repo/experiments/rust-replay/src/main.rs:447\n",
+        "boundary": "GNU debuglink finds external line tables; optimized/inlined frames and local-variable inspection remain limited by debug=1 and optimization"
+      }
+    },
+    {
+      "name": "rust-size",
+      "runtime": "rust",
+      "binarySha256": "360dd3b7cd5d40ae05235691fe6611f61c4ff20faa45b0265bf271174ac4fe56",
+      "binaryBytes": 2933536,
+      "gzipLevel9BinaryBytes": 1306824,
+      "wallSeconds": 10.754800308,
+      "oraclePassed": true,
+      "resultSha256": "9e519c5ca6d043b9fc58bc1a81105ed17803ee7d039045924f9aa64203e9d3ee",
+      "hasEmbeddedDebugInfo": false,
+      "hasSymbolTable": false,
+      "externalSymbols": {
+        "bytes": 11399696,
+        "sha256": "2257c6cab44ff6385f6b6e64e703e59243f154f4070fc472eef9a978bbcd05b0",
+        "symbolization": "_ZN13rental_replay4main17hb4c762b9580637e2E\n/repo/experiments/rust-replay/src/main.rs:447\n",
+        "boundary": "GNU debuglink finds external line tables; optimized/inlined frames and local-variable inspection remain limited by debug=1 and optimization"
+      }
+    },
+    {
+      "name": "go-default",
+      "runtime": "go",
+      "binarySha256": "69f011e1d557a6a71afade52a610186d053c50ba1da6d06b85c80c846bbb1534",
+      "binaryBytes": 9218256,
+      "gzipLevel9BinaryBytes": 6003187,
+      "wallSeconds": 31.624330447000002,
+      "oraclePassed": true,
+      "resultSha256": "e98f735e32b3c2bfddb5db7c3a4c808a562e06404692412ccca2cbbc6df7df99",
+      "hasEmbeddedDebugInfo": true,
+      "hasSymbolTable": true,
+      "textSection": "4a7d9c009e2cd52f3a163dbc7b56cfa6919ba60f4a8e99f4699519550b16b943  /tmp/text\n  [16] .text             PROGBITS        0000000000402540 002540 2b5638 00  AX  0   0 64\n",
+      "externalSymbols": {
+        "sha256": "f5085f1faa77ef5214b1b5640357654d035c3c155b52b45cdfeeac6b360956af",
+        "bytes": 3947240,
+        "symbolization": "main.main\ngo.go:?\n",
+        "nativeSymbolizationUsingFullBuild": "main.main\narm-rental/experiments/go-replay/main.go:282\n",
+        "boundary": "GNU addr2line resolves the external symbol but not a source line (go.go:?). Go native addr2line recovers source from the retained full build. Full unstripped build and separate DWARF retained. Identical .text hash/address checked for this stripped rebuild; Go runtime traceback tables remain, external debugger local-variable/type inspection loses DWARF without symbols."
+      }
+    },
+    {
+      "name": "go-stripped",
+      "runtime": "go",
+      "binarySha256": "322ac7626c865a602e1d5afb38bb1f945564022f7e27fe7cb41f0a0925ca1197",
+      "binaryBytes": 5275088,
+      "gzipLevel9BinaryBytes": 2419151,
+      "wallSeconds": 32.10875739499999,
+      "oraclePassed": true,
+      "resultSha256": "41b2c2429b5c6fe4a36e5301e89aeae6cccdeed9bdbe084161f371de49cb3052",
+      "hasEmbeddedDebugInfo": false,
+      "hasSymbolTable": false,
+      "textSection": "4a7d9c009e2cd52f3a163dbc7b56cfa6919ba60f4a8e99f4699519550b16b943  /tmp/text\n  [16] .text             PROGBITS        0000000000402540 002540 2b5638 00  AX  0   0 64\n",
+      "externalSymbols": {
+        "sha256": "f5085f1faa77ef5214b1b5640357654d035c3c155b52b45cdfeeac6b360956af",
+        "bytes": 3947240,
+        "symbolization": "main.main\ngo.go:?\n",
+        "nativeSymbolizationUsingFullBuild": "main.main\narm-rental/experiments/go-replay/main.go:282\n",
+        "boundary": "GNU addr2line resolves the external symbol but not a source line (go.go:?). Go native addr2line recovers source from the retained full build. Full unstripped build and separate DWARF retained. Identical .text hash/address checked for this stripped rebuild; Go runtime traceback tables remain, external debugger local-variable/type inspection loses DWARF without symbols."
+      }
+    }
+  ]
+}

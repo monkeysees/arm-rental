@@ -1,0 +1,16 @@
+{
+  "initialMigrationSmoke": {
+    "status": "infrastructure-failure",
+    "imageId": "sha256:1f690329ad3fa93f705b3ce3d0e4860088d69c80802ea42a553a3c16ddc399b2",
+    "reason": "A concurrent packaging rebuild replaced the only image tag; the old image ID became unavailable before stop-before-copy-retry-resume could launch. Docker exited 125.",
+    "log": "node:internal/modules/run_main:107\n    triggerUncaughtException(\n    ^\n\nAssertionError [ERR_ASSERTION]: stop-before-copy-retry-resume: docker: Error response from daemon: No such image: sha256:1f690329ad3fa93f705b3ce3d0e4860088d69c80802ea42a553a3c16ddc399b2\n\nRun 'docker run --help' for more information\n\n\n125 !== 0\n\n    at run (file:///home/john/workspace/work/arm-rental/experiments/native-maintenance/runner.js:110:12)\n    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)\n    at async resume (file:///home/john/workspace/work/arm-rental/experiments/native-migration/check.js:129:19)\n    at async file:///home/john/workspace/work/arm-rental/experiments/native-migration/check.js:161:3 {\n  generatedMessage: false,\n  code: 'ERR_ASSERTION',\n  actual: 125,\n  expected: 0,\n  operator: 'strictEqual',\n  diff: 'simple'\n}\n\nNode.js v24.18.0\n",
+    "sha256": "fd8d7a212330b06c77449cca5a82d3ba546e2a352e11f62afb56759d393b8fdb"
+  },
+  "resolution": {
+    "frozenImageId": "sha256:34daefd8180fc986d7f82b4dd27ef068413e1db3f0f0a52be45af2edf1262484",
+    "serviceOperations": 7,
+    "maintenanceOperations": 25,
+    "migrationOperations": 39,
+    "status": "passed"
+  }
+}

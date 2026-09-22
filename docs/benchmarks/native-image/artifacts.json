@@ -1,0 +1,947 @@
+{
+  "missingLibraryCheck": {
+    "exitCode": 127,
+    "stderr": "/usr/local/bin/replay: error while loading shared libraries: /lib/x86_64-linux-gnu/libgcc_s.so.1: file too short\n",
+    "boundary": "read-only non-root final image with libgcc replaced by empty bind file"
+  },
+  "architecture": "amd64",
+  "imageId": "sha256:34daefd8180fc986d7f82b4dd27ef068413e1db3f0f0a52be45af2edf1262484",
+  "tag": "arm-rental-native-minimal:local",
+  "components": {
+    "architecture": "linux/amd64",
+    "replay": {
+      "sha256": "fb5c71b794178f178254585bab56b9d85546f303703302f7ff026762f3b193b6",
+      "bytes": 4238040,
+      "toolchain": "rustc 1.94.0",
+      "bundledSQLite": "3.53.2"
+    },
+    "curl": {
+      "release": "2.2.2",
+      "upstreamVersion": "8.21.0-IMPERSONATE",
+      "transportImageId": "sha256:d5519d130d779593db12673b7cfd8a032023fba4781afaaed2f2c6a34ba79516",
+      "sha256": "9775f5c719cc7649d0da41a786ef5e25da886514c547399a6d86b6038f105786",
+      "components": "BoringSSL, zlib 1.3.1, brotli 1.2.0, zstd 1.5.7, libidn2 2.3.7, nghttp2 1.63.0, ngtcp2 1.20.0, nghttp3 1.15.0; upstream LICENSE files retained"
+    },
+    "debianInventory": "dpkg/status describes packages owning shipped closure/config/certificates; not complete installed packages",
+    "cargoInventoryScope": "Locked dependency provenance and licenses, including build-only and non-Linux dependencies; not a claim all crates are linked runtime components",
+    "crates": [
+      {
+        "name": "autocfg",
+        "version": "1.5.1",
+        "checksum": "f2032f911046de80f0a198e0901378627c33f59ea0ac00e363d481118bd70a53"
+      },
+      {
+        "name": "bitflags",
+        "version": "2.13.2",
+        "checksum": "3ded4057c258ba199e2d26386d3af3780957ecaee6c4ef4041c6b4b8b97c0b06"
+      },
+      {
+        "name": "bumpalo",
+        "version": "3.20.3",
+        "checksum": "72f5acc6cb2ba439de613abc23857ec3d78374d8ed5ac84e9d11336e87da8649"
+      },
+      {
+        "name": "cc",
+        "version": "1.4.6",
+        "checksum": "a3eb0f42d6c360dc3f8a821f6bf2fdea7f72bfd36b3076eb0e6d1e9e0752fff4"
+      },
+      {
+        "name": "cfg-if",
+        "version": "1.0.5",
+        "checksum": "4e7648175b45a9a48536d676f68d918270699102aa8dab5496df06904c914600"
+      },
+      {
+        "name": "chrono",
+        "version": "0.4.45",
+        "checksum": "1aa79e62e7697b8e29b513a68abacf485adcd1fe8284a4316c5ae868e6633327"
+      },
+      {
+        "name": "cssparser",
+        "version": "0.37.0",
+        "checksum": "8c9cdaae01d5ed7882b04d795e7f752f46ff52d2fa3b50a20d28c464510bba98"
+      },
+      {
+        "name": "cssparser-macros",
+        "version": "0.7.1",
+        "checksum": "d045de693cb712d0b22c6a64be5b953f67b3ce00ab5ad3dd5d8b441886ab8e1a"
+      },
+      {
+        "name": "derive_more",
+        "version": "2.1.1",
+        "checksum": "d751e9e49156b02b44f9c1815bcb94b984cdcc4396ecc32521c739452808b134"
+      },
+      {
+        "name": "derive_more-impl",
+        "version": "2.1.1",
+        "checksum": "799a97264921d8623a957f6c3b9011f3b5492f557bbb7a5a19b7fa6d06ba8dcb"
+      },
+      {
+        "name": "dtoa",
+        "version": "1.0.11",
+        "checksum": "4c3cf4824e2d5f025c7b531afcb2325364084a16806f6d47fbc1f5fbd9960590"
+      },
+      {
+        "name": "dtoa-short",
+        "version": "0.3.5",
+        "checksum": "cd1511a7b6a56299bd043a9c167a6d2bfb37bf84a6dfceaba651168adfb43c87"
+      },
+      {
+        "name": "ego-tree",
+        "version": "0.11.0",
+        "checksum": "b04dc5a38e4f151a79d9f2451ae6037fb6eaf5cba34771f44781f80e508498e3"
+      },
+      {
+        "name": "fallible-iterator",
+        "version": "0.3.0",
+        "checksum": "2acce4a10f12dc2fb14a218589d4f1f62ef011b2d0cc4b3cb1bba8e94da14649"
+      },
+      {
+        "name": "fallible-streaming-iterator",
+        "version": "0.1.9",
+        "checksum": "7360491ce676a36bf9bb3c56c1aa791658183a54d2744120f27285738d90465a"
+      },
+      {
+        "name": "fastrand",
+        "version": "2.5.0",
+        "checksum": "da7c62ceae207dd37ea5b845da6a0696c799f85e97da1ab5b7910be3c1c80223"
+      },
+      {
+        "name": "find-msvc-tools",
+        "version": "0.1.12",
+        "checksum": "3e0f1c7c3a72c66fd80abe965175f7523475c0489a87d3ff9d6e8c87d87a9d2d"
+      },
+      {
+        "name": "foldhash",
+        "version": "0.2.0",
+        "checksum": "77ce24cb58228fbb8aa041425bb1050850ac19177686ea6e0f41a70416f56fdb"
+      },
+      {
+        "name": "getopts",
+        "version": "0.2.24",
+        "checksum": "cfe4fbac503b8d1f88e6676011885f34b7174f46e59956bba534ba83abded4df"
+      },
+      {
+        "name": "hashbrown",
+        "version": "0.16.1",
+        "checksum": "841d1cc9bed7f9236f321df977030373f4a4163ae1a7dbfe1a51a2c1a51d9100"
+      },
+      {
+        "name": "hashbrown",
+        "version": "0.17.1",
+        "checksum": "ed5909b6e89a2db4456e54cd5f673791d7eca6732202bbf2a9cc504fe2f9b84a"
+      },
+      {
+        "name": "hashlink",
+        "version": "0.12.2",
+        "checksum": "a596f1b20ed2cc5ecac41a164aaebc7258057060f06c0cf7a2ba3991ee7990fb"
+      },
+      {
+        "name": "html5ever",
+        "version": "0.39.0",
+        "checksum": "46a1761807faccc9a19e86944bbf40610014066306f96edcdedc2fb714bcb7b8"
+      },
+      {
+        "name": "itoa",
+        "version": "1.0.18",
+        "checksum": "8f42a60cbdf9a97f5d2305f08a87dc4e09308d1276d28c869c684d7777685682"
+      },
+      {
+        "name": "js-sys",
+        "version": "0.3.105",
+        "checksum": "ce57d20d1ea864ce2ac172ab472d409214f4fd359f0b2a2775abdf522e2af99e"
+      },
+      {
+        "name": "libc",
+        "version": "0.2.189",
+        "checksum": "3eaf3ede3fee6db1a4c2ee091bf8a8b4dccdc6d17f656fb07896ee72867612f2"
+      },
+      {
+        "name": "libsqlite3-sys",
+        "version": "0.38.2",
+        "checksum": "f1d20bef17f513b9b3004532233187769cd072d790971f4e4da0e346eb6401e8"
+      },
+      {
+        "name": "lock_api",
+        "version": "0.4.14",
+        "checksum": "224399e74b87b5f3557511d98dff8b14089b3dadafcab6bb93eab67d3aace965"
+      },
+      {
+        "name": "log",
+        "version": "0.4.34",
+        "checksum": "f9f8bd3e56ce4dfc153cf470fffbfa98c7620958b312ca5c3a4b8d5181fd13c6"
+      },
+      {
+        "name": "markup5ever",
+        "version": "0.39.0",
+        "checksum": "7122d987ec5f704ee56f6e5b41a7d93722e9aae27ae07cafa4036c4d3f9757de"
+      },
+      {
+        "name": "memchr",
+        "version": "2.8.3",
+        "checksum": "cf8baf1c55e62ffcace7a9f06f4bd9cd3f0c4beb022d3b367256b91b87513d98"
+      },
+      {
+        "name": "new_debug_unreachable",
+        "version": "1.0.6",
+        "checksum": "650eef8c711430f1a879fdd01d4745a7deea475becfb90269c06775983bbf086"
+      },
+      {
+        "name": "num-traits",
+        "version": "0.2.19",
+        "checksum": "071dfc062690e90b734c0b2273ce72ad0ffa95f0c74596bc250dcfd960262841"
+      },
+      {
+        "name": "once_cell",
+        "version": "1.21.4",
+        "checksum": "9f7c3e4beb33f85d45ae3e3a1792185706c8e16d043238c593331cc7cd313b50"
+      },
+      {
+        "name": "parking_lot",
+        "version": "0.12.5",
+        "checksum": "93857453250e3077bd71ff98b6a65ea6621a19bb0f559a85248955ac12c45a1a"
+      },
+      {
+        "name": "parking_lot_core",
+        "version": "0.9.12",
+        "checksum": "2621685985a2ebf1c516881c026032ac7deafcda1a2c9b7850dc81e3dfcb64c1"
+      },
+      {
+        "name": "phf",
+        "version": "0.13.1",
+        "checksum": "c1562dc717473dbaa4c1f85a36410e03c047b2e7df7f45ee938fbef64ae7fadf"
+      },
+      {
+        "name": "phf_codegen",
+        "version": "0.13.1",
+        "checksum": "49aa7f9d80421bca176ca8dbfebe668cc7a2684708594ec9f3c0db0805d5d6e1"
+      },
+      {
+        "name": "phf_generator",
+        "version": "0.13.1",
+        "checksum": "135ace3a761e564ec88c03a77317a7c6b80bb7f7135ef2544dbe054243b89737"
+      },
+      {
+        "name": "phf_macros",
+        "version": "0.13.1",
+        "checksum": "812f032b54b1e759ccd5f8b6677695d5268c588701effba24601f6932f8269ef"
+      },
+      {
+        "name": "phf_shared",
+        "version": "0.13.1",
+        "checksum": "e57fef6bc5981e38c2ce2d63bfa546861309f875b8a75f092d1d54ae2d64f266"
+      },
+      {
+        "name": "pkg-config",
+        "version": "0.3.34",
+        "checksum": "f6b464fbc74e149a392436b17d523f769e057cb6877f6a5c4618bc6f11800548"
+      },
+      {
+        "name": "precomputed-hash",
+        "version": "0.1.1",
+        "checksum": "925383efa346730478fb4838dbe9137d2a47675ad789c546d150a6e1dd4ab31c"
+      },
+      {
+        "name": "proc-macro2",
+        "version": "1.0.107",
+        "checksum": "985e7ec9bb745e6ce6535b544d84d6cd6f7ad8bd711c398938ae983b91a766d9"
+      },
+      {
+        "name": "quote",
+        "version": "1.0.47",
+        "checksum": "1fbf4db142a473a8d80c26bbf18454ed458bf8d26c8219c331daecfdbd079001"
+      },
+      {
+        "name": "redox_syscall",
+        "version": "0.5.18",
+        "checksum": "ed2bf2547551a7053d6fdfafda3f938979645c44812fbfcda098faae3f1a362d"
+      },
+      {
+        "name": "rsqlite-vfs",
+        "version": "0.1.1",
+        "checksum": "c51c9ae4df8a7fba42103df5c621fa3c37eccf3a3c650879e90fc48b11cc192c"
+      },
+      {
+        "name": "rusqlite",
+        "version": "0.40.2",
+        "checksum": "23f2a97da3e3873c73cb2a2e71b35c40ff95e0b1eefa8d72d8499a6928c3b5b3"
+      },
+      {
+        "name": "rustc-hash",
+        "version": "2.1.3",
+        "checksum": "6b1e7f9a428571be2dc5bc0505c13fb6bf936822b894ec87abf8a08a4e51742d"
+      },
+      {
+        "name": "rustc_version",
+        "version": "0.4.1",
+        "checksum": "cfcb3a22ef46e85b45de6ee7e79d063319ebb6594faafcf1c225ea92ab6e9b92"
+      },
+      {
+        "name": "rustversion",
+        "version": "1.0.23",
+        "checksum": "cf54715a573b99ac80df0bc206da022bcd442c974952c7b9720069370852e21f"
+      },
+      {
+        "name": "scopeguard",
+        "version": "1.2.0",
+        "checksum": "94143f37725109f92c262ed2cf5e59bce7498c01bcc1502d7b9afe439a4e9f49"
+      },
+      {
+        "name": "scraper",
+        "version": "0.27.0",
+        "checksum": "bdd0be4d296f048bfb06dd01bbc80ef789ddd2e55583e8d2e6b804942abfabc2"
+      },
+      {
+        "name": "selectors",
+        "version": "0.38.0",
+        "checksum": "8adfa1c298912827b8a28b223b3b874357397ae706e6190acd9bf28cee99114d"
+      },
+      {
+        "name": "semver",
+        "version": "1.0.28",
+        "checksum": "8a7852d02fc848982e0c167ef163aaff9cd91dc640ba85e263cb1ce46fae51cd"
+      },
+      {
+        "name": "serde",
+        "version": "1.0.229",
+        "checksum": "4148590afebada386688f18773da617792bf2ef03ffc1e4cbd2b1d45b023e0ba"
+      },
+      {
+        "name": "serde_core",
+        "version": "1.0.229",
+        "checksum": "67dca2c9c51e58a4791a4b1ed58308b39c64224d349a935ab5039aa360942a48"
+      },
+      {
+        "name": "serde_derive",
+        "version": "1.0.229",
+        "checksum": "e7a5d71263a5a7d47b41f6b3f06ba276f10cc18b0931f1799f710578e2309348"
+      },
+      {
+        "name": "serde_json",
+        "version": "1.0.151",
+        "checksum": "c841b55ecdae098c80dcae9cf767f6f8a0c2cdb3416bbef72181df4d0fe73f14"
+      },
+      {
+        "name": "servo_arc",
+        "version": "0.4.3",
+        "checksum": "170fb83ab34de17dc69aa7c67482b22218ddb85da56546f9bd6b929e32a05930"
+      },
+      {
+        "name": "shlex",
+        "version": "2.0.1",
+        "checksum": "f8fadd59c855ef2080decdef8ff161eb6661b86933c9d82e5ba29dc602a55aba"
+      },
+      {
+        "name": "siphasher",
+        "version": "1.0.3",
+        "checksum": "8ee5873ec9cce0195efcb7a4e9507a04cd49aec9c83d0389df45b1ef7ba2e649"
+      },
+      {
+        "name": "smallvec",
+        "version": "1.16.1",
+        "checksum": "ba467056f1b547ed52077911161fc86985becbc60e8e1857c8a144dab0def891"
+      },
+      {
+        "name": "sqlite-wasm-rs",
+        "version": "0.5.5",
+        "checksum": "dc3efc0da82635d7e1ced0053bbbfa8c7ab9645d0bf36ceb4f7127bb85315d75"
+      },
+      {
+        "name": "stable_deref_trait",
+        "version": "1.2.1",
+        "checksum": "6ce2be8dc25455e1f91df71bfa12ad37d7af1092ae736f3a6cd0e37bc7810596"
+      },
+      {
+        "name": "string_cache",
+        "version": "0.9.0",
+        "checksum": "a18596f8c785a729f2819c0f6a7eae6ebeebdfffbfe4214ae6b087f690e31901"
+      },
+      {
+        "name": "string_cache_codegen",
+        "version": "0.6.1",
+        "checksum": "585635e46db231059f76c5849798146164652513eb9e8ab2685939dd90f29b69"
+      },
+      {
+        "name": "syn",
+        "version": "2.0.119",
+        "checksum": "872831b642d1a07999a962a351ed35b955ea2cfc8f3862091e2a240a84f17297"
+      },
+      {
+        "name": "syn",
+        "version": "3.0.5",
+        "checksum": "12df2e0110f65b775f769bb17ef989067a1d931b2eb822bd4346631eeada89f9"
+      },
+      {
+        "name": "tendril",
+        "version": "0.5.1",
+        "checksum": "5fed54709c5b3a53d09bb1c113ea4f5ceafd1e772ddcb0030a82e1d56c087b08"
+      },
+      {
+        "name": "thiserror",
+        "version": "2.0.20",
+        "checksum": "ec86235f5fcc2a73650310756d2ac5b138a5780bbbdfae3eeccec992c435ba4f"
+      },
+      {
+        "name": "thiserror-impl",
+        "version": "2.0.20",
+        "checksum": "bc04cd3e1236dd4a98afca4569f2deb3f120e5422a4023be2cb683f8486292af"
+      },
+      {
+        "name": "unicode-ident",
+        "version": "1.0.24",
+        "checksum": "e6e4313cd5fcd3dad5cafa179702e2b244f760991f45397d14d4ebf38247da75"
+      },
+      {
+        "name": "unicode-width",
+        "version": "0.2.2",
+        "checksum": "b4ac048d71ede7ee76d585517add45da530660ef4390e49b098733c6e897f254"
+      },
+      {
+        "name": "vcpkg",
+        "version": "0.2.15",
+        "checksum": "accd4ea62f7bb7a82fe23066fb0957d48ef677f6eeb8215f372f52e48bb32426"
+      },
+      {
+        "name": "wasm-bindgen",
+        "version": "0.2.128",
+        "checksum": "aecb87a33d3b0c5e3b7aa46336eaf486cffafbd281b195e4c8b80d50df2351bf"
+      },
+      {
+        "name": "wasm-bindgen-macro",
+        "version": "0.2.128",
+        "checksum": "a690d511e3c1a8b3a55e33511e3c2c00c78415cd23650f32b808627f5696b9ed"
+      },
+      {
+        "name": "wasm-bindgen-macro-support",
+        "version": "0.2.128",
+        "checksum": "411e4887f0071ef2d2164a9d5fdf2d20efbef78fccd3a78b0c10a1dc5295e48a"
+      },
+      {
+        "name": "wasm-bindgen-shared",
+        "version": "0.2.128",
+        "checksum": "81941cd78d0c92026c33e5e01312845a4cb1e9af3407f9134b100dd03144103e"
+      },
+      {
+        "name": "web_atoms",
+        "version": "0.2.6",
+        "checksum": "ba8b815c1b593dc0baf78dd0f4fc8fdb2de53198fb1163738093e9a311c33fb3"
+      },
+      {
+        "name": "windows-link",
+        "version": "0.2.1",
+        "checksum": "f0805222e57f7521d6a62e36fa9163bc891acd422f971defe97d64e70d0a4fe5"
+      },
+      {
+        "name": "zmij",
+        "version": "1.0.23",
+        "checksum": "29666d0abbfad1e3dc4dcf6144730dd3a3ab225bbbdac83319345b1b44ccfc1b"
+      }
+    ]
+  },
+  "layers": [
+    {
+      "name": "blobs/sha256/56bca576eca1c269404b2913121e9bcdbe82371ea49035076ba12e0e1cbc1eec",
+      "storedSha256": "56bca576eca1c269404b2913121e9bcdbe82371ea49035076ba12e0e1cbc1eec",
+      "compressedBytes": 14843452,
+      "compression": "stored gzip",
+      "unpackedTarBytes": 40617984
+    },
+    {
+      "name": "blobs/sha256/4f4fb700ef54461cfa02571ae0db9a0dc1e0cdb5577484a6d75e68dc38e8acc1",
+      "storedSha256": "4f4fb700ef54461cfa02571ae0db9a0dc1e0cdb5577484a6d75e68dc38e8acc1",
+      "compressedBytes": 32,
+      "compression": "stored gzip",
+      "unpackedTarBytes": 1024
+    }
+  ],
+  "compressedLayerBytes": 14843484,
+  "unpackedLayerTarBytes": 40619008,
+  "visibleRegularFileBytes": 40311750,
+  "visibleFilesystemAccounting": "sum of regular-file logical lengths in docker export; links/directories/tar padding excluded; not disk allocation",
+  "sourceHashes": {
+    "experiments/native-image/build.js": "3a9cda0a5791336ca3d5b2029c6fe52aecdc3ca852d7453bca7ed38b01a51ffe",
+    "experiments/native-image/build-variants": "8e036d0bf5fe6a5acc909d0b1dfb81574a1d448e31642e3621eb9d87444f0a4a",
+    "experiments/native-image/assess.js": "7773bbba413e39b0a2f5bb96990cb6b312a85ffbe5bcecc32883ab4906378a96",
+    "experiments/native-image/assemble": "8f503cfd1b856f1122e28b56a47dfcf5867e3f6e90dedcc32cda6db934d3489a",
+    "experiments/native-image/Dockerfile": "f93ca85b4600742c65792801113a0c3f0b52d5c7099b1526e41a4fdfab17285d",
+    "experiments/rust-replay/Cargo.toml": "620f3d9d44a1d4719320b77fcd33a851214376b8179babfabb7931d91481c82c",
+    "experiments/rust-replay/Cargo.lock": "1c4130bd2e731e21439eb5436fd4b51e8d0f50b74e6f78571e1e17c7a3925140",
+    "experiments/rust-replay/src/bulk.rs": "f8eeeb8e735646ecfb706dfdcd4e4a111ed25ffaf397395aa072cec981d02dd5",
+    "experiments/rust-replay/src/delivery.rs": "8d751fffd265441ed38a48639757d5b3a56c07ac9db50426ffe390bc57598eea",
+    "experiments/rust-replay/src/main.rs": "f53b164d1fc71b98fa63010b25bd8389c6eb496f27e3607a284c979777324fa1",
+    "experiments/rust-replay/src/maintenance.rs": "33e8e3174b174fb9f444f4fa3381ef7f08b6956a5dd873f85ba144f642e18a5a",
+    "experiments/rust-replay/src/migration.rs": "f672ef22bf7aaa649e973b9fcb36f16ec84249d79e851d666e9e6e35711bd658",
+    "experiments/rust-replay/src/model.rs": "88f750d47df051001a8b5f5506b1b4c7b97774e097ab49dd5ced7284f37207bc",
+    "experiments/rust-replay/src/schema.rs": "89ab31bd95fba79e9b416feffd59c89f9407652d605b5e301321ab32a6dd4dbb",
+    "experiments/rust-replay/src/service.rs": "0b0691b43f65a138812f9cac44cefb9d978724e47998778120ef4c8d7c814091",
+    "experiments/rust-replay/src/store.rs": "173dc7b274baa97a494fe879e0e86a9e5137f0a0bd726e50c3b2311f2a9986bd"
+  },
+  "files": [
+    ".dockerenv",
+    "app/",
+    "app/.data/",
+    "dev/",
+    "dev/console",
+    "dev/pts/",
+    "dev/shm/",
+    "etc/",
+    "etc/debian_version",
+    "etc/group",
+    "etc/hostname",
+    "etc/hosts",
+    "etc/mtab",
+    "etc/nsswitch.conf",
+    "etc/os-release",
+    "etc/passwd",
+    "etc/resolv.conf",
+    "etc/ssl/",
+    "etc/ssl/certs/",
+    "etc/ssl/certs/ca-certificates.crt",
+    "lib/",
+    "lib/x86_64-linux-gnu/",
+    "lib/x86_64-linux-gnu/libc.so.6",
+    "lib/x86_64-linux-gnu/libdl.so.2",
+    "lib/x86_64-linux-gnu/libgcc_s.so.1",
+    "lib/x86_64-linux-gnu/libm.so.6",
+    "lib/x86_64-linux-gnu/libpthread.so.0",
+    "lib64/",
+    "lib64/ld-linux-x86-64.so.2",
+    "proc/",
+    "sqlite-tmp/",
+    "sys/",
+    "tmp/",
+    "usr/",
+    "usr/local/",
+    "usr/local/bin/",
+    "usr/local/bin/curl-impersonate",
+    "usr/local/bin/replay",
+    "usr/local/share/",
+    "usr/local/share/licenses/",
+    "usr/local/share/licenses/curl-impersonate/",
+    "usr/local/share/licenses/curl-impersonate/LICENSE",
+    "usr/local/share/licenses/curl-impersonate/LICENSE_BORINGSSL",
+    "usr/local/share/licenses/curl-impersonate/LICENSE_BROTLI",
+    "usr/local/share/licenses/curl-impersonate/LICENSE_CURL",
+    "usr/local/share/licenses/curl-impersonate/LICENSE_LIBIDN2_GPL2",
+    "usr/local/share/licenses/curl-impersonate/LICENSE_LIBIDN2_GPL3",
+    "usr/local/share/licenses/curl-impersonate/LICENSE_LIBIDN2_LGPL3",
+    "usr/local/share/licenses/curl-impersonate/LICENSE_LIBIDN2_UNICODE",
+    "usr/local/share/licenses/curl-impersonate/LICENSE_NGHTTP2",
+    "usr/local/share/licenses/curl-impersonate/LICENSE_NGHTTP3",
+    "usr/local/share/licenses/curl-impersonate/LICENSE_NGTCP2",
+    "usr/local/share/licenses/curl-impersonate/LICENSE_ZLIB",
+    "usr/local/share/licenses/curl-impersonate/LICENSE_ZSTD",
+    "usr/local/share/licenses/replay/",
+    "usr/local/share/licenses/replay/Cargo.lock",
+    "usr/local/share/licenses/replay/Rust-COPYRIGHT",
+    "usr/local/share/licenses/replay/Rust-LICENSE-APACHE",
+    "usr/local/share/licenses/replay/Rust-LICENSE-MIT",
+    "usr/local/share/licenses/replay/autocfg-1.5.1/",
+    "usr/local/share/licenses/replay/autocfg-1.5.1/Cargo.toml",
+    "usr/local/share/licenses/replay/autocfg-1.5.1/LICENSE-APACHE",
+    "usr/local/share/licenses/replay/autocfg-1.5.1/LICENSE-MIT",
+    "usr/local/share/licenses/replay/bitflags-2.13.2/",
+    "usr/local/share/licenses/replay/bitflags-2.13.2/Cargo.toml",
+    "usr/local/share/licenses/replay/bitflags-2.13.2/LICENSE-APACHE",
+    "usr/local/share/licenses/replay/bitflags-2.13.2/LICENSE-MIT",
+    "usr/local/share/licenses/replay/bumpalo-3.20.3/",
+    "usr/local/share/licenses/replay/bumpalo-3.20.3/Cargo.toml",
+    "usr/local/share/licenses/replay/bumpalo-3.20.3/LICENSE-APACHE",
+    "usr/local/share/licenses/replay/bumpalo-3.20.3/LICENSE-MIT",
+    "usr/local/share/licenses/replay/cc-1.4.6/",
+    "usr/local/share/licenses/replay/cc-1.4.6/Cargo.toml",
+    "usr/local/share/licenses/replay/cc-1.4.6/LICENSE-APACHE",
+    "usr/local/share/licenses/replay/cc-1.4.6/LICENSE-MIT",
+    "usr/local/share/licenses/replay/cfg-if-1.0.5/",
+    "usr/local/share/licenses/replay/cfg-if-1.0.5/Cargo.toml",
+    "usr/local/share/licenses/replay/cfg-if-1.0.5/LICENSE-APACHE",
+    "usr/local/share/licenses/replay/cfg-if-1.0.5/LICENSE-MIT",
+    "usr/local/share/licenses/replay/chrono-0.4.45/",
+    "usr/local/share/licenses/replay/chrono-0.4.45/Cargo.toml",
+    "usr/local/share/licenses/replay/chrono-0.4.45/LICENSE.txt",
+    "usr/local/share/licenses/replay/cssparser-0.37.0/",
+    "usr/local/share/licenses/replay/cssparser-0.37.0/Cargo.toml",
+    "usr/local/share/licenses/replay/cssparser-0.37.0/LICENSE",
+    "usr/local/share/licenses/replay/cssparser-macros-0.7.1/",
+    "usr/local/share/licenses/replay/cssparser-macros-0.7.1/Cargo.toml",
+    "usr/local/share/licenses/replay/cssparser-macros-0.7.1/LICENSE",
+    "usr/local/share/licenses/replay/derive_more-2.1.1/",
+    "usr/local/share/licenses/replay/derive_more-2.1.1/Cargo.toml",
+    "usr/local/share/licenses/replay/derive_more-2.1.1/LICENSE",
+    "usr/local/share/licenses/replay/derive_more-impl-2.1.1/",
+    "usr/local/share/licenses/replay/derive_more-impl-2.1.1/Cargo.toml",
+    "usr/local/share/licenses/replay/derive_more-impl-2.1.1/LICENSE",
+    "usr/local/share/licenses/replay/dtoa-1.0.11/",
+    "usr/local/share/licenses/replay/dtoa-1.0.11/Cargo.toml",
+    "usr/local/share/licenses/replay/dtoa-1.0.11/LICENSE-APACHE",
+    "usr/local/share/licenses/replay/dtoa-1.0.11/LICENSE-MIT",
+    "usr/local/share/licenses/replay/dtoa-short-0.3.5/",
+    "usr/local/share/licenses/replay/dtoa-short-0.3.5/Cargo.toml",
+    "usr/local/share/licenses/replay/dtoa-short-0.3.5/LICENSE",
+    "usr/local/share/licenses/replay/ego-tree-0.11.0/",
+    "usr/local/share/licenses/replay/ego-tree-0.11.0/Cargo.toml",
+    "usr/local/share/licenses/replay/ego-tree-0.11.0/LICENSE",
+    "usr/local/share/licenses/replay/fallible-iterator-0.3.0/",
+    "usr/local/share/licenses/replay/fallible-iterator-0.3.0/Cargo.toml",
+    "usr/local/share/licenses/replay/fallible-iterator-0.3.0/LICENSE-APACHE",
+    "usr/local/share/licenses/replay/fallible-iterator-0.3.0/LICENSE-MIT",
+    "usr/local/share/licenses/replay/fallible-streaming-iterator-0.1.9/",
+    "usr/local/share/licenses/replay/fallible-streaming-iterator-0.1.9/Cargo.toml",
+    "usr/local/share/licenses/replay/fallible-streaming-iterator-0.1.9/LICENSE-APACHE",
+    "usr/local/share/licenses/replay/fallible-streaming-iterator-0.1.9/LICENSE-MIT",
+    "usr/local/share/licenses/replay/fastrand-2.5.0/",
+    "usr/local/share/licenses/replay/fastrand-2.5.0/Cargo.toml",
+    "usr/local/share/licenses/replay/fastrand-2.5.0/LICENSE-APACHE",
+    "usr/local/share/licenses/replay/fastrand-2.5.0/LICENSE-MIT",
+    "usr/local/share/licenses/replay/find-msvc-tools-0.1.12/",
+    "usr/local/share/licenses/replay/find-msvc-tools-0.1.12/Cargo.toml",
+    "usr/local/share/licenses/replay/find-msvc-tools-0.1.12/LICENSE-APACHE",
+    "usr/local/share/licenses/replay/find-msvc-tools-0.1.12/LICENSE-MIT",
+    "usr/local/share/licenses/replay/foldhash-0.2.0/",
+    "usr/local/share/licenses/replay/foldhash-0.2.0/Cargo.toml",
+    "usr/local/share/licenses/replay/foldhash-0.2.0/LICENSE",
+    "usr/local/share/licenses/replay/getopts-0.2.24/",
+    "usr/local/share/licenses/replay/getopts-0.2.24/Cargo.toml",
+    "usr/local/share/licenses/replay/getopts-0.2.24/LICENSE-APACHE",
+    "usr/local/share/licenses/replay/getopts-0.2.24/LICENSE-MIT",
+    "usr/local/share/licenses/replay/hashbrown-0.16.1/",
+    "usr/local/share/licenses/replay/hashbrown-0.16.1/Cargo.toml",
+    "usr/local/share/licenses/replay/hashbrown-0.16.1/LICENSE-APACHE",
+    "usr/local/share/licenses/replay/hashbrown-0.16.1/LICENSE-MIT",
+    "usr/local/share/licenses/replay/hashbrown-0.17.1/",
+    "usr/local/share/licenses/replay/hashbrown-0.17.1/Cargo.toml",
+    "usr/local/share/licenses/replay/hashbrown-0.17.1/LICENSE-APACHE",
+    "usr/local/share/licenses/replay/hashbrown-0.17.1/LICENSE-MIT",
+    "usr/local/share/licenses/replay/hashlink-0.12.2/",
+    "usr/local/share/licenses/replay/hashlink-0.12.2/Cargo.toml",
+    "usr/local/share/licenses/replay/hashlink-0.12.2/LICENSE-APACHE",
+    "usr/local/share/licenses/replay/hashlink-0.12.2/LICENSE-MIT",
+    "usr/local/share/licenses/replay/html5ever-0.39.0/",
+    "usr/local/share/licenses/replay/html5ever-0.39.0/Cargo.toml",
+    "usr/local/share/licenses/replay/html5ever-0.39.0/LICENSE-APACHE",
+    "usr/local/share/licenses/replay/html5ever-0.39.0/LICENSE-MIT",
+    "usr/local/share/licenses/replay/itoa-1.0.18/",
+    "usr/local/share/licenses/replay/itoa-1.0.18/Cargo.toml",
+    "usr/local/share/licenses/replay/itoa-1.0.18/LICENSE-APACHE",
+    "usr/local/share/licenses/replay/itoa-1.0.18/LICENSE-MIT",
+    "usr/local/share/licenses/replay/js-sys-0.3.105/",
+    "usr/local/share/licenses/replay/js-sys-0.3.105/Cargo.toml",
+    "usr/local/share/licenses/replay/js-sys-0.3.105/LICENSE-APACHE",
+    "usr/local/share/licenses/replay/js-sys-0.3.105/LICENSE-MIT",
+    "usr/local/share/licenses/replay/libc-0.2.189/",
+    "usr/local/share/licenses/replay/libc-0.2.189/Cargo.toml",
+    "usr/local/share/licenses/replay/libc-0.2.189/LICENSE-APACHE",
+    "usr/local/share/licenses/replay/libc-0.2.189/LICENSE-MIT",
+    "usr/local/share/licenses/replay/libsqlite3-sys-0.38.2/",
+    "usr/local/share/licenses/replay/libsqlite3-sys-0.38.2/Cargo.toml",
+    "usr/local/share/licenses/replay/libsqlite3-sys-0.38.2/LICENSE",
+    "usr/local/share/licenses/replay/lock_api-0.4.14/",
+    "usr/local/share/licenses/replay/lock_api-0.4.14/Cargo.toml",
+    "usr/local/share/licenses/replay/lock_api-0.4.14/LICENSE-APACHE",
+    "usr/local/share/licenses/replay/lock_api-0.4.14/LICENSE-MIT",
+    "usr/local/share/licenses/replay/log-0.4.34/",
+    "usr/local/share/licenses/replay/log-0.4.34/Cargo.toml",
+    "usr/local/share/licenses/replay/log-0.4.34/LICENSE-APACHE",
+    "usr/local/share/licenses/replay/log-0.4.34/LICENSE-MIT",
+    "usr/local/share/licenses/replay/markup5ever-0.39.0/",
+    "usr/local/share/licenses/replay/markup5ever-0.39.0/Cargo.toml",
+    "usr/local/share/licenses/replay/markup5ever-0.39.0/LICENSE-APACHE",
+    "usr/local/share/licenses/replay/markup5ever-0.39.0/LICENSE-MIT",
+    "usr/local/share/licenses/replay/memchr-2.8.3/",
+    "usr/local/share/licenses/replay/memchr-2.8.3/COPYING",
+    "usr/local/share/licenses/replay/memchr-2.8.3/Cargo.toml",
+    "usr/local/share/licenses/replay/memchr-2.8.3/LICENSE-MIT",
+    "usr/local/share/licenses/replay/new_debug_unreachable-1.0.6/",
+    "usr/local/share/licenses/replay/new_debug_unreachable-1.0.6/Cargo.toml",
+    "usr/local/share/licenses/replay/new_debug_unreachable-1.0.6/LICENSE-MIT",
+    "usr/local/share/licenses/replay/num-traits-0.2.19/",
+    "usr/local/share/licenses/replay/num-traits-0.2.19/Cargo.toml",
+    "usr/local/share/licenses/replay/num-traits-0.2.19/LICENSE-APACHE",
+    "usr/local/share/licenses/replay/num-traits-0.2.19/LICENSE-MIT",
+    "usr/local/share/licenses/replay/once_cell-1.21.4/",
+    "usr/local/share/licenses/replay/once_cell-1.21.4/Cargo.toml",
+    "usr/local/share/licenses/replay/once_cell-1.21.4/LICENSE-APACHE",
+    "usr/local/share/licenses/replay/once_cell-1.21.4/LICENSE-MIT",
+    "usr/local/share/licenses/replay/parking_lot-0.12.5/",
+    "usr/local/share/licenses/replay/parking_lot-0.12.5/Cargo.toml",
+    "usr/local/share/licenses/replay/parking_lot-0.12.5/LICENSE-APACHE",
+    "usr/local/share/licenses/replay/parking_lot-0.12.5/LICENSE-MIT",
+    "usr/local/share/licenses/replay/parking_lot_core-0.9.12/",
+    "usr/local/share/licenses/replay/parking_lot_core-0.9.12/Cargo.toml",
+    "usr/local/share/licenses/replay/parking_lot_core-0.9.12/LICENSE-APACHE",
+    "usr/local/share/licenses/replay/parking_lot_core-0.9.12/LICENSE-MIT",
+    "usr/local/share/licenses/replay/phf-0.13.1/",
+    "usr/local/share/licenses/replay/phf-0.13.1/Cargo.toml",
+    "usr/local/share/licenses/replay/phf-0.13.1/LICENSE",
+    "usr/local/share/licenses/replay/phf_codegen-0.13.1/",
+    "usr/local/share/licenses/replay/phf_codegen-0.13.1/Cargo.toml",
+    "usr/local/share/licenses/replay/phf_codegen-0.13.1/LICENSE",
+    "usr/local/share/licenses/replay/phf_generator-0.13.1/",
+    "usr/local/share/licenses/replay/phf_generator-0.13.1/Cargo.toml",
+    "usr/local/share/licenses/replay/phf_generator-0.13.1/LICENSE",
+    "usr/local/share/licenses/replay/phf_macros-0.13.1/",
+    "usr/local/share/licenses/replay/phf_macros-0.13.1/Cargo.toml",
+    "usr/local/share/licenses/replay/phf_macros-0.13.1/LICENSE",
+    "usr/local/share/licenses/replay/phf_shared-0.13.1/",
+    "usr/local/share/licenses/replay/phf_shared-0.13.1/Cargo.toml",
+    "usr/local/share/licenses/replay/phf_shared-0.13.1/LICENSE",
+    "usr/local/share/licenses/replay/pkg-config-0.3.34/",
+    "usr/local/share/licenses/replay/pkg-config-0.3.34/Cargo.toml",
+    "usr/local/share/licenses/replay/pkg-config-0.3.34/LICENSE-APACHE",
+    "usr/local/share/licenses/replay/pkg-config-0.3.34/LICENSE-MIT",
+    "usr/local/share/licenses/replay/precomputed-hash-0.1.1/",
+    "usr/local/share/licenses/replay/precomputed-hash-0.1.1/Cargo.toml",
+    "usr/local/share/licenses/replay/precomputed-hash-0.1.1/LICENSE",
+    "usr/local/share/licenses/replay/proc-macro2-1.0.107/",
+    "usr/local/share/licenses/replay/proc-macro2-1.0.107/Cargo.toml",
+    "usr/local/share/licenses/replay/proc-macro2-1.0.107/LICENSE-APACHE",
+    "usr/local/share/licenses/replay/proc-macro2-1.0.107/LICENSE-MIT",
+    "usr/local/share/licenses/replay/quote-1.0.47/",
+    "usr/local/share/licenses/replay/quote-1.0.47/Cargo.toml",
+    "usr/local/share/licenses/replay/quote-1.0.47/LICENSE-APACHE",
+    "usr/local/share/licenses/replay/quote-1.0.47/LICENSE-MIT",
+    "usr/local/share/licenses/replay/redox_syscall-0.5.18/",
+    "usr/local/share/licenses/replay/redox_syscall-0.5.18/Cargo.toml",
+    "usr/local/share/licenses/replay/redox_syscall-0.5.18/LICENSE",
+    "usr/local/share/licenses/replay/rsqlite-vfs-0.1.1/",
+    "usr/local/share/licenses/replay/rsqlite-vfs-0.1.1/Cargo.toml",
+    "usr/local/share/licenses/replay/rsqlite-vfs-0.1.1/source/",
+    "usr/local/share/licenses/replay/rsqlite-vfs-0.1.1/source/.cargo-ok",
+    "usr/local/share/licenses/replay/rsqlite-vfs-0.1.1/source/.cargo_vcs_info.json",
+    "usr/local/share/licenses/replay/rsqlite-vfs-0.1.1/source/Cargo.lock",
+    "usr/local/share/licenses/replay/rsqlite-vfs-0.1.1/source/Cargo.toml",
+    "usr/local/share/licenses/replay/rsqlite-vfs-0.1.1/source/Cargo.toml.orig",
+    "usr/local/share/licenses/replay/rsqlite-vfs-0.1.1/source/README.md",
+    "usr/local/share/licenses/replay/rsqlite-vfs-0.1.1/source/src/",
+    "usr/local/share/licenses/replay/rsqlite-vfs-0.1.1/source/src/ffi.rs",
+    "usr/local/share/licenses/replay/rsqlite-vfs-0.1.1/source/src/lib.rs",
+    "usr/local/share/licenses/replay/rsqlite-vfs-0.1.1/source/src/memvfs.rs",
+    "usr/local/share/licenses/replay/rusqlite-0.40.2/",
+    "usr/local/share/licenses/replay/rusqlite-0.40.2/Cargo.toml",
+    "usr/local/share/licenses/replay/rusqlite-0.40.2/LICENSE",
+    "usr/local/share/licenses/replay/rustc-hash-2.1.3/",
+    "usr/local/share/licenses/replay/rustc-hash-2.1.3/Cargo.toml",
+    "usr/local/share/licenses/replay/rustc-hash-2.1.3/LICENSE-APACHE",
+    "usr/local/share/licenses/replay/rustc-hash-2.1.3/LICENSE-MIT",
+    "usr/local/share/licenses/replay/rustc_version-0.4.1/",
+    "usr/local/share/licenses/replay/rustc_version-0.4.1/Cargo.toml",
+    "usr/local/share/licenses/replay/rustc_version-0.4.1/LICENSE-APACHE",
+    "usr/local/share/licenses/replay/rustc_version-0.4.1/LICENSE-MIT",
+    "usr/local/share/licenses/replay/rustversion-1.0.23/",
+    "usr/local/share/licenses/replay/rustversion-1.0.23/Cargo.toml",
+    "usr/local/share/licenses/replay/rustversion-1.0.23/LICENSE-APACHE",
+    "usr/local/share/licenses/replay/rustversion-1.0.23/LICENSE-MIT",
+    "usr/local/share/licenses/replay/scopeguard-1.2.0/",
+    "usr/local/share/licenses/replay/scopeguard-1.2.0/Cargo.toml",
+    "usr/local/share/licenses/replay/scopeguard-1.2.0/LICENSE-APACHE",
+    "usr/local/share/licenses/replay/scopeguard-1.2.0/LICENSE-MIT",
+    "usr/local/share/licenses/replay/scraper-0.27.0/",
+    "usr/local/share/licenses/replay/scraper-0.27.0/Cargo.toml",
+    "usr/local/share/licenses/replay/scraper-0.27.0/LICENSE",
+    "usr/local/share/licenses/replay/selectors-0.38.0/",
+    "usr/local/share/licenses/replay/selectors-0.38.0/Cargo.toml",
+    "usr/local/share/licenses/replay/selectors-0.38.0/source/",
+    "usr/local/share/licenses/replay/selectors-0.38.0/source/.cargo-ok",
+    "usr/local/share/licenses/replay/selectors-0.38.0/source/.cargo_vcs_info.json",
+    "usr/local/share/licenses/replay/selectors-0.38.0/source/CHANGES.md",
+    "usr/local/share/licenses/replay/selectors-0.38.0/source/Cargo.lock",
+    "usr/local/share/licenses/replay/selectors-0.38.0/source/Cargo.toml",
+    "usr/local/share/licenses/replay/selectors-0.38.0/source/Cargo.toml.orig",
+    "usr/local/share/licenses/replay/selectors-0.38.0/source/README.md",
+    "usr/local/share/licenses/replay/selectors-0.38.0/source/attr.rs",
+    "usr/local/share/licenses/replay/selectors-0.38.0/source/bloom.rs",
+    "usr/local/share/licenses/replay/selectors-0.38.0/source/build.rs",
+    "usr/local/share/licenses/replay/selectors-0.38.0/source/builder.rs",
+    "usr/local/share/licenses/replay/selectors-0.38.0/source/context.rs",
+    "usr/local/share/licenses/replay/selectors-0.38.0/source/kleene_value.rs",
+    "usr/local/share/licenses/replay/selectors-0.38.0/source/lib.rs",
+    "usr/local/share/licenses/replay/selectors-0.38.0/source/matching.rs",
+    "usr/local/share/licenses/replay/selectors-0.38.0/source/nth_index_cache.rs",
+    "usr/local/share/licenses/replay/selectors-0.38.0/source/parser.rs",
+    "usr/local/share/licenses/replay/selectors-0.38.0/source/relative_selector/",
+    "usr/local/share/licenses/replay/selectors-0.38.0/source/relative_selector/cache.rs",
+    "usr/local/share/licenses/replay/selectors-0.38.0/source/relative_selector/filter.rs",
+    "usr/local/share/licenses/replay/selectors-0.38.0/source/relative_selector/mod.rs",
+    "usr/local/share/licenses/replay/selectors-0.38.0/source/sink.rs",
+    "usr/local/share/licenses/replay/selectors-0.38.0/source/tree.rs",
+    "usr/local/share/licenses/replay/selectors-0.38.0/source/visitor.rs",
+    "usr/local/share/licenses/replay/semver-1.0.28/",
+    "usr/local/share/licenses/replay/semver-1.0.28/Cargo.toml",
+    "usr/local/share/licenses/replay/semver-1.0.28/LICENSE-APACHE",
+    "usr/local/share/licenses/replay/semver-1.0.28/LICENSE-MIT",
+    "usr/local/share/licenses/replay/serde-1.0.229/",
+    "usr/local/share/licenses/replay/serde-1.0.229/Cargo.toml",
+    "usr/local/share/licenses/replay/serde-1.0.229/LICENSE-APACHE",
+    "usr/local/share/licenses/replay/serde-1.0.229/LICENSE-MIT",
+    "usr/local/share/licenses/replay/serde_core-1.0.229/",
+    "usr/local/share/licenses/replay/serde_core-1.0.229/Cargo.toml",
+    "usr/local/share/licenses/replay/serde_core-1.0.229/LICENSE-APACHE",
+    "usr/local/share/licenses/replay/serde_core-1.0.229/LICENSE-MIT",
+    "usr/local/share/licenses/replay/serde_derive-1.0.229/",
+    "usr/local/share/licenses/replay/serde_derive-1.0.229/Cargo.toml",
+    "usr/local/share/licenses/replay/serde_derive-1.0.229/LICENSE-APACHE",
+    "usr/local/share/licenses/replay/serde_derive-1.0.229/LICENSE-MIT",
+    "usr/local/share/licenses/replay/serde_json-1.0.151/",
+    "usr/local/share/licenses/replay/serde_json-1.0.151/Cargo.toml",
+    "usr/local/share/licenses/replay/serde_json-1.0.151/LICENSE-APACHE",
+    "usr/local/share/licenses/replay/serde_json-1.0.151/LICENSE-MIT",
+    "usr/local/share/licenses/replay/servo_arc-0.4.3/",
+    "usr/local/share/licenses/replay/servo_arc-0.4.3/Cargo.toml",
+    "usr/local/share/licenses/replay/servo_arc-0.4.3/LICENSE-APACHE",
+    "usr/local/share/licenses/replay/servo_arc-0.4.3/LICENSE-MIT",
+    "usr/local/share/licenses/replay/shlex-2.0.1/",
+    "usr/local/share/licenses/replay/shlex-2.0.1/Cargo.toml",
+    "usr/local/share/licenses/replay/shlex-2.0.1/LICENSE-APACHE",
+    "usr/local/share/licenses/replay/shlex-2.0.1/LICENSE-MIT",
+    "usr/local/share/licenses/replay/siphasher-1.0.3/",
+    "usr/local/share/licenses/replay/siphasher-1.0.3/COPYING",
+    "usr/local/share/licenses/replay/siphasher-1.0.3/Cargo.toml",
+    "usr/local/share/licenses/replay/smallvec-1.16.1/",
+    "usr/local/share/licenses/replay/smallvec-1.16.1/Cargo.toml",
+    "usr/local/share/licenses/replay/smallvec-1.16.1/LICENSE-APACHE",
+    "usr/local/share/licenses/replay/smallvec-1.16.1/LICENSE-MIT",
+    "usr/local/share/licenses/replay/sqlite-wasm-rs-0.5.5/",
+    "usr/local/share/licenses/replay/sqlite-wasm-rs-0.5.5/Cargo.toml",
+    "usr/local/share/licenses/replay/sqlite-wasm-rs-0.5.5/LICENSE",
+    "usr/local/share/licenses/replay/stable_deref_trait-1.2.1/",
+    "usr/local/share/licenses/replay/stable_deref_trait-1.2.1/Cargo.toml",
+    "usr/local/share/licenses/replay/stable_deref_trait-1.2.1/LICENSE-APACHE",
+    "usr/local/share/licenses/replay/stable_deref_trait-1.2.1/LICENSE-MIT",
+    "usr/local/share/licenses/replay/string_cache-0.9.0/",
+    "usr/local/share/licenses/replay/string_cache-0.9.0/Cargo.toml",
+    "usr/local/share/licenses/replay/string_cache-0.9.0/LICENSE-APACHE",
+    "usr/local/share/licenses/replay/string_cache-0.9.0/LICENSE-MIT",
+    "usr/local/share/licenses/replay/string_cache_codegen-0.6.1/",
+    "usr/local/share/licenses/replay/string_cache_codegen-0.6.1/Cargo.toml",
+    "usr/local/share/licenses/replay/string_cache_codegen-0.6.1/LICENSE-APACHE",
+    "usr/local/share/licenses/replay/string_cache_codegen-0.6.1/LICENSE-MIT",
+    "usr/local/share/licenses/replay/syn-2.0.119/",
+    "usr/local/share/licenses/replay/syn-2.0.119/Cargo.toml",
+    "usr/local/share/licenses/replay/syn-2.0.119/LICENSE-APACHE",
+    "usr/local/share/licenses/replay/syn-2.0.119/LICENSE-MIT",
+    "usr/local/share/licenses/replay/syn-3.0.5/",
+    "usr/local/share/licenses/replay/syn-3.0.5/Cargo.toml",
+    "usr/local/share/licenses/replay/syn-3.0.5/LICENSE-APACHE",
+    "usr/local/share/licenses/replay/syn-3.0.5/LICENSE-MIT",
+    "usr/local/share/licenses/replay/tendril-0.5.1/",
+    "usr/local/share/licenses/replay/tendril-0.5.1/Cargo.toml",
+    "usr/local/share/licenses/replay/tendril-0.5.1/LICENSE-APACHE",
+    "usr/local/share/licenses/replay/tendril-0.5.1/LICENSE-MIT",
+    "usr/local/share/licenses/replay/thiserror-2.0.20/",
+    "usr/local/share/licenses/replay/thiserror-2.0.20/Cargo.toml",
+    "usr/local/share/licenses/replay/thiserror-2.0.20/LICENSE-APACHE",
+    "usr/local/share/licenses/replay/thiserror-2.0.20/LICENSE-MIT",
+    "usr/local/share/licenses/replay/thiserror-impl-2.0.20/",
+    "usr/local/share/licenses/replay/thiserror-impl-2.0.20/Cargo.toml",
+    "usr/local/share/licenses/replay/thiserror-impl-2.0.20/LICENSE-APACHE",
+    "usr/local/share/licenses/replay/thiserror-impl-2.0.20/LICENSE-MIT",
+    "usr/local/share/licenses/replay/unicode-ident-1.0.24/",
+    "usr/local/share/licenses/replay/unicode-ident-1.0.24/Cargo.toml",
+    "usr/local/share/licenses/replay/unicode-ident-1.0.24/LICENSE-APACHE",
+    "usr/local/share/licenses/replay/unicode-ident-1.0.24/LICENSE-MIT",
+    "usr/local/share/licenses/replay/unicode-ident-1.0.24/LICENSE-UNICODE",
+    "usr/local/share/licenses/replay/unicode-width-0.2.2/",
+    "usr/local/share/licenses/replay/unicode-width-0.2.2/Cargo.toml",
+    "usr/local/share/licenses/replay/unicode-width-0.2.2/LICENSE-APACHE",
+    "usr/local/share/licenses/replay/unicode-width-0.2.2/LICENSE-MIT",
+    "usr/local/share/licenses/replay/vcpkg-0.2.15/",
+    "usr/local/share/licenses/replay/vcpkg-0.2.15/Cargo.toml",
+    "usr/local/share/licenses/replay/vcpkg-0.2.15/LICENSE-APACHE",
+    "usr/local/share/licenses/replay/vcpkg-0.2.15/LICENSE-MIT",
+    "usr/local/share/licenses/replay/wasm-bindgen-0.2.128/",
+    "usr/local/share/licenses/replay/wasm-bindgen-0.2.128/Cargo.toml",
+    "usr/local/share/licenses/replay/wasm-bindgen-0.2.128/LICENSE-APACHE",
+    "usr/local/share/licenses/replay/wasm-bindgen-0.2.128/LICENSE-MIT",
+    "usr/local/share/licenses/replay/wasm-bindgen-macro-0.2.128/",
+    "usr/local/share/licenses/replay/wasm-bindgen-macro-0.2.128/Cargo.toml",
+    "usr/local/share/licenses/replay/wasm-bindgen-macro-0.2.128/LICENSE-APACHE",
+    "usr/local/share/licenses/replay/wasm-bindgen-macro-0.2.128/LICENSE-MIT",
+    "usr/local/share/licenses/replay/wasm-bindgen-macro-support-0.2.128/",
+    "usr/local/share/licenses/replay/wasm-bindgen-macro-support-0.2.128/Cargo.toml",
+    "usr/local/share/licenses/replay/wasm-bindgen-macro-support-0.2.128/LICENSE-APACHE",
+    "usr/local/share/licenses/replay/wasm-bindgen-macro-support-0.2.128/LICENSE-MIT",
+    "usr/local/share/licenses/replay/wasm-bindgen-shared-0.2.128/",
+    "usr/local/share/licenses/replay/wasm-bindgen-shared-0.2.128/Cargo.toml",
+    "usr/local/share/licenses/replay/wasm-bindgen-shared-0.2.128/LICENSE-APACHE",
+    "usr/local/share/licenses/replay/wasm-bindgen-shared-0.2.128/LICENSE-MIT",
+    "usr/local/share/licenses/replay/web_atoms-0.2.6/",
+    "usr/local/share/licenses/replay/web_atoms-0.2.6/Cargo.toml",
+    "usr/local/share/licenses/replay/web_atoms-0.2.6/LICENSE-APACHE",
+    "usr/local/share/licenses/replay/web_atoms-0.2.6/LICENSE-MIT",
+    "usr/local/share/licenses/replay/windows-link-0.2.1/",
+    "usr/local/share/licenses/replay/windows-link-0.2.1/Cargo.toml",
+    "usr/local/share/licenses/replay/windows-link-0.2.1/license-apache-2.0",
+    "usr/local/share/licenses/replay/windows-link-0.2.1/license-mit",
+    "usr/local/share/licenses/replay/zmij-1.0.23/",
+    "usr/local/share/licenses/replay/zmij-1.0.23/Cargo.toml",
+    "usr/local/share/licenses/replay/zmij-1.0.23/LICENSE-MIT",
+    "usr/local/share/native-image/",
+    "usr/local/share/native-image/components.json",
+    "usr/local/share/native-image/debian-packages.txt",
+    "usr/local/share/native-image/libraries.txt",
+    "usr/share/",
+    "usr/share/common-licenses/",
+    "usr/share/common-licenses/Apache-2.0",
+    "usr/share/common-licenses/Artistic",
+    "usr/share/common-licenses/BSD",
+    "usr/share/common-licenses/CC0-1.0",
+    "usr/share/common-licenses/GFDL",
+    "usr/share/common-licenses/GFDL-1.2",
+    "usr/share/common-licenses/GFDL-1.3",
+    "usr/share/common-licenses/GPL",
+    "usr/share/common-licenses/GPL-1",
+    "usr/share/common-licenses/GPL-2",
+    "usr/share/common-licenses/GPL-3",
+    "usr/share/common-licenses/LGPL",
+    "usr/share/common-licenses/LGPL-2",
+    "usr/share/common-licenses/LGPL-2.1",
+    "usr/share/common-licenses/LGPL-3",
+    "usr/share/common-licenses/MPL-1.1",
+    "usr/share/common-licenses/MPL-2.0",
+    "usr/share/doc/",
+    "usr/share/doc/base-files/",
+    "usr/share/doc/base-files/copyright",
+    "usr/share/doc/ca-certificates/",
+    "usr/share/doc/ca-certificates/copyright",
+    "usr/share/doc/libc6:amd64/",
+    "usr/share/doc/libc6:amd64/copyright",
+    "usr/share/doc/libgcc-s1:amd64/",
+    "usr/share/doc/libgcc-s1:amd64/copyright",
+    "var/",
+    "var/lib/",
+    "var/lib/dpkg/",
+    "var/lib/dpkg/status"
+  ],
+  "libraries": [
+    "/lib/x86_64-linux-gnu/libc.so.6",
+    "/lib/x86_64-linux-gnu/libdl.so.2",
+    "/lib/x86_64-linux-gnu/libgcc_s.so.1",
+    "/lib/x86_64-linux-gnu/libm.so.6",
+    "/lib/x86_64-linux-gnu/libpthread.so.0",
+    "/lib64/ld-linux-x86-64.so.2"
+  ],
+  "debianPackages": [
+    "base-files",
+    "ca-certificates",
+    "libc6:amd64",
+    "libgcc-s1:amd64"
+  ],
+  "finalHarnessHashes": {
+    "experiments/native-image/build.js": "3a9cda0a5791336ca3d5b2029c6fe52aecdc3ca852d7453bca7ed38b01a51ffe",
+    "experiments/native-image/build-variants": "b660253334476f248add8972b0beab4914aa4401a7700f60d03ff06bf8185f5e",
+    "experiments/native-image/assess.js": "1167825619453b6504c3ccff6e767d9fb6b8cfe9da5baefa3d04188777c43c47",
+    "experiments/native-image/assemble": "8f503cfd1b856f1122e28b56a47dfcf5867e3f6e90dedcc32cda6db934d3489a",
+    "experiments/native-image/Dockerfile": "f93ca85b4600742c65792801113a0c3f0b52d5c7099b1526e41a4fdfab17285d",
+    "experiments/rust-replay/Cargo.toml": "620f3d9d44a1d4719320b77fcd33a851214376b8179babfabb7931d91481c82c",
+    "experiments/rust-replay/Cargo.lock": "1c4130bd2e731e21439eb5436fd4b51e8d0f50b74e6f78571e1e17c7a3925140",
+    "experiments/rust-replay/src/bulk.rs": "f8eeeb8e735646ecfb706dfdcd4e4a111ed25ffaf397395aa072cec981d02dd5",
+    "experiments/rust-replay/src/delivery.rs": "8d751fffd265441ed38a48639757d5b3a56c07ac9db50426ffe390bc57598eea",
+    "experiments/rust-replay/src/main.rs": "f53b164d1fc71b98fa63010b25bd8389c6eb496f27e3607a284c979777324fa1",
+    "experiments/rust-replay/src/maintenance.rs": "33e8e3174b174fb9f444f4fa3381ef7f08b6956a5dd873f85ba144f642e18a5a",
+    "experiments/rust-replay/src/migration.rs": "f672ef22bf7aaa649e973b9fcb36f16ec84249d79e851d666e9e6e35711bd658",
+    "experiments/rust-replay/src/model.rs": "88f750d47df051001a8b5f5506b1b4c7b97774e097ab49dd5ced7284f37207bc",
+    "experiments/rust-replay/src/schema.rs": "89ab31bd95fba79e9b416feffd59c89f9407652d605b5e301321ab32a6dd4dbb",
+    "experiments/rust-replay/src/service.rs": "0b0691b43f65a138812f9cac44cefb9d978724e47998778120ef4c8d7c814091",
+    "experiments/rust-replay/src/store.rs": "173dc7b274baa97a494fe879e0e86a9e5137f0a0bd726e50c3b2311f2a9986bd"
+  },
+  "provenanceNote": "sourceHashes retain files as observed at image accounting. finalHarnessHashes identify final reporting helpers; Dockerfile/assemble and runtime source inputs are unchanged. build-variants adds explicit Go ELF .text extraction used during assessment; assess.js records Go symbolization limitations."
+}

@@ -1,0 +1,95 @@
+{
+  "architecture": "linux/amd64",
+  "rustBuilderImageId": "sha256:4ef1316d190db383c22ed756991d2778ebb48d33612e23daccddb6c2a37ecfd5",
+  "rustBuilderBase": "rust:1.94.0-bookworm@sha256:365468470075493dc4583f47387001854321c5a8583ea9604b297e67f01c5a4f",
+  "goBuilder": "golang:1.27.1-bookworm@sha256:648f440f42a0958804efb24df176f806f9d353b41f1c0627f666428e40310f6b",
+  "artifacts": {
+    "go-stripped.text": {
+      "bytes": 2840120,
+      "sha256": "4a7d9c009e2cd52f3a163dbc7b56cfa6919ba60f4a8e99f4699519550b16b943"
+    },
+    "go-default": {
+      "bytes": 9218256,
+      "sha256": "69f011e1d557a6a71afade52a610186d053c50ba1da6d06b85c80c846bbb1534"
+    },
+    "rust-default.debug": {
+      "bytes": 22235352,
+      "sha256": "ef361f6aec0adbc8905db9beb6a1bc0153797f225dda72f3475bd0077696839a"
+    },
+    "rust-size.full": {
+      "bytes": 14339464,
+      "sha256": "3e09a37cad38a09ff2bddbf50584302dc04ef9e0e005c6209e8345d484c4db6f"
+    },
+    "go-default.text": {
+      "bytes": 2840120,
+      "sha256": "4a7d9c009e2cd52f3a163dbc7b56cfa6919ba60f4a8e99f4699519550b16b943"
+    },
+    "rust-default": {
+      "bytes": 4250672,
+      "sha256": "fe71686031cb7b7ad884af82af9d44b8b4e8264a073b2fc505dca9d081f5151a"
+    },
+    "rust-size": {
+      "bytes": 2933536,
+      "sha256": "360dd3b7cd5d40ae05235691fe6611f61c4ff20faa45b0265bf271174ac4fe56"
+    },
+    "rust-default.full": {
+      "bytes": 26519808,
+      "sha256": "b3968be42493331b067aa55aca8245f27af5e6e7ab4ef9248fc698ec10c4d77d"
+    },
+    "go-stripped": {
+      "bytes": 5275088,
+      "sha256": "322ac7626c865a602e1d5afb38bb1f945564022f7e27fe7cb41f0a0925ca1197"
+    },
+    "go-default.debug": {
+      "bytes": 3947240,
+      "sha256": "f5085f1faa77ef5214b1b5640357654d035c3c155b52b45cdfeeac6b360956af"
+    },
+    "rust-size.debug": {
+      "bytes": 11399696,
+      "sha256": "2257c6cab44ff6385f6b6e64e703e59243f154f4070fc472eef9a978bbcd05b0"
+    }
+  },
+  "sourceHashes": {
+    "experiments/native-image/build-variants": "b660253334476f248add8972b0beab4914aa4401a7700f60d03ff06bf8185f5e",
+    "experiments/native-image/assess.js": "1167825619453b6504c3ccff6e767d9fb6b8cfe9da5baefa3d04188777c43c47",
+    "experiments/go-replay/go.mod": "846a9a7540ceefd9d7b7f691dfc1881f8ecf478d44a1bb15e5049a5956e641aa",
+    "experiments/go-replay/go.sum": "25feb1968b7b45894530950deb29339bb4bfd544175a464babfb1481ebae0221",
+    "experiments/go-replay/store.go": "e484c9c04deaa9eb7d18b522ca2a585ab51f212312f6270eb564abb0107341ce",
+    "experiments/go-replay/listing.go": "3381ca08a62545f115653dd78a86474c671731c6ff88afa3a006be35cfe93982",
+    "experiments/go-replay/main.go": "19855407781a2e526220762f72cbdd3b29f39bb0c285a7f8a39ad55330b8f0b8",
+    "experiments/go-replay/main_test.go": "b0ab8d3930cbb68007558a47a89a2a8d6da14b905164fa01dcd1ca7593b7b685",
+    "experiments/go-replay/delivery.go": "cca83e393b35f7af4083baf9c0ba33513f89174ddb2ce4baaebcf0690c79ff54",
+    "experiments/rust-replay/src/migration.rs": "f672ef22bf7aaa649e973b9fcb36f16ec84249d79e851d666e9e6e35711bd658",
+    "experiments/rust-replay/src/model.rs": "88f750d47df051001a8b5f5506b1b4c7b97774e097ab49dd5ced7284f37207bc",
+    "experiments/rust-replay/src/schema.rs": "89ab31bd95fba79e9b416feffd59c89f9407652d605b5e301321ab32a6dd4dbb",
+    "experiments/rust-replay/src/bulk.rs": "f8eeeb8e735646ecfb706dfdcd4e4a111ed25ffaf397395aa072cec981d02dd5",
+    "experiments/rust-replay/src/maintenance.rs": "33e8e3174b174fb9f444f4fa3381ef7f08b6956a5dd873f85ba144f642e18a5a",
+    "experiments/rust-replay/src/service.rs": "0b0691b43f65a138812f9cac44cefb9d978724e47998778120ef4c8d7c814091",
+    "experiments/rust-replay/src/delivery.rs": "8d751fffd265441ed38a48639757d5b3a56c07ac9db50426ffe390bc57598eea",
+    "experiments/rust-replay/src/store.rs": "173dc7b274baa97a494fe879e0e86a9e5137f0a0bd726e50c3b2311f2a9986bd",
+    "experiments/rust-replay/src/main.rs": "f53b164d1fc71b98fa63010b25bd8389c6eb496f27e3607a284c979777324fa1",
+    "experiments/rust-replay/Cargo.toml": "620f3d9d44a1d4719320b77fcd33a851214376b8179babfabb7931d91481c82c",
+    "experiments/rust-replay/Cargo.lock": "1c4130bd2e731e21439eb5436fd4b51e8d0f50b74e6f78571e1e17c7a3925140"
+  },
+  "profiles": {
+    "rust-default": {
+      "opt-level": 3,
+      "debug": 1,
+      "strip": "external objcopy/strip GNU debuglink"
+    },
+    "rust-size": {
+      "opt-level": "z",
+      "lto": "thin",
+      "codegen-units": 1,
+      "debug": 1,
+      "strip": "external objcopy/strip GNU debuglink"
+    },
+    "go-default": {
+      "flags": "-buildvcs=false -trimpath -mod=readonly"
+    },
+    "go-stripped": {
+      "flags": "-buildvcs=false -trimpath -mod=readonly -ldflags=\"-s -w\""
+    }
+  },
+  "diagnosticPreparation": "Go binaries were round-tripped through objcopy --dump-section .text; text sections hash-identical. This ELF inspection step rewrote the unstripped file metadata, so retained hashes identify post-inspection assessed bytes, not pre-inspection build output. build-variants reproduces the step. Original full build SHA256 before inspection: 32f96c86ee1285df38e53ef89d171991c9d738e671fe7ff6ac90cf0fd3131929."
+}

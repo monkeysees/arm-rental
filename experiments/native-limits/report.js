@@ -167,8 +167,31 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
     JSON.parse(readFileSync(path.join(directory, "manifest.json"))),
   );
   summary.delivery = {};
+  summary.steadyMemory = {};
   for (const limit of summary.limits)
     for (const repeat of limit.repeats) {
+      const exerciseFile = path.join(
+        directory,
+        repeat.label,
+        "work/exercise.json",
+      );
+      if (existsSync(exerciseFile)) {
+        const exercise = JSON.parse(readFileSync(exerciseFile));
+        const unchanged = exercise.resources.memorySnapshots
+          .filter((sample) => sample.phase === "unchanged")
+          .slice(1);
+        assert.equal(unchanged.length, 3);
+        summary.steadyMemory[repeat.label] = {
+          boundary:
+            "Three unchanged phase-end snapshots after initial reconciliation; native cgroup includes concurrent curl",
+          cgroupCurrentBytes: distribution(
+            unchanged.map((s) => s.cgroupCurrentBytes),
+          ),
+          nativeProcessRssBytes: distribution(
+            unchanged.map((s) => s.processRssBytes),
+          ),
+        };
+      }
       const file = path.join(directory, `${repeat.label}-service-result.json`);
       if (!existsSync(file)) continue;
       const result = JSON.parse(readFileSync(file));

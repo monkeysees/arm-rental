@@ -10,6 +10,9 @@ import {
   statSync,
   existsSync,
   unlinkSync,
+  lstatSync,
+  copyFileSync,
+  cpSync,
 } from "node:fs";
 import path from "node:path";
 import os from "node:os";
@@ -51,12 +54,128 @@ const manifest = {
   boundary:
     "native service cgroup, one CPU, no swap; peer and coordinator excluded",
   cachePolicy:
-    "disk-backed state; sync + POSIX_FADV_DONTNEED with mincore verification before each new measured cgroup; fresh native-generated state per repeat; shared image executable/library cache may be warm and ancestor-charged",
+    "disk-backed state and per-repeat private runtime inodes; byte-identical replay/curl/library/NSS/certificate files bind-mounted read-only from frozen image export; sync + POSIX_FADV_DONTNEED with zero-resident-page mincore verification before each cgroup; fresh native-generated state per repeat",
   sourceHashes: hashes("experiments/rust-replay"),
   harnessHashes: hashes("experiments/native-limits"),
   legacySha256: hash(legacyExecutable),
+  cacheBoundaryCaveat:
+    "Docker-generated /etc/hosts, /etc/hostname and /etc/resolv.conf may be daemon-charged; Docker/host infrastructure is outside the service budget. Runtime executables, native libraries, NSS/account/certificate files and all workload inputs/state use private evicted file inodes.",
 };
 const flush = () => save("manifest.json", manifest);
+
+function regularRuntimeFile(root, absolute) {
+  assert(
+    absolute.startsWith("/") && path.posix.normalize(absolute) === absolute,
+    `unsafe runtime path: ${absolute}`,
+  );
+  const parts = absolute.slice(1).split("/");
+  let file = root;
+  for (const [index, part] of parts.entries()) {
+    file = path.join(file, part);
+    const stat = lstatSync(file);
+    assert(!stat.isSymbolicLink(), `runtime symlink: ${file}`);
+    assert(
+      index === parts.length - 1 ? stat.isFile() : stat.isDirectory(),
+      `invalid runtime file: ${file}`,
+    );
+  }
+  return file;
+}
+async function exportRuntime() {
+  const name = `${network}-runtime-export`;
+  await docker("create", "--name", name, manifest.image.Id);
+  containers.add(name);
+  const archive = path.join(output, "runtime-image.tar");
+  const directory = path.join(output, "runtime-source");
+  mkdirSync(directory);
+  try {
+    await docker("export", "-o", archive, name);
+    manifest.runtimeExportSha256 = hash(archive);
+    await command("tar", ["-xf", archive, "--no-same-owner", "-C", directory]);
+  } finally {
+    await docker("rm", "-f", name);
+    containers.delete(name);
+  }
+  const metadata = "/usr/local/share/native-image/";
+  const components = JSON.parse(
+    readFileSync(regularRuntimeFile(directory, `${metadata}components.json`)),
+  );
+  const libraries = readFileSync(
+    regularRuntimeFile(directory, `${metadata}libraries.txt`),
+    "utf8",
+  )
+    .trim()
+    .split("\n");
+  assert(libraries.length > 0);
+  const files = [
+    ...new Set([
+      "/usr/local/bin/replay",
+      "/usr/local/bin/curl-impersonate",
+      ...libraries,
+      "/etc/nsswitch.conf",
+      "/etc/passwd",
+      "/etc/group",
+      "/etc/ssl/certs/ca-certificates.crt",
+      "/etc/os-release",
+      "/etc/debian_version",
+    ]),
+  ];
+  manifest.runtimeFiles = files.map((file) => {
+    const source = regularRuntimeFile(directory, file);
+    return { path: file, sha256: hash(source), bytes: statSync(source).size };
+  });
+  assert.equal(
+    manifest.runtimeFiles.find((file) => file.path === "/usr/local/bin/replay")
+      .sha256,
+    components.replay.sha256,
+  );
+  assert.equal(
+    manifest.runtimeFiles.find(
+      (file) => file.path === "/usr/local/bin/curl-impersonate",
+    ).sha256,
+    components.curl.sha256,
+  );
+  manifest.runtimeSourceImageId = manifest.image.Id;
+  manifest.runtimeCopiesDiskCategory =
+    "otherBytes; each repeat includes independent byte-identical runtime files";
+  unlinkSync(archive);
+}
+function copyRuntime(directory) {
+  const root = path.join(directory, "runtime");
+  mkdirSync(root);
+  for (const file of manifest.runtimeFiles) {
+    const source = regularRuntimeFile(
+      path.join(output, "runtime-source"),
+      file.path,
+    );
+    const destination = path.join(root, file.path.slice(1));
+    mkdirSync(path.dirname(destination), { recursive: true });
+    copyFileSync(source, destination);
+    assert.equal(hash(destination), file.sha256);
+    const from = statSync(source),
+      to = statSync(destination);
+    assert(
+      from.dev !== to.dev || from.ino !== to.ino,
+      "runtime copy must have a private inode",
+    );
+  }
+}
+function runtimeMounts(directory, legacy) {
+  return manifest.runtimeFiles
+    .filter((file) => !legacy || file.path !== "/usr/local/bin/replay")
+    .flatMap((file) => {
+      const source = regularRuntimeFile(
+        path.join(directory, "runtime"),
+        file.path,
+      );
+      assert.equal(
+        hash(source),
+        file.sha256,
+        `runtime bytes changed: ${file.path}`,
+      );
+      return ["-v", `${source}:${file.path}:ro`];
+    });
+}
 
 function disk(directory) {
   const seen = new Set();
@@ -143,10 +262,13 @@ async function evict(directory) {
 async function launch(label, directory, limit, args, options = {}) {
   mkdirSync(path.join(directory, "tmp"), { recursive: true });
   const name = `${network}-${label}`;
+  const mounts = runtimeMounts(directory, options.legacy);
   const record = {
     label,
     limitBytes: limit,
     measured: !options.preparation,
+    runtimeIdentity: "private byte-identical files from frozen image",
+    runtimeSourceImageId: manifest.runtimeSourceImageId,
     startedAt: Date.now(),
     samples: [],
     health: [],
@@ -180,7 +302,8 @@ async function launch(label, directory, limit, args, options = {}) {
     "-v",
     `${directory}:/state`,
     "-v",
-    `${path.join(output, "fixtures")}:/fixtures:ro`,
+    `${path.join(directory, "input-fixtures")}:/fixtures:ro`,
+    ...mounts,
     ...(options.legacy
       ? ["-v", `${path.resolve(legacyExecutable)}:/usr/local/bin/replay:ro`]
       : []),
@@ -362,6 +485,7 @@ try {
     "Measured state must be disk-backed",
   );
   manifest.image = JSON.parse(await docker("image", "inspect", image))[0];
+  await exportRuntime();
   manifest.gitHead = await command("git", ["rev-parse", "HEAD"]);
   manifest.gitDiff = await command("git", ["diff", "--stat"]);
   await command(process.execPath, [
@@ -409,6 +533,16 @@ try {
       const label = `mb${limit / 1000000}-r${repeat}`;
       const directory = path.join(output, label);
       mkdirSync(directory);
+      copyRuntime(directory);
+      cpSync(
+        path.join(output, "fixtures"),
+        path.join(directory, "input-fixtures"),
+        { recursive: true },
+      );
+      assert.deepEqual(
+        hashes(path.join(directory, "input-fixtures")),
+        manifest.fixtureHashes,
+      );
       const run = {
         label,
         limitBytes: limit,

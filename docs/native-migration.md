@@ -120,3 +120,69 @@ old-binary rollback replay, and rejects deliberately reordered oracle output.
 Production Node-to-Rust state conversion, production schema migration, arbitrary
 native database states, online migration, downgrade after new writes and physical
 power-loss acceptance remain migration gaps outside this ticket.
+
+## Acceptance record
+
+The retained [manifest](benchmarks/native-migration/acceptance.json) records all
+**39 passing operations**, including eight process-death boundaries, eight fresh
+migration/replay retries, validation of the published result, safe rejection of
+reused destinations/current-version input, and actual rollback replay using the
+old executable. The [combined replay](benchmarks/native-migration/result.json)
+and every retry pass the independent oracle. Its negative control rejects
+reordered delivery output.
+
+All **3,321,500 decisions**, **5,522 listing payloads**, seed metadata and recovery
+metadata have identical streaming SHA-256 fingerprints before and after migration.
+The interrupted state's **1,000 acknowledged sends** and **3,000 pending sends**
+are preserved; resume drains only the suffix, and unchanged/returning phases send
+nothing. Source database and WAL bytes remain unchanged through all migration,
+rejection and retry commands, until the deliberately invoked rollback replay.
+
+| Migration measurement                                            |               Observed value |
+| ---------------------------------------------------------------- | ---------------------------: |
+| Wall time                                                        |                      7.948 s |
+| Main-thread CPU                                                  |                      7.839 s |
+| Process peak RSS                                                 |                    6.871 MiB |
+| Fresh cgroup memory peak                                         |                  157.871 MiB |
+| Source database / WAL                                            | 80,412,672 / 4,124,152 bytes |
+| Published destination database / WAL                             |        158,130,176 / 0 bytes |
+| Sampled peak database category (source + published destination)  |            238,542,848 bytes |
+| Sampled peak WAL category                                        |              4,124,152 bytes |
+| Sampled peak temporary category (unpublished database + journal) |            158,312,168 bytes |
+| Sampled maximum total, including retained reports/SHM            |            242,978,014 bytes |
+| Conservative per-operation logical disk budget                   |            327,273,976 bytes |
+
+Category peaks occur at different times and must not be added together. Temporary
+bytes include the unpublished database; its final hard link is counted only once.
+The larger target retains freed old-table pages. The main migration measurement
+ran without concurrent test suites; these are individual local observations, not
+repeated throughput or Pi benchmarks. The measured executable and native source
+hashes correspond to implementation commit `0c49edd`; the exact legacy generator
+was built from `d75fa00` using the pinned toolchain.
+
+Acceptance initially exposed a source-preservation bug: opening rejected legacy
+state read-write allowed SQLite to checkpoint its WAL on connection close. The
+fix validates existing state read-only before opening it for writes. The retained
+run includes this fix, and a focused process-death regression verifies unchanged
+source database/WAL bytes on a rejected newer version.
+
+### Standards
+
+No findings. The independent review confirmed documented standards, explicit
+persisted-data compatibility, focused integration tests and shared harness reuse.
+
+### Spec
+
+No findings. The independent review confirmed the supported transition,
+interruption/retry boundaries, source-preserving publication and bounded native
+implementation. Closure was held until all acceptance operations completed.
+
+Review totals: **0 Standards findings; 0 Spec findings**.
+
+Final verification passes all **433 Node tests** with **94.54% line / 88.22%
+branch coverage**, all **22 Rust integration tests**, Cargo check across all
+targets, Clippy with warnings denied, Rust formatting, ESLint (excluding the
+pre-existing untracked `.scratch/`), Prettier and the production deployment
+contract validator. Archived raw JSON is byte-identical to the acceptance output;
+source, executable and harness hashes were rechecked. Independent Spec follow-up
+reran the archived oracle and confirmed the documented resource values.

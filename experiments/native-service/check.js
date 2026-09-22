@@ -113,9 +113,14 @@ async function launch(
   containers.add(name);
   const config = JSON.parse(await docker("inspect", name))[0];
   const pid = config.State.Pid;
-  const relative = pid
-    ? readFileSync(`/proc/${pid}/cgroup`, "utf8").trim().split("::")[1]
-    : "/exited";
+  let relative = "/exited";
+  try {
+    relative = readFileSync(`/proc/${pid}/cgroup`, "utf8")
+      .trim()
+      .split("::")[1];
+  } catch (error) {
+    if (error.code !== "ENOENT") throw error;
+  }
   const cgroup = path.join("/sys/fs/cgroup", relative);
   assert.notEqual(
     relative,
@@ -233,6 +238,10 @@ try {
   behavior("stall-probe");
   const before = requests().length;
   await until(() => requests().length > before, "active curl child");
+  exercise.record.shutdownSignal = {
+    name: "SIGINT",
+    requestedAtUnixMs: Date.now(),
+  };
   await docker("kill", "--signal", "SIGINT", exercise.name);
   assert.equal((await health(exercise.name)).ready, false);
   await exercise.finish();
@@ -240,6 +249,8 @@ try {
     readFileSync(path.join(exercise.state, "work/exercise.json")),
   );
   assert.equal(first.resources.pendingRows, 3000);
+  exercise.record.replayStartedAtUnixMs =
+    first.resources.interruptedAtUnixMs - first.resources.wallMs;
   const transport = JSON.parse(
     readFileSync(path.join(exercise.state, "work/exercise-transport.json")),
   );
@@ -287,7 +298,7 @@ try {
       for (const proc of sample.processes)
         assert.match(
           proc.command,
-          /^(\/usr\/local\/bin\/(replay|curl-impersonate)|runc init|$)/,
+          /^(\/usr\/local\/bin\/(replay|curl-impersonate)|runc (init|--root \/var\/run\/docker\/runtime-runc\/moby )|$)/,
         );
     }
   }
@@ -304,6 +315,7 @@ try {
   const files = (
     await execute("tar", ["-tf", path.join(output, "image.tar")], {
       maxBuffer: 16 * 1024 * 1024,
+      timeout: 180000,
     })
   ).stdout.split("\n");
   for (const forbidden of [
@@ -374,6 +386,11 @@ try {
   for (const timer of timers) clearInterval(timer);
   for (const name of containers) {
     try {
+      const record = records.find((r) => r.config.Name === `/${name}`);
+      if (record) {
+        record.logs = await docker("logs", name);
+        record.finalState = JSON.parse(await docker("inspect", name))[0].State;
+      }
       await docker("rm", "-f", name);
     } catch {
       /* Retain original failure. */

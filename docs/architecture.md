@@ -1429,3 +1429,16 @@ classification, so source updates and restarts cannot reuse stale payloads.
 Read-only query/cache profiles and separate service-cgroup measurements account
 for SQLite heap and kernel file cache independently. No production schema,
 runtime, parser or deployment changes accompany this experiment.
+
+The [offline native Rust service](native-service.md) adds `serve`, `health` and
+`shutdown` entrypoints to the same executable. A separate fixture container on
+an internal network supplies cookie-protected HTML through the retained pinned
+curl executable. The native process bounds responses and curl concurrency,
+then connects fetched pages to the existing parser, SQLite writer, delivery
+scheduler and independent external oracle. Native control and transport-probe
+threads remain responsive during replay. Signals stop/reap curl, drain the
+whole replay stage, close SQLite and preserve the pending suffix for resume.
+The service cgroup includes Rust, SQLite, curl, health processes and file/cache
+charges; the Node peer and coordinator/oracle are outside it. This adapter is
+experimental and does not implement live source/Telegram/CBA integration,
+full bot/channel parity or arbitrary mid-stage crash recovery.

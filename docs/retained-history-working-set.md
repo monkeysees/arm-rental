@@ -229,7 +229,7 @@ node experiments/service-replay/working-set-report.js \
 
 The final Node 24.18.0 suite passes 433/433 tests, with 94.54% line and 88.23%
 branch coverage. The first run's documentation-path check rejected the new
-unstaged links; after staging, the six documentation tests and a full suite
+unstaged links; after adding the files to Git, the six documentation tests and a full suite
 rerun pass. JavaScript has no separate repository typecheck command.
 
 All 12 Rust CLI integration tests, Cargo check across all targets, Clippy with

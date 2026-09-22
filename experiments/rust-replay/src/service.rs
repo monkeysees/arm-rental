@@ -192,6 +192,8 @@ pub fn dispatch() -> Result<bool> {
     }
     fs::create_dir_all(&directory)?;
     fs::set_permissions(&directory, fs::Permissions::from_mode(0o700))?;
+    let fixture_directory = directory.join("fixtures");
+    fs::create_dir_all(&fixture_directory)?;
     let listener = UnixListener::bind(socket)?;
     listener.set_nonblocking(true)?;
     // The handler only sets an atomic flag; all cleanup occurs in ordinary threads.
@@ -234,10 +236,9 @@ pub fn dispatch() -> Result<bool> {
     let stats = Arc::new(Mutex::new(TransportStats::default()));
     let transport = Transport {
         base: base.into(),
-        directory: directory.join("fixtures"),
+        directory: fixture_directory,
         stats: stats.clone(),
     };
-    fs::create_dir_all(&transport.directory)?;
     let outcome = (|| -> Result<()> {
         if !transport.fetch("manifest.json")? {
             return Ok(());

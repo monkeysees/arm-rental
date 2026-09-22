@@ -10,3 +10,5 @@ experiments/rust-replay/target/
 docs/benchmarks/service-replay/
 docs/benchmarks/native-storage/
 docs/benchmarks/retained-history/
+
+docs/benchmarks/native-service/

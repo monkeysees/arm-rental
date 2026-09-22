@@ -76,6 +76,10 @@ The Rust [retained-history working-set experiment](docs/retained-history-working
 profiles covering queries, bounded payload loading and SQLite cache policy while
 preserving the full 500-recipient history and recovery contract.
 
+The experimental [native Rust service](docs/native-service.md) adds local curl
+transport, native health/shutdown controls and graceful pending-work recovery
+without Node inside the service container.
+
 Private delivery makes one promise about time: a user is only ever sent
 apartments List.am posted or changed within the last 24 hours. Everything the
 crawl discovers is still stored, but an older card waits for its next List.am

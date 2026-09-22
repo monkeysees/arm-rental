@@ -5,6 +5,7 @@ edition = "2024"
 rust-version = "1.94"
 
 [dependencies]
+libc = "=0.2.189"
 rusqlite = { version = "=0.40.2", features = ["bundled"] }
 scraper = "=0.27.0"
 serde = { version = "1", features = ["derive"] }

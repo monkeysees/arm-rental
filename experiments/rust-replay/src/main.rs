@@ -1,6 +1,7 @@
 mod bulk;
 mod delivery;
 mod model;
+mod service;
 mod store;
 use delivery::{PhaseResult, deliver, elapsed, observe};
 use model::{Listing, Manifest, Phase, parse_page, timestamp};
@@ -111,6 +112,7 @@ fn replay(
     mode: &str,
     stage: &str,
     seed_stop: Option<&bulk::SeedStop>,
+    clean_exit: bool,
 ) -> Result<Value> {
     let entered_at = unix_ms();
     if ![4, 500].contains(&users)
@@ -350,7 +352,7 @@ fn replay(
         "primaryRamBytes":cgroup("memory.peak"),"memoryLimit":cgroup("memory.max"),"swapLimit":cgroup("memory.swap.max"),"cpuLimit":cgroup("cpu.max"),"sqliteVersion":sqlite,"decisionRows":count,"pendingRows":pending,
         "databaseBytes":fs::metadata(database)?.len(),"database-walBytes":fs::metadata(format!("{}-wal",database.display())).map(|s| s.len()).unwrap_or(0)}});
     // The exercise process exits without SQLite destructors or a clean checkpoint.
-    if stage == "exercise" {
+    if stage == "exercise" && !clean_exit {
         std::mem::forget(store);
     }
     Ok(result)
@@ -388,6 +390,9 @@ fn diagnostic(directory: &Path, database: &Path, mode: &str) -> Result<Value> {
     Ok(json!({"accepted":listing.id,"pending":store.next(0)?.is_some()}))
 }
 fn run() -> Result<()> {
+    if service::dispatch()? {
+        return Ok(());
+    }
     let mut args = std::env::args().skip(1);
     let (mut fixtures, mut database) = (None, None);
     let (mut users, mut mode) = (500, "virtual".to_owned());
@@ -424,6 +429,7 @@ fn run() -> Result<()> {
             &mode,
             &stage,
             seed_stop.as_ref(),
+            false,
         )?
     };
     let mut stdout = io::BufWriter::new(io::stdout().lock());

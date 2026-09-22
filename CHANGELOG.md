@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Add an offline native Rust service with pinned curl transport, bounded responses, native health and shutdown controls, and verified pending-delivery recovery.
+
 - Reduce the experimental Rust retained-history working set with a covering revision index, bounded catch-up payload loading and a measured SQLite cache policy, preserving all 500-recipient decisions and recovery behavior.
 
 - Bound experimental Rust seed writes with durable resumable batches, explicit WAL retention/checkpoint policies, and independent storage/recovery measurements while preserving atomic classification and per-message acknowledgements.

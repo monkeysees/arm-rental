@@ -32,8 +32,9 @@ reads the recent index and probes the decision primary key without visiting
 the listing payload table for already classified revisions. Classification
 still checks every recent candidate against each recipient's own history.
 
-The diagnostic history fingerprint scans 3,285,500 retained rows in roughly
-0.9–1.0 seconds. The native acceptance worker retains its complete ordered
+The diagnostic history query streams all five integer fields from 3,285,500
+retained rows in roughly 0.9–1.0 seconds; it does not time the native hash
+computation. The native acceptance worker retains its complete ordered
 fingerprints, absent-history validation and count checks across interruption.
 Those full scans are a real part of the measured worker, including their
 kernel cache charges; removing them would weaken the recovery evidence.
@@ -223,3 +224,23 @@ node experiments/service-replay/working-set-report.js \
   docs/benchmarks/retained-history/before \
   docs/benchmarks/retained-history/after
 ```
+
+## Verification and review
+
+The final Node 24.18.0 suite passes 433/433 tests, with 94.54% line and 88.23%
+branch coverage. The first run's documentation-path check rejected the new
+unstaged links; after staging, the six documentation tests and a full suite
+rerun pass. JavaScript has no separate repository typecheck command.
+
+All 12 Rust CLI integration tests, Cargo check across all targets, Clippy with
+warnings denied and Rust formatting pass with the pinned Rust 1.94.0 toolchain.
+ESLint passes while excluding the existing untracked `.scratch/` investigation;
+Prettier and the production-contract validator pass. The latter used the
+existing task-local ShellCheck 0.11.0 executable. No production source or
+operations/deployment files changed.
+
+Independent Standards and Spec reviews against starting commit `d83ebea3`
+found zero findings on each axis. Spec review independently revalidated all
+eight service results, the byte-identical summary and 18 profiler, recovery
+and candidate-source hashes. The subsequent documentation clarification and
+retained empty stderr logs do not change measured code or behavior.

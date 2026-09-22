@@ -68,6 +68,9 @@ The separate [native service-only replay](docs/service-replay.md) keeps the
 external Node harness outside the measured service cgroup while preserving the
 original native workers, recovery contract and comparison results.
 
+The native [backup and restore commands](docs/native-maintenance.md) preserve
+experimental replay state through validated, bounded-memory offline copies.
+
 The experimental Rust [bulk-write and WAL policy](docs/native-storage-policy.md)
 adds resumable seed batches and explicit checkpoint boundaries, with separate
 before/after measurements and unchanged per-message acknowledgement durability.

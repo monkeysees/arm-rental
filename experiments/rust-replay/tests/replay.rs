@@ -461,3 +461,152 @@ fn catchup_beyond_the_payload_cache_keeps_selection_and_recovery() {
     assert_eq!(resumed["resources"]["pendingRows"], 0);
     assert_eq!(resumed["phases"][0]["sent"], 24);
 }
+
+#[test]
+fn native_backup_restores_acknowledgements_and_rejects_reuse() {
+    let f = Fixture::new();
+    let first = exercise_result(f.run());
+    let maintenance = |command: &str, database: PathBuf, output: Option<PathBuf>| {
+        let mut child = Command::new(env!("CARGO_BIN_EXE_rental-replay"));
+        child.arg(command).arg("--database").arg(database);
+        if let Some(output) = output {
+            child.arg("--output").arg(output);
+        }
+        child.output().unwrap()
+    };
+    let backup = f.dir.join("backup");
+    result(maintenance(
+        "backup",
+        f.dir.join("state.sqlite3"),
+        Some(backup.clone()),
+    ));
+    result(maintenance("validate", backup.join("state.sqlite3"), None));
+    let restored = f.dir.join("restored");
+    result(maintenance(
+        "restore",
+        backup.join("state.sqlite3"),
+        Some(restored.clone()),
+    ));
+    assert!(
+        !maintenance(
+            "restore",
+            backup.join("state.sqlite3"),
+            Some(restored.clone())
+        )
+        .status
+        .success()
+    );
+    let mut resumed = result(
+        Command::new(env!("CARGO_BIN_EXE_rental-replay"))
+            .arg("--fixtures")
+            .arg(f.dir.join("fixtures"))
+            .arg("--database")
+            .arg(restored.join("state.sqlite3"))
+            .args(["--users", "4", "--stage", "resume"])
+            .output()
+            .unwrap(),
+    );
+    let mut phases = first["phases"].as_array().unwrap().clone();
+    phases.extend(resumed["phases"].as_array().unwrap().iter().cloned());
+    resumed["phases"] = phases.into();
+    f.verify(&resumed, true);
+}
+
+#[test]
+fn maintenance_interruptions_never_publish_partial_state_and_retry_safely() {
+    let f = Fixture::new();
+    exercise_result(f.run());
+    for command in ["backup", "restore"] {
+        for point in [
+            "during-copy",
+            "after-copy",
+            "before-publish",
+            "after-publish",
+        ] {
+            let output = f.dir.join(format!("{command}-{point}"));
+            let run = |destination: &PathBuf, stop: bool| {
+                let mut child = Command::new(env!("CARGO_BIN_EXE_rental-replay"));
+                child
+                    .arg(command)
+                    .arg("--database")
+                    .arg(f.dir.join("state.sqlite3"))
+                    .arg("--output")
+                    .arg(destination);
+                if stop {
+                    child.args(["--stop", point]);
+                }
+                child.output().unwrap()
+            };
+            assert_eq!(run(&output, true).status.code(), Some(26));
+            let published = output.join("state.sqlite3");
+            assert_eq!(published.exists(), point == "after-publish");
+            if published.exists() {
+                result(
+                    Command::new(env!("CARGO_BIN_EXE_rental-replay"))
+                        .arg("validate")
+                        .arg("--database")
+                        .arg(published)
+                        .output()
+                        .unwrap(),
+                );
+            }
+            assert!(!run(&output, false).status.success());
+            result(run(&f.dir.join(format!("{command}-{point}-retry")), false));
+        }
+    }
+}
+
+#[test]
+fn maintenance_rejects_corruption_incompatibility_and_symlinks_without_output() {
+    let f = Fixture::new();
+    exercise_result(f.run());
+    let source = f.dir.join("state.sqlite3");
+    result(
+        Command::new(env!("CARGO_BIN_EXE_rental-replay"))
+            .arg("backup")
+            .arg("--database")
+            .arg(&source)
+            .arg("--output")
+            .arg(f.dir.join("good"))
+            .output()
+            .unwrap(),
+    );
+    let good = f.dir.join("good/state.sqlite3");
+    for mutation in ["corrupt", "schema", "history", "symlink"] {
+        let bad = f.dir.join(format!("{mutation}.sqlite3"));
+        if mutation == "symlink" {
+            std::os::unix::fs::symlink(&good, &bad).unwrap();
+        } else {
+            fs::copy(&good, &bad).unwrap();
+            if mutation == "corrupt" {
+                fs::OpenOptions::new()
+                    .write(true)
+                    .open(&bad)
+                    .unwrap()
+                    .set_len(8192)
+                    .unwrap();
+            } else {
+                let db = rusqlite::Connection::open(&bad).unwrap();
+                db.execute_batch(if mutation == "schema" {
+                    "ALTER TABLE decisions ADD COLUMN unexpected INTEGER"
+                } else {
+                    "UPDATE decisions SET status=3 WHERE user=0 AND id=100008"
+                })
+                .unwrap();
+            }
+        }
+        let destination = f.dir.join(format!("rejected-{mutation}"));
+        for command in ["validate", "restore"] {
+            let mut child = Command::new(env!("CARGO_BIN_EXE_rental-replay"));
+            child.arg(command).arg("--database").arg(&bad);
+            if command == "restore" {
+                child.arg("--output").arg(&destination);
+            }
+            assert!(
+                !child.output().unwrap().status.success(),
+                "accepted {mutation}"
+            );
+        }
+        assert!(!destination.exists());
+    }
+}

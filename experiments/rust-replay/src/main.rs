@@ -1,5 +1,6 @@
 mod bulk;
 mod delivery;
+mod maintenance;
 mod model;
 mod service;
 mod store;
@@ -390,7 +391,7 @@ fn diagnostic(directory: &Path, database: &Path, mode: &str) -> Result<Value> {
     Ok(json!({"accepted":listing.id,"pending":store.next(0)?.is_some()}))
 }
 fn run() -> Result<()> {
-    if service::dispatch()? {
+    if maintenance::dispatch()? || service::dispatch()? {
         return Ok(());
     }
     let mut args = std::env::args().skip(1);

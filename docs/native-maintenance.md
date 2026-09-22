@@ -107,3 +107,49 @@ Neither process-death injection nor this single run establishes power-loss
 recovery or Raspberry Pi storage latency. Using the example tmpfs destination
 counts database storage against host RAM; select a disk directory to measure local
 filesystem behavior.
+
+## Acceptance record
+
+The retained [manifest](benchmarks/native-maintenance/acceptance.json) records all
+25 operations, exact container commands and binary/source hashes. The
+[combined oracle result](benchmarks/native-maintenance/result.json) preserves all
+3,321,500 decisions, the 1,000 acknowledged interrupted sends and 3,000 pending
+sends, then drains that suffix without repetition. A fresh restore/replay retry
+also passes. Both copy commands pass interruption checks at all four boundaries;
+published outputs validate, incomplete outputs remain unpublished and reusing
+any operation directory is rejected.
+
+| Operation | Wall (s) | Process CPU (s) | Process peak RSS (MiB) | Cgroup peak (MiB) |
+| --------- | -------: | --------------: | ---------------------: | ----------------: |
+| Backup    |    4.736 |           4.723 |                   6.80 |             81.64 |
+| Validate  |    2.262 |           2.291 |                   5.93 |             11.04 |
+| Restore   |    4.777 |           4.721 |                   6.78 |             81.68 |
+
+CPU covers process startup as well as the timed operation, so it can slightly
+exceed the operation wall interval. These are individual maintenance observations;
+virtual delivery timing is not a throughput measurement. Existing file-cache
+charges and the external harness remain outside the fresh operation cgroup.
+
+The source database is 80,412,672 bytes with a 4,124,152-byte committed WAL. The
+standalone backup and restored database are each 80,420,864 bytes, with no WAL.
+The conservative per-operation logical budgets are 166,006,264 bytes for backup
+and 161,890,304 for restore. The harness observed up to 80,425,480 temporary bytes
+during backup; restored output briefly needs 80,421,888 temporary bytes.
+Its whole retained-directory peak at restore was 245,509,509 bytes because it also
+retained the original source/WAL, backup and reports. Retain space for old copies
+separately from the per-operation budget.
+
+The measured executable and Rust sources match commit `7a830bb`. The executed
+harness hash identifies that same commit; the subsequent removal of one unused
+import for ESLint does not change its behavior. Earlier tmpfs acceptance passed,
+but only the final host-filesystem measurements above are retained here. Review
+found and corrected a wildcard schema-filter gap and incomplete active-prefix
+validation before this run. Neither issue remains in the measured executable.
+
+Final verification on Node 24.18.0 and Rust 1.94.0 passes all **433 Node tests**
+with **94.53% line / 88.20% branch coverage** and all **17 Rust integration tests**.
+Cargo check across all targets, Clippy with warnings denied, Rust formatting,
+ESLint (excluding the pre-existing untracked `.scratch/`), Prettier and the
+production-contract validator pass. Independent review has **0 remaining
+Standards findings** and **0 remaining Spec findings**. The initial negative schema
+regression failed before the correction and passes with the strengthened validator.

@@ -1,13 +1,7 @@
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
-import {
-  mkdirSync,
-  readFileSync,
-  writeFileSync,
-  readdirSync,
-  statSync,
-} from "node:fs";
+import { mkdirSync, writeFileSync, readdirSync, statSync } from "node:fs";
 import path from "node:path";
 import { verifyReplayResult } from "../node-replay/verify.js";
 import { hash, hashes } from "../service-replay/common.js";

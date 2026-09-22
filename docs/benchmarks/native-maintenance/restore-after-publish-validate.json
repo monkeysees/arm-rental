@@ -1,0 +1,19 @@
+{
+  "cacheKiBPerConnection": 512,
+  "cgroupPeakBytes": 9273344,
+  "copyPagesPerStep": 128,
+  "cpuMs": 2376.865516,
+  "destinationDatabaseBytes": 0,
+  "operation": "validate",
+  "peakDiskBudgetBytes": 81469440,
+  "processPeakRssBytes": 6320128,
+  "sourceDatabaseBytes": 80420864,
+  "sourceWalBytes": 0,
+  "state": {
+    "decisionRows": 3321500,
+    "pendingRows": 3000
+  },
+  "status": "passed",
+  "version": 1,
+  "wallMs": 2351.4386090000003
+}

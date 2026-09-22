@@ -11,12 +11,15 @@ sequentially; restart only after maintenance finishes. SQLite's read transaction
 pins a consistent source snapshot, including committed WAL contents, but overlapping
 writers can retain WAL indefinitely and invalidate the stopped-service disk budget.
 
-Only the exact current native schema with a completed exercise or resume is
-supported. Incomplete seed imports, older schemas, production databases and unknown
+Only the exact current native schema at the frozen shared replay contract's
+interrupted exercise boundary (4 diagnostic or 500 recipients) is supported.
+A completed resume has no pending suffix and is rejected. Incomplete seed imports, older schemas, production databases and unknown
 schema objects are rejected. There is no migration. Validation checks SQLite
 integrity, schema, decision domains, recovery metadata and the existing streaming
-historical-decision fingerprint. This is accidental-corruption checking, not a
-cryptographic authenticity check or proof that every possible logical edit is valid.
+historical-decision fingerprint. It also checks every active acknowledgement and
+pending decision against the frozen contract, including swaps that preserve totals.
+This is accidental-corruption checking, not a cryptographic authenticity check or
+proof that every possible logical edit of listing payloads or recovery timestamps is valid.
 The independent replay oracle supplies the delivery/recovery acceptance check.
 
 ## Commands
@@ -98,6 +101,9 @@ sizes every 10 ms, counts hard links once, and separates database, WAL and tempo
 bytes; sampling is a lower bound and reports exclude filesystem metadata. All
 retained test outputs together need more space than one operation's budget.
 
-The retained acceptance run uses tmpfs due to initial host disk pressure. Tmpfs
-counts against host RAM and cannot establish durable power-loss recovery or real
-storage latency. The deterministic copy/recovery behavior remains testable there.
+The first diagnostic acceptance used tmpfs during host disk pressure. After
+reclaiming build and scanner caches, final acceptance uses the host filesystem.
+Neither process-death injection nor this single run establishes power-loss
+recovery or Raspberry Pi storage latency. Using the example tmpfs destination
+counts database storage against host RAM; select a disk directory to measure local
+filesystem behavior.

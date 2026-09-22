@@ -510,6 +510,16 @@ fn native_backup_restores_acknowledgements_and_rejects_reuse() {
     phases.extend(resumed["phases"].as_array().unwrap().iter().cloned());
     resumed["phases"] = phases.into();
     f.verify(&resumed, true);
+    assert!(
+        !maintenance(
+            "backup",
+            restored.join("state.sqlite3"),
+            Some(f.dir.join("completed"))
+        )
+        .status
+        .success()
+    );
+    assert!(!f.dir.join("completed").exists());
 }
 
 #[test]
@@ -572,7 +582,14 @@ fn maintenance_rejects_corruption_incompatibility_and_symlinks_without_output() 
             .unwrap(),
     );
     let good = f.dir.join("good/state.sqlite3");
-    for mutation in ["corrupt", "schema", "history", "symlink"] {
+    for mutation in [
+        "corrupt",
+        "schema",
+        "hidden-schema",
+        "history",
+        "acknowledgement",
+        "symlink",
+    ] {
         let bad = f.dir.join(format!("{mutation}.sqlite3"));
         if mutation == "symlink" {
             std::os::unix::fs::symlink(&good, &bad).unwrap();
@@ -589,6 +606,10 @@ fn maintenance_rejects_corruption_incompatibility_and_symlinks_without_output() 
                 let db = rusqlite::Connection::open(&bad).unwrap();
                 db.execute_batch(if mutation == "schema" {
                     "ALTER TABLE decisions ADD COLUMN unexpected INTEGER"
+                } else if mutation == "hidden-schema" {
+                    "CREATE TABLE sqliteX_extra(value INTEGER)"
+                } else if mutation == "acknowledgement" {
+                    "UPDATE decisions SET status=CASE status WHEN 0 THEN 1 ELSE 0 END WHERE user=0 AND id IN (400000,400008)"
                 } else {
                     "UPDATE decisions SET status=3 WHERE user=0 AND id=100008"
                 })

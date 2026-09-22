@@ -1442,3 +1442,12 @@ The service cgroup includes Rust, SQLite, curl, health processes and file/cache
 charges; the Node peer and coordinator/oracle are outside it. This adapter is
 experimental and does not implement live source/Telegram/CBA integration,
 full bot/channel parity or arbitrary mid-stage crash recovery.
+
+The [native maintenance commands](native-maintenance.md) add offline `backup`,
+`validate` and `restore` for the frozen interrupted replay boundary. A read-only
+SQLite transaction pins source state; incremental backup copies pages into a new
+private directory. Schema, integrity, history and active acknowledgement checks
+precede fsynced non-overwriting publication. The service must be stopped, and
+maintenance operations run separately with individual CPU/RSS/cgroup and disk
+accounting. The independent external oracle verifies 500-recipient restored replay;
+production recovery and state remain separate.

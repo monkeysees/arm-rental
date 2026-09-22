@@ -32,7 +32,7 @@ fn open(path: &Path) -> Result<Connection> {
 }
 fn schema(db: &Connection) -> Result<Vec<(String, String)>> {
     let mut query = db.prepare(
-        "SELECT name,sql FROM sqlite_schema WHERE name NOT LIKE 'sqlite_%' ORDER BY name",
+        "SELECT name,sql FROM sqlite_schema WHERE name NOT GLOB 'sqlite_*' ORDER BY name",
     )?;
     Ok(query
         .query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?
@@ -40,11 +40,9 @@ fn schema(db: &Connection) -> Result<Vec<(String, String)>> {
 }
 fn validate(db: Connection, path: &Path) -> Result<(Connection, Value)> {
     let expected = Store::open(Path::new(":memory:"))?;
-    expected.db.execute_batch("CREATE TABLE recovery(drain REAL NOT NULL,stamp REAL NOT NULL) STRICT; CREATE TABLE history(digest TEXT NOT NULL) STRICT")?;
+    expected.db.execute_batch(crate::RECOVERY_SCHEMA)?;
     if schema(&db)? != schema(&expected.db)? {
-        return Err(
-            "incompatible native replay schema; requires completed exercise or resume".into(),
-        );
+        return Err("incompatible native replay schema; requires interrupted exercise".into());
     }
     let integrity: String = db.query_row("PRAGMA integrity_check", [], |r| r.get(0))?;
     if integrity != "ok" {
@@ -53,6 +51,28 @@ fn validate(db: Connection, path: &Path) -> Result<(Connection, Value)> {
     let invalid: bool = db.query_row("SELECT EXISTS(SELECT 1 FROM decisions WHERE user<0 OR id<0 OR status NOT BETWEEN 0 AND 3 OR revision<1) OR EXISTS(SELECT 1 FROM listings WHERE revision<1 OR NOT json_valid(payload)) OR (SELECT count(*) FROM recovery)!=1 OR (SELECT count(*) FROM history)!=1 OR (SELECT count(*) FROM seed_input)!=1 OR (SELECT count(*) FROM seed_progress WHERE consumed=1)!=1", [], |r| r.get(0))?;
     if invalid {
         return Err("invalid native replay state".into());
+    }
+    // This offline schema belongs to the frozen 4/500-recipient replay contract.
+    // Check each acknowledgement, not just pending totals, before publishing a copy.
+    let users: i64 = db.query_row(
+        "SELECT json_extract(input,'$[0]') FROM seed_input",
+        [],
+        |r| r.get(0),
+    )?;
+    let incompatible: bool = db.query_row(
+        "SELECT
+        (SELECT count(*) FROM decisions)!=?1*6643
+        OR (SELECT count(*) FROM decisions WHERE status=0)!=?1*6
+        OR EXISTS(SELECT 1 FROM decisions WHERE user<0 OR user>=?1 OR id>=400032)
+        OR (SELECT count(*) FROM decisions WHERE id>=400000)!=?1*32
+        OR EXISTS(SELECT 1 FROM decisions WHERE id>=400000 AND status!=CASE
+            WHEN id%4!=user%4 THEN 2 WHEN id<400008 THEN 1 ELSE 0 END)
+        OR EXISTS(SELECT 1 FROM seed_progress WHERE next_row!=?1*6563 OR consumed!=1)",
+        [users],
+        |r| r.get(0),
+    )?;
+    if ![4, 500].contains(&users) || incompatible {
+        return Err("maintenance requires the frozen 4/500-recipient interrupted exercise boundary with its acknowledged prefix and pending suffix; completed resume is unsupported".into());
     }
     let store = Store {
         db,

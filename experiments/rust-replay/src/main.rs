@@ -14,6 +14,8 @@ use std::{
     time::Instant,
 };
 use store::Store;
+pub const RECOVERY_SCHEMA: &str = "CREATE TABLE recovery(drain REAL NOT NULL,stamp REAL NOT NULL) STRICT; CREATE TABLE history(digest TEXT NOT NULL) STRICT";
+
 type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
 
 fn read_phase(directory: &Path, phase: &Phase, m: &Manifest) -> Result<Vec<Listing>> {
@@ -326,9 +328,7 @@ fn replay(
         })
         .unwrap_or(0.0);
     if stage == "exercise" {
-        store.db.execute_batch(
-            "CREATE TABLE recovery(drain REAL NOT NULL,stamp REAL NOT NULL) STRICT; CREATE TABLE history(digest TEXT NOT NULL) STRICT",
-        )?;
+        store.db.execute_batch(RECOVERY_SCHEMA)?;
         store
             .db
             .execute("INSERT INTO history VALUES(?)", [history_digest(&store)?])?;

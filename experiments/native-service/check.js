@@ -340,8 +340,7 @@ try {
   const curlSha256 = createHash("sha256").update(curl.stdout).digest("hex");
   assert.equal(
     curlSha256,
-    JSON.parse(readFileSync("docs/benchmarks/runtime-comparison/curl-1.json"))
-      .binarySha256,
+    "9775f5c719cc7649d0da41a786ef5e25da886514c547399a6d86b6038f105786",
   );
   const version = await docker(
     "run",

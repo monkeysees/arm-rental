@@ -235,8 +235,8 @@ pages with a retryable one-time VACUUM before startup continues. Allow temporary
 space for replacement pages, WAL, and the VACUUM copy, and preserve the stopped
 service's pre-deploy snapshot on independent storage. Previous schema-2/3 images
 cannot use `state-strategy=compatible` against this live state: use the existing
-snapshot restore rollback path. Exact migration and rollback evidence is in
-[the compaction benchmark](compact-decisions-benchmark.md).
+snapshot restore rollback path. See the [schema contract](sqlite-schema.md)
+for migration and interruption behavior.
 
 The restored deployment configuration remains the access-policy authority;
 never infer an access mode from snapshot users or resume users that the

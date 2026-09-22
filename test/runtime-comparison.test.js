@@ -16,15 +16,15 @@ test("comparison report gates RAM claims on complete behavior and capacity evide
     path.join(tmpdir(), "runtime-comparison-test-"),
   );
   t.after(() => rmSync(directory, { recursive: true, force: true }));
-  cpSync("docs/benchmarks/go-replay/recovery", directory, { recursive: true });
+  cpSync("test/fixtures/replay-reports/go", directory, { recursive: true });
   const args = [
     "experiments/runtime-comparison/report.js",
     "--node",
-    "docs/benchmarks/node-replay/final",
+    "test/fixtures/replay-reports/node",
     "--go",
     directory,
     "--rust",
-    "docs/benchmarks/rust-replay/recovery",
+    "test/fixtures/replay-reports/rust",
   ];
   const run = () =>
     execFileSync(process.execPath, args, {

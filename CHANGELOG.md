@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Remove historical decision reports and measurement archives; retain Rust rewrite contracts, build/acceptance tooling and regression fixtures in maintained documentation and tests.
+
 - Assemble the experimental native image from its executable dependencies and assess the full 500-recipient service and maintenance workload under exact 75 MB and 50 MB memory limits.
 
 - Add a versioned offline native Rust schema migration with bounded decision-table rebuilding, safe interruption/retry, source-preserving rollback and independent 500-recipient acceptance.

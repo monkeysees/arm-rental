@@ -5,10 +5,29 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 
+test("service replay requires explicit candidate provenance before starting containers", () => {
+  assert.throws(
+    () =>
+      execFileSync(
+        process.execPath,
+        [
+          "experiments/service-replay/run.js",
+          "/tmp/unused-service-replay-output",
+          "--runtime",
+          "rust",
+          "--holder",
+          "/tmp/unused-service-replay-holder",
+        ],
+        { stdio: "pipe" },
+      ),
+    /--native-baseline must identify/,
+  );
+});
+
 test("service replay CLI verifies native recovery and rejects overlapping accounting boundaries", (t) => {
   const directory = mkdtempSync(path.join(tmpdir(), "service-replay-test-"));
   t.after(() => rmSync(directory, { recursive: true, force: true }));
-  let source = "docs/benchmarks/service-replay/diagnostic/go-4-virtual.json";
+  let source = "test/fixtures/replay-reports/service.json";
   if (process.env.SERVICE_REPLAY_HOLDER) {
     const output = path.join(directory, "live");
     execFileSync(
@@ -20,6 +39,8 @@ test("service replay CLI verifies native recovery and rejects overlapping accoun
         "go",
         "--holder",
         process.env.SERVICE_REPLAY_HOLDER,
+        "--native-baseline",
+        process.env.SERVICE_REPLAY_BASELINE ?? "",
         "--users",
         "4",
         "--mode",

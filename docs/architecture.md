@@ -1048,7 +1048,7 @@ filters. Scheduler operations start across event-loop turns, keeping health and
 source I/O serviceable. `PRIVATE_DELIVERY_CONCURRENCY` is a fixed internal setting
 of eight, rather than another operator environment variable. It bounds active
 classification snapshots and private HTTP attempts, at the cost of lower peak
-throughput. See [measurements and reproduction](private-concurrency-benchmark.md).
+throughput.
 
 The scheduler retains one small descriptor per recipient and at most eight
 active operations. Classification may still load one recipient's full candidate
@@ -1103,8 +1103,7 @@ index is removed. Repository APIs preserve status names and exact canonical ISO
 timestamps. Conversion and schema bookkeeping commit transactionally, then a
 durable pending marker makes space reclamation with `VACUUM` retryable after an
 interruption. Older binaries require their matching pre-deploy snapshot before
-rollback. See the [schema contract](sqlite-schema.md) and
-[measured size, query, and migration costs](compact-decisions-benchmark.md).
+rollback. See the [schema contract](sqlite-schema.md).
 
 Schema version 5 adds a shared indexed source-change sequence on each listing,
 private recipient cursors and filter fingerprints, and a durable private work
@@ -1167,8 +1166,7 @@ Routine private and channel delivery no longer load the full retained listing
 or channel-decision projection after a crawl commits. They use indexed source
 revisions plus their durable work tables. Full projections remain available for
 validation/export and explicit private history offers; selection/filter changes
-may reconcile history once. See the [delivery benchmark](incremental-delivery-benchmark.md)
-for retained-history CPU, memory, and recovery evidence.
+may reconcile history once.
 
 The five legacy JSON paths contain only incompatible `sqlite-migrated`
 sentinels after cutover. They carry backend, migration, and database identities
@@ -1357,106 +1355,33 @@ Telegram, channel, source transport, List.am, and CBA boundaries; terminal crede
 and permission failures; unchanged incompatible state; the typed source
 challenge; loop exclusion; cleanup; and secret-free structured results.
 
-### Offline runtime comparison
+### Rust rewrite foundation
 
-The comparison branch also narrows Node's full-history private classification:
+The [Rust development guide](rust-development.md) maps the retained prototype,
+shared Node behavior oracle, build tools and lifecycle checks to the complete
+rewrite in #44. The prototype is not production feature parity. Node remains the
+production runtime until the replacement is accepted.
+
+The experimental branch narrows Node's full-history private classification:
 SQLite stages unclassified listings, filtered listings matching the current
 filters, and notified listings with an update. Skipped and unchanged notified
 history stays durable without payload decoding per recipient. One crawl caches
 the stored listing inventory and at most eight filter match sets, clearing them
-with the delivery batches. A separate inventory-presence flag completes initial
-selection even when every stored listing already has a terminal decision.
-Routine source changes and durable pending work retain their existing path.
-See the [fair comparison protocol](runtime-comparison.md) for its gates and
-measurement boundary. This work does not deploy or replace production.
+with the delivery batches. An inventory-presence flag completes initial selection
+even when every stored listing already has a terminal decision. Routine source
+changes and durable pending work retain their existing path.
 
-`experiments/node-replay/` exercises the existing parser, normalization, filters,
-SQLite classification, private scheduler, acknowledgements, and process restart
-with deterministic 500-recipient fixtures. Its exported JSON/HTML contract
-and independent result oracle are shared comparison inputs, not production
-components. The [baseline protocol](node-replay-baseline.md) separates virtual
-behavior checks from wall measurements and defines the cgroup RAM boundary;
-local application-container results do not establish whole-machine Pi capacity.
+Rust's prototype uses bundled SQLite, compact integer decisions and one bounded
+fair scheduler. Seed batches commit 8,192 rows with durable progress; classification
+and per-message acknowledgements remain atomic. Completed-write checkpoints stop
+further writes if readers block truncation; the 4 MiB retention threshold does not
+bound an active transaction. The covering `(posted,id,revision)` index, 512 KiB
+SQLite cache target and transaction-local payload map capped at 128 entries bound
+history processing without dropping decisions. Selection runs newest first while
+delivery remains oldest first.
 
-`experiments/go-replay/` consumes the exported fixture contract for the isolated
-500-recipient Go replay. A single SQLite writer stores source revisions and
-compact decisions, queries recent catch-up candidates, and supplies pending
-payloads to a bounded fair event loop. The shared runner/verifier executes an
-unclean exercise exit and a new resume process. See [Go replay choices and
-measurements](go-replay-slice.md).
-
-`experiments/rust-replay/` implements the same isolated 500-recipient replay in
-Rust with HTML5 fixture parsing, bundled SQLite, incremental revisions, compact
-integer decisions, and a single bounded delivery scheduler. The native runner
-and independent full-contract oracle are shared with Go. No production component imports
-this prototype. See [Rust replay choices and measurements](rust-replay-slice.md).
-
-Both prototypes preserve SQLite classifications and durable acknowledgements
-through process restart, resume only pending work, and verify retained/absent
-history and final queue exhaustion. The [recovery protocol and
-measurements](native-replay-recovery.md) retain the shared workload and memory
-boundary. A separate diagnostic models the external-acceptance/local-acknowledgement
-duplicate window; neither prototype claims exactly-once Telegram delivery.
-
-## Experimental service-only replay boundary
-
-`experiments/service-replay/` measures the unchanged native replay workers in a
-persistent service cgroup spanning exercise and unclean recovery. A small static
-native holder copies exported fixtures into service-owned tmpfs; SQLite state,
-filesystem cache and kernel charges remain in that cgroup. A separate Node
-harness container exports fixtures, coordinates workers, samples both boundaries
-and runs the independent oracle. Production code and deployment are unchanged;
-see [service replay](service-replay.md) for commands, resource attribution and
-limits on comparisons with the original whole-replay measurements.
-
-The follow-up [native storage policy](native-storage-policy.md) bounds Rust seed
-imports to 8,192 decision rows per durable transaction. Immutable import inputs
-and a separately updated progress row make interrupted batches resumable; an
-incomplete or previously consumed seed cannot begin replay delivery. Atomic
-crawl/classification and per-message FULL-durability acknowledgements remain
-intact. Explicit checkpoints at completed-write boundaries constrain retained
-WAL growth and stop further writes if a reader blocks truncation. The 4 MiB
-retention threshold is not a hard limit on an active transaction. Storage and
-service-cgroup measurements stay separate from the frozen comparison baseline.
-
-The [retained-history working-set experiment](retained-history-working-set.md)
-adds a covering `(posted,id,revision)` listing index and a 512 KiB SQLite cache
-target to the Rust replay. Catch-up materializes eligible keys per recipient,
-then decodes payloads through a transaction-local map capped at 128 entries.
-Selection runs newest first while pending delivery retains oldest-first order;
-all skipped, filtered and notified history remains durable. The cache ends with
-classification, so source updates and restarts cannot reuse stale payloads.
-Read-only query/cache profiles and separate service-cgroup measurements account
-for SQLite heap and kernel file cache independently. No production schema,
-runtime, parser or deployment changes accompany this experiment.
-
-The [offline native Rust service](native-service.md) adds `serve`, `health` and
-`shutdown` entrypoints to the same executable. A separate fixture container on
-an internal network supplies cookie-protected HTML through the retained pinned
-curl executable. The native process bounds responses and curl concurrency,
-then connects fetched pages to the existing parser, SQLite writer, delivery
-scheduler and independent external oracle. Native control and transport-probe
-threads remain responsive during replay. Signals stop/reap curl, drain the
-whole replay stage, close SQLite and preserve the pending suffix for resume.
-The service cgroup includes Rust, SQLite, curl, health processes and file/cache
-charges; the Node peer and coordinator/oracle are outside it. This adapter is
-experimental and does not implement live source/Telegram/CBA integration,
-full bot/channel parity or arbitrary mid-stage crash recovery.
-
-The [native maintenance commands](native-maintenance.md) add offline `backup`,
-`validate` and `restore` for the frozen interrupted replay boundary. A read-only
-SQLite transaction pins source state; incremental backup copies pages into a new
-private directory. Schema, integrity, history and active acknowledgement checks
-precede fsynced non-overwriting publication. The service must be stopped, and
-maintenance operations run separately with individual CPU/RSS/cgroup and disk
-accounting. The independent external oracle verifies 500-recipient restored replay;
-production recovery and state remain separate.
-
-The [native schema migration](native-migration.md) gives the Rust experiment an
-explicit version-0-to-1 transition, rebuilding decisions with database-enforced
-domain constraints. Runtime opens fail closed on incompatible versions or schema
-objects. The stopped-service migration operates on an unpublished copy in bounded
-keyset batches, commits schema identity with the rebuild, verifies every decision
-field, and publishes only validated state. The original database remains the
-rollback path for the retained old executable. This is not production Node-to-Rust
-conversion and introduces no production schema or deployment change.
+The [native service](native-service.md), [maintenance](native-maintenance.md) and
+[migration](native-migration.md) documents specify the prototype's supported
+boundaries. They do not establish support for production databases or arbitrary
+crash points. Runtime migration from Node and full bot/channel/source parity are
+required by the rewrite.

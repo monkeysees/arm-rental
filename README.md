@@ -40,57 +40,13 @@ into that single order rather than being sent category by category.
 Private delivery runs at most eight classification or send operations at once.
 Recipients take turns one message at a time; a recipient waiting for its rate
 limit or Telegram's retry delay releases its slot. Pending listing IDs stay in
-SQLite and payloads are loaded for the next send. This trades peak throughput
-for bounded memory and fair progress as the recipient population grows. See the
-[concurrency benchmark](docs/private-concurrency-benchmark.md) for measurements.
+SQLite and payloads are loaded for the next send. This trades peak throughput for bounded memory and fair progress as the recipient
+population grows.
 
-The isolated [Node replay baseline](docs/node-replay-baseline.md) defines the
-500-recipient behavior contract and resource measurements for the runtime
-comparison experiment. It does not change production deployment.
-
-The [Go offline slice](docs/go-replay-slice.md) runs the shared 500-recipient
-workload through fixture parsing, SQLite classification, simulated delivery,
-and clean reopen using the same local runner.
-
-The [Rust offline slice](docs/rust-replay-slice.md) runs the same 500-recipient
-fixture workload and clean-reopen checks through the shared local runner.
-
-Both prototypes now exercise [interruption recovery and fair
-progress](docs/native-replay-recovery.md) through separate processes using the
-full shared workload.
-
-The [fair runtime comparison](docs/runtime-comparison.md) strengthens Node's
-history classification and compares all three implementations with correctness
-gates, repeated measurements, curl transport accounting, and complete local
-runtime artifacts.
-
-The separate [native service-only replay](docs/service-replay.md) keeps the
-external Node harness outside the measured service cgroup while preserving the
-original native workers, recovery contract and comparison results.
-
-The native [backup and restore commands](docs/native-maintenance.md) preserve
-experimental replay state through validated, bounded-memory offline copies.
-
-The [native schema migration](docs/native-migration.md) upgrades the frozen
-unversioned Rust replay state to version 1 through a validated private copy,
-with source-preserving rollback and interruption/retry acceptance.
-
-The experimental Rust [bulk-write and WAL policy](docs/native-storage-policy.md)
-adds resumable seed batches and explicit checkpoint boundaries, with separate
-before/after measurements and unchanged per-message acknowledgement durability.
-
-The Rust [retained-history working-set experiment](docs/retained-history-working-set.md)
-profiles covering queries, bounded payload loading and SQLite cache policy while
-preserving the full 500-recipient history and recovery contract.
-
-The experimental [native Rust service](docs/native-service.md) adds local curl
-transport, native health/shutdown controls and graceful pending-work recovery
-without Node inside the service container.
-
-The [minimal native image](docs/native-image.md) packages the executable's actual
-runtime dependencies. The [native memory-limit assessment](docs/native-limits.md)
-tests the complete implemented workload and separate maintenance operations at
-75 MB and 50 MB, with external verification and local transport.
+The [Rust development guide](docs/rust-development.md) describes the retained
+prototype, shared behavior contracts, build tools and acceptance checks for the
+[complete Rust rewrite](https://github.com/monkeysees/arm-rental/issues/44).
+The production application remains Node until the replacement is accepted.
 
 Private delivery makes one promise about time: a user is only ever sent
 apartments List.am posted or changed within the last 24 hours. Everything the

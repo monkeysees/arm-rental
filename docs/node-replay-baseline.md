@@ -1,8 +1,8 @@
-# Node replay contract and local baseline
+# Node replay contract
 
-Issue [#29](https://github.com/monkeysees/arm-rental/issues/29) establishes the
-private-delivery baseline for the language experiment in #22. All work stays on
-`experiment/22-runtime-comparison`. The replay imports the existing crawler,
+The shared replay establishes a private-delivery regression contract for the
+Rust rewrite in [#44](https://github.com/monkeysees/arm-rental/issues/44).
+The replay imports the existing crawler,
 parser, normalization/filtering, SQLite repositories, bounded private scheduler,
 and private rate limiter. Production runtime and deployment are unchanged.
 
@@ -196,60 +196,4 @@ setting an application cgroup limit establishes full-machine headroom. The paren
 experiment must account for those lifecycle and platform costs before claiming
 whole-machine fit or a meaningful language improvement.
 
-## Results and acceptance
-
-All four retained full replays passed the independent behavior verifier: one virtual run
-and three wall runs at 500 recipients. Original source hashes identify the
-measured implementation. The [raw manifest](benchmarks/node-replay/final/manifest.json)
-records exact commands, host details, image identity, timestamps, and individual
-capacity verdicts. Raw wall results are available for
-[500 run 1](benchmarks/node-replay/final/500-wall-1.json),
-[run 2](benchmarks/node-replay/final/500-wall-2.json),
-[run 3](benchmarks/node-replay/final/500-wall-3.json). The
-[virtual result](benchmarks/node-replay/final/500-virtual-1.json) is
-behavioral evidence only.
-
-The table reports medians of the three wall runs. Steady entries first take the
-median of each run's three post-bootstrap unchanged samples. Idle is the exercise
-worker immediately after opening the seeded database. Process peak is the maximum
-worker lifetime RSS high-water mark in each replay; the primary service peak is
-the whole-container cgroup peak. MiB means 1,048,576 bytes.
-
-| Metric                                                      |          500 recipients |
-| ----------------------------------------------------------- | ----------------------: |
-| Process RSS, idle / steady / peak (MiB)                     |    79.6 / 115.2 / 147.4 |
-| Service memory, idle / steady / peak (MiB)                  |   132.7 / 173.1 / 282.4 |
-| Primary service-peak range (MiB)                            |             281.6–284.9 |
-| Unchanged crawl CPU / wall (ms)                             |           414.5 / 600.9 |
-| One-time seeded-history reconciliation wall (s)             |                    86.4 |
-| Routine classification / CPU / wall (s)                     |     2.12 / 4.52 / 15.27 |
-| Catch-up classification / CPU / drain (s)                   | 93.92 / 101.13 / 123.00 |
-| Catch-up listings per wall second, including classification |                   32.52 |
-| Catch-up queue age p95 (s)                                  |                  121.46 |
-| First listing per recipient, p95 / maximum age (s)          |         102.16 / 106.23 |
-| Resumed drain / resumed queue age p95 (s)                   |           22.51 / 32.64 |
-| Final database / WAL (MiB)                                  |            87.06 / 4.16 |
-
-Routine work met the 60-second crawl target in all three wall runs:
-15.22–15.44 seconds. Routine classification alone took 2.11–2.13 seconds.
-Unchanged-crawl per-run median CPU varied from 377.0–418.6 ms.
-
-**Catch-up failed the permitted-rate target in every wall run.** Its allowed
-drain time was 25.025 seconds, whereas measured drain was 122.44–123.17 seconds.
-Full-history classification dominated this cost and itself exceeded a 60-second
-interval. The one-time bootstrap cost is also above that interval; it remains
-separately reported. A synchronized catch-up burst can delay subsequent crawls
-even though routine incremental work keeps pace.
-
-The fair-progress target passed in all three runs. All runs completed under
-the 512 MiB application limit without swap or OOM. Process RSS alone would
-understate the accounting boundary substantially. Whole-machine/Pi fit remains
-unvalidated for the reasons above. The retained 500-recipient measurements,
-history density, rates and acceptance thresholds are unchanged.
-
-Local verification passed all **425 tests** on Node 24.18.0, including the replay
-and negative-oracle checks. Coverage was 94.56% lines, 88.22% branches, and 92.02%
-functions; ESLint and the production deployment-contract validator also passed.
-Independent standards and specification reviews left no implementation findings.
-The performance misses are baseline evidence for #22, not a production runtime
-change or a successful capacity claim.
+See the [Rust development guide](rust-development.md) for build and acceptance tooling.

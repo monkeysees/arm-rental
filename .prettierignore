@@ -3,17 +3,7 @@ coverage/
 node_modules/
 package-lock.json
 test/fixtures/list-am-real-shape/*.html
-# Preserve byte-identical raw measurements and their recorded hashes.
-docs/benchmarks/runtime-comparison/
+# Keep frozen regression inputs unchanged.
+test/fixtures/replay-reports/
 .scratch/
 experiments/rust-replay/target/
-docs/benchmarks/service-replay/
-docs/benchmarks/native-storage/
-docs/benchmarks/retained-history/
-
-docs/benchmarks/native-service/
-docs/benchmarks/native-maintenance/
-
-docs/benchmarks/native-migration/
-docs/benchmarks/native-image/
-docs/benchmarks/native-limits/

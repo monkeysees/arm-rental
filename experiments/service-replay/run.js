@@ -31,10 +31,14 @@ const {
 });
 assert(
   output && path.isAbsolute(output),
-  "Usage: run.js /ABSOLUTE/NEW_OUTPUT --runtime go|rust --holder /ABSOLUTE/HOLDER [--memory-bytes INTEGER]",
+  "Usage: run.js /ABSOLUTE/NEW_OUTPUT --runtime go|rust --holder /ABSOLUTE/HOLDER --native-baseline /ABSOLUTE/BASELINE.json [--memory-bytes INTEGER]",
 );
 assert(["go", "rust"].includes(values.runtime));
 assert(path.isAbsolute(values.holder ?? ""));
+assert(
+  path.isAbsolute(values["native-baseline"] ?? ""),
+  "--native-baseline must identify the current native binary and source hashes",
+);
 const memoryBytes = Number(values["memory-bytes"]);
 assert(
   /^\d+$/.test(values["memory-bytes"]) &&
@@ -101,13 +105,7 @@ const sourceHashes = Object.fromEntries(
     ]),
   ),
 );
-const baseline = JSON.parse(
-  readFileSync(
-    values["native-baseline"] ??
-      `docs/benchmarks/runtime-comparison/final/${runtime}/500-wall-1.json`,
-    "utf8",
-  ),
-);
+const baseline = JSON.parse(readFileSync(values["native-baseline"], "utf8"));
 assert.equal(
   binarySha256,
   baseline.binarySha256,

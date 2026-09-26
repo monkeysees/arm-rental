@@ -1,0 +1,24 @@
+{
+  "scenario": {
+    "privateChatId": 123,
+    "channelId": "@test_channel",
+    "listingIds": ["100000", "100001"],
+    "exchangeRates": {
+      "USD": { "amount": 1, "rate": 400 }
+    }
+  },
+  "privateMessages": {
+    "100000": "Replay rental 100000\nЦена: 100\u00a0000 ֏\nМестоположение: Арабкир\nКоличество комнат: 2\nПлощадь: 60 м²\nЭтаж: 3/9\nhttps://www.list.am/ru/item/100000",
+    "100001": "Replay rental 100001\nЦена: 500 $\nМестоположение: Арабкир\nКоличество комнат: 2\nПлощадь: 60 м²\nЭтаж: 3/9\nhttps://www.list.am/ru/item/100001"
+  },
+  "channelMessages": {
+    "100000": "Replay rental 100000\nЦена: 100\u00a0000 ֏\nМестоположение: Арабкир\nКоличество комнат: 2\nПлощадь: 60 м²\nЭтаж: 3/9\nhttps://www.list.am/ru/item/100000\n\n#ереван #арабкир #цена_51_100 #2комн"
+  },
+  "channelEditedMessage": "Replay rental 100000 updated\nЦена: 100\u00a0000 ֏\nМестоположение: Арабкир\nКоличество комнат: 2\nПлощадь: 60 м²\nЭтаж: 3/9\nhttps://www.list.am/ru/item/100000\n\n#ереван #арабкир #цена_51_100 #2комн",
+  "database": {
+    "apartmentIds": ["100000", "100001"],
+    "privateNotifiedIds": ["100000", "100001"],
+    "channelPublishedIds": ["100000"],
+    "channelExcludedIds": ["100001"]
+  }
+}

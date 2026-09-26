@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Add Node-free packaged Rust parity acceptance with frozen Node fixtures, populated-state recovery, local service peers and a required CI gate.
+
 - Hold a Node-to-Rust production transition until a runtime-aware bridge release is deployed and explicitly promoted.
 
 - Restore Rust live storage checks, maintenance alerts, atomic history replies, deferred-recipient cancellation and saved-history startup preflight.

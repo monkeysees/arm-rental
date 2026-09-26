@@ -43,7 +43,7 @@ ops_set_step stop-application
 ops_stop_application
 set +e
 ops_set_step run-maintenance
-ops_compose run --rm --no-deps bot node src/maintenance-cli.js report
+ops_run_app maintenance
 maintenance_status=$?
 set -e
 exit "$maintenance_status"

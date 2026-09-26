@@ -189,13 +189,22 @@ export function createReleaseContract(raw) {
   };
 }
 
-function composeArguments(contract, ...arguments_) {
+function composeArguments(contract, runtime, ...arguments_) {
   return [
     "compose",
     "--project-name",
     contract.projectName,
     "--file",
     contract.composeFile,
+    ...(runtime === "rust"
+      ? [
+          "--file",
+          path.join(
+            path.dirname(contract.composeFile),
+            "ops/compose.native.yaml",
+          ),
+        ]
+      : []),
     ...arguments_,
   ];
 }
@@ -240,11 +249,11 @@ function releaseEnvironment(contract, image) {
   };
 }
 
-async function inspectComposeContract(contract) {
+async function inspectComposeContract(contract, runtime, image) {
   const { stdout } = await run(
     "docker",
-    composeArguments(contract, "config", "--format", "json"),
-    { env: releaseEnvironment(contract, contract.previousImage) },
+    composeArguments(contract, runtime, "config", "--format", "json"),
+    { env: releaseEnvironment(contract, image) },
   );
   const configuration = JSON.parse(stdout);
   const bot = configuration.services?.bot;
@@ -302,7 +311,18 @@ async function inspectImageStateCompatibility(image) {
     image,
   ]);
   const labels = JSON.parse(stdout);
+  const label = labels?.["com.rental-apartments.runtime"];
+  // Retained pre-Rust images lack this label and still require their Node tools.
+  const runtime =
+    label === "rust"
+      ? "rust"
+      : [undefined, null, "", "node"].includes(label)
+        ? "node"
+        : undefined;
+  if (!runtime)
+    throw new Error(`Unsupported application runtime label: ${label}`);
   return {
+    runtime,
     stateBackend: labels?.["com.rental-apartments.state.backend"],
     minimumStateSchema: Number(
       labels?.["com.rental-apartments.state.schema.minimum"],
@@ -313,7 +333,16 @@ async function inspectImageStateCompatibility(image) {
   };
 }
 
-async function inspectLiveState() {
+async function inspectLiveState(runtime) {
+  if (runtime === "rust") {
+    const { stdout } = await run("docker", [
+      "exec",
+      "rental-apartments-bot",
+      "/usr/local/bin/rental-app",
+      "state:inspect",
+    ]);
+    return JSON.parse(stdout);
+  }
   // The database is the whole answer: SQLite is the only backend a release can
   // serve, so a directory without one is a host with no state to be compatible
   // with rather than a host on some other backend.
@@ -340,27 +369,26 @@ async function inspectLiveState() {
   return JSON.parse(stdout);
 }
 
-async function validateSnapshot(contract) {
+async function validateSnapshot(contract, runtime) {
   await run(
     "docker",
     composeArguments(
       contract,
+      runtime,
       "run",
       "--rm",
       "--no-deps",
       "bot",
-      "npm",
-      "run",
-      "backup:validate",
-      "--",
-      contract.snapshot,
+      ...(runtime === "rust"
+        ? ["backup:validate", "--snapshot", contract.snapshot]
+        : ["npm", "run", "backup:validate", "--", contract.snapshot]),
     ),
     { env: releaseEnvironment(contract, contract.previousImage) },
   );
 }
 
-async function stopAndConfirm(contract) {
-  await run("docker", composeArguments(contract, "stop", "bot"), {
+async function stopAndConfirm(contract, runtime) {
+  await run("docker", composeArguments(contract, runtime, "stop", "bot"), {
     env: releaseEnvironment(contract, contract.previousImage),
   });
   const { stdout } = await run("docker", [
@@ -374,28 +402,34 @@ async function stopAndConfirm(contract) {
   }
 }
 
-async function startImage(contract, image) {
-  await run(
-    "docker",
-    composeArguments(contract, "up", "--detach", "--force-recreate", "bot"),
-    { env: releaseEnvironment(contract, image) },
-  );
-}
-
-async function restoreSnapshot(contract) {
+async function startImage(contract, image, runtime) {
   await run(
     "docker",
     composeArguments(
       contract,
+      runtime,
+      "up",
+      "--detach",
+      "--force-recreate",
+      "bot",
+    ),
+    { env: releaseEnvironment(contract, image) },
+  );
+}
+
+async function restoreSnapshot(contract, runtime) {
+  await run(
+    "docker",
+    composeArguments(
+      contract,
+      runtime,
       "run",
       "--rm",
       "--no-deps",
       "bot",
-      "npm",
-      "run",
-      "restore",
-      "--",
-      contract.snapshot,
+      ...(runtime === "rust"
+        ? ["backup:restore", "--snapshot", contract.snapshot]
+        : ["npm", "run", "restore", "--", contract.snapshot]),
     ),
     { env: releaseEnvironment(contract, contract.previousImage) },
   );
@@ -433,7 +467,16 @@ export function findReleaseEvidence(logText, delivery) {
   };
 }
 
-async function readiness() {
+async function readiness(runtime) {
+  if (runtime === "rust")
+    return run("docker", [
+      "exec",
+      "rental-apartments-bot",
+      "/usr/local/bin/rental-app",
+      "health-check",
+      "--ready",
+      "--json",
+    ]);
   const expression =
     'fetch("http://127.0.0.1:8787/ready").then(async response => { console.log(await response.text()); process.exitCode = response.ok ? 0 : 1 })';
   return run("docker", [
@@ -445,12 +488,12 @@ async function readiness() {
   ]);
 }
 
-async function waitUntilReady(timeoutMs = 5 * 60_000) {
+async function waitUntilReady(runtime, timeoutMs = 5 * 60_000) {
   const deadline = Date.now() + timeoutMs;
   let lastError;
   while (Date.now() < deadline) {
     try {
-      return await readiness();
+      return await readiness(runtime);
     } catch (error) {
       lastError = error;
       await new Promise((resolve) => setTimeout(resolve, 5_000));
@@ -461,13 +504,13 @@ async function waitUntilReady(timeoutMs = 5 * 60_000) {
   });
 }
 
-async function waitForEvidence(contract, startedAt) {
+async function waitForEvidence(contract, startedAt, runtime) {
   const deadline = Date.now() + contract.observationMs;
   let evidence;
   while (Date.now() < deadline) {
     await new Promise((resolve) => setTimeout(resolve, 10_000));
     try {
-      await readiness();
+      await readiness(runtime);
       const { stdout, stderr } = await run("docker", [
         "logs",
         "--since",
@@ -492,7 +535,7 @@ async function waitForEvidence(contract, startedAt) {
       setTimeout(resolve, contract.observationMs - elapsed),
     );
   }
-  await readiness();
+  await readiness(runtime);
   return evidence;
 }
 
@@ -538,13 +581,13 @@ async function writeEvidence(contract, runtime, evidence, startedAt) {
   return receipt;
 }
 
-async function recoverPrevious(contract) {
-  await run("docker", composeArguments(contract, "stop", "bot"), {
+async function recoverPrevious(contract, runtime, previousRuntime) {
+  await run("docker", composeArguments(contract, runtime, "stop", "bot"), {
     env: releaseEnvironment(contract, contract.image),
   });
-  await restoreSnapshot(contract);
-  await startImage(contract, contract.previousImage);
-  await waitUntilReady();
+  await restoreSnapshot(contract, previousRuntime);
+  await startImage(contract, contract.previousImage, previousRuntime);
+  await waitUntilReady(previousRuntime);
 }
 
 async function executeRelease(contract) {
@@ -556,13 +599,22 @@ async function executeRelease(contract) {
   } catch (error) {
     if (error.code !== "ENOENT") throw error;
   }
-  const [targetMetadata] = await Promise.all([
+  const [targetMetadata, previousMetadata] = await Promise.all([
     inspectImageStateCompatibility(contract.image),
-    run("docker", ["image", "inspect", contract.previousImage]),
+    inspectImageStateCompatibility(contract.previousImage),
     readFile(contract.composeFile, "utf8"),
   ]);
-  await inspectComposeContract(contract);
-  await validateSnapshot(contract);
+  await inspectComposeContract(
+    contract,
+    previousMetadata.runtime,
+    contract.previousImage,
+  );
+  await inspectComposeContract(
+    contract,
+    targetMetadata.runtime,
+    contract.image,
+  );
+  await validateSnapshot(contract, previousMetadata.runtime);
   const runtime = await inspectRuntime(contract);
   if (
     contract.operation === "rollback" &&
@@ -571,27 +623,35 @@ async function executeRelease(contract) {
     assertRollbackStateCompatibility({
       stateStrategy: contract.stateStrategy,
       targetMetadata,
-      liveState: await inspectLiveState(),
+      liveState: await inspectLiveState(previousMetadata.runtime),
     });
   }
-  await stopAndConfirm(contract);
+  await stopAndConfirm(contract, previousMetadata.runtime);
 
   if (
     contract.operation === "rollback" &&
     contract.stateStrategy === "restore"
   ) {
-    await restoreSnapshot(contract);
+    await restoreSnapshot(contract, previousMetadata.runtime);
   }
 
   const startedAt = new Date().toISOString();
   try {
-    await startImage(contract, contract.image);
-    const evidence = await waitForEvidence(contract, startedAt);
+    await startImage(contract, contract.image, targetMetadata.runtime);
+    const evidence = await waitForEvidence(
+      contract,
+      startedAt,
+      targetMetadata.runtime,
+    );
     return writeEvidence(contract, runtime, evidence, startedAt);
   } catch (error) {
     // Candidate preflight may update the HTTP cookie jar or a rate snapshot.
     // Restoring the already-verified snapshot makes failed rollout state exact.
-    await recoverPrevious(contract);
+    await recoverPrevious(
+      contract,
+      targetMetadata.runtime,
+      previousMetadata.runtime,
+    );
     throw new Error(
       `Release failed and the verified snapshot plus previous image were restored: ${error.message}`,
       { cause: error },

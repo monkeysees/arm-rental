@@ -3,7 +3,12 @@ import globals from "globals";
 
 export default [
   {
-    ignores: ["coverage/**", "node_modules/**", ".data/**"],
+    ignores: [
+      "coverage/**",
+      "node_modules/**",
+      ".data/**",
+      "experiments/**/target/**",
+    ],
   },
   eslint.configs.recommended,
   {

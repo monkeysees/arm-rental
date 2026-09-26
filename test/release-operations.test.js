@@ -94,7 +94,7 @@ test("release contract is production-only and validation does not invoke Docker"
   assert.match(source, /assertRollbackStateCompatibility/u);
   assert.ok(
     source.indexOf("assertRollbackStateCompatibility") <
-      source.indexOf("await stopAndConfirm(contract)"),
+      source.indexOf("await stopAndConfirm("),
     "compatible rollback must fail before stopping the live service",
   );
 
@@ -240,4 +240,217 @@ test("operations index covers every required runbook and each canonical page is 
       `${entrypoint} does not identify the canonical launch runbook`,
     );
   }
+});
+
+async function manualReleaseFixture(
+  t,
+  {
+    candidateRuntime,
+    previousRuntime,
+    operation = "deploy",
+    stateStrategy = "compatible",
+    schema = 6,
+    maximumSchema = 6,
+    failCandidate = false,
+  },
+) {
+  const { mkdtemp, mkdir, writeFile, chmod, rm } =
+    await import("node:fs/promises");
+  const { tmpdir } = await import("node:os");
+  const path = await import("node:path");
+  const root = await mkdtemp(path.join(tmpdir(), "manual-release-runtime-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const bin = path.join(root, "bin");
+  await mkdir(bin);
+  const fixture = {
+    candidate: completeArguments.image,
+    previous: completeArguments["previous-image"],
+    candidateRuntime,
+    previousRuntime,
+    schema,
+    maximumSchema,
+    failCandidate,
+  };
+  await writeFile(path.join(root, "fixture.json"), JSON.stringify(fixture));
+  await writeFile(
+    path.join(bin, "docker"),
+    `#!${process.execPath}\n` +
+      String.raw`
+const fs = require("node:fs");
+const root = process.env.FAKE_DOCKER_ROOT;
+const fixture = JSON.parse(fs.readFileSync(root + "/fixture.json", "utf8"));
+const args = process.argv.slice(2);
+fs.appendFileSync(root + "/calls.jsonl", JSON.stringify({ args, image: process.env.RENTAL_APARTMENTS_IMAGE }) + "\n");
+function print(value) { process.stdout.write(JSON.stringify(value) + "\n"); }
+if (args[0] === "image") {
+  const candidate = args.at(-1) === fixture.candidate;
+  const runtime = candidate ? fixture.candidateRuntime : fixture.previousRuntime;
+  print({ "com.rental-apartments.state.backend": "sqlite", "com.rental-apartments.state.schema.minimum": "1", "com.rental-apartments.state.schema.maximum": String(candidate ? fixture.maximumSchema : 6), ...(runtime === undefined ? {} : { "com.rental-apartments.runtime": runtime }) });
+} else if (args[0] === "inspect") {
+  if (args.includes("{{.State.Running}}")) process.stdout.write("false\n");
+  else print({ Config: { Image: fixture.previous, Labels: { "com.rental-apartments.environment": "production" } }, State: { Running: true }, Mounts: [{ Destination: "/app/.data", Type: "volume", Name: "rental-apartments-data" }] });
+} else if (args[0] === "compose") {
+  if (args.includes("config")) print({ services: { bot: { container_name: "rental-apartments-bot", labels: { "com.rental-apartments.environment": "production" }, environment: { NODE_ENV: "production" }, read_only: true, deploy: { replicas: 1, update_config: { order: "stop-first" } }, volumes: [{ target: "/app/.data", type: "volume" }] } } });
+  else if (args.includes("up") && fixture.failCandidate && process.env.RENTAL_APARTMENTS_IMAGE === fixture.candidate) process.exit(17);
+  else print({ ok: true });
+} else if (args[0] === "exec") {
+  if (args.includes("state:inspect") || args.some((arg) => arg.includes("PRAGMA user_version"))) print({ stateBackend: "sqlite", stateSchema: fixture.schema });
+  else print({ ready: true });
+} else if (args[0] === "logs") {
+  print({ event: "startup.preflight.completed", preflight: { status: "ready", checks: { telegram: "passed", channel: "passed" } } });
+  print({ event: "crawl.succeeded", crawlId: "native-crawl", notified: 1, channelSent: 1, channelEdited: 0 });
+} else process.exit(90);
+`,
+  );
+  await chmod(path.join(bin, "docker"), 0o755);
+  await writeFile(
+    path.join(root, "clock.mjs"),
+    `const OriginalDate = Date; let clock = OriginalDate.now(); globalThis.Date = class extends OriginalDate { constructor(...args) { super(...(args.length ? args : [clock])); } static now() { return clock; } }; const originalTimer = setTimeout; globalThis.setTimeout = (fn, ms, ...args) => { clock += Number(ms) || 0; return originalTimer(fn, 0, ...args); };`,
+  );
+  const script = new URL("../scripts/release-operations.js", import.meta.url)
+    .pathname;
+  const args = [
+    "--import",
+    path.join(root, "clock.mjs"),
+    script,
+    operation,
+    "--environment",
+    "production",
+    "--actor",
+    "test:manual-release",
+    "--image",
+    fixture.candidate,
+    "--previous-image",
+    fixture.previous,
+    "--snapshot",
+    completeArguments.snapshot,
+    "--poll-interval-ms",
+    "60000",
+    "--observation-minutes",
+    "6",
+    "--delivery",
+    "both",
+    "--state-strategy",
+    stateStrategy,
+    "--evidence-file",
+    path.join(root, "evidence.json"),
+  ];
+  const run = () =>
+    executeFile(process.execPath, args, {
+      env: {
+        ...process.env,
+        PATH: `${bin}:${process.env.PATH}`,
+        FAKE_DOCKER_ROOT: root,
+      },
+    });
+  const calls = async () =>
+    (await readFile(path.join(root, "calls.jsonl"), "utf8"))
+      .trim()
+      .split("\n")
+      .map(JSON.parse);
+  return { run, calls };
+}
+
+test("manual release uses Rust image commands and retains unlabeled Node rollback tooling", async (t) => {
+  const fixture = await manualReleaseFixture(t, { candidateRuntime: "rust" });
+  await fixture.run();
+  const calls = await fixture.calls();
+  const validation = calls.find(({ args }) => args.includes("backup:validate"));
+  assert.deepEqual(validation.args.slice(-5), [
+    "npm",
+    "run",
+    "backup:validate",
+    "--",
+    completeArguments.snapshot,
+  ]);
+  const starts = calls.filter(({ args }) => args.includes("up"));
+  assert.equal(starts.length, 1);
+  assert.ok(
+    starts[0].args.some((arg) => arg.endsWith("ops/compose.native.yaml")),
+  );
+  const probes = calls.filter(({ args }) => args[0] === "exec");
+  assert.ok(probes.length > 0);
+  for (const probe of probes)
+    assert.deepEqual(probe.args.slice(2), [
+      "/usr/local/bin/rental-app",
+      "health-check",
+      "--ready",
+      "--json",
+    ]);
+});
+
+test("manual rollback inspects live Rust state without a writer and runs retained Node readiness", async (t) => {
+  const fixture = await manualReleaseFixture(t, {
+    previousRuntime: "rust",
+    operation: "rollback",
+  });
+  await fixture.run();
+  const calls = await fixture.calls();
+  const inspection = calls.findIndex(({ args }) =>
+    args.includes("state:inspect"),
+  );
+  const stop = calls.findIndex(({ args }) => args.includes("stop"));
+  assert.ok(inspection >= 0 && inspection < stop);
+  assert.deepEqual(calls[inspection].args, [
+    "exec",
+    "rental-apartments-bot",
+    "/usr/local/bin/rental-app",
+    "state:inspect",
+  ]);
+  const validation = calls.find(({ args }) => args.includes("backup:validate"));
+  assert.deepEqual(validation.args.slice(-3), [
+    "backup:validate",
+    "--snapshot",
+    completeArguments.snapshot,
+  ]);
+  const start = calls.find(({ args }) => args.includes("up"));
+  assert.ok(!start.args.some((arg) => arg.endsWith("ops/compose.native.yaml")));
+  assert.ok(
+    calls.some(
+      ({ args }) =>
+        args[0] === "exec" && args[2] === "node" && args[3] === "-e",
+    ),
+  );
+});
+
+test("manual runner rejects unknown runtimes and incompatible live schemas before stopping", async (t) => {
+  for (const options of [
+    { candidateRuntime: "python" },
+    { previousRuntime: "rust", operation: "rollback", maximumSchema: 5 },
+  ]) {
+    const fixture = await manualReleaseFixture(t, options);
+    await assert.rejects(fixture.run());
+    assert.ok(
+      !(await fixture.calls()).some(({ args }) => args.includes("stop")),
+    );
+  }
+});
+
+test("manual failed rollout restores and probes the retained Rust image with its own tooling", async (t) => {
+  const fixture = await manualReleaseFixture(t, {
+    candidateRuntime: "node",
+    previousRuntime: "rust",
+    failCandidate: true,
+  });
+  await assert.rejects(fixture.run(), /previous image were restored/u);
+  const calls = await fixture.calls();
+  const restore = calls.find(({ args }) => args.includes("backup:restore"));
+  assert.deepEqual(restore.args.slice(-3), [
+    "backup:restore",
+    "--snapshot",
+    completeArguments.snapshot,
+  ]);
+  assert.equal(restore.image, completeArguments["previous-image"]);
+  const starts = calls.filter(({ args }) => args.includes("up"));
+  assert.equal(starts.length, 2);
+  assert.ok(
+    starts[1].args.some((arg) => arg.endsWith("ops/compose.native.yaml")),
+  );
+  assert.equal(starts[1].image, completeArguments["previous-image"]);
+  assert.deepEqual(calls.at(-1).args.slice(2), [
+    "/usr/local/bin/rental-app",
+    "health-check",
+    "--ready",
+    "--json",
+  ]);
 });

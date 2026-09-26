@@ -1,0 +1,24 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+output="${1:?Usage: build-variants NEW_ABSOLUTE_OUTPUT}"
+[[ "$output" == /* && ! -e "$output" ]]
+mkdir -p "$output"
+repo="$(pwd)"
+rust_image=arm-rental-rust-replay-build
+for variant in default size; do
+  flags=(-e CARGO_PROFILE_RELEASE_DEBUG=1 -e CARGO_PROFILE_RELEASE_STRIP=false)
+  if [[ "$variant" == size ]]; then
+    flags+=(-e CARGO_PROFILE_RELEASE_OPT_LEVEL=z -e CARGO_PROFILE_RELEASE_LTO=thin -e CARGO_PROFILE_RELEASE_CODEGEN_UNITS=1)
+  fi
+  docker run --rm --network none -v "$repo:/repo" -v /tmp/arm-rental-rust-cargo:/usr/local/cargo/registry \
+    -v "$output:/variants" -w /repo/experiments/rust-replay "${flags[@]}" "$rust_image" \
+    sh -c 'cargo build --release --locked --offline && cp target/release/rental-replay "/variants/rust-$1.full" && objcopy --only-keep-debug "/variants/rust-$1.full" "/variants/rust-$1.debug" && cp "/variants/rust-$1.full" "/variants/rust-$1" && strip --strip-all "/variants/rust-$1" && objcopy --add-gnu-debuglink="/variants/rust-$1.debug" "/variants/rust-$1"' sh "$variant"
+done
+docker run --rm --network none -v "$repo:/repo:ro" -v /tmp/arm-rental-go-mod:/go/pkg/mod -v /tmp/arm-rental-go-cache:/root/.cache/go-build \
+  -v "$output:/variants" -w /repo/experiments/go-replay \
+  golang:1.27.1-bookworm@sha256:648f440f42a0958804efb24df176f806f9d353b41f1c0627f666428e40310f6b \
+  sh -c 'go build -buildvcs=false -trimpath -mod=readonly -o /variants/go-default . && go build -buildvcs=false -trimpath -mod=readonly -ldflags="-s -w" -o /variants/go-stripped . && objcopy --only-keep-debug /variants/go-default /variants/go-default.debug && objcopy --dump-section .text=/variants/go-default.text /variants/go-default && objcopy --dump-section .text=/variants/go-stripped.text /variants/go-stripped && cmp /variants/go-default.text /variants/go-stripped.text && go version -m /variants/go-default && go version -m /variants/go-stripped'
+# Restore the normal build profile for later workflows; artifacts above stay immutable.
+docker run --rm --network none -v "$repo:/repo" -v /tmp/arm-rental-rust-cargo:/usr/local/cargo/registry \
+  -w /repo/experiments/rust-replay "$rust_image" cargo build --release --locked --offline
+sha256sum "$output"/* >"$output/SHA256SUMS"

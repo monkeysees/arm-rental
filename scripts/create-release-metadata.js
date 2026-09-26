@@ -107,6 +107,8 @@ export async function createReleaseMetadata({
     // what comes next. A bridge release carrying cutover machinery lists both
     // backends; every other release lists only the one its verifier accepts.
     deployableStateBackends: ["sqlite"],
+    runtime: "node",
+    deployableRuntimes: ["node", "rust"],
     nodeVersion: nodeVersionText.trim(),
     curlImpersonateVersion,
     packageLockSha256: sha256(packageLock),

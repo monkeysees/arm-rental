@@ -1,0 +1,270 @@
+[
+  {
+    "name": "NODE_ENV",
+    "configKey": "environmentName",
+    "type": "enum",
+    "defaultValue": "development",
+    "required": false,
+    "productionExplicit": false
+  },
+  {
+    "name": "TELEGRAM_BOT_TOKEN",
+    "configKey": "telegramBotToken",
+    "type": "non-empty string",
+    "required": true,
+    "productionExplicit": true
+  },
+  {
+    "name": "TELEGRAM_OWNER_ID",
+    "configKey": "telegramOwnerId",
+    "type": "positive safe integer",
+    "required": true,
+    "productionExplicit": true
+  },
+  {
+    "name": "TELEGRAM_ACCESS_MODE",
+    "configKey": "telegramAccessMode",
+    "type": "enum",
+    "defaultValue": "public",
+    "required": false,
+    "productionExplicit": false
+  },
+  {
+    "name": "TELEGRAM_ALLOWED_USER_IDS",
+    "configKey": "telegramAllowedUserIds",
+    "type": "positive safe integer list",
+    "defaultValue": "",
+    "required": false,
+    "productionExplicit": false
+  },
+  {
+    "name": "TELEGRAM_USER_UPDATES_PER_MINUTE",
+    "configKey": "telegramUserUpdatesPerMinute",
+    "type": "bounded integer",
+    "defaultValue": "30",
+    "required": false,
+    "productionExplicit": false
+  },
+  {
+    "name": "TELEGRAM_PRIVATE_DELIVERIES_PER_MINUTE",
+    "configKey": "telegramPrivateDeliveriesPerMinute",
+    "type": "bounded integer",
+    "defaultValue": "20",
+    "required": false,
+    "productionExplicit": false
+  },
+  {
+    "name": "TELEGRAM_CHANNEL_ID",
+    "configKey": "telegramChannelId",
+    "type": "Telegram public username",
+    "defaultValue": "",
+    "required": false,
+    "productionExplicit": false
+  },
+  {
+    "name": "CHANNEL_FILTER_PRICE_AMD",
+    "configKey": "channelFilterPriceAmd",
+    "type": "range",
+    "defaultValue": "",
+    "required": false,
+    "productionExplicit": false
+  },
+  {
+    "name": "CHANNEL_FILTER_ROOMS",
+    "configKey": "channelFilterRooms",
+    "type": "range",
+    "defaultValue": "",
+    "required": false,
+    "productionExplicit": false
+  },
+  {
+    "name": "CHANNEL_FILTER_LOCATIONS",
+    "configKey": "channelFilterLocations",
+    "type": "location selector list",
+    "defaultValue": "region:Ереван",
+    "required": false,
+    "productionExplicit": false
+  },
+  {
+    "name": "DATA_DIRECTORY",
+    "configKey": "dataDirectory",
+    "type": "path",
+    "defaultValue": ".data",
+    "required": false,
+    "productionExplicit": true
+  },
+  {
+    "name": "APARTMENTS_STATE_FILE",
+    "configKey": "apartmentsStateFile",
+    "type": "path",
+    "defaultValue": ".data/apartments.json",
+    "required": false,
+    "productionExplicit": false,
+    "relativeToDataDirectory": "apartments.json"
+  },
+  {
+    "name": "DELIVERY_STATE_FILE",
+    "configKey": "deliveryStateFile",
+    "type": "path",
+    "defaultValue": ".data/telegram-deliveries.json",
+    "required": false,
+    "productionExplicit": false,
+    "relativeToDataDirectory": "telegram-deliveries.json"
+  },
+  {
+    "name": "CHANNEL_DELIVERY_STATE_FILE",
+    "configKey": "channelDeliveryStateFile",
+    "type": "path",
+    "defaultValue": ".data/telegram-channel-deliveries.json",
+    "required": false,
+    "productionExplicit": false,
+    "relativeToDataDirectory": "telegram-channel-deliveries.json"
+  },
+  {
+    "name": "EXCHANGE_RATES_STATE_FILE",
+    "configKey": "exchangeRatesStateFile",
+    "type": "path",
+    "defaultValue": ".data/exchange-rates.json",
+    "required": false,
+    "productionExplicit": false,
+    "relativeToDataDirectory": "exchange-rates.json"
+  },
+  {
+    "name": "TELEGRAM_STATE_FILE",
+    "configKey": "telegramStateFile",
+    "type": "path",
+    "defaultValue": ".data/telegram-bot.json",
+    "required": false,
+    "productionExplicit": false,
+    "relativeToDataDirectory": "telegram-bot.json"
+  },
+  {
+    "name": "TELEGRAM_POLL_TIMEOUT_SECONDS",
+    "configKey": "telegramPollTimeoutSeconds",
+    "type": "positive safe integer",
+    "defaultValue": "25",
+    "required": false,
+    "productionExplicit": false
+  },
+  {
+    "name": "POLL_INTERVAL_MS",
+    "configKey": "pollIntervalMs",
+    "type": "positive safe integer",
+    "defaultValue": "60000",
+    "required": false,
+    "productionExplicit": false
+  },
+  {
+    "name": "INITIAL_PAGE_COUNT",
+    "configKey": "initialPageCount",
+    "type": "positive safe integer",
+    "defaultValue": "10",
+    "required": false,
+    "productionExplicit": false
+  },
+  {
+    "name": "ADDED_CATEGORY_PAGE_COUNT",
+    "configKey": "addedCategoryPageCount",
+    "type": "positive safe integer",
+    "defaultValue": "2",
+    "required": false,
+    "productionExplicit": false
+  },
+  {
+    "name": "INITIAL_DELIVERY_LIMIT",
+    "configKey": "initialDeliveryLimit",
+    "type": "positive safe integer",
+    "defaultValue": "100",
+    "required": false,
+    "productionExplicit": false
+  },
+  {
+    "name": "TIMEOUT_MS",
+    "configKey": "timeoutMs",
+    "type": "positive safe integer",
+    "defaultValue": "30000",
+    "required": false,
+    "productionExplicit": false
+  },
+  {
+    "name": "EXTERNAL_RETRY_BASE_MS",
+    "configKey": "externalRetryBaseMs",
+    "type": "positive safe integer",
+    "defaultValue": "1000",
+    "required": false,
+    "productionExplicit": false
+  },
+  {
+    "name": "EXTERNAL_RETRY_MAX_MS",
+    "configKey": "externalRetryMaxMs",
+    "type": "bounded integer",
+    "defaultValue": "60000",
+    "required": false,
+    "productionExplicit": false
+  },
+  {
+    "name": "CURL_IMPERSONATE_PATH",
+    "configKey": "curlImpersonatePath",
+    "type": "path",
+    "defaultValue": "/usr/local/bin/curl-impersonate",
+    "required": false,
+    "productionExplicit": true
+  },
+  {
+    "name": "LIST_AM_COOKIE_FILE",
+    "configKey": "listAmCookieFile",
+    "type": "path",
+    "defaultValue": ".data/list-am-cookies.txt",
+    "required": false,
+    "productionExplicit": false,
+    "relativeToDataDirectory": "list-am-cookies.txt"
+  },
+  {
+    "name": "BACKUP_DIRECTORY",
+    "configKey": "backupDirectory",
+    "type": "path",
+    "defaultValue": "",
+    "required": false,
+    "productionExplicit": false
+  },
+  {
+    "name": "BACKUP_DAILY_RETENTION",
+    "configKey": "backupDailyRetention",
+    "type": "bounded integer",
+    "defaultValue": "7",
+    "required": false,
+    "productionExplicit": false
+  },
+  {
+    "name": "BACKUP_WEEKLY_RETENTION",
+    "configKey": "backupWeeklyRetention",
+    "type": "bounded integer",
+    "defaultValue": "4",
+    "required": false,
+    "productionExplicit": false
+  },
+  {
+    "name": "DISK_FREE_WARNING_PERCENT",
+    "configKey": "diskFreeWarningPercent",
+    "type": "percentage",
+    "defaultValue": "20",
+    "required": false,
+    "productionExplicit": false
+  },
+  {
+    "name": "HEALTH_HOST",
+    "configKey": "healthHost",
+    "type": "loopback address",
+    "defaultValue": "127.0.0.1",
+    "required": false,
+    "productionExplicit": false
+  },
+  {
+    "name": "HEALTH_PORT",
+    "configKey": "healthPort",
+    "type": "TCP port",
+    "defaultValue": "8787",
+    "required": false,
+    "productionExplicit": false
+  }
+]

@@ -1,0 +1,267 @@
+import assert from "node:assert/strict";
+import { execFileSync, spawn } from "node:child_process";
+import {
+  chmodSync,
+  mkdirSync,
+  readFileSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from "node:fs";
+import path from "node:path";
+import { setTimeout as delay } from "node:timers/promises";
+import { boundary, cgroupSample, hash, hashes } from "./common.js";
+import { verifyServiceReplay } from "./report.js";
+
+const [configFile] = process.argv.slice(2);
+const config = JSON.parse(readFileSync(configFile, "utf8"));
+const { directory, runtime, users, mode, memoryBytes, imageId, holder } =
+  config;
+const docker = (args) =>
+  execFileSync("docker", args, {
+    encoding: "utf8",
+    maxBuffer: 32 * 1024 * 1024,
+  }).trim();
+const fixtures = path.join(directory, "fixtures");
+execFileSync(process.execPath, ["experiments/node-replay/export.js", fixtures]);
+chmodSync(fixtures, 0o777);
+const data = path.join(directory, "data");
+mkdirSync(data);
+chmodSync(data, 0o777);
+const args = [
+  "run",
+  "-d",
+  "--network",
+  "none",
+  "--read-only",
+  "--cap-drop",
+  "ALL",
+  "--security-opt",
+  "no-new-privileges",
+  "--cpus",
+  "1",
+  "--memory",
+  String(memoryBytes),
+  "--memory-swap",
+  String(memoryBytes),
+  "--pids-limit",
+  "64",
+  "--entrypoint",
+  "/holder",
+  "--tmpfs",
+  "/fixtures:rw,nosuid,noexec,size=32m,uid=1000,gid=1000",
+  "--tmpfs",
+  "/tmp:rw,nosuid,noexec,size=16m,uid=1000,gid=1000",
+  "-v",
+  `${holder}:/holder:ro`,
+  "-v",
+  `${fixtures}:/input:ro`,
+  "-v",
+  `${data}:/data`,
+  imageId,
+];
+const container = docker(args);
+let timer;
+try {
+  let ready = false;
+  for (let attempt = 0; attempt < 100; attempt++) {
+    if (docker(["logs", container]) === "ready") {
+      ready = true;
+      break;
+    }
+    await delay(100);
+  }
+  assert(ready, "native holder did not become ready");
+  const inspect = JSON.parse(docker(["inspect", container]))[0];
+  const pid = inspect.State.Pid;
+  const cgroupPath = readFileSync(`/host-proc/${pid}/cgroup`, "utf8")
+    .trim()
+    .replace(/^0::/, "");
+  const serviceGroup = path.join("/host-cgroup", cgroupPath);
+  const harnessPath = readFileSync("/proc/self/cgroup", "utf8")
+    .trim()
+    .replace(/^0::/, "");
+  const harnessGroup = path.join("/host-cgroup", harnessPath);
+  assert.notEqual(
+    cgroupPath,
+    harnessPath,
+    "service and harness must have separate cgroups",
+  );
+  assert.notEqual(cgroupSample(serviceGroup).memoryLimit, 0);
+  const samples = [];
+  let stage = "ready";
+  let samplingError;
+  function sample() {
+    try {
+      const processes = readFileSync(
+        path.join(serviceGroup, "cgroup.procs"),
+        "utf8",
+      )
+        .trim()
+        .split(/\s+/)
+        .filter(Boolean)
+        .flatMap((processId) => {
+          try {
+            const command = readFileSync(
+              `/host-proc/${processId}/cmdline`,
+              "utf8",
+            )
+              .split("\0")
+              .filter(Boolean);
+            if (!command.length) return [];
+            return [{ pid: Number(processId), command }];
+          } catch (error) {
+            if (error.code === "ENOENT" || error.code === "ESRCH") return [];
+            throw error;
+          }
+        });
+      samples.push({
+        stage,
+        elapsedMs: Date.now() - started,
+        ...cgroupSample(serviceGroup),
+        ioStat: readFileSync(path.join(serviceGroup, "io.stat"), "utf8"),
+        databaseBytes:
+          statSync(path.join(data, "state.sqlite3"), { throwIfNoEntry: false })
+            ?.size ?? 0,
+        walBytes:
+          statSync(path.join(data, "state.sqlite3-wal"), {
+            throwIfNoEntry: false,
+          })?.size ?? 0,
+        processes,
+      });
+    } catch (error) {
+      samplingError = error;
+    }
+  }
+  const started = Date.now();
+  sample();
+  timer = setInterval(sample, users === 4 ? 10 : 250);
+  const workers = [];
+  const commands = [];
+  for (stage of ["exercise", "resume"]) {
+    const command = [
+      "exec",
+      container,
+      "/usr/local/bin/replay",
+      "--fixtures",
+      "/fixtures",
+      "--database",
+      "/data/state.sqlite3",
+      "--users",
+      String(users),
+      "--mode",
+      mode,
+      "--stage",
+      stage,
+    ];
+    commands.push(command);
+    const output = await new Promise((resolve, reject) => {
+      const child = spawn("docker", command, {
+        stdio: ["ignore", "pipe", "pipe"],
+      });
+      const stdout = [],
+        stderr = [];
+      child.stdout.on("data", (chunk) => stdout.push(chunk));
+      child.stderr.on("data", (chunk) => stderr.push(chunk));
+      child.on("error", reject);
+      child.on("close", (code) => {
+        try {
+          writeFileSync(
+            path.join(directory, `${stage}.json`),
+            Buffer.concat(stdout),
+          );
+          writeFileSync(
+            path.join(directory, `${stage}.log`),
+            Buffer.concat(stderr),
+          );
+          if (code !== (stage === "exercise" ? 23 : 0))
+            reject(
+              new Error(`${stage} exit ${code}: ${Buffer.concat(stderr)}`),
+            );
+          else resolve(JSON.parse(Buffer.concat(stdout)));
+        } catch (error) {
+          reject(error);
+        }
+      });
+    });
+    workers.push(output);
+    sample();
+    if (samplingError) throw samplingError;
+  }
+  clearInterval(timer);
+  stage = "complete";
+  sample();
+  if (samplingError) throw samplingError;
+  const snapshots = workers.flatMap(
+    (worker) => worker.resources.memorySnapshots,
+  );
+  const unchanged = snapshots.filter(
+    (snapshot) => snapshot.phase === "unchanged",
+  );
+  const final = samples.at(-1);
+  const result = {
+    ...workers[1],
+    workers,
+    phases: workers.flatMap((worker) => worker.phases),
+    resources: {
+      ...workers[1].resources,
+      primaryRamBytes: final.peakBytes,
+      processPeakRssBytes: Math.max(
+        ...workers.map((worker) => worker.resources.processPeakRssBytes),
+      ),
+      cpuMs: workers.reduce((sum, worker) => sum + worker.resources.cpuMs, 0),
+      wallMs: workers.reduce((sum, worker) => sum + worker.resources.wallMs, 0),
+      memorySnapshots: snapshots,
+    },
+    accounting: {
+      boundary,
+      runtime,
+      memoryBytes,
+      sampleIntervalMs: users === 4 ? 10 : 250,
+      service: {
+        container,
+        cgroupPath,
+        args,
+        commands,
+        inspect,
+        samples,
+        idle: unchanged[0],
+        steady: unchanged.slice(1),
+        final,
+      },
+      harness: {
+        cgroupPath: harnessPath,
+        container: process.env.HOSTNAME,
+        final: cgroupSample(harnessGroup),
+        process: process.resourceUsage(),
+        memory: process.memoryUsage(),
+      },
+    },
+    provenance: {
+      imageId,
+      binarySha256: config.binarySha256,
+      holderSha256: hash(holder),
+      fixtureHashes: hashes(fixtures),
+      sourceHashes: config.sourceHashes,
+      nativeBaseline: config.nativeBaseline,
+      node: process.version,
+    },
+  };
+  writeFileSync(
+    path.join(directory, "result.json"),
+    JSON.stringify(result, null, 2),
+  );
+  result.capacity = verifyServiceReplay(result);
+  // Include independent verification in the external harness accounting.
+  result.accounting.harness.final = cgroupSample(harnessGroup);
+  result.accounting.harness.process = process.resourceUsage();
+  result.accounting.harness.memory = process.memoryUsage();
+  writeFileSync(
+    path.join(directory, "result.json"),
+    JSON.stringify(result, null, 2),
+  );
+} finally {
+  clearInterval(timer);
+  docker(["rm", "-f", container]);
+  rmSync(data, { recursive: true, force: true });
+}

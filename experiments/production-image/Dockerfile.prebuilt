@@ -1,0 +1,29 @@
+# syntax=docker/dockerfile:1.7
+FROM rust:1.94.0-bookworm@sha256:365468470075493dc4583f47387001854321c5a8583ea9604b297e67f01c5a4f AS assemble
+COPY rental-app curl-impersonate /usr/local/bin/
+COPY licenses/ /licenses/
+COPY components.json /components.json
+COPY assemble /assemble
+RUN bash /assemble /runtime
+FROM scratch
+ARG SOURCE_REVISION
+ARG CARGO_LOCK_SHA256
+ARG SOURCE_DIRTY=true
+ARG PACKAGE_LOCK_SHA256
+LABEL org.opencontainers.image.title="rental-apartments native candidate" \
+      org.opencontainers.image.revision="${SOURCE_REVISION}" \
+      com.rental-apartments.runtime="rust" \
+      com.rental-apartments.source.dirty="${SOURCE_DIRTY}" \
+      org.opencontainers.image.package-lock.sha256="${PACKAGE_LOCK_SHA256}" \
+      com.rental-apartments.state.backend="sqlite" \
+      com.rental-apartments.state.schema.minimum="1" \
+      com.rental-apartments.state.schema.maximum="6" \
+      com.rental-apartments.cargo-lock.sha256="${CARGO_LOCK_SHA256}"
+COPY --from=assemble /runtime/ /
+USER 1000:1000
+WORKDIR /app
+ENV NODE_ENV=production PATH=/usr/local/bin CURL_IMPERSONATE_PATH=/usr/local/bin/curl-impersonate SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt SQLITE_TMPDIR=/sqlite-tmp
+HEALTHCHECK --interval=30s --timeout=5s --start-period=60s --retries=2 \
+  CMD ["/usr/local/bin/rental-app", "health-check", "--restart-unresponsive"]
+ENTRYPOINT ["/usr/local/bin/rental-app"]
+CMD ["serve"]

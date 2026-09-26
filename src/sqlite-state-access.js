@@ -109,8 +109,8 @@ export function createSqliteStateAccess(database, repositories) {
         ),
       clearBatches: () => repositories.privateDeliveries.clearBatches(),
       load: () => repositories.privateDeliveries.loadAllDecisions(),
-      loadCandidates: (recipientId, fingerprint) =>
-        repositories.privateDeliveries.loadCandidates(recipientId, fingerprint),
+      loadCandidates: (recipientId, filters) =>
+        repositories.privateDeliveries.loadCandidates(recipientId, filters),
       retainPending: (recipientId, itemIds, workIds) =>
         repositories.privateDeliveries.retainPending(
           recipientId,

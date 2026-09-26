@@ -15,6 +15,7 @@ import {
   apartmentCandidates,
   storedApartment,
 } from "./sqlite-apartment-values.js";
+import { apartmentMatchesFilters, normalizeFilters } from "./filters.js";
 
 function decodedDecision(row) {
   return {
@@ -119,9 +120,19 @@ export class SqlitePrivateDeliveriesRepository {
     this.selectSequence = database.prepare(
       "SELECT sequence FROM crawl_state WHERE singleton = 1",
     );
+    this.historySequence = null;
+    this.historyFilters = new Map();
+    this.historyApartments = [];
+    this.selectHistory = database.prepare(
+      "SELECT item_id, payload_json, last_seen_at FROM apartments",
+    );
     this.stageHistory =
       database.prepare(`INSERT OR IGNORE INTO private_delivery_work(recipient_id, item_id)
-      SELECT ?, item_id FROM apartments`);
+      SELECT ?, a.item_id FROM apartments a
+      LEFT JOIN private_delivery_decisions d ON d.recipient_id = ? AND d.item_id = a.item_id
+      WHERE d.item_id IS NULL
+        OR (d.status = 2 AND a.item_id IN (SELECT value FROM json_each(?)))
+        OR (d.status = 0 AND json_extract(a.payload_json, '$.updatedAt') IS NOT NULL)`);
     this.stageChanges =
       database.prepare(`INSERT OR IGNORE INTO private_delivery_work(recipient_id, item_id)
       SELECT ?, item_id FROM apartments WHERE changed_sequence > ?`);
@@ -203,10 +214,33 @@ export class SqlitePrivateDeliveriesRepository {
 
   clearBatches() {
     this.clearBatchStatement.run();
+    this.historySequence = null;
+    this.historyApartments = [];
+    this.historyFilters.clear();
   }
 
-  loadCandidates(value, fingerprint) {
+  matchingHistory(sequence, fingerprint, filters) {
+    if (this.historySequence !== sequence) {
+      this.historyApartments = this.selectHistory.all().map(storedApartment);
+      this.historySequence = sequence;
+      this.historyFilters.clear();
+    }
+    if (!this.historyFilters.has(fingerprint)) {
+      const ids = this.historyApartments
+        .filter((apartment) => apartmentMatchesFilters(apartment, filters))
+        .map(({ itemId }) => itemId);
+      // Bound filter variants independently of recipient population.
+      if (this.historyFilters.size === 8)
+        this.historyFilters.delete(this.historyFilters.keys().next().value);
+      this.historyFilters.set(fingerprint, JSON.stringify(ids));
+    }
+    return this.historyFilters.get(fingerprint);
+  }
+
+  loadCandidates(value, rawFilters) {
     const id = recipientId(value);
+    const filters = normalizeFilters(rawFilters);
+    const fingerprint = JSON.stringify(filters);
     return this.database.transaction("private_delivery_prepare", () => {
       this.ensureRecipientStatement.run(id);
       const progress = this.selectProgress.get(id);
@@ -216,7 +250,13 @@ export class SqlitePrivateDeliveriesRepository {
         !progress.initial_selection_applied ||
         progress.filter_fingerprint !== fingerprint
       ) {
-        this.stageHistory.run(id);
+        // Filtered matches remain selectable even after a prior filter edit.
+        // Unclassified history must also be visited to persist new rejections.
+        this.stageHistory.run(
+          id,
+          id,
+          this.matchingHistory(sequence, fingerprint, filters),
+        );
       } else if (progress.source_cursor < sequence) {
         this.stageChanges.run(id, progress.source_cursor);
       }
@@ -230,6 +270,8 @@ export class SqlitePrivateDeliveriesRepository {
       const rows = this.selectWork.all(id);
       return {
         ...apartmentCandidates(rows),
+        hasStoredApartments:
+          rows.length > 0 || this.historyApartments.length > 0,
         workIds: rows.map(({ work_id }) => work_id),
       };
     });

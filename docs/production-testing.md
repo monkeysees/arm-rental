@@ -8,7 +8,7 @@ code tests; it is not a deployment target.
 ## Deterministic CI integration gates
 
 The optional [resource baseline](resource-baseline.md) measures synthetic
-1,000-monitoring workloads with real SQLite and simulated source responses. It uses
+500-monitoring workloads with real SQLite and simulated source responses. It uses
 isolated state and simulated Telegram delivery; its results are capacity
 evidence for the stated fixtures, not production acceptance evidence.
 

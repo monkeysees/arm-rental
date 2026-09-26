@@ -1,5 +1,8 @@
 #!/usr/bin/env bash
 
+# shellcheck source=ops/lib/runtime.sh
+source "$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)/runtime.sh"
+
 # Digest discovery, release verification, and sanitized deployment state.
 # This library deliberately never sources the production environment file:
 # credentials may contain shell syntax and must only travel to docker login on
@@ -269,12 +272,16 @@ deployment_compose() {
   local release_directory=$1
   local image_environment=$2
   shift 2
+  local image
+  image=$(ops_image_file_reference "$image_environment") || return
+  ops_runtime_compose_options "$release_directory" "$image" || return
   docker compose \
     --project-name rental-apartments \
     --project-directory "$release_directory" \
     --env-file "$image_environment" \
     --env-file "$RENTAL_ENV_FILE" \
     --file "$release_directory/compose.production.yaml" \
+    "${OPS_RUNTIME_COMPOSE_OPTIONS[@]}" \
     "$@"
 }
 
@@ -524,7 +531,7 @@ deployment_verify_release() {
   local bundle_directory=$1
   local candidate=$2
   local metadata=$3
-  local compose_digest package_digest operations_digest label_digest
+  local compose_digest package_digest operations_digest label_digest image_runtime metadata_runtime
   jq -e \
     --arg image "$candidate" \
     --arg revision "$DEPLOYMENT_SOURCE_REVISION" \
@@ -533,6 +540,7 @@ deployment_verify_release() {
      .imageDigest == ($image | split("@")[1]) and
      .sourceRevision == $revision and
      .stateBackend == "sqlite" and
+     ((.runtime // "node") == "node" or .runtime == "rust") and
      (.minimumStateSchema | type) == "number" and
      (.maximumStateSchema | type) == "number" and
      .minimumStateSchema >= 1 and
@@ -550,6 +558,13 @@ deployment_verify_release() {
       "this release deploys schemaVersion 2, image $candidate, revision $DEPLOYMENT_SOURCE_REVISION, stateBackend sqlite, state schema 1 or higher"
     return 65
   }
+  image_runtime=$(ops_runtime "$candidate") || return
+  metadata_runtime=$(jq -r '.runtime // "node"' "$metadata") || return
+  if [[ "$image_runtime" != "$metadata_runtime" ]]; then
+    deployment_verification_error \
+      "candidate image runtime $image_runtime does not match metadata runtime $metadata_runtime"
+    return 65
+  fi
   compose_digest=$(
     sha256sum "$bundle_directory/compose.production.yaml" | awk '{print $1}'
   ) || {

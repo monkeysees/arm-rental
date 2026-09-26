@@ -64,8 +64,7 @@ The old `(recipient_id, status)` index is removed. Actual private-delivery
 queries select one recipient and explicit listing IDs, read all decisions for
 validation/export, update a composite key, or delete a recipient. Query plans
 use the composite primary key for bounded reads, filtered re-admission, and
-foreign-key cascade. No serving query selects only recipient/status. Candidate
-size and query evidence are recorded in [the compaction benchmark](compact-decisions-benchmark.md).
+foreign-key cascade. No serving query selects only recipient/status.
 
 ## Upgrade and interruption
 
@@ -84,7 +83,7 @@ data remains and the next startup retries reclamation. A failed startup never
 exposes repositories or starts Telegram work. This one-time operation needs
 space for the original database, replacement pages, WAL, and SQLite's temporary
 VACUUM database; do not size the free-space reserve from the smaller final file.
-The benchmark's WAL measurements are observations, not a disk-space upper bound.
+Observed WAL sizes are not a disk-space upper bound.
 
 Keep the stopped-service pre-deploy snapshot and previous immutable image until
 the candidate is accepted. Schemas advance forward only. An old image whose

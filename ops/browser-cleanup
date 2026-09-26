@@ -27,6 +27,9 @@ expected=$(docker image inspect --format '{{.Id}}' "$image")
 active=$(docker inspect --format '{{.Image}}' "$RENTAL_CONTAINER_NAME")
 [[ -n $expected && $expected == "$active" ]]
 # Inspect the running artifact, not the host checkout or an unstarted image.
+if [[ "$(ops_runtime "$image")" == rust ]]; then
+  docker exec "$RENTAL_CONTAINER_NAME" /usr/local/bin/rental-app --version
+else
 docker exec "$RENTAL_CONTAINER_NAME" node --input-type=module -e '
   import fs from "node:fs";
   import path from "node:path";
@@ -42,15 +45,16 @@ docker exec "$RENTAL_CONTAINER_NAME" node --input-type=module -e '
     }
   }
 '
+fi
 ops_set_step validate-browser-free-snapshot
 snapshot=$(ops_latest_snapshot)
 ops_validate_snapshot "$snapshot"
 jq --exit-status '.version == 3 and ([.hashes | keys[] | select(test("chrome-profile|chromium"; "i"))] | length == 0)' "$snapshot/manifest.json" >/dev/null
 ops_set_step report-retained-backup-usage
 # Read-only inventory keeps old browser-bearing snapshots separate from current ones.
-ops_compose run --rm --no-deps bot node src/browser-cleanup-cli.js --backup-report
+ops_run_app browser-cleanup --backup-report
 OPS_RESTART_REQUIRED=1
 ops_set_step stop-application
 ops_stop_application
 ops_set_step cleanup-obsolete-profile
-ops_compose run --rm --no-deps bot node src/browser-cleanup-cli.js "$mode"
+ops_run_app browser-cleanup "$mode"

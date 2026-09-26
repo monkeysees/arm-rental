@@ -1,6 +1,10 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
+SCRIPT_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
+# shellcheck source=ops/lib/runtime.sh
+source "$SCRIPT_DIR/lib/runtime.sh"
+
 # This command records only allowlisted status fields. It deliberately does not
 # copy command output, journal records, environment values, or hostnames into
 # the evidence file.
@@ -421,6 +425,12 @@ init_command() {
 }
 
 runtime_readiness_document() {
+  local runtime
+  runtime=$(ops_runtime "$RENTAL_CONTAINER_NAME") || return
+  if [[ "$runtime" == rust ]]; then
+    docker exec "$RENTAL_CONTAINER_NAME" /usr/local/bin/rental-app health-check --ready --document 2>/dev/null
+    return
+  fi
   docker exec "$RENTAL_CONTAINER_NAME" node --input-type=module --eval '
     const { getHealthEndpointConfig } = await import("./src/environment-config.js");
     const { host, port } = getHealthEndpointConfig();

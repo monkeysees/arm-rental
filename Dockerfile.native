@@ -1,0 +1,50 @@
+# syntax=docker/dockerfile:1.7
+FROM rust:1.94.0-bookworm@sha256:365468470075493dc4583f47387001854321c5a8583ea9604b297e67f01c5a4f AS build
+ARG SOURCE_REVISION
+ARG CARGO_LOCK_SHA256
+ARG PACKAGE_LOCK_SHA256
+ARG TARGETARCH
+WORKDIR /build
+COPY experiments/rust-replay/Cargo.toml experiments/rust-replay/Cargo.lock ./
+COPY experiments/rust-replay/src/ ./src/
+COPY package-lock.json ./package-lock.json
+COPY scripts/install-curl-impersonate scripts/curl-impersonate-version /curl-install/
+COPY experiments/production-image/assemble experiments/production-image/licenses /image/
+RUN test "${#SOURCE_REVISION}" -eq 40 \
+    && printf '%s' "$SOURCE_REVISION" | grep --quiet --extended-regexp '^[a-f0-9]+$' \
+    && test "$CARGO_LOCK_SHA256" = "$(sha256sum Cargo.lock | cut -d ' ' -f 1)" \
+    && test "$PACKAGE_LOCK_SHA256" = "$(sha256sum package-lock.json | cut -d ' ' -f 1)" \
+    && cargo build --locked --release --bin rental-app \
+    && install -m 0755 target/release/rental-app /usr/local/bin/rental-app \
+    && bash /curl-install/install-curl-impersonate /usr/local "$TARGETARCH" \
+    && bash /image/licenses \
+    && printf '{"runtime":"rust","toolchain":"1.94.0","sourceRevision":"%s","cargoLockSha256":"%s","binarySha256":"%s"}\n' \
+      "$SOURCE_REVISION" "$CARGO_LOCK_SHA256" "$(sha256sum /usr/local/bin/rental-app | cut -d ' ' -f 1)" > /components.json \
+    && bash /image/assemble /runtime
+
+FROM scratch AS production
+ARG SOURCE_REVISION
+ARG CARGO_LOCK_SHA256
+ARG SOURCE_DIRTY=true
+ARG PACKAGE_LOCK_SHA256
+LABEL org.opencontainers.image.title="rental-apartments native candidate" \
+      org.opencontainers.image.revision="${SOURCE_REVISION}" \
+      com.rental-apartments.runtime="rust" \
+      com.rental-apartments.source.dirty="${SOURCE_DIRTY}" \
+      org.opencontainers.image.package-lock.sha256="${PACKAGE_LOCK_SHA256}" \
+      com.rental-apartments.state.backend="sqlite" \
+      com.rental-apartments.state.schema.minimum="1" \
+      com.rental-apartments.state.schema.maximum="6" \
+      com.rental-apartments.cargo-lock.sha256="${CARGO_LOCK_SHA256}"
+COPY --from=build /runtime/ /
+USER 1000:1000
+WORKDIR /app
+ENV NODE_ENV=production \
+    PATH=/usr/local/bin \
+    CURL_IMPERSONATE_PATH=/usr/local/bin/curl-impersonate \
+    SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt \
+    SQLITE_TMPDIR=/sqlite-tmp
+HEALTHCHECK --interval=30s --timeout=5s --start-period=60s --retries=2 \
+  CMD ["/usr/local/bin/rental-app", "health-check", "--restart-unresponsive"]
+ENTRYPOINT ["/usr/local/bin/rental-app"]
+CMD ["serve"]

@@ -376,7 +376,10 @@ test("private classification and pending sends resume after reopening the databa
   );
   // A history answer can enqueue work without any subsequent source change.
   access.privateDeliveries.decisions.classifyFiltered("99", { 1: TIME });
-  const { workIds } = access.privateDeliveries.loadCandidates("99", "filters");
+  const { workIds } = access.privateDeliveries.loadCandidates(
+    "99",
+    emptyFilters(),
+  );
   access.privateDeliveries.retainPending("99", [], workIds);
   access.privateDeliveries.decisions.readmitFiltered("99", ["1"]);
   assert.equal(

@@ -120,6 +120,8 @@ test("release manifest binds the deployable image to its complete inputs", async
     minimumStateSchema: 1,
     maximumStateSchema: SQLITE_SCHEMA_VERSION,
     deployableStateBackends: ["sqlite"],
+    runtime: "node",
+    deployableRuntimes: ["node", "rust"],
     nodeVersion: nodeVersion.trim(),
     curlImpersonateVersion: "2.2.2",
     packageLockSha256: createHash("sha256").update(packageLock).digest("hex"),
@@ -315,6 +317,34 @@ test("the publisher refuses a candidate the running release cannot deploy", asyn
   });
   assert.equal(ordinary.allowed, true);
   assert.equal(ordinary.cutover, false);
+
+  const oldNodeRelease = classifyProductionTransition({
+    current: { stateBackend: "sqlite", sourceRevision: "f".repeat(40) },
+    candidate: { stateBackend: "sqlite", runtime: "rust" },
+  });
+  assert.equal(oldNodeRelease.allowed, false);
+  assert.equal(oldNodeRelease.cutover, true);
+  assert.match(oldNodeRelease.reason, /deploys only node/u);
+
+  const runtimeBridge = classifyProductionTransition({
+    current: {
+      stateBackend: "sqlite",
+      runtime: "node",
+      deployableRuntimes: ["node", "rust"],
+    },
+    candidate: { stateBackend: "sqlite", runtime: "rust" },
+  });
+  assert.equal(runtimeBridge.allowed, true);
+  assert.equal(runtimeBridge.cutover, true);
+
+  assert.throws(
+    () =>
+      classifyProductionTransition({
+        current: { stateBackend: "sqlite" },
+        candidate: { stateBackend: "sqlite", runtime: "unknown" },
+      }),
+    /unsupported candidate runtime/u,
+  );
 
   const firstPublish = classifyProductionTransition({
     current: undefined,

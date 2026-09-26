@@ -32,6 +32,7 @@ async function fixture(
     restoreFails = false,
     timersNever = false,
     inconsistentAccessCounts = false,
+    runtime = "node",
   } = {},
 ) {
   const root = await mkdtemp(path.join(os.tmpdir(), "production-exercise-"));
@@ -122,6 +123,7 @@ exit 0
   await executable(
     path.join(fakeBin, "docker"),
     `${prelude}
+if [[ "$*" == *com.rental-apartments.runtime* ]]; then printf '%s\\n' '${runtime}'; exit 0; fi
 if [[ "\${1:-}" == "inspect" ]]; then printf '%s\\n' healthy; exit 0; fi
 if [[ "\${1:-}" == "exec" ]]; then
   printf '%s\\n' '{"status":"ready","ready":true,"startedAt":"2026-07-25T11:58:00Z","privateAccess":{"accessMode":"allowlist","persistedUserCount":300,"authorizedUserCount":250,"suspendedUserCount":${suspendedUserCount},"activeUserCount":200}}'
@@ -578,4 +580,30 @@ test("the committed evidence artifact is a pending template, not invented VPS ev
     secretsIncluded: false,
     collectionPolicy: "allowlisted-status-fields-only",
   });
+});
+
+test("exercise harness reads the native readiness document without Node", async (t) => {
+  const value = await fixture(t, { runtime: "rust" });
+  await initialize(value);
+  const result = await run(
+    [
+      "runtime-acceptance",
+      "--evidence",
+      value.evidence,
+      "--expected-access-mode",
+      "allowlist",
+      "--expected-private-deliveries",
+      "0",
+    ],
+    value.environment,
+  );
+  assert.equal(result.status, 0, result.stderr);
+  const commands = await readFile(value.commandLog, "utf8");
+  assert.match(commands, /rental-app health-check --ready --document/);
+  assert.doesNotMatch(commands, /exec .* node /);
+  assert.equal(
+    JSON.parse(await readFile(value.evidence, "utf8")).exercises
+      .runtimeAcceptance.status,
+    "observed-pass",
+  );
 });

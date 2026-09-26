@@ -1,0 +1,14 @@
+# Explicit candidate override; compose.production.yaml remains the Node default.
+services:
+  bot:
+    user: "1000:1000"
+    entrypoint: ["/usr/local/bin/rental-app"]
+    command: ["serve"]
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "/usr/local/bin/rental-app",
+          "health-check",
+          "--restart-unresponsive",
+        ]

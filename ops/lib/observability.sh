@@ -5,6 +5,8 @@
 # fixed name; no untrusted journal field is used to construct a command.
 
 OBSERVABILITY_LIB_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
+# shellcheck source=ops/lib/runtime.sh
+source "$OBSERVABILITY_LIB_DIR/runtime.sh"
 JOURNALCTL_BIN="${JOURNALCTL_BIN:-journalctl}"
 SYSTEMCTL_BIN="${SYSTEMCTL_BIN:-systemctl}"
 DOCKER_BIN="${DOCKER_BIN:-docker}"
@@ -70,10 +72,14 @@ probe_readiness_json() {
   # saturate the event loop, so a genuinely healthy process is retried once
   # before the result counts against it.
   local status="not_ready" attempt summary="" candidate
+  if ! ops_app_command "$RENTAL_CONTAINER_NAME" health --ready --json; then
+    printf '%s\n' '{"status":"not_ready","reasons":["READINESS_PROBE_FAILED"],"alertReasons":["READINESS_PROBE_FAILED"]}'
+    return 0
+  fi
   for attempt in 1 2; do
     status="not_ready"
     candidate="$("$DOCKER_BIN" exec "$RENTAL_CONTAINER_NAME" \
-      node src/health-check.js --ready --json 2>/dev/null)" || true
+      "${OPS_APP_COMMAND[@]}" 2>/dev/null)" || true
     if [[ -n "$candidate" ]] && "$JQ_BIN" -e '
       def codes: type == "array" and length <= 8 and all(.[]; type == "string" and test("^[A-Z][A-Z0-9_]{0,79}$"));
       (.status == "ready" or .status == "not_ready")

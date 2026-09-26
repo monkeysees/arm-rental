@@ -1,5 +1,8 @@
 #!/usr/bin/env bash
 
+# shellcheck source=ops/lib/runtime.sh
+source "$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)/runtime.sh"
+
 # shellcheck source=ops/lib/common.sh
 source "$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)/common.sh"
 
@@ -61,12 +64,16 @@ ops_read_image_reference() {
 }
 
 ops_compose() {
+  local image
+  image=$(ops_read_image_reference) || return
+  ops_runtime_compose_options "$RENTAL_RELEASE_DIR" "$image" || return
   docker compose \
     --project-name rental-apartments \
     --project-directory "$RENTAL_RELEASE_DIR" \
     --env-file "$RENTAL_IMAGE_ENV_FILE" \
     --env-file "$RENTAL_ENV_FILE" \
     --file "$RENTAL_COMPOSE_FILE" \
+    "${OPS_RUNTIME_COMPOSE_OPTIONS[@]}" \
     "$@"
 }
 
@@ -161,6 +168,12 @@ ops_validate_snapshot() {
   local snapshot=$1
   local container_path
   container_path=$(ops_snapshot_container_path "$snapshot")
-  ops_compose run --rm --no-deps bot \
-    node src/recovery-cli.js validate "$container_path"
+  ops_run_app validate "$container_path"
+}
+
+ops_run_app() {
+  local image
+  image=$(ops_read_image_reference) || return
+  ops_app_command "$image" "$@" || return
+  ops_compose run --rm --no-deps bot "${OPS_APP_COMMAND[@]}"
 }

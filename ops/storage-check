@@ -20,4 +20,4 @@ ops_validate_runtime_contract
 ops_set_step verify-backup-mount
 ops_require_backup_mount
 ops_set_step check-disk-capacity
-ops_compose run --rm --no-deps bot node src/recovery-cli.js disk-check
+ops_run_app disk-check

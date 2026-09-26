@@ -33,6 +33,37 @@ canonical AMD amount drives all price filtering and channel price-band hashtags.
 
 ## Production deployment model
 
+### Native candidate boundary
+
+The Rust candidate has a separate `rental-app` executable under
+`experiments/rust-replay/src/production/`; `rental-replay` retains the experimental
+fixture protocol. The candidate uses the production SQLite application ID and
+schema 6, including transactional upgrades from supported older schemas. Its
+configuration catalog and Russian bot vocabulary preserve the frozen Node
+contract, with independent Node differential tests at CLI, service/local-peer
+and persisted-state boundaries. See [Rust parity](rust-parity.md) for evidence
+and unresolved acceptance requirements.
+
+Source parsing, filters, crawl commits, Telegram control handling, private
+classification, channel publication, health and recovery are separate modules.
+The runtime coordinates a polling thread, metadata synchronization, periodic
+currency refresh, health serving and a bounded private delivery scheduler.
+SQLite transactions contain no network waits. Private rate/retry waits release
+worker capacity; channel work runs independently. Confirmed deletion first
+persists a tombstone, cancels that recipient's HTTP request, drains its worker
+and removes its state atomically. Telegram acceptance before a local
+acknowledgement remains ambiguous and can produce a duplicate after restart.
+
+`Dockerfile.native` assembles a non-root, read-only runtime with curl, native
+libraries, certificates and licenses. Host operations select native command
+arguments and `ops/compose.native.yaml` only for images explicitly labelled
+`com.rental-apartments.runtime=rust`. Existing published Node images retain
+their documented command contract for snapshot-backed rollback. The default
+production image and Compose file continue selecting Node; local candidate
+acceptance does not authorize publication or deployment.
+
+### Installed service
+
 The supported production topology is a singleton, long-running process on a
 Linux host or in one OCI container. Telegram long polling, the single-writer
 SQLite database, and the singleton lease exclude serverless or
@@ -1048,7 +1079,7 @@ filters. Scheduler operations start across event-loop turns, keeping health and
 source I/O serviceable. `PRIVATE_DELIVERY_CONCURRENCY` is a fixed internal setting
 of eight, rather than another operator environment variable. It bounds active
 classification snapshots and private HTTP attempts, at the cost of lower peak
-throughput. See [measurements and reproduction](private-concurrency-benchmark.md).
+throughput.
 
 The scheduler retains one small descriptor per recipient and at most eight
 active operations. Classification may still load one recipient's full candidate
@@ -1103,8 +1134,7 @@ index is removed. Repository APIs preserve status names and exact canonical ISO
 timestamps. Conversion and schema bookkeeping commit transactionally, then a
 durable pending marker makes space reclamation with `VACUUM` retryable after an
 interruption. Older binaries require their matching pre-deploy snapshot before
-rollback. See the [schema contract](sqlite-schema.md) and
-[measured size, query, and migration costs](compact-decisions-benchmark.md).
+rollback. See the [schema contract](sqlite-schema.md).
 
 Schema version 5 adds a shared indexed source-change sequence on each listing,
 private recipient cursors and filter fingerprints, and a durable private work
@@ -1167,8 +1197,7 @@ Routine private and channel delivery no longer load the full retained listing
 or channel-decision projection after a crawl commits. They use indexed source
 revisions plus their durable work tables. Full projections remain available for
 validation/export and explicit private history offers; selection/filter changes
-may reconcile history once. See the [delivery benchmark](incremental-delivery-benchmark.md)
-for retained-history CPU, memory, and recovery evidence.
+may reconcile history once.
 
 The five legacy JSON paths contain only incompatible `sqlite-migrated`
 sentinels after cutover. They carry backend, migration, and database identities
@@ -1304,11 +1333,11 @@ hard-rule reason.
 - Channel sends fail independently and leave entries pending. Failed edits and
   age-based reposts retain their prior acknowledged message metadata for a
   later retry. Per-operation structured logs distinguish send, edit, and repost
-  operations and include item ID, channel ID, known message ID, outcome, and
+  operations and include the outcome, crawl identifier, duration, and
   error without including the bot token.
 - Telegram `sendMessage` has no idempotency key. A process exit after Telegram
-  accepts a channel post but before local acknowledgement is atomically renamed
-  into place carries a small at-least-once duplicate risk.
+  accepts a channel post but before local acknowledgement commits carries
+  an at-least-once duplicate risk.
 - Replayed Telegram callbacks that render an already-current menu are treated
   as successful, covering the window between saving filter state and the update
   offset.
@@ -1356,3 +1385,33 @@ Preflight integration tests exercise the complete ready path across state,
 Telegram, channel, source transport, List.am, and CBA boundaries; terminal credential
 and permission failures; unchanged incompatible state; the typed source
 challenge; loop exclusion; cleanup; and secret-free structured results.
+
+### Rust rewrite foundation
+
+The [Rust development guide](rust-development.md) maps the retained
+`rental-replay` prototype, shared Node behavior oracle, build tools and
+lifecycle checks to the separate `rental-app` implementation in #44. Node
+remains the production runtime until a separately authorized cutover.
+
+The experimental branch narrows Node's full-history private classification:
+SQLite stages unclassified listings, filtered listings matching the current
+filters, and notified listings with an update. Skipped and unchanged notified
+history stays durable without payload decoding per recipient. One crawl caches
+the stored listing inventory and at most eight filter match sets, clearing them
+with the delivery batches. An inventory-presence flag completes initial selection
+even when every stored listing already has a terminal decision. Routine source
+changes and durable pending work retain their existing path.
+
+`rental-replay` uses bundled SQLite, compact integer decisions and one bounded
+fair scheduler. Seed batches commit 8,192 rows with durable progress; classification
+and per-message acknowledgements remain atomic. Completed-write checkpoints stop
+further writes if readers block truncation; the 4 MiB retention threshold does not
+bound an active transaction. The covering `(posted,id,revision)` index, 512 KiB
+SQLite cache target and transaction-local payload map capped at 128 entries bound
+history processing without dropping decisions. Selection runs newest first while
+delivery remains oldest first.
+
+The [native service](native-service.md), [maintenance](native-maintenance.md) and
+[migration](native-migration.md) documents specify the replay prototype's
+supported boundaries. Production database and full bot/channel/source parity
+belong to the separate `rental-app` candidate described above.

@@ -55,6 +55,13 @@ the candidate image. The job intentionally does not use `docker save` or
 archive, and retaining one several-hundred-megabyte copy per pull-request run
 would exhaust Actions artifact storage without adding release evidence.
 
+The same artifact job runs the packaged Rust production parity check and the
+500-recipient capacity check with Python peers and no Node coordinator. The
+capacity report retains both full-wall and source-separated timing, the frozen
+historical digest, exact delivery and restart outcomes, and the 24-hour
+activity edge. These checks use disposable synthetic state and do not mutate
+the published image or live data.
+
 ## Production publication
 
 `Publish production` is a separate `workflow_run` workflow. It can run only

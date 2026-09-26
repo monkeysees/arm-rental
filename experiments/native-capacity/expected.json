@@ -1,0 +1,25 @@
+{
+  "version": 1,
+  "historicalDecisions": {
+    "count": 3277500,
+    "sha256": "dbe370760b66c316910e2bcd3d560f4af45dc9283ca0921d6ddc85a24cb07fa7"
+  },
+  "seedDecisionCount": 3281500,
+  "catchup": {
+    "attempts": 4550,
+    "retryCount": 50,
+    "announcements": 500,
+    "listings": 4000,
+    "deliveryLimitMs": 25025
+  },
+  "interruption": {
+    "acknowledgedPrefix": 1000,
+    "pendingSuffix": 3000
+  },
+  "activityBoundary": {
+    "recentMinutesAgo": 1438,
+    "expiredMinutesAgo": 1442,
+    "recentIdsByProfile": ["500000", "500001", "500002", "500003"],
+    "expiredIdsByProfile": ["500004", "500005", "500006", "500007"]
+  }
+}

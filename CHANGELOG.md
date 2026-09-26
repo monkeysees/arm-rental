@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Add a required Node-free packaged Rust 500-recipient capacity gate with frozen delivery expectations, source-separated timing and exact interrupted-work recovery.
+
 - Add Node-free packaged Rust parity acceptance with frozen Node fixtures, populated-state recovery, local service peers and a required CI gate.
 
 - Hold a Node-to-Rust production transition until a runtime-aware bridge release is deployed and explicitly promoted.

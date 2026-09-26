@@ -365,9 +365,9 @@ if [[ $DEPLOYMENT_FIRST_INSTALL == true ]]; then
 fi
 
 rollback_result=failed
-rollback_strategy=snapshot-restore
+rollback_strategy="snapshot-restore"
 if ((DEPLOYMENT_LIVE_ROLLBACK_REQUIRED == 1)); then
-  rollback_strategy=compatible-live
+  rollback_strategy="compatible-live"
 fi
 ops_set_step rollback-candidate
 set +e

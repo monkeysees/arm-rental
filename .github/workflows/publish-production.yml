@@ -26,9 +26,9 @@ jobs:
       github.event.workflow_run.event == 'push'
     runs-on: ubuntu-latest
     timeout-minutes: 40
-    # Flip this to rust only after this Node bridge is published and deployed.
+    # Rust publication holds the discovery pointer until bridge deployment is confirmed.
     env:
-      PRODUCTION_RUNTIME: node
+      PRODUCTION_RUNTIME: rust
 
     steps:
       - name: Check out the exact successful revision

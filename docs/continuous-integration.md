@@ -67,11 +67,11 @@ the published image or live data.
 `Publish production` is a separate `workflow_run` workflow. It can run only
 after a successful `Required CI` push to `main`, checks out the triggering
 workflow's exact `head_sha`, and builds the runtime selected by its explicit
-`PRODUCTION_RUNTIME` setting. The setting is `node` for the updated bridge
-release. After that bridge is published and confirmed on the host, a separate
-reviewed change can set it to `rust` to publish a held candidate. Both paths
-repeat runtime and provenance checks, packaged image checks, and the blocking
-Trivy scan before any registry push.
+`PRODUCTION_RUNTIME` setting. The setting is `rust` for the held candidate.
+The updated Node bridge was published first; host deployment must be confirmed
+before promoting the Rust pointer. Both paths repeat runtime and provenance
+checks, packaged image checks, and the blocking Trivy scan before any registry
+push.
 
 The workflow uses the single `production-publication` concurrency group with
 `cancel-in-progress: false`. Once a run starts publishing, a newer run waits;

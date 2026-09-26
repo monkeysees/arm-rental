@@ -874,7 +874,9 @@ impl Bot {
             if out.state["users"] != state["users"] {
                 return Err("History answers cannot change Telegram users".into());
             }
-            let offset = out.state["updateOffset"].as_i64().ok_or("Invalid update offset")?;
+            let offset = out.state["updateOffset"]
+                .as_i64()
+                .ok_or("Invalid update offset")?;
             let recipient = id.to_string();
             let failure = self.history_failure.as_deref();
             db.transaction_named("telegram_history_answer", |c| {

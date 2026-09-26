@@ -590,6 +590,47 @@ def capacity(phases: list[dict], users: int, contract: dict, *, separate_source:
     }
 
 
+def ci_summary(report: dict, report_path: Path) -> dict:
+    """Keep the evidence needed to review a hosted run after its files expire."""
+    boundary = report.get("activityBoundary")
+    ages = boundary.get("observedPostingAgeMinutes", {}) if boundary else {}
+    recent = CAPACITY_EXPECTED["activityBoundary"]["recentIdsByProfile"]
+    expired = CAPACITY_EXPECTED["activityBoundary"]["expiredIdsByProfile"]
+    summary = {
+        "status": report["status"],
+        "error": report.get("error"),
+        "users": report["users"],
+        "diagnostic": report["diagnostic"],
+        "imageId": report.get("imageId"),
+        "sourceRevision": report.get("sourceRevision"),
+        "sourceDirty": report.get("sourceDirty"),
+        "binarySha256": report.get("binarySha256"),
+        "sourceInputSha256": report.get("sourceInputSha256"),
+        "fixtureSha256": report["fixtureSha256"],
+        "historicalBefore": report.get("seed", {}).get("historicalDigest"),
+        "historicalAfter": report.get("retainedAfter"),
+        "phases": [
+            {
+                key: phase[key] for key in
+                ("name", "sent", "attempts", "retries", "announcements", "peakActive", "wallMs", "sourceWallMs", "deliveryWallMs")
+                if key in phase
+            }
+            for phase in report["phases"]
+        ],
+        "capacity": report.get("capacityOracle"),
+        "fullWallCapacity": report.get("fullWallCapacityOracle"),
+        "activityBoundary": None if boundary is None else {
+            "sent": boundary["sent"],
+            "attempts": boundary["attempts"],
+            "recentPostingAgeMinutes": {item: ages[item] for item in recent if item in ages},
+            "expiredPostingAgeMinutes": {item: ages[item] for item in expired if item in ages},
+            "historicalDigest": boundary.get("historicalDigest"),
+        },
+        "reportPath": str(report_path),
+    }
+    return summary
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--image", required=True)
@@ -615,13 +656,13 @@ def main() -> None:
               "resourceBoundary": "Complete packaged Rust service and local peers; no 1-CPU/512-MiB cgroup or whole-machine memory-fit claim"}
     try:
         with Harness(args.image, args.output) as harness, Peer(contract, args.users) as peer:
+            report.update({"imageId": harness.image_id, "binarySha256": harness.binary_sha256,
+                           "sourceRevision": harness.source_revision, "sourceDirty": harness.source_dirty,
+                           "sourceInputSha256": harness.source_input_sha256, "cargoLockSha256": harness.cargo_lock_sha256})
             if args.expected_revision:
                 assert harness.source_revision == args.expected_revision, "image revision differs from accepted source"
             if args.require_clean_source:
                 assert harness.source_dirty == "false", "image does not claim clean source"
-            report.update({"imageId": harness.image_id, "binarySha256": harness.binary_sha256,
-                           "sourceRevision": harness.source_revision, "sourceDirty": harness.source_dirty,
-                           "sourceInputSha256": harness.source_input_sha256, "cargoLockSha256": harness.cargo_lock_sha256})
             volume = harness.new_volume()
             env = {
                 "NODE_ENV": "test", "DATA_DIRECTORY": DATA_PATH,
@@ -688,11 +729,21 @@ def main() -> None:
         report["error"] = repr(error)
         raise
     finally:
-        _, _, after_hashes = frozen_inputs()
-        assert after_hashes == fixture_hashes, "frozen inputs changed during acceptance"
+        fixture_failure = None
+        try:
+            _, _, after_hashes = frozen_inputs()
+            assert after_hashes == fixture_hashes, "frozen inputs changed during acceptance"
+        except Exception as error:
+            fixture_failure = error
+            report["status"] = "failed"
+            report["error"] = repr(error)
         report["completedAt"] = iso_now()
-        (args.output / "report.json").write_text(json.dumps(report, indent=2) + "\n")
-        print(f"Report: {args.output / 'report.json'}", flush=True)
+        report_path = args.output / "report.json"
+        report_path.write_text(json.dumps(report, indent=2) + "\n")
+        print("CAPACITY_SUMMARY " + json.dumps(ci_summary(report, report_path), sort_keys=True, separators=(",", ":")), flush=True)
+        print(f"Report: {report_path}", flush=True)
+        if fixture_failure is not None:
+            raise fixture_failure
 
 
 if __name__ == "__main__":

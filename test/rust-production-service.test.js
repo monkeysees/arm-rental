@@ -26,6 +26,10 @@ test(
     const messages = [];
     const urls = [];
     let delivered = false;
+    let releaseListingAck;
+    const listingAck = new Promise((resolve) => {
+      releaseListingAck = resolve;
+    });
     const server = createServer(async (request, response) => {
       urls.push(request.url);
       response.setHeader("content-type", "application/json");
@@ -81,6 +85,7 @@ test(
       if (method === "sendMessage" || method === "editMessageText") {
         messages.push(payload);
         result = { message_id: messages.length + 1000 };
+        if (payload.text?.includes("/ru/item/100")) await listingAck;
       }
       response.end(JSON.stringify({ ok: true, result }));
     });
@@ -134,22 +139,43 @@ test(
     }
     const first = start();
     const deadline = Date.now() + 16000;
-    while (
-      !messages.some((message) => message.text.includes("/ru/item/100")) &&
-      Date.now() < deadline &&
-      first.child.exitCode === null
-    )
+    const readinessUrl = `http://127.0.0.1:${healthPort}/ready`;
+    try {
+      while (
+        !messages.some((message) => message.text.includes("/ru/item/100")) &&
+        Date.now() < deadline &&
+        first.child.exitCode === null
+      )
+        await delay(30);
+      assert.ok(
+        messages.some((message) => message.text.includes("/ru/item/100")),
+        first.output(),
+      );
+      assert.ok(
+        !messages.some((message) => message.text.includes("/ru/item/200")),
+      );
+      assert.ok(urls.some((url) => url.includes("/1377/")));
+      const inProgress = await fetch(readinessUrl, {
+        signal: AbortSignal.timeout(5000),
+      });
+      const body = await inProgress.json();
+      assert.equal(inProgress.status, 503, JSON.stringify(body));
+      assert.ok(body.reasons.includes("CRAWL_NEVER_SUCCEEDED"));
+    } finally {
+      releaseListingAck();
+    }
+    const readinessDeadline = Date.now() + 5000;
+    let ready;
+    do {
+      ready = await fetch(readinessUrl, {
+        signal: AbortSignal.timeout(
+          Math.max(1, readinessDeadline - Date.now()),
+        ),
+      });
+      if (ready.status === 200 || Date.now() >= readinessDeadline) break;
       await delay(30);
-    assert.ok(
-      messages.some((message) => message.text.includes("/ru/item/100")),
-      first.output(),
-    );
-    assert.ok(
-      !messages.some((message) => message.text.includes("/ru/item/200")),
-    );
-    assert.ok(urls.some((url) => url.includes("/1377/")));
-    const ready = await fetch(`http://127.0.0.1:${healthPort}/ready`);
-    assert.equal(ready.status, 200);
+    } while (first.child.exitCode === null);
+    assert.equal(ready.status, 200, JSON.stringify(await ready.json()));
     first.child.kill("SIGTERM");
     assert.equal(
       await new Promise((resolve) => first.child.on("exit", resolve)),

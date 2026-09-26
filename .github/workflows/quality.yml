@@ -55,7 +55,7 @@ jobs:
   production-artifact:
     name: Required / production artifact
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 40
 
     steps:
       - name: Check out repository
@@ -114,6 +114,17 @@ jobs:
           python3 experiments/native-acceptance/run.py \
             --image rental-apartments-native:ci \
             --output "$RUNNER_TEMP/native-acceptance" \
+            --expected-revision "$SOURCE_REVISION" \
+            --require-clean-source
+
+      - name: Verify native 500-recipient capacity without Node
+        env:
+          SOURCE_REVISION: ${{ github.sha }}
+        run: |
+          python3 experiments/native-capacity/run.py \
+            --image rental-apartments-native:ci \
+            --output "$RUNNER_TEMP/native-capacity" \
+            --users 500 \
             --expected-revision "$SOURCE_REVISION" \
             --require-clean-source
 

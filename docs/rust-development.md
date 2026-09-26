@@ -212,7 +212,25 @@ the image ID, extracted binary hash, checks, and fixture identities in
 `report.json`. Fixture provenance and scenario coverage are documented in
 [`experiments/native-acceptance/README.md`](../experiments/native-acceptance/README.md).
 Required CI runs this gate alongside the existing Node differential and image
-checks. The separate 500-recipient workload remains the capacity gate.
+checks. The separate 500-recipient workload is also a Node-free required gate:
+
+```bash
+python3 experiments/native-capacity/run.py \
+  --image arm-rental-production-native:local \
+  --output /tmp/arm-rental-native-capacity-500
+```
+
+The capacity runner seeds 3,281,500 historical decisions in a disposable
+production SQLite volume and exercises the eight contract phases plus a
+separate 24-hour boundary against local List.am, CBA and Telegram peers. It checks every recipient's ordered delivery
+and durable decisions, the fixed historical digest before and after service,
+eight-operation concurrency, retry counts, the acknowledged prefix and pending
+suffix after a forced kill, the 24-hour activity edge, and the unchanged 1.1
+catch-up tolerance. The report records full-wall diagnostics and separately
+measured source pacing. A fresh
+output directory and sequential run are required; `--users 4` is a diagnostic
+only and cannot satisfy the 500-recipient gate. Fixture provenance and report
+fields are in [`experiments/native-capacity/README.md`](../experiments/native-capacity/README.md).
 
 ## Replay experiment image
 

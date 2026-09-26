@@ -99,7 +99,7 @@ excludes live maintenance. The independent Node oracle was not derived from Rust
 Pinned Rust `1.94.0` formatting, all-target check, all 22 integration tests,
 strict Clippy and release build passed. The repository's Node `24.18.0` suite
 passed **525 tests with no skips** using `RENTAL_APP_BINARY` and the fixed release
-binary; coverage was **94.90% lines and 89.09% branches**, above the 90%/80%
+binary; coverage was **94.92% lines and 89.26% branches**, above the 90%/80%
 floors. ESLint passed with the unrelated, pre-existing untracked `.scratch/`
 directory excluded; Prettier and the shell/Compose/systemd production-contract
 gate passed. The packaged image passed all 15 service and maintenance checks,

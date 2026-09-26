@@ -832,6 +832,7 @@ pub fn process(
 #[derive(Default)]
 pub struct Bot {
     context: Context,
+    history_failure: Option<String>,
 }
 
 impl Bot {
@@ -860,17 +861,7 @@ impl Bot {
             }
         }
 
-        db.save_telegram(&out.state)?;
-        let saved_offset = out.state["updateOffset"].as_i64().unwrap_or(0);
-        self.context
-            .decisions
-            .retain(|(_, id), _| *id >= saved_offset);
-
-        if let Some(id) = out.selection {
-            db.request_selection(&id.to_string())?;
-        }
-
-        if let Some((id, accepted)) = out.history {
+        let history_answer = if let Some((id, accepted)) = out.history {
             let ids = history_ids(
                 db,
                 id,
@@ -880,20 +871,63 @@ impl Bot {
                     .as_u64()
                     .unwrap_or(100) as usize,
             )?;
+            if out.state["users"] != state["users"] {
+                return Err("History answers cannot change Telegram users".into());
+            }
+            let offset = out.state["updateOffset"].as_i64().ok_or("Invalid update offset")?;
+            let recipient = id.to_string();
+            let failure = self.history_failure.as_deref();
+            db.transaction_named("telegram_history_answer", |c| {
+                c.execute(
+                    "UPDATE telegram_state SET update_offset=? WHERE singleton=1",
+                    [offset],
+                )?;
+                for item in &ids {
+                    if failure == Some("decision_write") {
+                        c.execute(
+                            "UPDATE private_delivery_decisions SET status=99 WHERE recipient_id=? AND item_id=?",
+                            rusqlite::params![recipient, item],
+                        )?;
+                    }
+                    if accepted {
+                        c.execute(
+                            "DELETE FROM private_delivery_decisions WHERE recipient_id=? AND item_id=? AND status=2",
+                            rusqlite::params![recipient, item],
+                        )?;
+                        c.execute(
+                            "INSERT OR IGNORE INTO private_delivery_work(recipient_id,item_id) VALUES(?,?)",
+                            rusqlite::params![recipient, item],
+                        )?;
+                    } else {
+                        c.execute(
+                            "UPDATE private_delivery_decisions SET status=1,decided_at=? WHERE recipient_id=? AND item_id=? AND status=2",
+                            rusqlite::params![now, recipient, item],
+                        )?;
+                    }
+                }
+                if failure == Some("before_commit") {
+                    c.execute(
+                        "UPDATE telegram_state SET update_offset=-1 WHERE singleton=1",
+                        [],
+                    )?;
+                }
+                Ok(())
+            })?;
+            Some((ids, accepted))
+        } else {
+            db.save_telegram(&out.state)?;
+            None
+        };
+        let saved_offset = out.state["updateOffset"].as_i64().unwrap_or(0);
+        self.context
+            .decisions
+            .retain(|(_, id), _| *id >= saved_offset);
 
-            db.transaction(|c|{
-for item in &ids {
-if accepted {
-c.execute("DELETE FROM private_delivery_decisions WHERE recipient_id=? AND item_id=? AND status=2",rusqlite::params![id.to_string(),item])?;
-c.execute("INSERT OR IGNORE INTO private_delivery_work(recipient_id,item_id) VALUES(?,?)",rusqlite::params![id.to_string(),item])?;
-}
-else{
-c.execute("UPDATE private_delivery_decisions SET status=1,decided_at=? WHERE recipient_id=? AND item_id=? AND status=2",rusqlite::params![now,id.to_string(),item])?;
-}
-}
-Ok(())}
-)?;
+        if let Some(id) = out.selection {
+            db.request_selection(&id.to_string())?;
+        }
 
+        if let Some((ids, accepted)) = history_answer {
             if accepted
                 && !ids.is_empty()
                 && let Some(op) = out
@@ -1055,7 +1089,10 @@ pub fn contract(v: Value) -> Result<Value> {
             values: v["config"].clone(),
         };
 
-        let mut bot = Bot::default();
+        let mut bot = Bot {
+            history_failure: v["failHistoryAt"].as_str().map(str::to_owned),
+            ..Bot::default()
+        };
         let mut operations = vec![];
         let mut deletions = vec![];
 

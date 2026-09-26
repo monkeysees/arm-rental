@@ -123,10 +123,10 @@ fn run() -> Result<()> {
     ) && args.len() == 1
     {
         let config = rental_replay::production::config::Config::from_environment()?;
-        let _lease = rental_replay::production::lease::Lease::acquire(Path::new(
-            config.text("dataDirectory"),
-        ))?;
         let output = if args[0] == "maintenance:report" {
+            let _lease = rental_replay::production::lease::Lease::acquire(Path::new(
+                config.text("dataDirectory"),
+            ))?;
             rental_replay::production::recovery::maintenance(
                 &config,
                 rental_replay::production::runtime::now_ms(),

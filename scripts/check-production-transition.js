@@ -19,6 +19,14 @@ export function classifyProductionTransition({ current, candidate }) {
     throw new Error(`unsupported candidate runtime: ${candidateRuntime}`);
   }
   if (!current) {
+    if (candidateRuntime === "rust") {
+      return {
+        allowed: false,
+        cutover: true,
+        reason:
+          "a Rust release requires a deployed Node bridge before publication",
+      };
+    }
     return {
       allowed: true,
       cutover: false,

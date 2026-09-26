@@ -187,6 +187,45 @@ test("published release metadata binds the scanned registry digest and host bund
   );
 });
 
+test("native release metadata records the Rust inputs and preserves the host package-lock bridge", async (t) => {
+  const temporaryDirectory = await mkdtemp(join(tmpdir(), "native-metadata-"));
+  t.after(() => rm(temporaryDirectory, { recursive: true, force: true }));
+  const operationsPath = join(temporaryDirectory, "operations.tar");
+  await writeFile(operationsPath, "native operations");
+  const metadata = await createReleaseMetadata({
+    sourceRevision: "c".repeat(40),
+    runtime: "rust",
+    imageReference: `ghcr.io/example/arm-rental@sha256:${"e".repeat(64)}`,
+    operationsBundle: operationsPath,
+  });
+  const [cargoLock, packageLock] = await Promise.all([
+    readProjectFile("experiments/rust-replay/Cargo.lock"),
+    readProjectFile("package-lock.json"),
+  ]);
+  assert.equal(metadata.runtime, "rust");
+  assert.equal(metadata.rustVersion, "1.94.0");
+  assert.equal(metadata.curlImpersonateVersion, "2.2.2");
+  assert.equal(
+    metadata.cargoLockSha256,
+    createHash("sha256").update(cargoLock).digest("hex"),
+  );
+  assert.equal(
+    metadata.packageLockSha256,
+    createHash("sha256").update(packageLock).digest("hex"),
+  );
+  assert.equal(metadata.nodeVersion, undefined);
+  assert.deepEqual(metadata.deployableRuntimes, ["node", "rust"]);
+  await assert.rejects(
+    createReleaseMetadata({
+      sourceRevision: "c".repeat(40),
+      runtime: "unknown",
+      imageReference: `ghcr.io/example/arm-rental@sha256:${"e".repeat(64)}`,
+      operationsBundle: operationsPath,
+    }),
+    /unsupported release runtime/u,
+  );
+});
+
 test("production publication advances discovery only after scan, push, and metadata", async () => {
   const workflow = await readProjectFile(
     ".github/workflows/publish-production.yml",
@@ -198,18 +237,32 @@ test("production publication advances discovery only after scan, push, and metad
   const metadata = workflow.indexOf(
     "name: Publish digest-bound release metadata",
   );
+  const preflight = workflow.indexOf(
+    "name: Refuse an unbridged Rust publication before any registry push",
+  );
   const production = workflow.indexOf(
     "name: Advance production discovery pointer",
   );
 
   assert.ok(
-    scan > 0 && scan < push && push < metadata && metadata < production,
+    scan > 0 &&
+      scan < preflight &&
+      preflight < push &&
+      push < metadata &&
+      metadata < production,
   );
   assert.match(workflow, /workflow_run\.conclusion == 'success'/u);
   assert.match(workflow, /workflow_run\.head_branch == 'main'/u);
   assert.match(workflow, /group: production-publication/u);
   assert.match(workflow, /cancel-in-progress: false/u);
-  assert.match(workflow, /image-ref: rental-apartments-bot:publication/u);
+  assert.match(workflow, /image-ref: rental-apartments-native:publication/u);
+  assert.match(workflow, /docker build -f Dockerfile\.native/u);
+  assert.match(workflow, /--runtime rust/u);
+  assert.match(workflow, /com\.rental-apartments\.cargo-lock\.sha256/u);
+  assert.match(
+    workflow,
+    /scripts\/check-production-transition\.js preflight\/candidate\.json preflight\/current\.json/u,
+  );
   assert.match(workflow, /com\.rental-apartments\.state\.backend/u);
   assert.match(workflow, /com\.rental-apartments\.state\.schema\.minimum/u);
   assert.match(workflow, /com\.rental-apartments\.state\.schema\.maximum/u);
@@ -352,6 +405,12 @@ test("the publisher refuses a candidate the running release cannot deploy", asyn
   });
   assert.equal(firstPublish.allowed, true);
   assert.equal(firstPublish.cutover, false);
+  const firstRustPublish = classifyProductionTransition({
+    current: undefined,
+    candidate: { stateBackend: "sqlite", runtime: "rust" },
+  });
+  assert.equal(firstRustPublish.allowed, false);
+  assert.equal(firstRustPublish.cutover, true);
 });
 
 test("declared deployable backends are the ones this release's verifier accepts", async (t) => {
@@ -401,7 +460,7 @@ test("publication accepts the current SQLite image schema and rejects a mismatch
     ".github/workflows/publish-production.yml",
   );
   const step = workflow
-    .split("      - name: Verify pinned runtime and OCI provenance\n")[1]
+    .split("      - name: Verify native runtime and OCI provenance\n")[1]
     ?.split("\n      - name:")[0];
   const script = step?.split("        run: |\n")[1]?.replace(/^ {10}/gmu, "");
   assert.ok(script, "publication must verify image provenance before pushing");
@@ -409,13 +468,13 @@ test("publication accepts the current SQLite image schema and rejects a mismatch
     docker() {
       case "$*" in
         *org.opencontainers.image.revision*) printf '%s\\n' "$SOURCE_REVISION" ;;
-        *org.opencontainers.image.node.version*) cat .nvmrc ;;
-        *org.opencontainers.image.curl-impersonate.version*) printf '%s\\n' '2.2.2' ;;
+        *com.rental-apartments.runtime*) printf '%s\\n' rust ;;
+        *com.rental-apartments.source.dirty*) printf '%s\\n' false ;;
         *org.opencontainers.image.package-lock.sha256*) sha256sum package-lock.json | cut -d ' ' -f 1 ;;
+        *com.rental-apartments.cargo-lock.sha256*) sha256sum experiments/rust-replay/Cargo.lock | cut -d ' ' -f 1 ;;
         *com.rental-apartments.state.backend*) printf '%s\\n' sqlite ;;
         *com.rental-apartments.state.schema.minimum*) printf '%s\\n' 1 ;;
         *com.rental-apartments.state.schema.maximum*) printf '%s\\n' "$TEST_SCHEMA_MAXIMUM" ;;
-        *--entrypoint*node*) printf 'v%s\\n' "$(cat .nvmrc)" ;;
         *) return 99 ;;
       esac
     }

@@ -454,3 +454,69 @@ test("manual failed rollout restores and probes the retained Rust image with its
     "--json",
   ]);
 });
+
+test("manual Node-to-Rust failure restores the Node snapshot and restarts Node without native Compose", async (t) => {
+  const fixture = await manualReleaseFixture(t, {
+    candidateRuntime: "rust",
+    failCandidate: true,
+  });
+  await assert.rejects(fixture.run(), /previous image were restored/u);
+  const calls = await fixture.calls();
+  const validation = calls.findIndex(({ args }) =>
+    args.includes("backup:validate"),
+  );
+  const stopOld = calls.findIndex(({ args }) => args.includes("stop"));
+  const candidateUp = calls.findIndex(
+    ({ args, image }) =>
+      args.includes("up") && image === completeArguments.image,
+  );
+  const stopCandidate = calls.findIndex(
+    ({ args, image }, index) =>
+      index > candidateUp &&
+      args.includes("stop") &&
+      image === completeArguments.image,
+  );
+  const restore = calls.findIndex(({ args }) => args.includes("restore"));
+  const nodeUp = calls.findIndex(
+    ({ args, image }, index) =>
+      index > restore &&
+      args.includes("up") &&
+      image === completeArguments["previous-image"],
+  );
+  assert.ok(validation >= 0 && validation < stopOld && stopOld < candidateUp);
+  assert.ok(
+    candidateUp < stopCandidate && stopCandidate < restore && restore < nodeUp,
+  );
+  assert.deepEqual(calls[validation].args.slice(-5), [
+    "npm",
+    "run",
+    "backup:validate",
+    "--",
+    completeArguments.snapshot,
+  ]);
+  assert.ok(
+    calls[candidateUp].args.some((arg) =>
+      arg.endsWith("ops/compose.native.yaml"),
+    ),
+  );
+  assert.deepEqual(calls[restore].args.slice(-5), [
+    "npm",
+    "run",
+    "restore",
+    "--",
+    completeArguments.snapshot,
+  ]);
+  assert.equal(calls[restore].image, completeArguments["previous-image"]);
+  assert.ok(
+    !calls[nodeUp].args.some((arg) => arg.endsWith("ops/compose.native.yaml")),
+  );
+  assert.ok(
+    calls.some(
+      ({ args }, index) =>
+        index > nodeUp &&
+        args[0] === "exec" &&
+        args[2] === "node" &&
+        args[3] === "-e",
+    ),
+  );
+});

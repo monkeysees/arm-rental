@@ -21,9 +21,11 @@ they cannot falsely report that a requested mutation completed.
 ## Publication prerequisites and gates
 
 `publish-production.yml` runs only after a successful `Required CI` push to
-`main`. It checks out that workflow's exact commit, rebuilds the same pinned
-production inputs, verifies the Node, curl-impersonate, source-revision, and package-lock
-OCI labels, and runs the blocking Trivy scan before logging in or pushing.
+`main`. It checks out that workflow's exact commit and builds the native image
+from the pinned Rust, Cargo, curl-impersonate, and repository lockfile inputs.
+It verifies the runtime and SQLite schema labels, source revision, clean source
+mark, Cargo and package-lock digests, packaged service and HTTP closure, then
+runs the blocking Trivy scan before pushing.
 GitHub Actions concurrency serializes publication and does not cancel an
 in-progress publisher.
 
@@ -36,12 +38,17 @@ publishes a metadata image tagged `metadata-<full-git-revision>`. Its
 - the state backends this release's own deployer accepts
   (`deployableStateBackends`);
 - the `package-lock.json` digest;
+- the Rust toolchain and Cargo lock digest for a Rust candidate;
 - the production Compose digest; and
 - a deterministic archive digest for `ops/` and `infra/systemd/`.
 
-The publisher copies the metadata back out and compares it byte-for-byte before
-advancing `production`. Therefore a failed quality gate, provenance check,
-scan, candidate push, or metadata push cannot change host discovery.
+Before the first registry push, the publisher reads and binds the current
+`production` image to its metadata and checks that release's runtime deployment
+contract. A Rust candidate fails closed when the current release is Node-only or
+the pointer cannot be verified. The publisher copies the new metadata back out
+and compares it byte-for-byte before considering `production`. A runtime change
+holds that pointer for operator promotion; a failed quality gate, provenance
+check, scan, candidate push, or metadata push cannot change host discovery.
 
 ### First upgrade to the HTTP transport
 
@@ -124,6 +131,25 @@ Expected publication evidence is the successful
 `Publish production / Publish / scanned production digest` check, the immutable
 candidate digest, and its metadata object. Retain the GitHub run URL; never put
 tokens or rendered environment files in release evidence.
+
+Before requesting the pointer move, run the
+[disposable Node-to-Rust cutover drill](../experiments/native-cutover/README.md)
+with the accepted image IDs and retain its sanitized `report.json`. It checks a
+Node-created predeploy snapshot, failed native startup and exact-row Node
+rollback, then native readiness, crawl, new delivery and prior acknowledgement
+continuity on the same SQLite mount. It restarts the retained Node service after
+each restore and checks readiness, crawl, and offset continuity through local
+HTTPS peers. It does not replace the host bridge,
+backup mount, operations lock, or live delivery checks below.
+
+The disposable drill also exposes a rollback boundary: a listing newly sent
+and acknowledged by Rust was resent by Node after restoring the older predeploy
+snapshot. Node preserved that acknowledgement when restarted against the live
+compatible schema-6 state, but the current unattended deployer always restores
+the predeploy snapshot on candidate failure. Keep the prior immutable Node
+image and matching snapshot, and review this duplicate risk before authorizing
+the live cutover. Do not describe a snapshot restore after new Rust deliveries
+as duplicate-free.
 
 ## Host prerequisites and safe checks
 

@@ -80,7 +80,9 @@ class Harness:
     def _owner(self, path: Path, uid: int, gid: int) -> None:
         if os.geteuid() == 0:
             command(["chown", "-R", f"{uid}:{gid}", str(path)])
-        elif os.geteuid() == uid and os.getegid() == gid:
+        elif (os.geteuid(), os.getegid()) == (CONTAINER_UID, CONTAINER_GID) == (uid, gid):
+            # Only the production UID can skip chown: it owns every file the
+            # container creates. A different host UID must reclaim them.
             return
         else:
             command(["sudo", "-n", "chown", "-R", f"{uid}:{gid}", str(path)])

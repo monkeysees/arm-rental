@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Restore Rust live storage checks, maintenance alerts, atomic history replies, deferred-recipient cancellation and saved-history startup preflight.
+
 - Suppress link previews on Rust channel sends, edits and reposts to match the production bot.
 
 - Add a standalone Rust application and native maintenance commands with production SQLite upgrades, Telegram controls, fair private delivery, channel publishing, host integration and independent parity acceptance.

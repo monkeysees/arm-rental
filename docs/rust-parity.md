@@ -86,7 +86,60 @@ separate `rental-app` binary. The historical `rental-replay` binary and independ
 Node oracle remain separate. The user confirmed service/local-peer, native
 maintenance/production-SQLite and independent differential/capacity test boundaries.
 
-Acceptance on 2026-09-26 uses pinned Node `24.18.0`, Rust `1.94.0` and the release
+### Remediated candidate (2026-09-26)
+
+The five regressions in the [remediation plan](rust-parity-remediation-plan.md)
+are fixed in source revision `b56000e96a94ea31231c58732b92ee0fe48076b6`.
+Focused Node-versus-Rust process checks reproduced the old failures and now pass:
+live disk inspection, maintenance status and alerts, atomic history answers with
+injected SQLite failures and restart, deletion or `/stop` during a 60-second
+Telegram retry, and saved-history startup preflight. The application lease still
+excludes live maintenance. The independent Node oracle was not derived from Rust.
+
+Pinned Rust `1.94.0` formatting, all-target check, all 22 integration tests,
+strict Clippy and release build passed. The repository's Node `24.18.0` suite
+passed **525 tests with no skips** using `RENTAL_APP_BINARY` and the fixed release
+binary; coverage was **94.90% lines and 89.09% branches**, above the 90%/80%
+floors. ESLint passed with the unrelated, pre-existing untracked `.scratch/`
+directory excluded; Prettier and the shell/Compose/systemd production-contract
+gate passed. The packaged image passed all 15 service and maintenance checks,
+including read-only non-root operation, backup/restore, local peers, readiness,
+shutdown and restart without duplicate delivery.
+
+The packaged 500-recipient run passed all eight phases. Updated and fresh
+delivery took 26.961 seconds combined, within the 60-second routine limit.
+Catch-up delivered 4,000 listings and 500 announcements with 50 injected
+retries in 24.800 seconds of delivery against the unchanged 25.025-second
+limit; source pacing added 8.007 seconds. The older full-wall diagnostic is
+still a failure under that measurement. All 500 recipients progressed within
+the fairness bound with at most eight active delivery requests. After a forced
+kill, restart delivered the remaining 3,000 listings after 1,000 acknowledged
+listings; drained and returning phases sent nothing. The digest of all
+3,277,500 historical decisions was unchanged. This does not remove Telegram's
+acceptance-before-local-acknowledgement ambiguity. ARM execution,
+whole-machine memory fit and production cutover remain unverified.
+
+The fixed artifact identities are:
+
+- Image: `sha256:34ee5013ceecc89692bc097a1908fd73d6e6bd2ff0adade5d036d3bacff25904`.
+- Binary SHA256: `e6f63a51efe7def06f8a17122cdb144dfd1b6c3e525508daa13c246496732b84`.
+- Source-input SHA256: `37ba018bc66bb972e8c16ad80e229c0870a2ecb7bfd7d8b74e99b07b43dd`.
+
+The build records `sourceDirty: true` because the local checkout included
+documentation and untracked scratch files; its source-input manifest identifies
+the exact implementation and packaging inputs. Raw evidence is retained outside
+Git in `/tmp/arm-rental-native-remediation-build-20260926/build.json`,
+`/tmp/arm-rental-native-remediation-check-20260926/report.json` and
+`/tmp/arm-rental-production-acceptance-500-remediation-20260926/report.json`.
+
+The WAL-only warning branch could not be exercised through a successful native
+maintenance command: both Node and Rust truncate a 27.6 MiB WAL before measuring
+it, while a pinned reader makes checkpointing fail with exit `1`. The database
+growth warning and both healthy and failure paths have native CLI coverage.
+
+### Earlier candidate (superseded)
+
+Earlier acceptance on 2026-09-26 used pinned Node `24.18.0`, Rust `1.94.0` and the release
 binary. The actual Linux AMD64 image passed all 15 packaging checks: complete
 native/curl/certificate/license closure, non-root/read-only maintenance,
 backup/restore, two-category crawling, private controls, readiness, shutdown and
@@ -121,7 +174,11 @@ resolved all findings, including startup cancellation, channel storage-failure
 propagation, sanitized operation logs and terminal channel permission failures.
 Focused reviews also checked the history cache and bounded first-listing priority.
 
-The accepted artifact identities are:
+A later Node-versus-Rust comparison found five regressions at operational and
+failure boundaries. The artifact results below describe that earlier candidate
+and do not validate the remediated source.
+
+The earlier artifact identities were:
 
 - Image: `sha256:91db0741ec2c7a7b57f2344556f261eb7b180e4e7294a65b311f238cce7f3638`.
 - Binary SHA256: `502e66854d9eee894ac042e8ffc54240761a6c650e05dd933af709dadd4465c8`.

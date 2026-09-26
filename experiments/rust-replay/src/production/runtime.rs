@@ -200,22 +200,45 @@ fn poll_thread(
                         .as_i64()
                         .or_else(|| update["callback_query"]["message"]["chat"]["id"].as_i64())
                         .unwrap_or(0);
-                    let operations =
-                        match bot.handle_update(&mut db.lock().unwrap(), &config, update, now_ms())
-                        {
-                            Ok(v) => v,
-                            Err(error) => {
-                                fail_runtime(&fatal, &stop);
-                                return Err(error);
-                            }
+                    let (operations, recipient_state_changed) = {
+                        let mut database = db.lock().unwrap();
+                        let before = if id > 0 {
+                            database.load_user(id)?
+                        } else {
+                            None
                         };
+                        let operations =
+                            match bot.handle_update(&mut database, &config, update, now_ms()) {
+                                Ok(v) => v,
+                                Err(error) => {
+                                    fail_runtime(&fatal, &stop);
+                                    return Err(error);
+                                }
+                            };
+                        let after = if id > 0 {
+                            database.load_user(id)?
+                        } else {
+                            None
+                        };
+                        let state = |user: Option<Value>| {
+                            user.map(|user| {
+                                (
+                                    user["active"] == true,
+                                    user.get("deletionPendingAt").is_some(),
+                                )
+                            })
+                        };
+                        (operations, state(before) != state(after))
+                    };
+                    if recipient_state_changed {
+                        recipient_state_generation.fetch_add(1, Ordering::Release);
+                    }
                     let mut outgoing = Vec::new();
                     for op in operations {
                         if op["method"] == "deleteUserData" {
                             if let Some(cancel) = cancellations.lock().unwrap().get(&id) {
                                 cancel.store(true, Ordering::Relaxed);
                             }
-                            recipient_state_generation.fetch_add(1, Ordering::Release);
                         } else {
                             outgoing.push(op);
                         }

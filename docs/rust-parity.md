@@ -123,7 +123,7 @@ The fixed artifact identities are:
 
 - Image: `sha256:34ee5013ceecc89692bc097a1908fd73d6e6bd2ff0adade5d036d3bacff25904`.
 - Binary SHA256: `e6f63a51efe7def06f8a17122cdb144dfd1b6c3e525508daa13c246496732b84`.
-- Source-input SHA256: `37ba018bc66bb972e8c16ad80e229c0870a2ecb7bfd7d8b74e99b07b43dd`.
+- Source-input SHA256: `37ba018bc66bb972e8c16ad80e229c0870a2ecb7bfd7d8b74e99b07b43cb43dd`.
 
 The build records `sourceDirty: true` because the local checkout included
 documentation and untracked scratch files; its source-input manifest identifies

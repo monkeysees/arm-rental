@@ -107,6 +107,16 @@ jobs:
             --tag rental-apartments-native:ci .
           node experiments/production-image/check.js "$RUNNER_TEMP/native-image-check" rental-apartments-native:ci
 
+      - name: Verify native production parity without Node
+        env:
+          SOURCE_REVISION: ${{ github.sha }}
+        run: |
+          python3 experiments/native-acceptance/run.py \
+            --image rental-apartments-native:ci \
+            --output "$RUNNER_TEMP/native-acceptance" \
+            --expected-revision "$SOURCE_REVISION" \
+            --require-clean-source
+
       - name: Scan OS and application dependencies
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # 0.36.0
         with:

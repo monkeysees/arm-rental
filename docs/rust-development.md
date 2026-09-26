@@ -193,6 +193,27 @@ corresponding field. `--binary PATH` supports local diagnosis, and `--users 4`
 is diagnostic only. Raw outputs remain outside the repository; the concise
 [parity record](rust-parity.md) identifies the accepted build and limitations.
 
+## Node-free production parity
+
+The packaged Rust candidate also has a standalone acceptance runner. It uses
+Python's standard library to control the shell-free image, synthetic SQLite
+volumes, and local Telegram, List.am, and CBA peers; the acceptance process does
+not start Node or contact production services. Run it against a freshly built
+candidate with a new absolute output directory:
+
+```bash
+python3 experiments/native-acceptance/run.py \
+  --image arm-rental-production-native:local \
+  --output /tmp/arm-rental-native-acceptance
+```
+
+The runner verifies frozen fixture hashes before and after execution and records
+the image ID, extracted binary hash, checks, and fixture identities in
+`report.json`. Fixture provenance and scenario coverage are documented in
+[`experiments/native-acceptance/README.md`](../experiments/native-acceptance/README.md).
+Required CI runs this gate alongside the existing Node differential and image
+checks. The separate 500-recipient workload remains the capacity gate.
+
 ## Replay experiment image
 
 Build the production image only as a source of checksum-verified curl and its

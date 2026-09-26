@@ -63,3 +63,11 @@ pass. Source pacing is measured from `crawl.started` through the last
 approved source-separated capacity check passes. The report identifies the
 packaged image ID, binary hash, source revision and input hashes. It does not
 claim ARM hardware performance or whole-machine memory fit.
+
+CI prints a bounded `CAPACITY_RUNNER_TELEMETRY` line after the capacity result
+and `CAPACITY_RUNNER_VMSTAT` when interval samples are available. They include
+available CPUs, one-minute load,
+CPU and I/O pressure deltas, cgroup CPU throttling when exposed, and maxima
+from ten-second runner CPU samples. These runner-wide observations help explain
+timing variation; they cannot attribute a slow run to the application or
+replace the unchanged capacity gate.

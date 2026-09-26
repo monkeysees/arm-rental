@@ -939,12 +939,19 @@ pub fn serve(config: Config, options: &HashMap<String, String>) -> Result<()> {
             )?;
             failure_component = "list_am";
             if !preflight {
+                let saved = crawl_db.load_apartments()?;
                 for (kind, category) in [("apartment", 56), ("house", 1377)] {
                     let reply = source.fetch(&format!(
                         "/ru/category/{category}/1?n=0&cmtype=0&crc=0&gl=2&srt=3"
                     ))?;
                     let diagnostics = source::parse_page(&reply.body, kind, now_ms())?;
-                    source::evaluate_integrity(&diagnostics, 1, &json!([]))?;
+                    let prior = saved
+                        .as_ref()
+                        .and_then(|state| {
+                            state["sourceIntegrity"]["recentFirstPageCounts"].get(kind)
+                        })
+                        .unwrap_or(&Value::Null);
+                    source::evaluate_integrity(&diagnostics, 1, prior)?;
                 }
                 preflight = true;
                 observe(
@@ -1097,6 +1104,9 @@ pub fn serve(config: Config, options: &HashMap<String, String>) -> Result<()> {
                 let transport = error.downcast_ref::<transport::Failure>();
                 let challenge = transport.is_some_and(|f| f.code == "ERR_LIST_AM_CHALLENGE");
                 let integrity = error.downcast_ref::<source::IntegrityError>().is_some();
+                let reason = error
+                    .downcast_ref::<source::IntegrityError>()
+                    .map(|error| error.reason.as_str());
                 let code = if challenge {
                     "ERR_LIST_AM_CHALLENGE"
                 } else if integrity {
@@ -1122,7 +1132,7 @@ pub fn serve(config: Config, options: &HashMap<String, String>) -> Result<()> {
                 if !preflight {
                     event(
                         "startup.preflight.completed",
-                        json!({"preflight":{"ready":false,"status":if challenge{"source_challenge"}else{"failed"},"failure":{"component":failure_component,"code":code}}}),
+                        json!({"preflight":{"ready":false,"status":if challenge{"source_challenge"}else{"failed"},"failure":{"component":failure_component,"code":code,"reason":reason}}}),
                     );
                     observe(
                         &health,

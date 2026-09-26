@@ -223,15 +223,16 @@ if [[ $DEPLOYMENT_FIRST_INSTALL == true ]]; then
   # create one so that a lost data volume can never be read as a fresh host.
   # This is the one place allowed to make it, on storage just proved empty.
   ops_set_step initialize-first-install-state
+  ops_app_command "$DEPLOYMENT_CANDIDATE" initialize
   deployment_compose \
     "$DEPLOYMENT_RELEASE" "$DEPLOYMENT_CANDIDATE_ENV" \
-    run --rm --no-deps bot node src/state-init-cli.js
+    run --rm --no-deps bot "${OPS_APP_COMMAND[@]}"
 else
   DEPLOYMENT_RESTART_REQUIRED=1
   ops_set_step stop-application
   ops_stop_application
   ops_set_step create-predeploy-snapshot
-  ops_compose run --rm --no-deps bot node src/recovery-cli.js backup
+  ops_run_app backup
   DEPLOYMENT_SNAPSHOT=$(ops_latest_snapshot)
   ops_validate_snapshot "$DEPLOYMENT_SNAPSHOT"
 fi
@@ -330,10 +331,10 @@ deployment_compose \
 rollback_status=$?
 if ((rollback_status == 0)); then
   snapshot_container=$(ops_snapshot_container_path "$DEPLOYMENT_SNAPSHOT")
+  ops_app_command "$DEPLOYMENT_PREVIOUS" restore "$snapshot_container"
   deployment_compose \
     "$DEPLOYMENT_PREVIOUS_RELEASE" "$DEPLOYMENT_PREVIOUS_ENV" \
-    run --rm --no-deps bot \
-    node src/recovery-cli.js restore "$snapshot_container"
+    run --rm --no-deps bot "${OPS_APP_COMMAND[@]}"
   rollback_status=$?
 fi
 if ((rollback_status == 0)); then

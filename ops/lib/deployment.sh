@@ -1,5 +1,8 @@
 #!/usr/bin/env bash
 
+# shellcheck source=ops/lib/runtime.sh
+source "$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)/runtime.sh"
+
 # Digest discovery, release verification, and sanitized deployment state.
 # This library deliberately never sources the production environment file:
 # credentials may contain shell syntax and must only travel to docker login on
@@ -269,12 +272,16 @@ deployment_compose() {
   local release_directory=$1
   local image_environment=$2
   shift 2
+  local image
+  image=$(ops_image_file_reference "$image_environment") || return
+  ops_runtime_compose_options "$release_directory" "$image" || return
   docker compose \
     --project-name rental-apartments \
     --project-directory "$release_directory" \
     --env-file "$image_environment" \
     --env-file "$RENTAL_ENV_FILE" \
     --file "$release_directory/compose.production.yaml" \
+    "${OPS_RUNTIME_COMPOSE_OPTIONS[@]}" \
     "$@"
 }
 

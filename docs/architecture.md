@@ -33,6 +33,37 @@ canonical AMD amount drives all price filtering and channel price-band hashtags.
 
 ## Production deployment model
 
+### Native candidate boundary
+
+The Rust candidate has a separate `rental-app` executable under
+`experiments/rust-replay/src/production/`; `rental-replay` retains the experimental
+fixture protocol. The candidate uses the production SQLite application ID and
+schema 6, including transactional upgrades from supported older schemas. Its
+configuration catalog and Russian bot vocabulary preserve the frozen Node
+contract, with independent Node differential tests at CLI, service/local-peer
+and persisted-state boundaries. See [Rust parity](rust-parity.md) for evidence
+and unresolved acceptance requirements.
+
+Source parsing, filters, crawl commits, Telegram control handling, private
+classification, channel publication, health and recovery are separate modules.
+The runtime coordinates a polling thread, metadata synchronization, periodic
+currency refresh, health serving and a bounded private delivery scheduler.
+SQLite transactions contain no network waits. Private rate/retry waits release
+worker capacity; channel work runs independently. Confirmed deletion first
+persists a tombstone, cancels that recipient's HTTP request, drains its worker
+and removes its state atomically. Telegram acceptance before a local
+acknowledgement remains ambiguous and can produce a duplicate after restart.
+
+`Dockerfile.native` assembles a non-root, read-only runtime with curl, native
+libraries, certificates and licenses. Host operations select native command
+arguments and `ops/compose.native.yaml` only for images explicitly labelled
+`com.rental-apartments.runtime=rust`. Existing published Node images retain
+their documented command contract for snapshot-backed rollback. The default
+production image and Compose file continue selecting Node; local candidate
+acceptance does not authorize publication or deployment.
+
+### Installed service
+
 The supported production topology is a singleton, long-running process on a
 Linux host or in one OCI container. Telegram long polling, the single-writer
 SQLite database, and the singleton lease exclude serverless or
@@ -1302,11 +1333,11 @@ hard-rule reason.
 - Channel sends fail independently and leave entries pending. Failed edits and
   age-based reposts retain their prior acknowledged message metadata for a
   later retry. Per-operation structured logs distinguish send, edit, and repost
-  operations and include item ID, channel ID, known message ID, outcome, and
+  operations and include the outcome, crawl identifier, duration, and
   error without including the bot token.
 - Telegram `sendMessage` has no idempotency key. A process exit after Telegram
-  accepts a channel post but before local acknowledgement is atomically renamed
-  into place carries a small at-least-once duplicate risk.
+  accepts a channel post but before local acknowledgement commits carries
+  an at-least-once duplicate risk.
 - Replayed Telegram callbacks that render an already-current menu are treated
   as successful, covering the window between saving filter state and the update
   offset.

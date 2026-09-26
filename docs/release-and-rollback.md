@@ -229,12 +229,13 @@ rewrite an unsupported database. Candidate acceptance must show a
 `source.integrity.checked` record and `crawl.succeeded` record with the same
 crawl ID.
 
-This release accepts SQLite schemas 1–4 and writes schema 4. The upgrade to
+The current Node application and native candidate accept SQLite schemas 1–6
+and write schema 6. The upgrade to
 schema 4 replaces private delivery rows transactionally, then reclaims free
 pages with a retryable one-time VACUUM before startup continues. Allow temporary
 space for replacement pages, WAL, and the VACUUM copy, and preserve the stopped
-service's pre-deploy snapshot on independent storage. Previous schema-2/3 images
-cannot use `state-strategy=compatible` against this live state: use the existing
+service's pre-deploy snapshot on independent storage. Images whose supported
+schema range excludes 6 cannot use `state-strategy=compatible` against this live state: use the existing
 snapshot restore rollback path. See the [schema contract](sqlite-schema.md)
 for migration and interruption behavior.
 
@@ -302,3 +303,19 @@ and rollback fail, the operator must choose between repairing the previous
 release, restoring another validated snapshot, or keeping the bot stopped.
 Follow [state recovery](state-recovery.md), retain all pre-change and failure
 evidence, and escalate before destructive volume or snapshot changes.
+
+The manual `scripts/release-operations.js` runner selects commands from each
+immutable image's `com.rental-apartments.runtime` label. Rust images use the
+bundled native Compose override, `rental-app` readiness probes and native backup
+commands. Explicit `node` labels and retained images without a runtime label use
+their existing Node commands; an unknown label fails before the running service
+is stopped. Candidate and retained images are evaluated independently, so a
+rollback across runtimes keeps using the retained image's own recovery tools.
+
+For a Rust container, the compatible-rollback check runs
+`rental-app state:inspect`. This command reads the installed SQLite identity,
+source binding and schema number without taking the singleton lease or applying
+migrations. It can run while the service writes through WAL. It reports a newer
+schema as installed; the target image's declared schema range decides whether
+rollback is allowed. Use `state:validate` only in its stopped-service maintenance
+workflow, since validation can upgrade state.

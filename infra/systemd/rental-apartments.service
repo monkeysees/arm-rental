@@ -14,9 +14,9 @@ WorkingDirectory=/opt/rental-apartments/current
 EnvironmentFile=/var/lib/rental-apartments-ops/current-image.env
 EnvironmentFile=/etc/rental-apartments/env
 ExecStartPre=/usr/bin/grep --quiet --extended-regexp ^RENTAL_APARTMENTS_IMAGE=[a-zA-Z0-9._/:@-]+@sha256:[0-9a-f]{64}$ /var/lib/rental-apartments-ops/current-image.env
-ExecStart=/usr/bin/docker compose --project-name rental-apartments --project-directory /opt/rental-apartments/current --file /opt/rental-apartments/current/compose.production.yaml up --detach --wait --wait-timeout 240 bot
-ExecReload=/usr/bin/docker compose --project-name rental-apartments --project-directory /opt/rental-apartments/current --file /opt/rental-apartments/current/compose.production.yaml up --detach --wait --wait-timeout 240 bot
-ExecStop=/usr/bin/docker compose --project-name rental-apartments --project-directory /opt/rental-apartments/current --file /opt/rental-apartments/current/compose.production.yaml stop --timeout 45 bot
+ExecStart=/opt/rental-apartments/current/ops/service up --detach --wait --wait-timeout 240 bot
+ExecReload=/opt/rental-apartments/current/ops/service up --detach --wait --wait-timeout 240 bot
+ExecStop=/opt/rental-apartments/current/ops/service stop --timeout 45 bot
 TimeoutStartSec=5min
 TimeoutStopSec=1min
 Restart=on-failure

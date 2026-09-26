@@ -635,8 +635,8 @@ test("unattended deploy contract covers no-op, first install, rollback, and fail
   assert.match(deploy, /deployment\.rollback\.completed/u);
   assert.match(deploy, /deployment\.rollback\.failed/u);
   assert.match(deploy, /deployment_write_quarantine/u);
-  assert.match(deploy, /node src\/recovery-cli\.js backup/u);
-  assert.match(deploy, /node src\/recovery-cli\.js restore/u);
+  assert.match(deploy, /ops_run_app backup/u);
+  assert.match(deploy, /ops_app_command "\$DEPLOYMENT_PREVIOUS" restore/u);
   // Nothing may migrate state at deploy time any more: SQLite is the only
   // backend, so a deploy stops, snapshots, and launches.
   assert.doesNotMatch(deploy, /state-migration-cli|json-to-sqlite/u);

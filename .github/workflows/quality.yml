@@ -31,6 +31,15 @@ jobs:
       - name: Install locked dependencies
         run: npm ci
 
+      - name: Build and check the native application with the pinned toolchain
+        run: |
+          docker build -f experiments/rust-replay/Dockerfile.build -t rental-rust-build .
+          docker run --rm -v "$PWD:/repo" \
+            -v "$(command -v node):/usr/local/bin/node:ro" \
+            -w /repo/experiments/rust-replay rental-rust-build \
+            sh -c 'cargo fmt --check && cargo check --locked --all-targets && cargo clippy --locked --all-targets -- -D warnings && cargo test --locked && cargo build --locked --bin rental-app'
+          printf 'RENTAL_APP_BINARY=%s/experiments/rust-replay/target/debug/rental-app\n' "$PWD" >> "$GITHUB_ENV"
+
       - name: Run lint, format, and test checks
         run: npm run check
 
@@ -86,10 +95,33 @@ jobs:
       - name: Smoke-test production HTTP transport
         run: scripts/smoke-production-runtime-image rental-apartments-bot:ci
 
+      - name: Build and exercise the native candidate image
+        env:
+          SOURCE_REVISION: ${{ github.sha }}
+        run: |
+          docker build -f Dockerfile.native --platform linux/amd64 \
+            --build-arg SOURCE_REVISION="$SOURCE_REVISION" \
+            --build-arg SOURCE_DIRTY=false \
+            --build-arg CARGO_LOCK_SHA256="$(sha256sum experiments/rust-replay/Cargo.lock | cut -d ' ' -f 1)" \
+            --build-arg PACKAGE_LOCK_SHA256="$(sha256sum package-lock.json | cut -d ' ' -f 1)" \
+            --tag rental-apartments-native:ci .
+          node experiments/production-image/check.js "$RUNNER_TEMP/native-image-check" rental-apartments-native:ci
+
       - name: Scan OS and application dependencies
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # 0.36.0
         with:
           image-ref: rental-apartments-bot:ci
+          scanners: vuln
+          vuln-type: os,library
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          exit-code: 1
+          version: v0.69.3
+
+      - name: Scan native OS and linked application dependencies
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # 0.36.0
+        with:
+          image-ref: rental-apartments-native:ci
           scanners: vuln
           vuln-type: os,library
           severity: HIGH,CRITICAL

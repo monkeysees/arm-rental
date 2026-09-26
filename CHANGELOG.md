@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Add a standalone Rust application and native maintenance commands with production SQLite upgrades, Telegram controls, fair private delivery, channel publishing, host integration and independent parity acceptance.
+
 - Remove historical decision reports and measurement archives; retain Rust rewrite contracts, build/acceptance tooling and regression fixtures in maintained documentation and tests.
 
 - Assemble the experimental native image from its executable dependencies and assess the full 500-recipient service and maintenance workload under exact 75 MB and 50 MB memory limits.

@@ -130,6 +130,7 @@ if [ "$1" = "exec" ]; then
   fi
   exit "$(cat "$RENTAL_TEST_READINESS_EXIT")"
 fi
+case "$*" in *com.rental-apartments.runtime*) printf '%s\\n' "\${RENTAL_TEST_RUNTIME_LABEL:-<no value>}"; exit 0 ;; esac
 if [ "$1" = "inspect" ]; then
   printf '%s\\n' '[{"Image":"sha256:abc","Config":{"Labels":{"org.opencontainers.image.revision":"${"a".repeat(40)}"}},"State":{"Running":true,"StartedAt":"'"$(cat "$RENTAL_TEST_CONTAINER_STARTED")"'","Health":{"Status":"healthy"}},"RestartCount":0}]'
   exit 0

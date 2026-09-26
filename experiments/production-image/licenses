@@ -1,0 +1,22 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+mkdir -p /licenses/rental-app /licenses/rust-toolchain
+cp Cargo.lock /licenses/rental-app/Cargo.lock
+for source in /usr/local/cargo/registry/src/*/*; do
+  [[ -d "$source" ]] || continue
+  destination="/licenses/rental-app/${source##*/}"
+  mkdir -p "$destination"
+  cp "$source/Cargo.toml" "$destination/Cargo.toml"
+  found=false
+  for notice in "$source"/[Ll][Ii][Cc][Ee][Nn][Ss][Ee]* "$source"/[Cc][Oo][Pp][Yy][Ii][Nn][Gg]* "$source"/[Nn][Oo][Tt][Ii][Cc][Ee]*; do
+    [[ -e "$notice" ]] || continue
+    cp -a "$notice" "$destination/"
+    found=true
+  done
+  if [[ "$found" == false ]]; then cp -a "$source" "$destination/source"; fi
+done
+for documentation in /usr/local/rustup/toolchains/*/share/doc/rust; do
+  cp "$documentation"/COPYRIGHT*.html /licenses/rust-toolchain/
+  cp -a "$documentation/licenses" /licenses/rust-toolchain/
+done
+cp -a /usr/local/share/licenses/curl-impersonate /licenses/

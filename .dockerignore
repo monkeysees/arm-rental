@@ -15,3 +15,5 @@ npm-debug.log*
 .idea/
 .vscode/
 chrome-profile/
+experiments/rust-replay/target/
+.scratch/

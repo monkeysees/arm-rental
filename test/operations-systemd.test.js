@@ -37,12 +37,16 @@ async function fixture(t, { backupAgeSeconds = 60 } = {}) {
 
   await Promise.all([
     mkdir(fakeBin, { recursive: true }),
-    mkdir(release, { recursive: true }),
+    mkdir(path.join(release, "ops"), { recursive: true }),
     mkdir(state, { recursive: true }),
     mkdir(snapshot, { recursive: true }),
   ]);
   await Promise.all([
     writeFile(path.join(release, "compose.production.yaml"), "services: {}\n"),
+    writeFile(
+      path.join(release, "ops", "compose.native.yaml"),
+      "services: {}\n",
+    ),
     writeFile(environmentFile, "TELEGRAM_OWNER_ID=42\n"),
     writeFile(imageFile, `RENTAL_APARTMENTS_IMAGE=${immutableImage}\n`),
     writeFile(
@@ -94,7 +98,9 @@ esac
   await executable(
     path.join(fakeBin, "docker"),
     `${commandPrelude}
-if [[ "\${1:-}" == "image" && "\${2:-}" == "inspect" ]]; then
+if [[ "$*" == *'com.rental-apartments.runtime'* ]]; then
+  printf '%s\\n' "\${FAKE_RUNTIME_LABEL:-<no value>}"
+elif [[ "\${1:-}" == "image" && "\${2:-}" == "inspect" ]]; then
   printf '%s\\n' "image-id"
 elif [[ "$*" == "inspect --format {{.Image}} "* ]]; then
   printf '%s\\n' "\${FAKE_ACTIVE_IMAGE:-image-id}"
@@ -537,4 +543,50 @@ test("browser cleanup serializes, verifies the active artifact and backup, and r
       );
     }
   }
+});
+
+test("native selected images use bundled Compose and native offline commands", async (t) => {
+  for (const [operation, command] of [
+    ["backup", "backup:create"],
+    ["maintain", "maintenance:report"],
+    ["storage-check", "storage:check"],
+    ["restore-drill", "backup:restore --snapshot"],
+  ]) {
+    await t.test(operation, async (t) => {
+      const state = await fixture(t);
+      const result = await runScript(operation, {
+        ...state.environment,
+        FAKE_RUNTIME_LABEL: "rust",
+      });
+      assert.equal(result.status, 0, result.stderr);
+      const commands = await readFile(state.log, "utf8");
+      assert.ok(commands.includes(command), commands);
+      assert.doesNotMatch(commands, /node src\/(?:recovery|maintenance)-cli/u);
+      if (operation !== "restore-drill")
+        assert.match(commands, /--file .*ops\/compose\.native\.yaml/u);
+    });
+  }
+});
+test("native browser cleanup verifies the running native binary and uses its CLI", async (t) => {
+  const state = await fixture(t);
+  await writeFile(
+    path.join(
+      state.environment.RENTAL_BACKUP_ROOT,
+      "daily",
+      "2026-07-25T03-15-00-000Z",
+      "manifest.json",
+    ),
+    JSON.stringify({ version: 3, hashes: { "state.sqlite3": "hash" } }),
+  );
+  const result = await runScript(
+    "browser-cleanup",
+    { ...state.environment, FAKE_RUNTIME_LABEL: "rust" },
+    ["--dry-run"],
+  );
+  assert.equal(result.status, 0, result.stderr);
+  const commands = await readFile(state.log, "utf8");
+  assert.match(commands, /rental-app --version/u);
+  assert.match(commands, /browser:cleanup --backup-report/u);
+  assert.match(commands, /browser:cleanup --dry-run/u);
+  assert.doesNotMatch(commands, /node (?:src|--input-type)/u);
 });

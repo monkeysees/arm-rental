@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import { execFile } from "node:child_process";
 import {
   chmod,
@@ -843,6 +844,101 @@ test("a refused candidate names the contract it failed", async (t) => {
       error.stderr.includes("stateBackend json, state schema 0-0") &&
       error.stderr.includes("stateBackend sqlite, state schema 1 or higher"),
   );
+});
+
+test("release verification binds the declared runtime to the image label", async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "deploy-runtime-label-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const bundle = join(root, "bundle");
+  const bin = join(root, "bin");
+  await mkdir(bundle);
+  await mkdir(bin);
+  const candidate = digest("e");
+  const revision = "a".repeat(40);
+  const contents = {
+    "compose.production.yaml": await readFile(
+      new URL("../compose.production.yaml", import.meta.url),
+    ),
+    "package-lock.json": await readFile(
+      new URL("../package-lock.json", import.meta.url),
+    ),
+    "operations.tar": Buffer.from("test operations bundle"),
+  };
+  const sha256 = (value) => createHash("sha256").update(value).digest("hex");
+  await Promise.all(
+    Object.entries(contents).map(([name, value]) =>
+      writeFile(join(bundle, name), value),
+    ),
+  );
+  const metadata = join(bundle, "release-metadata.json");
+  await writeFile(
+    metadata,
+    JSON.stringify({
+      schemaVersion: 2,
+      imageReference: candidate,
+      imageDigest: candidate.slice(candidate.indexOf("@") + 1),
+      sourceRevision: revision,
+      stateBackend: "sqlite",
+      runtime: "rust",
+      minimumStateSchema: 1,
+      maximumStateSchema: 6,
+      packageLockSha256: sha256(contents["package-lock.json"]),
+      composeSha256: sha256(contents["compose.production.yaml"]),
+      operationsBundleSha256: sha256(contents["operations.tar"]),
+    }),
+  );
+  const docker = join(bin, "docker");
+  await writeFile(
+    docker,
+    `#!/usr/bin/env bash
+set -eu
+if [[ $1 == inspect ]]; then
+  printf '%s\\n' "$FAKE_RUNTIME"
+elif [[ $1 == image && $2 == inspect ]]; then
+  printf '%s\\n' "$LOCK_DIGEST"
+else
+  exit 99
+fi
+`,
+    { mode: 0o755 },
+  );
+  const verify = (runtime) =>
+    executeFile(
+      "bash",
+      [
+        "-c",
+        `
+          set -Eeuo pipefail
+          DEPLOYMENT_SOURCE_REVISION=$1
+          RENTAL_OPS_STATE_DIR=$2
+          source ops/lib/deployment.sh
+          deployment_verify_release "$2" "$3" "$4"
+        `,
+        "deploy-runtime-label-test",
+        revision,
+        bundle,
+        candidate,
+        metadata,
+      ],
+      {
+        cwd: new URL("..", import.meta.url),
+        env: {
+          ...process.env,
+          PATH: `${bin}:${process.env.PATH}`,
+          FAKE_RUNTIME: runtime,
+          LOCK_DIGEST: sha256(contents["package-lock.json"]),
+        },
+      },
+    );
+  await assert.rejects(
+    verify("node"),
+    (error) =>
+      error.code === 65 &&
+      error.stderr.includes(
+        "image runtime node does not match metadata runtime rust",
+      ),
+  );
+  await assert.doesNotReject(verify("rust"));
 });
 
 test("the deploy noop path reconciles a dead service under a bounded budget", async (t) => {

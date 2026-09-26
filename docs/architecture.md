@@ -1388,10 +1388,10 @@ challenge; loop exclusion; cleanup; and secret-free structured results.
 
 ### Rust rewrite foundation
 
-The [Rust development guide](rust-development.md) maps the retained prototype,
-shared Node behavior oracle, build tools and lifecycle checks to the complete
-rewrite in #44. The prototype is not production feature parity. Node remains the
-production runtime until the replacement is accepted.
+The [Rust development guide](rust-development.md) maps the retained
+`rental-replay` prototype, shared Node behavior oracle, build tools and
+lifecycle checks to the separate `rental-app` implementation in #44. Node
+remains the production runtime until a separately authorized cutover.
 
 The experimental branch narrows Node's full-history private classification:
 SQLite stages unclassified listings, filtered listings matching the current
@@ -1402,7 +1402,7 @@ with the delivery batches. An inventory-presence flag completes initial selectio
 even when every stored listing already has a terminal decision. Routine source
 changes and durable pending work retain their existing path.
 
-Rust's prototype uses bundled SQLite, compact integer decisions and one bounded
+`rental-replay` uses bundled SQLite, compact integer decisions and one bounded
 fair scheduler. Seed batches commit 8,192 rows with durable progress; classification
 and per-message acknowledgements remain atomic. Completed-write checkpoints stop
 further writes if readers block truncation; the 4 MiB retention threshold does not
@@ -1412,7 +1412,6 @@ history processing without dropping decisions. Selection runs newest first while
 delivery remains oldest first.
 
 The [native service](native-service.md), [maintenance](native-maintenance.md) and
-[migration](native-migration.md) documents specify the prototype's supported
-boundaries. They do not establish support for production databases or arbitrary
-crash points. Runtime migration from Node and full bot/channel/source parity are
-required by the rewrite.
+[migration](native-migration.md) documents specify the replay prototype's
+supported boundaries. Production database and full bot/channel/source parity
+belong to the separate `rental-app` candidate described above.

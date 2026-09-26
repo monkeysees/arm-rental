@@ -1,7 +1,7 @@
 name: Promote production
 
-# A state-backend cutover is the one pointer move the publisher will not make
-# on its own. The bridge release that knows how to perform the cutover has to
+# A state-backend or runtime cutover is a pointer move the publisher will not
+# make on its own. The bridge release that knows how to perform the cutover has to
 # be running on the host before the pointer advances, and publishing that
 # bridge is not the same as the host having taken it. Only an operator reading
 # the host can tell the difference, so they confirm it here.

@@ -95,6 +95,24 @@ only one reached. The machinery stays because it is what would gate any future
 backend or storage change; it is not a path back to JSON, which no release can
 read.
 
+### Runtime transition to Rust
+
+The deployed Node release predates the Rust-aware host operations bundle. Its
+deployer cannot start or maintain a Rust image. Publish this branch first as a
+Node bridge and confirm the host has deployed that exact revision before
+publishing a Rust image. The bridge declares that its operations can deploy
+both `node` and `rust`; older release metadata has no runtime field and is
+interpreted as Node-only. A Rust candidate published while an older Node
+release is current is refused before the discovery pointer moves.
+
+Once the bridge is current, a Rust candidate can be published, but the
+publisher holds the discovery pointer for this runtime change even though both
+images use SQLite. Confirm the deployed bridge revision with `rentalctl status`
+and use `promote-production.yml` with that exact revision to advance the
+pointer. A Node image retained for rollback still requires the Node command
+contract in its own historical release bundle; removing Node from the new Rust
+image does not remove that rollback path.
+
 A held cutover is deliberate. Publishing the bridge is not the same as the host
 having deployed it, and only the host knows which. Confirm the deployed
 revision on the host, then run `promote-production.yml` with the revision to

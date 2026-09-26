@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Hold a Node-to-Rust production transition until a runtime-aware bridge release is deployed and explicitly promoted.
+
 - Restore Rust live storage checks, maintenance alerts, atomic history replies, deferred-recipient cancellation and saved-history startup preflight.
 
 - Suppress link previews on Rust channel sends, edits and reposts to match the production bot.

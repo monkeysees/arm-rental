@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { execFileSync, spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { chmodSync, mkdirSync, writeFileSync } from "node:fs";
+import { mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { checkService } from "./service-check.js";
 
@@ -11,12 +11,24 @@ assert(
   "Usage: check.js NEW_ABSOLUTE_OUTPUT IMAGE",
 );
 mkdirSync(output);
-const data = path.join(output, "data");
-const backup = path.join(output, "backup");
-for (const directory of [data, backup]) {
-  mkdirSync(directory);
-  chmodSync(directory, 0o700);
-}
+// Docker seeds each volume from the image's UID-1000 directories. A hosted
+// runner may have a different UID, so its mode-0700 bind directories are not
+// writable by the actual non-root container under test.
+const volumes = [];
+process.on("exit", () => {
+  if (volumes.length > 0)
+    spawnSync("docker", ["volume", "rm", "--force", ...volumes], {
+      stdio: "ignore",
+    });
+});
+const data = execFileSync("docker", ["volume", "create"], {
+  encoding: "utf8",
+}).trim();
+volumes.push(data);
+const backup = execFileSync("docker", ["volume", "create"], {
+  encoding: "utf8",
+}).trim();
+volumes.push(backup);
 const inspect = JSON.parse(
   execFileSync("docker", ["image", "inspect", image], { encoding: "utf8" }),
 )[0];
@@ -38,9 +50,9 @@ const common = [
   "--tmpfs",
   "/sqlite-tmp:mode=0700,uid=1000,gid=1000,nosuid,nodev,noexec",
   "--mount",
-  `type=bind,src=${data},dst=/app/.data`,
+  `type=volume,src=${data},dst=/app/.data`,
   "--mount",
-  `type=bind,src=${backup},dst=/app-backups`,
+  `type=volume,src=${backup},dst=/app-backups`,
   "-e",
   "NODE_ENV=test",
   "-e",

@@ -137,6 +137,7 @@ async function startup(t, { history, apartmentCount }) {
   const records = () =>
     output
       .split("\n")
+      .slice(0, -1)
       .filter((line) => line.startsWith("{"))
       .map((line) => JSON.parse(line));
   const deadline = Date.now() + 7000;

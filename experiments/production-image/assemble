@@ -12,7 +12,7 @@ for binary in /usr/local/bin/rental-app /usr/local/bin/curl-impersonate; do
 done
 sort -u -o "$libraries" "$libraries"
 [[ -s "$libraries" ]]
-mkdir -p "$root/usr/local/bin" "$root/etc/ssl/certs" "$root/usr/share/doc" "$root/var/lib/dpkg" "$root/app/.data" "$root/tmp" "$root/sqlite-tmp" "$root/usr/local/share/native-image"
+mkdir -p "$root/usr/local/bin" "$root/etc/ssl/certs" "$root/usr/share/doc" "$root/var/lib/dpkg" "$root/app/.data" "$root/app-backups" "$root/tmp" "$root/sqlite-tmp" "$root/usr/local/share/native-image"
 packages=(base-files ca-certificates)
 while IFS= read -r library; do
   cp --dereference --parents "$library" "$root"
@@ -36,7 +36,9 @@ cp "$libraries" "$root/usr/local/share/native-image/libraries.txt"
 cp -a /licenses "$root/usr/local/share/licenses"
 cp /components.json "$root/usr/local/share/native-image/components.json"
 chown 1000:1000 "$root/app/.data"
+chown 1000:1000 "$root/app-backups"
 chmod 0700 "$root/app/.data"
+chmod 0700 "$root/app-backups"
 chmod 1777 "$root/tmp" "$root/sqlite-tmp"
 # Resolve inside the finished root too: host libraries must not mask omissions.
 loader="$(sed -n '/\/ld-linux-/p' "$libraries")"

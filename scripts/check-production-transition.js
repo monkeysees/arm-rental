@@ -41,6 +41,17 @@ export function classifyProductionTransition({ current, candidate }) {
     throw new Error(`unsupported current runtime: ${currentRuntime}`);
   }
   if (
+    candidateRuntime === "rust" &&
+    current.cutoverRollbackContract !== "preserve-live-state-v1"
+  ) {
+    return {
+      allowed: false,
+      cutover: currentRuntime !== "rust",
+      reason:
+        "current production release lacks the preserve-live-state-v1 rollback contract; publish and deploy the updated Node bridge first",
+    };
+  }
+  if (
     current.stateBackend === candidate.stateBackend &&
     currentRuntime === candidateRuntime
   ) {

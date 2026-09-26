@@ -122,6 +122,7 @@ test("release manifest binds the deployable image to its complete inputs", async
     deployableStateBackends: ["sqlite"],
     runtime: "node",
     deployableRuntimes: ["node", "rust"],
+    cutoverRollbackContract: "preserve-live-state-v1",
     nodeVersion: nodeVersion.trim(),
     curlImpersonateVersion: "2.2.2",
     packageLockSha256: createHash("sha256").update(packageLock).digest("hex"),
@@ -215,6 +216,7 @@ test("native release metadata records the Rust inputs and preserves the host pac
   );
   assert.equal(metadata.nodeVersion, undefined);
   assert.deepEqual(metadata.deployableRuntimes, ["node", "rust"]);
+  assert.equal(metadata.cutoverRollbackContract, "preserve-live-state-v1");
   await assert.rejects(
     createReleaseMetadata({
       sourceRevision: "c".repeat(40),
@@ -255,9 +257,14 @@ test("production publication advances discovery only after scan, push, and metad
   assert.match(workflow, /workflow_run\.head_branch == 'main'/u);
   assert.match(workflow, /group: production-publication/u);
   assert.match(workflow, /cancel-in-progress: false/u);
-  assert.match(workflow, /image-ref: rental-apartments-native:publication/u);
+  assert.match(workflow, /PRODUCTION_RUNTIME: node/u);
+  assert.match(workflow, /name: Validate publication runtime/u);
+  assert.match(workflow, /if: env\.PRODUCTION_RUNTIME == 'node'/u);
+  assert.match(workflow, /if: env\.PRODUCTION_RUNTIME == 'rust'/u);
+  assert.match(workflow, /image-ref: rental-apartments:publication/u);
+  assert.match(workflow, /--target production/u);
   assert.match(workflow, /docker build -f Dockerfile\.native/u);
-  assert.match(workflow, /--runtime rust/u);
+  assert.match(workflow, /--runtime "\$PRODUCTION_RUNTIME"/u);
   assert.match(workflow, /com\.rental-apartments\.cargo-lock\.sha256/u);
   assert.match(
     workflow,
@@ -321,6 +328,10 @@ test("a state backend cutover reaches production only by confirmed promotion", a
   assert.match(workflow, /group: production-publication/u);
   assert.match(workflow, /cancel-in-progress: false/u);
   assert.match(workflow, /scripts\/check-production-transition\.js/u);
+  assert.match(
+    workflow,
+    /cutoverRollbackContract == "preserve-live-state-v1"/u,
+  );
 
   const confirm = workflow.indexOf(
     "name: Require the confirmed bridge to be the release production runs",
@@ -335,6 +346,157 @@ test("a state backend cutover reaches production only by confirmed promotion", a
     confirm > 0 && confirm < compatible && compatible < advance,
     "confirm the host, then compatibility, and only then move the pointer",
   );
+});
+
+test("promotion binds both metadata objects to their pulled images", async (t) => {
+  const directory = await mkdtemp(join(tmpdir(), "promotion-binding-"));
+  t.after(() => rm(directory, { recursive: true, force: true }));
+  const workflow = await readProjectFile(
+    ".github/workflows/promote-production.yml",
+  );
+  const step = workflow
+    .split(
+      "      - name: Resolve the requested release and the release production runs\n",
+    )[1]
+    ?.split("\n      - name:")[0];
+  const resolve = step?.split("        run: |\n")[1]?.replace(/^ {10}/gmu, "");
+  assert.ok(resolve);
+  const candidateRevision = "c".repeat(40);
+  const currentRevision = "b".repeat(40);
+  const candidateImage = `ghcr.io/example/arm-rental@sha256:${"d".repeat(64)}`;
+  const currentImage = `ghcr.io/example/arm-rental@sha256:${"a".repeat(64)}`;
+  const candidateMetadata = join(directory, "candidate.json");
+  const currentMetadata = join(directory, "current.json");
+  const output = join(directory, "github-output");
+  const log = join(directory, "docker.log");
+  const acceptedCandidate = {
+    sourceRevision: candidateRevision,
+    imageReference: candidateImage,
+    runtime: "rust",
+  };
+  const docker = `
+    docker() {
+      case "$1 $2" in
+        'pull --quiet') ;;
+        'image inspect')
+          case "$*" in
+            *org.opencontainers.image.revision*)
+              case "$*" in
+                *:production*) printf '%s\\n' "$CURRENT_REVISION" ;;
+                *) printf '%s\\n' "$CANDIDATE_IMAGE_REVISION" ;;
+              esac ;;
+            *com.rental-apartments.runtime*)
+              case "$*" in
+                *:production*) printf '%s\\n' "$CURRENT_RUNTIME" ;;
+                *) printf '%s\\n' "$CANDIDATE_RUNTIME" ;;
+              esac ;;
+            *.RepoDigests*)
+              case "$*" in
+                *:production*) printf '%s\\n' "$CURRENT_IMAGE" ;;
+                *) printf '%s\\n' "$CANDIDATE_IMAGE" ;;
+              esac ;;
+            *) return 99 ;;
+          esac ;;
+        create*)
+          case "$2" in
+            *metadata-"$REVISION") printf '%s\\n' candidate-container ;;
+            *) printf '%s\\n' current-container ;;
+          esac ;;
+        cp*)
+          case "$2" in
+            candidate-container:*) cp "$CANDIDATE_METADATA" "$3" ;;
+            current-container:*) cp "$CURRENT_METADATA" "$3" ;;
+            *) return 99 ;;
+          esac ;;
+        rm*) ;;
+        push*) printf '%s\\n' push >> "$DOCKER_LOG" ;;
+        *) return 99 ;;
+      esac
+    }
+  `;
+  async function runCase(
+    current,
+    {
+      currentRuntime = "<no value>",
+      candidate = acceptedCandidate,
+      candidateRuntime = "rust",
+      candidateImageRevision = candidateRevision,
+    } = {},
+  ) {
+    await writeFile(currentMetadata, `${JSON.stringify(current)}\n`);
+    await writeFile(candidateMetadata, `${JSON.stringify(candidate)}\n`);
+    await writeFile(output, "");
+    await writeFile(log, "");
+    let passed = true;
+    let failure;
+    try {
+      execFileSync(
+        "/bin/bash",
+        [
+          "--noprofile",
+          "--norc",
+          "-e",
+          "-o",
+          "pipefail",
+          "-c",
+          `${docker}\n${resolve}\ndocker push production-pointer`,
+        ],
+        {
+          cwd: directory,
+          env: {
+            PATH: process.env.PATH,
+            GITHUB_REPOSITORY: "example/arm-rental",
+            GITHUB_OUTPUT: output,
+            REVISION: candidateRevision,
+            CURRENT_REVISION: currentRevision,
+            CURRENT_IMAGE: currentImage,
+            CURRENT_RUNTIME: currentRuntime,
+            CANDIDATE_IMAGE: candidateImage,
+            CANDIDATE_IMAGE_REVISION: candidateImageRevision,
+            CANDIDATE_RUNTIME: candidateRuntime,
+            CANDIDATE_METADATA: candidateMetadata,
+            CURRENT_METADATA: currentMetadata,
+            DOCKER_LOG: log,
+          },
+          stdio: "pipe",
+        },
+      );
+    } catch (error) {
+      passed = false;
+      failure = `${error.message}\n${error.stderr?.toString()}`;
+    }
+    const pushed = (await readFile(log, "utf8")).includes("push");
+    return { passed, pushed, failure };
+  }
+  const bridge = {
+    sourceRevision: currentRevision,
+    imageReference: currentImage,
+    runtime: "node",
+    cutoverRollbackContract: "preserve-live-state-v1",
+  };
+  const accepted = await runCase(bridge);
+  assert.equal(accepted.passed, true, accepted.failure);
+  assert.equal(accepted.pushed, true);
+  for (const mismatch of [
+    { ...bridge, sourceRevision: candidateRevision },
+    { ...bridge, imageReference: candidateImage },
+    { ...bridge, runtime: "rust" },
+  ]) {
+    const result = await runCase(mismatch);
+    assert.equal(result.passed, false);
+    assert.equal(result.pushed, false);
+  }
+  for (const mismatch of [
+    { candidate: { ...acceptedCandidate, sourceRevision: currentRevision } },
+    { candidate: { ...acceptedCandidate, imageReference: currentImage } },
+    { candidate: { ...acceptedCandidate, runtime: "node" } },
+    { candidateImageRevision: currentRevision },
+    { candidateRuntime: "node" },
+  ]) {
+    const result = await runCase(bridge, mismatch);
+    assert.equal(result.passed, false);
+    assert.equal(result.pushed, false);
+  }
 });
 
 test("the publisher refuses a candidate the running release cannot deploy", async () => {
@@ -377,13 +539,25 @@ test("the publisher refuses a candidate the running release cannot deploy", asyn
   });
   assert.equal(oldNodeRelease.allowed, false);
   assert.equal(oldNodeRelease.cutover, true);
-  assert.match(oldNodeRelease.reason, /deploys only node/u);
+  assert.match(oldNodeRelease.reason, /preserve-live-state-v1/u);
+
+  const unsafeBridge = classifyProductionTransition({
+    current: {
+      stateBackend: "sqlite",
+      runtime: "node",
+      deployableRuntimes: ["node", "rust"],
+    },
+    candidate: { stateBackend: "sqlite", runtime: "rust" },
+  });
+  assert.equal(unsafeBridge.allowed, false);
+  assert.match(unsafeBridge.reason, /preserve-live-state-v1/u);
 
   const runtimeBridge = classifyProductionTransition({
     current: {
       stateBackend: "sqlite",
       runtime: "node",
       deployableRuntimes: ["node", "rust"],
+      cutoverRollbackContract: "preserve-live-state-v1",
     },
     candidate: { stateBackend: "sqlite", runtime: "rust" },
   });
@@ -495,4 +669,47 @@ test("publication accepts the current SQLite image schema and rejects a mismatch
     );
   assert.doesNotThrow(() => verify(SQLITE_SCHEMA_VERSION));
   assert.throws(() => verify(SQLITE_SCHEMA_VERSION - 1));
+});
+
+test("Node bridge publication rejects a Rust image before registry mutation", async () => {
+  const workflow = await readProjectFile(
+    ".github/workflows/publish-production.yml",
+  );
+  const step = workflow
+    .split("      - name: Verify Node runtime and OCI provenance\n")[1]
+    ?.split("\n      - name:")[0];
+  const script = step?.split("        run: |\n")[1]?.replace(/^ {10}/gmu, "");
+  assert.ok(script);
+  const docker = `
+    docker() {
+      case "$*" in
+        *org.opencontainers.image.revision*) printf '%s\\n' "$SOURCE_REVISION" ;;
+        *com.rental-apartments.runtime*) printf '%s\\n' "$TEST_RUNTIME" ;;
+        *org.opencontainers.image.node.version*) printf '%s\\n' 24.18.0 ;;
+        *org.opencontainers.image.curl-impersonate.version*) printf '%s\\n' 2.2.2 ;;
+        *org.opencontainers.image.package-lock.sha256*) sha256sum package-lock.json | cut -d ' ' -f 1 ;;
+        *com.rental-apartments.state.backend*) printf '%s\\n' sqlite ;;
+        *com.rental-apartments.state.schema.minimum*) printf '%s\\n' 1 ;;
+        *com.rental-apartments.state.schema.maximum*) printf '%s\\n' ${SQLITE_SCHEMA_VERSION} ;;
+        *'run --rm --entrypoint node'*) printf '%s\\n' v24.18.0 ;;
+        *) return 99 ;;
+      esac
+    }
+  `;
+  const verify = (runtime) =>
+    execFileSync(
+      "/bin/bash",
+      ["--noprofile", "--norc", "-eu", "-c", `${docker}\n${script}`],
+      {
+        cwd: new URL("..", import.meta.url),
+        env: {
+          PATH: process.env.PATH,
+          SOURCE_REVISION: "a".repeat(40),
+          TEST_RUNTIME: runtime,
+        },
+        stdio: "pipe",
+      },
+    );
+  assert.doesNotThrow(() => verify("<no value>"));
+  assert.throws(() => verify("rust"));
 });

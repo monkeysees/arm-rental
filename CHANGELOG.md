@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Publish a rollback-safe Node bridge with pinned prior-image digest and guarded live-state recovery before held Rust promotion.
+
 - Publish scanned Rust candidates behind an explicit cutover gate and add a disposable Node-to-Rust recovery drill.
 
 - Add a required Node-free packaged Rust 500-recipient capacity gate with frozen delivery expectations, source-separated timing and exact interrupted-work recovery.

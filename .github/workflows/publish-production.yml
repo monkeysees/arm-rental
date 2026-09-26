@@ -26,6 +26,9 @@ jobs:
       github.event.workflow_run.event == 'push'
     runs-on: ubuntu-latest
     timeout-minutes: 40
+    # Flip this to rust only after this Node bridge is published and deployed.
+    env:
+      PRODUCTION_RUNTIME: node
 
     steps:
       - name: Check out the exact successful revision
@@ -39,7 +42,29 @@ jobs:
           node-version-file: .nvmrc
           cache: npm
 
+      - name: Validate publication runtime
+        run: |
+          case "$PRODUCTION_RUNTIME" in
+            node|rust) ;;
+            *) printf 'Unsupported publication runtime.\n' >&2; exit 1 ;;
+          esac
+
+      - name: Build Node bridge from the successful source revision
+        if: env.PRODUCTION_RUNTIME == 'node'
+        env:
+          SOURCE_REVISION: ${{ github.event.workflow_run.head_sha }}
+        run: |
+          PACKAGE_LOCK_SHA256="$(sha256sum package-lock.json | cut -d ' ' -f 1)"
+          docker build \
+            --platform linux/amd64 \
+            --target production \
+            --build-arg SOURCE_REVISION="$SOURCE_REVISION" \
+            --build-arg PACKAGE_LOCK_SHA256="$PACKAGE_LOCK_SHA256" \
+            --tag rental-apartments:publication \
+            .
+
       - name: Build native candidate from the successful source revision
+        if: env.PRODUCTION_RUNTIME == 'rust'
         env:
           SOURCE_REVISION: ${{ github.event.workflow_run.head_sha }}
         run: |
@@ -52,17 +77,40 @@ jobs:
             --build-arg SOURCE_DIRTY=false \
             --build-arg CARGO_LOCK_SHA256="$CARGO_LOCK_SHA256" \
             --build-arg PACKAGE_LOCK_SHA256="$PACKAGE_LOCK_SHA256" \
-            --tag rental-apartments-native:publication \
+            --tag rental-apartments:publication \
             .
 
+      - name: Verify Node runtime and OCI provenance
+        if: env.PRODUCTION_RUNTIME == 'node'
+        env:
+          SOURCE_REVISION: ${{ github.event.workflow_run.head_sha }}
+        run: |
+          PACKAGE_LOCK_SHA256="$(sha256sum package-lock.json | cut -d ' ' -f 1)"
+          MAXIMUM_STATE_SCHEMA="$(node --input-type=module -e 'import { SQLITE_SCHEMA_VERSION } from "./src/sqlite-schema.js"; console.log(SQLITE_SCHEMA_VERSION)')"
+          IMAGE=rental-apartments:publication
+          test "$(docker image inspect --format '{{ index .Config.Labels "org.opencontainers.image.revision" }}' "$IMAGE")" = "$SOURCE_REVISION"
+          RUNTIME="$(docker image inspect --format '{{ index .Config.Labels "com.rental-apartments.runtime" }}' "$IMAGE")"
+          case "$RUNTIME" in
+            ''|'<no value>'|node) ;;
+            *) printf 'Node publication built an unexpected runtime.\n' >&2; exit 1 ;;
+          esac
+          test "$(docker image inspect --format '{{ index .Config.Labels "org.opencontainers.image.node.version" }}' "$IMAGE")" = 24.18.0
+          test "$(docker image inspect --format '{{ index .Config.Labels "org.opencontainers.image.curl-impersonate.version" }}' "$IMAGE")" = 2.2.2
+          test "$(docker image inspect --format '{{ index .Config.Labels "org.opencontainers.image.package-lock.sha256" }}' "$IMAGE")" = "$PACKAGE_LOCK_SHA256"
+          test "$(docker image inspect --format '{{ index .Config.Labels "com.rental-apartments.state.backend" }}' "$IMAGE")" = sqlite
+          test "$(docker image inspect --format '{{ index .Config.Labels "com.rental-apartments.state.schema.minimum" }}' "$IMAGE")" = 1
+          test "$(docker image inspect --format '{{ index .Config.Labels "com.rental-apartments.state.schema.maximum" }}' "$IMAGE")" = "$MAXIMUM_STATE_SCHEMA"
+          test "$(docker run --rm --entrypoint node "$IMAGE" --version)" = v24.18.0
+
       - name: Verify native runtime and OCI provenance
+        if: env.PRODUCTION_RUNTIME == 'rust'
         env:
           SOURCE_REVISION: ${{ github.event.workflow_run.head_sha }}
         run: |
           PACKAGE_LOCK_SHA256="$(sha256sum package-lock.json | cut -d ' ' -f 1)"
           CARGO_LOCK_SHA256="$(sha256sum experiments/rust-replay/Cargo.lock | cut -d ' ' -f 1)"
           MAXIMUM_STATE_SCHEMA="$(node --input-type=module -e 'import { SQLITE_SCHEMA_VERSION } from "./src/sqlite-schema.js"; console.log(SQLITE_SCHEMA_VERSION)')"
-          IMAGE=rental-apartments-native:publication
+          IMAGE=rental-apartments:publication
           test "$(docker image inspect --format '{{ index .Config.Labels "org.opencontainers.image.revision" }}' "$IMAGE")" = "$SOURCE_REVISION"
           test "$(docker image inspect --format '{{ index .Config.Labels "com.rental-apartments.runtime" }}' "$IMAGE")" = rust
           test "$(docker image inspect --format '{{ index .Config.Labels "com.rental-apartments.source.dirty" }}' "$IMAGE")" = false
@@ -72,17 +120,24 @@ jobs:
           test "$(docker image inspect --format '{{ index .Config.Labels "com.rental-apartments.state.schema.minimum" }}' "$IMAGE")" = 1
           test "$(docker image inspect --format '{{ index .Config.Labels "com.rental-apartments.state.schema.maximum" }}' "$IMAGE")" = "$MAXIMUM_STATE_SCHEMA"
 
-      - name: Exercise the exact native image and HTTP closure
+      - name: Exercise the exact Node image and HTTP closure
+        if: env.PRODUCTION_RUNTIME == 'node'
         run: |
-          docker run --rm --entrypoint /usr/local/bin/curl-impersonate rental-apartments-native:publication --version | grep -F 'curl 8.21.0-IMPERSONATE'
-          node experiments/production-image/check.js "$RUNNER_TEMP/publication-native-image-check" rental-apartments-native:publication
+          docker run --rm --entrypoint /usr/local/bin/curl-impersonate rental-apartments:publication --version | grep -F 'curl 8.21.0-IMPERSONATE'
+          scripts/smoke-production-runtime-image rental-apartments:publication
+
+      - name: Exercise the exact native image and HTTP closure
+        if: env.PRODUCTION_RUNTIME == 'rust'
+        run: |
+          docker run --rm --entrypoint /usr/local/bin/curl-impersonate rental-apartments:publication --version | grep -F 'curl 8.21.0-IMPERSONATE'
+          node experiments/production-image/check.js "$RUNNER_TEMP/publication-native-image-check" rental-apartments:publication
 
       # This scan occurs before the first registry mutation. The pushed revision
       # tag and production pointer both reference these exact local bytes.
       - name: Scan candidate before publication
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # 0.36.0
         with:
-          image-ref: rental-apartments-native:publication
+          image-ref: rental-apartments:publication
           scanners: vuln
           vuln-type: os,library
           severity: HIGH,CRITICAL
@@ -96,10 +151,11 @@ jobs:
         run: printf '%s' "$GHCR_TOKEN" | docker login ghcr.io --username "${{ github.actor }}" --password-stdin
 
       - name: Refuse an unbridged Rust publication before any registry push
+        if: env.PRODUCTION_RUNTIME == 'rust'
         run: |
           IMAGE_REPOSITORY="ghcr.io/${GITHUB_REPOSITORY,,}"
           mkdir -p preflight
-          printf '%s\n' '{"stateBackend":"sqlite","runtime":"rust"}' > preflight/candidate.json
+          printf '%s\n' '{"stateBackend":"sqlite","runtime":"rust","cutoverRollbackContract":"preserve-live-state-v1"}' > preflight/candidate.json
           PULL_LOG="$(mktemp)"
           if docker pull --quiet "$IMAGE_REPOSITORY:production" >/dev/null 2>"$PULL_LOG"; then
             CURRENT_REVISION="$(docker image inspect --format '{{ index .Config.Labels "org.opencontainers.image.revision" }}' "$IMAGE_REPOSITORY:production")"
@@ -134,7 +190,7 @@ jobs:
         run: |
           IMAGE_REPOSITORY="ghcr.io/${GITHUB_REPOSITORY,,}"
           REVISION_TAG="$IMAGE_REPOSITORY:revision-$SOURCE_REVISION"
-          docker tag rental-apartments-native:publication "$REVISION_TAG"
+          docker tag rental-apartments:publication "$REVISION_TAG"
           docker push "$REVISION_TAG"
           IMAGE_REFERENCE="$(docker image inspect --format '{{index .RepoDigests 0}}' "$REVISION_TAG")"
           case "$IMAGE_REFERENCE" in
@@ -154,7 +210,7 @@ jobs:
           git archive --format=tar HEAD ops infra/systemd > release/operations.tar
           node scripts/create-release-metadata.js \
             --source-revision "$SOURCE_REVISION" \
-            --runtime rust \
+            --runtime "$PRODUCTION_RUNTIME" \
             --image-reference "$IMAGE_REFERENCE" \
             --operations-bundle release/operations.tar \
             --output release/release-metadata.json

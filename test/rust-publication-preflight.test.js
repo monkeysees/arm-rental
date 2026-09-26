@@ -111,11 +111,13 @@ esac
     stateBackend: "sqlite",
     runtime: "node",
     deployableRuntimes: ["node", "rust"],
+    cutoverRollbackContract: "preserve-live-state-v1",
   };
   for (const scenario of [
     { pointer: "missing", current: bridge },
     { pointer: "denied", current: bridge },
     { current: { ...bridge, deployableRuntimes: undefined } },
+    { current: { ...bridge, cutoverRollbackContract: undefined } },
     {
       current: {
         ...bridge,

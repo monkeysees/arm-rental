@@ -250,8 +250,16 @@ async function manualReleaseFixture(
     operation = "deploy",
     stateStrategy = "compatible",
     schema = 6,
+    stoppedSchema = schema,
     maximumSchema = 6,
     failCandidate = false,
+    failPreviousReady = false,
+    missingContainerAfterCandidate = false,
+    psReportsContainer = false,
+    applicationId = 0x41524d52,
+    integrity = "ok",
+    foreignKeyViolations = 0,
+    updateOffset = 100_001,
   },
 ) {
   const { mkdtemp, mkdir, writeFile, chmod, rm } =
@@ -268,8 +276,16 @@ async function manualReleaseFixture(
     candidateRuntime,
     previousRuntime,
     schema,
+    stoppedSchema,
     maximumSchema,
     failCandidate,
+    failPreviousReady,
+    missingContainerAfterCandidate,
+    psReportsContainer,
+    applicationId,
+    integrity,
+    foreignKeyViolations,
+    updateOffset,
   };
   await writeFile(path.join(root, "fixture.json"), JSON.stringify(fixture));
   await writeFile(
@@ -287,14 +303,26 @@ if (args[0] === "image") {
   const runtime = candidate ? fixture.candidateRuntime : fixture.previousRuntime;
   print({ "com.rental-apartments.state.backend": "sqlite", "com.rental-apartments.state.schema.minimum": "1", "com.rental-apartments.state.schema.maximum": String(candidate ? fixture.maximumSchema : 6), ...(runtime === undefined ? {} : { "com.rental-apartments.runtime": runtime }) });
 } else if (args[0] === "inspect") {
-  if (args.includes("{{.State.Running}}")) process.stdout.write("false\n");
+  if (args.includes("{{.State.Running}}")) {
+    const calls = fs.readFileSync(root + "/calls.jsonl", "utf8").trim().split("\n").map(JSON.parse);
+    if (fixture.missingContainerAfterCandidate && calls.some((call) => call.args.includes("up") && call.image === fixture.candidate)) {
+      process.stderr.write("No such object: rental-apartments-bot\n");
+      process.exit(1);
+    }
+    process.stdout.write("false\n");
+  }
   else print({ Config: { Image: fixture.previous, Labels: { "com.rental-apartments.environment": "production" } }, State: { Running: true }, Mounts: [{ Destination: "/app/.data", Type: "volume", Name: "rental-apartments-data" }] });
+} else if (args[0] === "ps") {
+  if (fixture.psReportsContainer) process.stdout.write("rental-apartments-bot\n");
 } else if (args[0] === "compose") {
   if (args.includes("config")) print({ services: { bot: { container_name: "rental-apartments-bot", labels: { "com.rental-apartments.environment": "production" }, environment: { NODE_ENV: "production" }, read_only: true, deploy: { replicas: 1, update_config: { order: "stop-first" } }, volumes: [{ target: "/app/.data", type: "volume" }] } } });
+  else if (args.includes("state:inspect")) print({ stateBackend: "sqlite", stateSchema: fixture.stoppedSchema });
+  else if (args.some((arg) => arg.includes("PRAGMA quick_check"))) print({ stateBackend: "sqlite", stateSchema: fixture.stoppedSchema, applicationId: fixture.applicationId, integrity: [{ quick_check: fixture.integrity }], foreignKeyViolations: fixture.foreignKeyViolations, updateOffset: fixture.updateOffset });
   else if (args.includes("up") && fixture.failCandidate && process.env.RENTAL_APARTMENTS_IMAGE === fixture.candidate) process.exit(17);
   else print({ ok: true });
 } else if (args[0] === "exec") {
   if (args.includes("state:inspect") || args.some((arg) => arg.includes("PRAGMA user_version"))) print({ stateBackend: "sqlite", stateSchema: fixture.schema });
+  else if (fixture.failPreviousReady && args.includes("node") && args.includes("-e") && fs.readFileSync(root + "/calls.jsonl", "utf8").trim().split("\n").map(JSON.parse).some((call) => call.args.includes("up") && call.image === fixture.previous)) process.exit(18);
   else print({ ready: true });
 } else if (args[0] === "logs") {
   print({ event: "startup.preflight.completed", preflight: { status: "ready", checks: { telegram: "passed", channel: "passed" } } });
@@ -455,12 +483,15 @@ test("manual failed rollout restores and probes the retained Rust image with its
   ]);
 });
 
-test("manual Node-to-Rust failure restores the Node snapshot and restarts Node without native Compose", async (t) => {
+test("manual Node-to-Rust failure keeps compatible live state and restarts Node without native Compose", async (t) => {
   const fixture = await manualReleaseFixture(t, {
     candidateRuntime: "rust",
     failCandidate: true,
   });
-  await assert.rejects(fixture.run(), /previous image were restored/u);
+  await assert.rejects(
+    fixture.run(),
+    /compatible live SQLite state without snapshot restore/u,
+  );
   const calls = await fixture.calls();
   const validation = calls.findIndex(({ args }) =>
     args.includes("backup:validate"),
@@ -476,16 +507,22 @@ test("manual Node-to-Rust failure restores the Node snapshot and restarts Node w
       args.includes("stop") &&
       image === completeArguments.image,
   );
-  const restore = calls.findIndex(({ args }) => args.includes("restore"));
+  const inspection = calls.findIndex(
+    ({ args, image }) =>
+      image === completeArguments["previous-image"] &&
+      args.some((arg) => arg.includes("PRAGMA quick_check")),
+  );
   const nodeUp = calls.findIndex(
     ({ args, image }, index) =>
-      index > restore &&
+      index > inspection &&
       args.includes("up") &&
       image === completeArguments["previous-image"],
   );
   assert.ok(validation >= 0 && validation < stopOld && stopOld < candidateUp);
   assert.ok(
-    candidateUp < stopCandidate && stopCandidate < restore && restore < nodeUp,
+    candidateUp < stopCandidate &&
+      stopCandidate < inspection &&
+      inspection < nodeUp,
   );
   assert.deepEqual(calls[validation].args.slice(-5), [
     "npm",
@@ -499,14 +536,12 @@ test("manual Node-to-Rust failure restores the Node snapshot and restarts Node w
       arg.endsWith("ops/compose.native.yaml"),
     ),
   );
-  assert.deepEqual(calls[restore].args.slice(-5), [
-    "npm",
-    "run",
-    "restore",
-    "--",
-    completeArguments.snapshot,
-  ]);
-  assert.equal(calls[restore].image, completeArguments["previous-image"]);
+  assert.ok(!calls.some(({ args }) => args.includes("restore")));
+  assert.ok(
+    !calls[inspection].args.some((arg) =>
+      arg.endsWith("ops/compose.native.yaml"),
+    ),
+  );
   assert.ok(
     !calls[nodeUp].args.some((arg) => arg.endsWith("ops/compose.native.yaml")),
   );
@@ -519,4 +554,223 @@ test("manual Node-to-Rust failure restores the Node snapshot and restarts Node w
         args[3] === "-e",
     ),
   );
+});
+
+test("manual Node-to-Rust failure restores the snapshot only with an explicit restore strategy", async (t) => {
+  const fixture = await manualReleaseFixture(t, {
+    candidateRuntime: "rust",
+    failCandidate: true,
+    stateStrategy: "restore",
+  });
+  await assert.rejects(fixture.run(), /previous image were restored/u);
+  const calls = await fixture.calls();
+  const restore = calls.find(({ args }) => args.includes("restore"));
+  assert.deepEqual(restore.args.slice(-5), [
+    "npm",
+    "run",
+    "restore",
+    "--",
+    completeArguments.snapshot,
+  ]);
+  assert.equal(restore.image, completeArguments["previous-image"]);
+  assert.ok(
+    !calls.some(({ args }) =>
+      args.some((arg) => arg.includes("PRAGMA quick_check")),
+    ),
+  );
+});
+
+test("manual Node-to-Rust recovery leaves live state untouched when identity, integrity, or schema is unsafe", async (t) => {
+  for (const options of [
+    { applicationId: 1234 },
+    { integrity: "corrupt" },
+    { foreignKeyViolations: 1 },
+    { updateOffset: -1 },
+    { schema: 7 },
+  ]) {
+    const fixture = await manualReleaseFixture(t, {
+      candidateRuntime: "rust",
+      failCandidate: true,
+      ...options,
+    });
+    await assert.rejects(
+      fixture.run(),
+      /recovery failed.*review the live volume/u,
+    );
+    const calls = await fixture.calls();
+    assert.ok(
+      calls.some(({ args }) =>
+        args.some((arg) => arg.includes("PRAGMA quick_check")),
+      ),
+    );
+    assert.ok(!calls.some(({ args }) => args.includes("restore")));
+    assert.ok(
+      !calls.some(
+        ({ args, image }) =>
+          args.includes("up") && image === completeArguments["previous-image"],
+      ),
+    );
+  }
+});
+
+test("failed compatible rollback to Node restarts Rust on live acknowledgements", async (t) => {
+  const fixture = await manualReleaseFixture(t, {
+    operation: "rollback",
+    candidateRuntime: "node",
+    previousRuntime: "rust",
+    failCandidate: true,
+  });
+  await assert.rejects(
+    fixture.run(),
+    /previous image restarted on compatible live SQLite state without snapshot restore/u,
+  );
+  const calls = await fixture.calls();
+  const candidateUp = calls.findIndex(
+    ({ args, image }) =>
+      args.includes("up") && image === completeArguments.image,
+  );
+  const stoppedInspection = calls.findIndex(
+    ({ args }, index) =>
+      index > candidateUp &&
+      args[0] === "compose" &&
+      args.includes("state:inspect"),
+  );
+  const rustUp = calls.findIndex(
+    ({ args, image }, index) =>
+      index > stoppedInspection &&
+      args.includes("up") &&
+      image === completeArguments["previous-image"],
+  );
+  assert.ok(candidateUp < stoppedInspection && stoppedInspection < rustUp);
+  assert.equal(
+    calls[stoppedInspection].image,
+    completeArguments["previous-image"],
+  );
+  assert.ok(
+    !calls.some(
+      ({ args }) => args.includes("restore") || args.includes("backup:restore"),
+    ),
+  );
+  assert.ok(
+    calls[rustUp].args.some((arg) => arg.endsWith("ops/compose.native.yaml")),
+  );
+});
+
+test("failed compatible rollback rejects newer live schema without restoring an old snapshot", async (t) => {
+  const fixture = await manualReleaseFixture(t, {
+    operation: "rollback",
+    candidateRuntime: "node",
+    previousRuntime: "rust",
+    failCandidate: true,
+    stoppedSchema: 7,
+  });
+  await assert.rejects(
+    fixture.run(),
+    /recovery failed.*review the live volume/u,
+  );
+  const calls = await fixture.calls();
+  assert.ok(
+    calls.some(
+      ({ args }) => args[0] === "compose" && args.includes("state:inspect"),
+    ),
+  );
+  assert.ok(
+    !calls.some(
+      ({ args }) => args.includes("restore") || args.includes("backup:restore"),
+    ),
+  );
+  assert.ok(
+    !calls.some(
+      ({ args, image }) =>
+        args.includes("up") && image === completeArguments["previous-image"],
+    ),
+  );
+});
+
+test("manual recovery treats a missing recreated container as stopped", async (t) => {
+  const fixture = await manualReleaseFixture(t, {
+    candidateRuntime: "rust",
+    failCandidate: true,
+    missingContainerAfterCandidate: true,
+  });
+  await assert.rejects(
+    fixture.run(),
+    /previous image restarted on compatible live SQLite state/u,
+  );
+  const calls = await fixture.calls();
+  const missingInspect = calls.findIndex(
+    ({ args }, index) =>
+      index > calls.findIndex(({ args: prior }) => prior.includes("up")) &&
+      args[0] === "inspect" &&
+      args.includes("{{.State.Running}}"),
+  );
+  const ps = calls.findIndex(({ args }) => args[0] === "ps");
+  const previousUp = calls.findIndex(
+    ({ args, image }, index) =>
+      index > ps &&
+      args.includes("up") &&
+      image === completeArguments["previous-image"],
+  );
+  assert.ok(missingInspect >= 0 && missingInspect < ps && ps < previousUp);
+});
+
+test("manual recovery refuses overlap when a missing inspect still finds the singleton", async (t) => {
+  const fixture = await manualReleaseFixture(t, {
+    candidateRuntime: "rust",
+    failCandidate: true,
+    missingContainerAfterCandidate: true,
+    psReportsContainer: true,
+  });
+  await assert.rejects(
+    fixture.run(),
+    /recovery overlap.*review the live volume/u,
+  );
+  const calls = await fixture.calls();
+  assert.ok(!calls.some(({ args }) => args.includes("restore")));
+  assert.ok(
+    !calls.some(
+      ({ args, image }) =>
+        args.includes("up") && image === completeArguments["previous-image"],
+    ),
+  );
+});
+
+test("manual recovery stops an unready previous image and confirms the singleton is stopped", async (t) => {
+  const fixture = await manualReleaseFixture(t, {
+    candidateRuntime: "rust",
+    failCandidate: true,
+    failPreviousReady: true,
+  });
+  await assert.rejects(
+    fixture.run(),
+    /recovery failed: Previous image recovery failed and its container was stopped/u,
+  );
+  const calls = await fixture.calls();
+  const previousUp = calls.findIndex(
+    ({ args, image }) =>
+      args.includes("up") && image === completeArguments["previous-image"],
+  );
+  const readiness = calls.findIndex(
+    ({ args }, index) =>
+      index > previousUp &&
+      args[0] === "exec" &&
+      args[2] === "node" &&
+      args[3] === "-e",
+  );
+  const previousStop = calls.findIndex(
+    ({ args, image }, index) =>
+      index > readiness &&
+      args.includes("stop") &&
+      image === completeArguments["previous-image"],
+  );
+  assert.ok(
+    previousUp >= 0 && previousUp < readiness && readiness < previousStop,
+  );
+  assert.deepEqual(calls.at(-1).args, [
+    "inspect",
+    "--format",
+    "{{.State.Running}}",
+    "rental-apartments-bot",
+  ]);
+  assert.ok(!calls.some(({ args }) => args.includes("restore")));
 });

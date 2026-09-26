@@ -21,11 +21,11 @@ they cannot falsely report that a requested mutation completed.
 ## Publication prerequisites and gates
 
 `publish-production.yml` runs only after a successful `Required CI` push to
-`main`. It checks out that workflow's exact commit and builds the native image
-from the pinned Rust, Cargo, curl-impersonate, and repository lockfile inputs.
-It verifies the runtime and SQLite schema labels, source revision, clean source
-mark, Cargo and package-lock digests, packaged service and HTTP closure, then
-runs the blocking Trivy scan before pushing.
+`main`. It checks out that workflow's exact commit and selects one image with
+`PRODUCTION_RUNTIME`. The setting is `node` for the updated bridge release; a
+later reviewed commit changes it to `rust` after that bridge is deployed. Each
+path verifies the image's runtime, source and lockfile identities, packaged
+service and HTTP closure, then runs the blocking Trivy scan before pushing.
 GitHub Actions concurrency serializes publication and does not cancel an
 in-progress publisher.
 
@@ -37,18 +37,22 @@ publishes a metadata image tagged `metadata-<full-git-revision>`. Its
 - the supported state backend and inclusive schema range;
 - the state backends this release's own deployer accepts
   (`deployableStateBackends`);
+- the tested live-state rollback capability
+  (`cutoverRollbackContract: preserve-live-state-v1`);
 - the `package-lock.json` digest;
 - the Rust toolchain and Cargo lock digest for a Rust candidate;
 - the production Compose digest; and
 - a deterministic archive digest for `ops/` and `infra/systemd/`.
 
-Before the first registry push, the publisher reads and binds the current
+Before the first Rust registry push, the publisher reads and binds the current
 `production` image to its metadata and checks that release's runtime deployment
-contract. A Rust candidate fails closed when the current release is Node-only or
-the pointer cannot be verified. The publisher copies the new metadata back out
-and compares it byte-for-byte before considering `production`. A runtime change
-holds that pointer for operator promotion; a failed quality gate, provenance
-check, scan, candidate push, or metadata push cannot change host discovery.
+and live-state rollback contracts. The existing Node bridge does not carry the
+new rollback marker and cannot authorize Rust publication. A Rust candidate
+fails closed when the pointer cannot be verified. The publisher copies the new
+metadata back out and compares it byte-for-byte before considering `production`.
+A runtime change holds that pointer for operator promotion; a failed quality
+gate, provenance check, scan, candidate push, or metadata push cannot change
+host discovery.
 
 ### First upgrade to the HTTP transport
 
@@ -104,13 +108,28 @@ read.
 
 ### Runtime transition to Rust
 
-The deployed Node release predates the Rust-aware host operations bundle. Its
-deployer cannot start or maintain a Rust image. Publish this branch first as a
-Node bridge and confirm the host has deployed that exact revision before
-publishing a Rust image. The bridge declares that its operations can deploy
-both `node` and `rust`; older release metadata has no runtime field and is
-interpreted as Node-only. A Rust candidate published while an older Node
-release is current is refused before the discovery pointer moves.
+The currently deployed Node bridge can start Rust, but its rollback path
+restores the predeploy snapshot after a rejected candidate. Publish the updated
+Node bridge with `PRODUCTION_RUNTIME: node` and confirm the host has deployed
+that exact revision before changing the publisher to `rust`. The new bridge
+declares both deployable runtimes and the `preserve-live-state-v1` rollback
+contract. Rust publication and promotion require that marker on the current
+production release; the existing bridge lacks it. The Node bridge publication
+advances the discovery pointer through the normal same-runtime path.
+
+The current host still runs the older bridge: its attempted #47 Node update
+failed under the old deployer, the application recovered healthy, and the
+unattended timer is paused. Keep that timer paused for this first updated
+bridge rollout. While the application stays live, stage the new immutable Node
+release from its metadata-bound digest using the existing
+`deployment_extract_release_bundle`, `deployment_verify_release`,
+`deployment_validate_operations_archive`, and `deployment_fetch_release`
+checks. Refuse any pre-existing release directory that has not been verified
+against those inputs. Then invoke that staged release's `ops/deploy` once with
+an operator actor; verify its receipt, image digest, service readiness, backup
+mount and operations lock before re-enabling the timer. Do not unpause the old
+launcher and let it retry the transition. The exact one-time command must be
+checked against the published revision and digest after publication.
 
 Once the bridge is current, a Rust candidate can be published, but the
 publisher holds the discovery pointer for this runtime change even though both
@@ -142,14 +161,17 @@ each restore and checks readiness, crawl, and offset continuity through local
 HTTPS peers. It does not replace the host bridge,
 backup mount, operations lock, or live delivery checks below.
 
-The disposable drill also exposes a rollback boundary: a listing newly sent
-and acknowledged by Rust was resent by Node after restoring the older predeploy
-snapshot. Node preserved that acknowledgement when restarted against the live
-compatible schema-6 state, but the current unattended deployer always restores
-the predeploy snapshot on candidate failure. Keep the prior immutable Node
-image and matching snapshot, and review this duplicate risk before authorizing
-the live cutover. Do not describe a snapshot restore after new Rust deliveries
-as duplicate-free.
+The disposable drill exposes a rollback boundary: Node preserved a listing
+acknowledged by Rust when restarted against compatible live schema-6 state,
+but resent it after restoring the older predeploy snapshot. On a failed Rust
+candidate with a retained Node predecessor, the updated unattended deployer
+stops and confirms the candidate is stopped, inspects the live database
+read-only, checks its schema against the prior release, and restarts Node on
+that live state. If inspection, compatibility, or restart fails, it leaves the
+service stopped and alerts for operator recovery. The validated predeploy
+snapshot and retained Node image remain available for explicit restore, which
+can replay work accepted after the snapshot. Other runtime transitions retain
+snapshot rollback.
 
 ## Host prerequisites and safe checks
 
@@ -291,20 +313,29 @@ contains `deletionPendingAt` must resume that deletion; rolling back across the
 deletion boundary is allowed only with the matching, internally consistent
 pre-deletion snapshot of both bot and private-delivery state.
 
-Any candidate failure after mutation stops the candidate, restores the verified
-pre-deploy snapshot, starts the previous immutable image through systemd, and
-requires readiness. A successful recovery emits
+On a failed Rust candidate with a retained Node predecessor, unattended
+recovery stops and confirms the candidate is stopped, inspects live SQLite
+state read-only, checks its schema against the prior release, then starts the
+previous immutable Node image on that live state and requires readiness. It
+does not automatically restore the older pre-deploy snapshot, which could
+erase Rust acknowledgements and cause repeated delivery. A failed deployment
+receipt records `rollback.stateStrategy` as `compatible-live` for this path or
+`snapshot-restore` for other transitions. A successful recovery emits
 `deployment.rollback.completed`, records `rollback.result: completed`, opens a
 deployment alert, and leaves `rental-deploy.service` failed so the incident is
 visible.
 
-The same recovery path covers launch and observation failures. The restore is
-performed by the previous image, whose exact managed-target list removes the
-database and sidecars before reinstalling the verified snapshot. The
-previous release is restarted only after restore succeeds. Deployment never
-converts state during a code release.
+This guarded live-state path covers Rust launch and observation failures. If
+the candidate cannot be confirmed stopped, live state is incompatible or
+corrupt, or the previous image cannot become ready, recovery leaves the service
+stopped and alerts for operator action. For other runtime transitions, the
+previous image restores the verified pre-deploy snapshot before restart. The
+validated snapshot and retained image remain available for an explicit
+operator restore after a failed Rust cutover; that restore can replay work
+accepted after the snapshot. Deployment never converts state during a code
+release.
 
-If snapshot restore or previous-image readiness fails, the command records
+If guarded recovery, snapshot restore, or previous-image readiness fails, the command records
 `deployment.rollback.failed`, preserves its evidence, and leaves the unit
 failed. It does not repeatedly restart or mutate state. Recover manually using
 the retained snapshot and previous digest, then escalate with the sanitized

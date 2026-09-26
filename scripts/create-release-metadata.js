@@ -141,6 +141,7 @@ export async function createReleaseMetadata({
     deployableStateBackends: ["sqlite"],
     runtime,
     deployableRuntimes: ["node", "rust"],
+    cutoverRollbackContract: "preserve-live-state-v1",
     ...(runtime === "rust"
       ? { rustVersion, cargoLockSha256: sha256(runtimeInput) }
       : { nodeVersion: runtimeInput.trim() }),

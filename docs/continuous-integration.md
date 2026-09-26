@@ -66,10 +66,12 @@ the published image or live data.
 
 `Publish production` is a separate `workflow_run` workflow. It can run only
 after a successful `Required CI` push to `main`, checks out the triggering
-workflow's exact `head_sha`, and rebuilds byte-equivalent inputs with the same
-pinned Dockerfile arguments. Publication repeats runtime-label validation and
-the blocking Trivy scan so no registry object can appear if the published bytes
-diverge from the required artifact job.
+workflow's exact `head_sha`, and builds the runtime selected by its explicit
+`PRODUCTION_RUNTIME` setting. The setting is `node` for the updated bridge
+release. After that bridge is published and confirmed on the host, a separate
+reviewed change can set it to `rust` to publish a held candidate. Both paths
+repeat runtime and provenance checks, packaged image checks, and the blocking
+Trivy scan before any registry push.
 
 The workflow uses the single `production-publication` concurrency group with
 `cancel-in-progress: false`. Once a run starts publishing, a newer run waits;
@@ -87,8 +89,9 @@ Registry mutation occurs in this order:
 4. create a stopped container from the commandless scratch metadata image with
    an explicit inert command, then extract and compare the published metadata;
    and
-5. tag those same local image bytes as `production` and push that discovery
-   pointer.
+5. classify the transition against the current release; advance the
+   `production` discovery pointer for a same-runtime Node bridge, or hold it
+   for an explicitly promoted Node-to-Rust transition.
 
 The VPS never deploys the mutable tag. It resolves the pointer, validates the
 metadata object and exact Git commit, and renders Compose with the resulting

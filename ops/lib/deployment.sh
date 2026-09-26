@@ -285,6 +285,99 @@ deployment_compose() {
     "$@"
 }
 
+deployment_confirm_application_stopped() {
+  local running names
+  if running=$(docker inspect --format '{{.State.Running}}' "$RENTAL_CONTAINER_NAME" 2>/dev/null); then
+    [[ $running == false ]]
+    return
+  fi
+  names=$(docker ps --all --format '{{.Names}}' --filter "name=^/${RENTAL_CONTAINER_NAME}$") || return
+  [[ -z $names ]]
+}
+
+deployment_retain_previous_image() {
+  local previous_image=$1 previous_metadata=$2
+  local running_id pulled_id declared_runtime image_runtime repo_digests
+  deployment_validate_digest_reference "$previous_image" || return 65
+  running_id=$(docker inspect --format '{{.Image}}' "$RENTAL_CONTAINER_NAME") || return
+  [[ $running_id =~ ^sha256:[0-9a-f]{64}$ ]] || return 65
+  docker pull "$previous_image" >/dev/null || return
+  pulled_id=$(docker image inspect --format '{{.Id}}' "$previous_image") || return
+  [[ $pulled_id == "$running_id" ]] || {
+    printf 'Recorded previous image does not match the running container\n' >&2
+    return 65
+  }
+  repo_digests=$(docker image inspect --format '{{json .RepoDigests}}' "$previous_image") || return
+  jq -e --arg image "$previous_image" 'index($image) != null' \
+    <<<"$repo_digests" >/dev/null || return 65
+  declared_runtime=$(jq -er '.runtime // "node" | select(. == "node" or . == "rust")' "$previous_metadata") || return
+  image_runtime=$(ops_runtime "$previous_image") || return
+  [[ $image_runtime == "$declared_runtime" ]] || {
+    printf 'Recorded previous image runtime does not match its release\n' >&2
+    return 65
+  }
+}
+
+# A failed Rust candidate may have acknowledged work after the predeploy
+# snapshot. Restore the previous image, but retain the live SQLite state.
+deployment_recover_node_from_live_state() {
+  local candidate_release=$1 candidate_env=$2 previous_release=$3
+  local previous_env=$4 previous_metadata=$5 previous_image=$6
+  local live_state previous_labels
+
+  deployment_compose "$candidate_release" "$candidate_env" stop bot || return
+  deployment_confirm_application_stopped || return
+  deployment_restore_current "$previous_release" "$previous_image" || return
+
+  live_state=$(
+    deployment_compose "$candidate_release" "$candidate_env" \
+      run --rm --no-deps bot state:inspect
+  ) || return
+  previous_labels=$(docker image inspect --format '{{json .Config.Labels}}' "$previous_image") || return
+  jq -e --arg image "$previous_image" --argjson labels "$previous_labels" \
+    --slurpfile previous "$previous_metadata" '
+    .stateBackend == "sqlite" and
+    (.stateSchema | type) == "number" and
+    .stateSchema == (.stateSchema | floor) and
+    .stateSchema >= 1 and
+    $previous[0].imageReference == $image and
+    $previous[0].stateBackend == "sqlite" and
+    $labels["com.rental-apartments.state.backend"] == "sqlite" and
+    ($labels["com.rental-apartments.state.schema.minimum"] | tonumber) == $previous[0].minimumStateSchema and
+    ($labels["com.rental-apartments.state.schema.maximum"] | tonumber) == $previous[0].maximumStateSchema and
+    .stateSchema >= $previous[0].minimumStateSchema and
+    .stateSchema <= $previous[0].maximumStateSchema
+  ' <<<"$live_state" >/dev/null || return
+
+  if ops_start_application; then
+    return 0
+  fi
+  # A failed systemd start can leave a running, unready Node container.
+  ops_stop_application || true
+  deployment_compose "$previous_release" "$previous_env" stop bot || true
+  deployment_confirm_application_stopped || return
+  return 1
+}
+
+deployment_recover_previous_snapshot() {
+  local candidate_release=$1 candidate_env=$2 previous_release=$3
+  local previous_env=$4 previous_image=$5 snapshot=$6 snapshot_container
+
+  deployment_compose "$candidate_release" "$candidate_env" stop bot || return
+  deployment_confirm_application_stopped || return
+  deployment_restore_current "$previous_release" "$previous_image" || return
+  snapshot_container=$(ops_snapshot_container_path "$snapshot") || return
+  ops_app_command "$previous_image" restore "$snapshot_container" || return
+  deployment_compose "$previous_release" "$previous_env" \
+    run --rm --no-deps bot "${OPS_APP_COMMAND[@]}" || return
+  if ops_start_application; then
+    return 0
+  fi
+  ops_stop_application || return
+  deployment_confirm_application_stopped || return
+  return 1
+}
+
 deployment_write_image_environment() {
   local target=$1
   local reference=$2
@@ -764,7 +857,17 @@ deployment_write_evidence() {
   local first_install=$7
   local rollback_result=$8
   local release_directory=$9
+  local rollback_strategy=${10:-not-applicable}
   local digest timestamp file temporary
+  case $rollback_strategy in
+    not-applicable|compatible-live|snapshot-restore) ;;
+    *) printf 'Unsupported rollback state strategy\n' >&2; return 65 ;;
+  esac
+  if [[ $rollback_result == not-applicable ]]; then
+    [[ $rollback_strategy == not-applicable ]] || return 65
+  else
+    [[ $rollback_strategy != not-applicable ]] || return 65
+  fi
   digest=$(deployment_digest_hex "$candidate")
   timestamp=$(date -u +%Y%m%dT%H%M%SZ)
   install -d -m 0700 "$RENTAL_DEPLOYMENTS_DIR"
@@ -781,6 +884,7 @@ deployment_write_evidence() {
     --arg snapshot "$snapshot" \
     --argjson firstInstall "$first_install" \
     --arg rollbackResult "$rollback_result" \
+    --arg rollbackStrategy "$rollback_strategy" \
     --arg completedAt "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
     '{
       schemaVersion: 1,
@@ -794,7 +898,8 @@ deployment_write_evidence() {
       firstInstall: $firstInstall,
       rollback: {
         attempted: ($rollbackResult != "not-applicable"),
-        result: $rollbackResult
+        result: $rollbackResult,
+        stateStrategy: $rollbackStrategy
       },
       completedAt: $completedAt
     }' >"$temporary"

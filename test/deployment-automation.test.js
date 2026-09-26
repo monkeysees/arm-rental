@@ -504,6 +504,47 @@ test("deployment evidence is exclusive and retention tracks three complete relea
   );
 });
 
+test("rollback receipts distinguish live-state recovery from snapshot restoration", async (t) => {
+  const directory = await mkdtemp(join(tmpdir(), "deploy-rollback-evidence-"));
+  t.after(() => rm(directory, { recursive: true, force: true }));
+  const script = `
+    set -Eeuo pipefail
+    RENTAL_OPS_STATE_DIR=$1
+    RENTAL_DEPLOYMENTS_DIR=$1/deployments
+    source ops/lib/common.sh
+    source ops/lib/deployment.sh
+    deployment_write_evidence failed operator:test "$2" "$3" "$4" \
+      /mnt/backups/daily/2026-07-26T00:00:00Z false completed \
+      /var/lib/rental-apartments/releases/candidate "$5"
+  `;
+  for (const [strategy, character] of [
+    ["compatible-live", "a"],
+    ["snapshot-restore", "b"],
+  ]) {
+    const { stdout } = await executeFile(
+      "bash",
+      [
+        "-c",
+        script,
+        "rollback-evidence-test",
+        directory,
+        digest(character),
+        digest("c"),
+        "d".repeat(40),
+        strategy,
+      ],
+      { cwd: new URL("..", import.meta.url) },
+    );
+    const receipt = JSON.parse(await readFile(stdout.trim(), "utf8"));
+    assert.deepEqual(receipt.rollback, {
+      attempted: true,
+      result: "completed",
+      stateStrategy: strategy,
+    });
+    assert.match(receipt.snapshot, /2026-07-26T00:00:00Z$/u);
+  }
+});
+
 test("deployment refuses any release that does not declare the SQLite backend", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "deploy-state-transition-"));
   t.after(() => rm(root, { recursive: true, force: true }));
@@ -637,7 +678,9 @@ test("unattended deploy contract covers no-op, first install, rollback, and fail
   assert.match(deploy, /deployment\.rollback\.failed/u);
   assert.match(deploy, /deployment_write_quarantine/u);
   assert.match(deploy, /ops_run_app backup/u);
-  assert.match(deploy, /ops_app_command "\$DEPLOYMENT_PREVIOUS" restore/u);
+  assert.match(deploy, /deployment_recover_node_from_live_state/u);
+  assert.match(deploy, /deployment_recover_previous_snapshot/u);
+  assert.match(library, /ops_app_command "\$previous_image" restore/u);
   // Nothing may migrate state at deploy time any more: SQLite is the only
   // backend, so a deploy stops, snapshots, and launches.
   assert.doesNotMatch(deploy, /state-migration-cli|json-to-sqlite/u);

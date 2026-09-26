@@ -95,6 +95,24 @@ only one reached. The machinery stays because it is what would gate any future
 backend or storage change; it is not a path back to JSON, which no release can
 read.
 
+### Runtime transition to Rust
+
+The deployed Node release predates the Rust-aware host operations bundle. Its
+deployer cannot start or maintain a Rust image. Publish this branch first as a
+Node bridge and confirm the host has deployed that exact revision before
+publishing a Rust image. The bridge declares that its operations can deploy
+both `node` and `rust`; older release metadata has no runtime field and is
+interpreted as Node-only. A Rust candidate published while an older Node
+release is current is refused before the discovery pointer moves.
+
+Once the bridge is current, a Rust candidate can be published, but the
+publisher holds the discovery pointer for this runtime change even though both
+images use SQLite. Confirm the deployed bridge revision with `rentalctl status`
+and use `promote-production.yml` with that exact revision to advance the
+pointer. A Node image retained for rollback still requires the Node command
+contract in its own historical release bundle; removing Node from the new Rust
+image does not remove that rollback path.
+
 A held cutover is deliberate. Publishing the bridge is not the same as the host
 having deployed it, and only the host knows which. Confirm the deployed
 revision on the host, then run `promote-production.yml` with the revision to
@@ -229,14 +247,15 @@ rewrite an unsupported database. Candidate acceptance must show a
 `source.integrity.checked` record and `crawl.succeeded` record with the same
 crawl ID.
 
-This release accepts SQLite schemas 1–4 and writes schema 4. The upgrade to
+The current Node application and native candidate accept SQLite schemas 1–6
+and write schema 6. The upgrade to
 schema 4 replaces private delivery rows transactionally, then reclaims free
 pages with a retryable one-time VACUUM before startup continues. Allow temporary
 space for replacement pages, WAL, and the VACUUM copy, and preserve the stopped
-service's pre-deploy snapshot on independent storage. Previous schema-2/3 images
-cannot use `state-strategy=compatible` against this live state: use the existing
-snapshot restore rollback path. Exact migration and rollback evidence is in
-[the compaction benchmark](compact-decisions-benchmark.md).
+service's pre-deploy snapshot on independent storage. Images whose supported
+schema range excludes 6 cannot use `state-strategy=compatible` against this live state: use the existing
+snapshot restore rollback path. See the [schema contract](sqlite-schema.md)
+for migration and interruption behavior.
 
 The restored deployment configuration remains the access-policy authority;
 never infer an access mode from snapshot users or resume users that the
@@ -302,3 +321,19 @@ and rollback fail, the operator must choose between repairing the previous
 release, restoring another validated snapshot, or keeping the bot stopped.
 Follow [state recovery](state-recovery.md), retain all pre-change and failure
 evidence, and escalate before destructive volume or snapshot changes.
+
+The manual `scripts/release-operations.js` runner selects commands from each
+immutable image's `com.rental-apartments.runtime` label. Rust images use the
+bundled native Compose override, `rental-app` readiness probes and native backup
+commands. Explicit `node` labels and retained images without a runtime label use
+their existing Node commands; an unknown label fails before the running service
+is stopped. Candidate and retained images are evaluated independently, so a
+rollback across runtimes keeps using the retained image's own recovery tools.
+
+For a Rust container, the compatible-rollback check runs
+`rental-app state:inspect`. This command reads the installed SQLite identity,
+source binding and schema number without taking the singleton lease or applying
+migrations. It can run while the service writes through WAL. It reports a newer
+schema as installed; the target image's declared schema range decides whether
+rollback is allowed. Use `state:validate` only in its stopped-service maintenance
+workflow, since validation can upgrade state.

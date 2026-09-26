@@ -121,6 +121,7 @@ OPS_TEMP_VOLUME_CREATED=1
 # The drill command is recovery-only, receives a noncredential token, and has
 # no network. It can neither poll Telegram nor call send/edit endpoints.
 ops_set_step create-restore-container
+ops_app_command "$image" restore "$container_snapshot"
 docker create \
   --name "$OPS_TEMP_CONTAINER" \
   --label com.rental-apartments.temporary=true \
@@ -140,7 +141,7 @@ docker create \
   --mount "source=$OPS_TEMP_VOLUME,target=/app/.data" \
   --mount "source=$RENTAL_BACKUP_VOLUME,target=/app-backups,readonly" \
   "$image" \
-  node src/recovery-cli.js restore "$container_snapshot" >/dev/null
+  "${OPS_APP_COMMAND[@]}" >/dev/null
 OPS_TEMP_CONTAINER_CREATED=1
 ops_set_step run-isolated-restore
 docker start --attach "$OPS_TEMP_CONTAINER"

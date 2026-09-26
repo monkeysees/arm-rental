@@ -2,6 +2,42 @@
 
 ## Unreleased
 
+- Hold a Node-to-Rust production transition until a runtime-aware bridge release is deployed and explicitly promoted.
+
+- Restore Rust live storage checks, maintenance alerts, atomic history replies, deferred-recipient cancellation and saved-history startup preflight.
+
+- Suppress link previews on Rust channel sends, edits and reposts to match the production bot.
+
+- Add a standalone Rust application and native maintenance commands with production SQLite upgrades, Telegram controls, fair private delivery, channel publishing, host integration and independent parity acceptance.
+
+- Remove historical decision reports and measurement archives; retain Rust rewrite contracts, build/acceptance tooling and regression fixtures in maintained documentation and tests.
+
+- Assemble the experimental native image from its executable dependencies and assess the full 500-recipient service and maintenance workload under exact 75 MB and 50 MB memory limits.
+
+- Add a versioned offline native Rust schema migration with bounded decision-table rebuilding, safe interruption/retry, source-preserving rollback and independent 500-recipient acceptance.
+
+- Add native experimental backup, validation and isolated restore commands with bounded SQLite copies, interruption recovery, and independent 500-recipient acceptance.
+
+- Add an offline native Rust service with pinned curl transport, bounded responses, native health and shutdown controls, and verified pending-delivery recovery.
+
+- Reduce the experimental Rust retained-history working set with a covering revision index, bounded catch-up payload loading and a measured SQLite cache policy, preserving all 500-recipient decisions and recovery behavior.
+
+- Bound experimental Rust seed writes with durable resumable batches, explicit WAL retention/checkpoint policies, and independent storage/recovery measurements while preserving atomic classification and per-message acknowledgements.
+
+- Limit replay workloads and acceptance criteria to 500 recipients, remove larger-population results, and retain the measured 500-recipient evidence.
+
+- Measure unchanged Go and Rust replays in a persistent service-only cgroup with separately accounted external harnesses, exact-byte memory limits, recovery verification, and preserved original comparison results.
+
+- Compare Node, Go, and Rust with correctness-gated repeated workloads, narrower Node history classification, memory attribution, controlled curl transport, and complete experimental runtime artifacts.
+
+- Verify Go and Rust interruption recovery at 500 recipients with durable-prefix checks, acceptance-before-acknowledgement diagnostics, full shared replay verification, and repeated resource measurements.
+
+- Add an isolated Rust 500-recipient replay with compact SQLite decisions, bounded fair delivery, shared verification, clean-reopen checks, and constrained resource measurements.
+
+- Add an isolated Go 500-recipient replay with compact SQLite decisions, fair rate-limited delivery, clean-reopen checks, shared verification, and constrained resource measurements.
+
+- Add an offline 500-recipient Node replay contract, independent result verification, durable restart checks, and repeated constrained-container resource measurements for the runtime experiment.
+
 - Keep Telegram controls available during recoverable startup source failures and retry preflight every minute without exhausting supervisor restarts; begin crawling only after recovery.
 
 - Alert on journal filesystem free space instead of normal retention usage, with the same recovery hysteresis as data and backups.
@@ -25,7 +61,7 @@
 - Install the patched PCRE2 runtime library so the Chromium-free image passes the production vulnerability scan.
 - Replace Chromium and Puppeteer with pinned Safari-profile HTTP fetching, private cookies, bounded redirects, paced requests, and server-directed retry cooldowns; remove browser verification, sandbox privileges, and profile backups.
 - Read private delivery history only for relevant listing IDs, preserving retained decisions and notification behavior while allowing the four-million-decision benchmark to complete within 512 MiB.
-- Add an offline resource benchmark for 1,000 active monitorings, real SQLite and simulated source responses, with delivery recovery checks across process restarts.
+- Add an offline resource benchmark with real SQLite and simulated source responses, with delivery recovery checks across process restarts.
 - Honor source-challenge grace in host readiness alerts and include specific readiness or probe failure reasons in alerts and status.
 - Avoid repeated filtering and date parsing across private recipients, and yield between recipient workers to keep health probes and source I/O responsive.
 - Add contact and channel details to the bot welcome text and short profile description.

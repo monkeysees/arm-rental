@@ -148,7 +148,7 @@ jobs:
       # release it is already running, so a candidate that release cannot
       # deploy becomes undeployable the instant the pointer moves, and the
       # host retries it every five minutes until someone intervenes.
-      # Classify the transition before the pointer is touched.
+      # Classify backend and runtime transitions before the pointer is touched.
       - name: Classify the state transition against production
         id: transition
         env:
@@ -182,7 +182,7 @@ jobs:
 
       # This is intentionally last: the host sees a new digest only after the
       # candidate, its exact metadata, and every earlier quality gate exist.
-      # A state-backend cutover is deliberately excluded. Publishing the
+      # A state-backend or runtime cutover is deliberately excluded. Publishing the
       # bridge release is not the same as the host having deployed it, and
       # only the host knows which, so promote-production advances the
       # pointer once an operator has confirmed it.
@@ -202,5 +202,5 @@ jobs:
           IMAGE_REFERENCE: ${{ steps.candidate.outputs.image_reference }}
         run: |
           printf 'Published %s without advancing the production pointer.\n' "$IMAGE_REFERENCE"
-          printf 'This release changes the state backend. Confirm the bridge '
+          printf 'This release changes the state backend or runtime. Confirm the bridge '
           printf 'release is deployed on the host, then run promote-production.\n'

@@ -3,3 +3,7 @@ coverage/
 node_modules/
 package-lock.json
 test/fixtures/list-am-real-shape/*.html
+# Keep frozen regression inputs unchanged.
+test/fixtures/replay-reports/
+.scratch/
+experiments/rust-replay/target/

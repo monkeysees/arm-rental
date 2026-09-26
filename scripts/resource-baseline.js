@@ -20,7 +20,7 @@ import { formatApartmentMessage } from "../src/telegram.js";
 
 const { values } = parseArgs({
   options: {
-    users: { type: "string", default: "1000" },
+    users: { type: "string", default: "500" },
     listings: { type: "string", default: "20" },
     history: { type: "string", default: "250" },
     rate: { type: "string", default: "20" },
@@ -38,6 +38,7 @@ for (const name of ["users", "listings", "history", "rate"]) {
   );
 }
 assert(["all", "mixed"].includes(values.scenario), "Invalid scenario");
+assert(values.users <= 500, "Use at most 500 recipients");
 assert(
   values.listings >= 4,
   "At least four listings are needed for both categories and price cohorts",

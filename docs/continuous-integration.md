@@ -7,7 +7,8 @@ branch protection must require both stable check names:
 - `Required CI / Required / production artifact`
 
 The quality job uses the exact Node release in `.nvmrc`, installs the lockfile
-with `npm ci`, runs `npm run check`, independently runs the coverage gate, and
+with `npm ci`, builds and checks the native application with pinned Rust 1.94.0,
+runs `npm run check`, independently runs the coverage gate, and
 audits production dependencies with
 `npm audit --omit=dev --audit-level=high`. The coverage command measures
 `src/**/*.js` and fails below 90% lines or 80% branches.
@@ -36,13 +37,14 @@ scope, so an exception cannot be introduced only by changing workflow YAML.
 Temporary exceptions must include a removal issue and expiry date in this
 document; there are currently no exceptions.
 
-The artifact job builds the Linux AMD64 production image with source revision
+The artifact job builds the Linux AMD64 Node production image and separately
+builds and exercises the Rust candidate image. The Node image uses source revision
 and package-lock digest build arguments. The Docker build verifies those
 arguments before installing only production dependencies. npm and Corepack are
 then removed because the application runs directly with Node and does not need
 package-management tooling in production. The job verifies the pinned Node and
 curl-impersonate executables and all image labels. Trivy 0.69.3 scans both OS packages and
-application libraries and fails on every high or critical finding for which a
+application libraries in both images and fails on every high or critical finding for which a
 fix is available. Findings that Debian marks `affected`, `fix_deferred`, or
 `will_not_fix` without publishing a fixed package remain visible to security
 review but do not permanently block unrelated releases that cannot remediate

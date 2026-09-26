@@ -6,13 +6,17 @@ import { pathToFileURL } from "node:url";
  *
  * The host runs whatever release the pointer names, and it deploys the next
  * candidate using the operations bundle of the release it is *already*
- * running. A candidate whose state backend that running release cannot deploy
- * is therefore undeployable the moment the pointer moves, and the host retries
- * it every poll until someone intervenes.
+ * running. A candidate whose state backend or runtime that release cannot
+ * deploy is undeployable the moment the pointer moves.
  */
 export function classifyProductionTransition({ current, candidate }) {
   if (!candidate?.stateBackend) {
     throw new Error("candidate metadata must declare a state backend");
+  }
+  // Releases predating the Rust candidate had no runtime field and ran Node.
+  const candidateRuntime = candidate.runtime ?? "node";
+  if (!["node", "rust"].includes(candidateRuntime)) {
+    throw new Error(`unsupported candidate runtime: ${candidateRuntime}`);
   }
   if (!current) {
     return {
@@ -24,32 +28,53 @@ export function classifyProductionTransition({ current, candidate }) {
   if (!current.stateBackend) {
     throw new Error("current production metadata must declare a state backend");
   }
-  if (current.stateBackend === candidate.stateBackend) {
+  const currentRuntime = current.runtime ?? "node";
+  if (!["node", "rust"].includes(currentRuntime)) {
+    throw new Error(`unsupported current runtime: ${currentRuntime}`);
+  }
+  if (
+    current.stateBackend === candidate.stateBackend &&
+    currentRuntime === candidateRuntime
+  ) {
     return {
       allowed: true,
       cutover: false,
-      reason: `production already runs stateBackend ${candidate.stateBackend}`,
+      reason: `production already runs stateBackend ${candidate.stateBackend} and runtime ${candidateRuntime}`,
     };
   }
-  // A release that predates this field can only ever deploy its own backend.
-  const deployable = current.deployableStateBackends ?? [current.stateBackend];
-  if (!deployable.includes(candidate.stateBackend)) {
+  // A release predating either field can deploy only its own contract.
+  const deployableBackends = current.deployableStateBackends ?? [
+    current.stateBackend,
+  ];
+  const deployableRuntimes = current.deployableRuntimes ?? [currentRuntime];
+  if (!deployableBackends.includes(candidate.stateBackend)) {
     return {
       allowed: false,
       cutover: true,
       reason:
         `production runs ${current.sourceRevision ?? "an unknown revision"} ` +
         `(stateBackend ${current.stateBackend}), which deploys only ` +
-        `${deployable.join(", ")}. Publish the bridge release that deploys ` +
+        `${deployableBackends.join(", ")}. Publish the bridge release that deploys ` +
         `${candidate.stateBackend} and let the host take it first.`,
+    };
+  }
+  if (!deployableRuntimes.includes(candidateRuntime)) {
+    return {
+      allowed: false,
+      cutover: true,
+      reason:
+        `production runs ${current.sourceRevision ?? "an unknown revision"} ` +
+        `(runtime ${currentRuntime}), which deploys only ` +
+        `${deployableRuntimes.join(", ")}. Publish the bridge release that deploys ` +
+        `${candidateRuntime} and let the host take it first.`,
     };
   }
   return {
     allowed: true,
     cutover: true,
     reason:
-      `stateBackend changes from ${current.stateBackend} to ` +
-      `${candidate.stateBackend}. The bridge release is published, but only ` +
+      `production changes from ${current.stateBackend}/${currentRuntime} to ` +
+      `${candidate.stateBackend}/${candidateRuntime}. The bridge release is published, but only ` +
       `the host knows whether it is deployed, so the pointer must be ` +
       `advanced by promote-production once that is confirmed.`,
   };

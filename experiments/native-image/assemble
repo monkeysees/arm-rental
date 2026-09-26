@@ -1,0 +1,47 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+root="${1:?Usage: assemble NEW_ABSOLUTE_ROOT}"
+[[ "$root" == /* && "$root" != / && ! -e "$root" ]]
+# Capture ldd status before parsing: a pipeline/process substitution can hide it.
+libraries="$(mktemp)"
+trap 'rm -f -- "$libraries"' EXIT
+for binary in /usr/local/bin/replay /usr/local/bin/curl-impersonate; do
+  linkage="$(ldd "$binary" 2>&1)" || { printf '%s\n' "$linkage" >&2; exit 1; }
+  if [[ "$linkage" == *'not found'* ]]; then printf '%s\n' "$linkage" >&2; exit 1; fi
+  printf '%s\n' "$linkage" | awk '/=> \// {print $3} $1 ~ /^\// {print $1}' >>"$libraries"
+done
+sort -u -o "$libraries" "$libraries"
+[[ -s "$libraries" ]]
+mkdir -p "$root/usr/local/bin" "$root/etc/ssl/certs" "$root/usr/share/doc" "$root/var/lib/dpkg" "$root/app/.data" "$root/tmp" "$root/sqlite-tmp" "$root/usr/local/share/native-image"
+packages=(base-files ca-certificates)
+while IFS= read -r library; do
+  cp --dereference --parents "$library" "$root"
+  owner="$(dpkg-query -S "$library" 2>/dev/null || dpkg-query -S "$(readlink -f "$library")")"
+  packages+=("${owner%%: /*}")
+done <"$libraries"
+cp /usr/local/bin/replay /usr/local/bin/curl-impersonate "$root/usr/local/bin/"
+cp /etc/ssl/certs/ca-certificates.crt "$root/etc/ssl/certs/"
+cp --dereference /etc/os-release /etc/debian_version /etc/nsswitch.conf "$root/etc/"
+printf 'root:x:0:0:root:/root:/sbin/nologin\nrental:x:1000:1000:Rental:/app:/sbin/nologin\n' >"$root/etc/passwd"
+printf 'root:x:0:\nrental:x:1000:\n' >"$root/etc/group"
+cp -a /usr/share/common-licenses "$root/usr/share/"
+printf '%s\n' "${packages[@]}" | sort -u >"$root/usr/local/share/native-image/debian-packages.txt"
+while IFS= read -r package; do
+  dpkg-query --status "$package" >>"$root/var/lib/dpkg/status"
+  printf '\n' >>"$root/var/lib/dpkg/status"
+  mkdir -p "$root/usr/share/doc/$package"
+  cp --dereference "/usr/share/doc/${package%%:*}/copyright" "$root/usr/share/doc/$package/"
+done <"$root/usr/local/share/native-image/debian-packages.txt"
+cp "$libraries" "$root/usr/local/share/native-image/libraries.txt"
+cp -a /licenses "$root/usr/local/share/licenses"
+cp /components.json "$root/usr/local/share/native-image/components.json"
+chown 1000:1000 "$root/app/.data"
+chmod 0700 "$root/app/.data"
+chmod 1777 "$root/tmp" "$root/sqlite-tmp"
+# Resolve inside the finished root too: host libraries must not mask omissions.
+loader="$(sed -n '/\/ld-linux-/p' "$libraries")"
+[[ -n "$loader" ]]
+for binary in /usr/local/bin/replay /usr/local/bin/curl-impersonate; do
+  chroot "$root" "$loader" --list "$binary"
+done
+chroot "$root" /usr/local/bin/curl-impersonate --version

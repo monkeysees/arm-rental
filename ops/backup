@@ -29,7 +29,7 @@ OPS_RESTART_REQUIRED=1
 ops_set_step stop-application
 ops_stop_application
 ops_set_step create-snapshot
-ops_compose run --rm --no-deps bot node src/recovery-cli.js backup
+ops_run_app backup
 ops_set_step locate-snapshot
 snapshot=$(ops_latest_snapshot)
 ops_set_step validate-snapshot

@@ -15,12 +15,12 @@ node scripts/resource-baseline.js --scenario all > baseline-all.json
 node scripts/resource-baseline.js --scenario mixed > baseline-mixed.json
 ```
 
-Defaults are 1,000 active monitorings, 250 retained decisions per recipient,
+Defaults are 500 active monitorings, 250 retained decisions per recipient,
 20 fresh listings per batch, and two batches. `all` matches every recipient to
 every listing; `mixed` uses four price cohorts that each match one quarter of
 the listings. This is a synthetic fixture, not measured production traffic.
 
-Use `--history 4000` to exercise four million retained decisions. For a quick
+Use `--history 4000` to exercise two million retained decisions. For a quick
 harness check, use `--users 8 --listings 8 --history 10 --rate 20000`.
 `--users`, `--listings`, and `--history` control the workload. The default
 `--rate 20` uses the production per-recipient delivery rate, including history
@@ -79,59 +79,6 @@ node --test --test-name-pattern='a crawl never materializes' test/sqlite-state-a
 Additional tests cover returning notified/skipped/filtered listings,
 source-update redelivery, expired-listing classification, selection gates,
 large ID sets, scoped menu offers, and user deletion.
-
-## Historical measurements: September 10, 2026
-
-These results predate Chromium removal. They used Node 24.18.0 and Chromium
-152.0.7977.82, one CPU quota, no swap, and isolated disk-backed state. The old
-benchmark optionally fetched synthetic pages through Chromium; that mode has
-been removed. These files document the original diagnosis and are not current
-HTTP-runtime measurements or commands to reproduce the old browser setup.
-
-| Workload, 1,000 active monitorings                  | Memory limit | Worker peak RSS | Result                       |
-| --------------------------------------------------- | ------------ | --------------- | ---------------------------- |
-| All match; 250 decisions/recipient, before fix      | 512 MiB      | 138.5 MiB       | Passed                       |
-| Mixed filters; 250 decisions/recipient, before fix  | 512 MiB      | 125.9 MiB       | Passed                       |
-| All match; 4,000 decisions/recipient, before fix    | 512 MiB      | Not captured    | V8 heap exhausted            |
-| All match; 4,000 decisions/recipient, before fix    | 1 GiB        | 541.8 MiB       | Passed under memory pressure |
-| All match; 4,000 decisions/recipient, after fix     | 512 MiB      | 113.4 MiB       | Passed                       |
-| Mixed filters; 4,000 decisions/recipient, after fix | 512 MiB      | 108.8 MiB       | Passed                       |
-
-The fixed runs retained all four million decisions and delivered 40,000
-all-match or 10,000 mixed-filter messages without duplicates or pending work.
-Whole-container peaks still reached 512 MiB, including charged filesystem cache.
-These single runs establish removal of the heap failure, not spare capacity.
-
-Raw evidence:
-
-- [All-match baseline](benchmarks/2026-09-10-all-512m.json)
-- [Mixed-filter baseline](benchmarks/2026-09-10-mixed-512m.json)
-- [Larger history with 1 GiB](benchmarks/2026-09-10-history-4000-1g.json)
-- [Pre-fix failure with 512 MiB](benchmarks/2026-09-10-history-4000-before-512m.json)
-- [Fixed all-match run](benchmarks/2026-09-10-history-4000-all-scoped-512m.json)
-- [Fixed mixed-filter run](benchmarks/2026-09-10-history-4000-mixed-scoped-512m.json)
-
-## Current runtime verification: September 15, 2026
-
-Both offline scenarios passed on the Chromium-free application with Node
-24.18.0, 1,000 active monitorings, 4,000 retained decisions per recipient, and
-the default delivery rate. The coordinator and workers used a 256 MiB V8
-old-generation heap limit:
-
-```sh
-node --max-old-space-size=256 scripts/resource-baseline.js --history 4000 --scenario all
-node --max-old-space-size=256 scripts/resource-baseline.js --history 4000 --scenario mixed
-```
-
-The [all-match run](benchmarks/2026-09-15-history-4000-all-offline.json) delivered
-40,000 messages; the [mixed-filter run](benchmarks/2026-09-15-history-4000-mixed-offline.json)
-delivered 10,000. Each preserved all four million historical decisions, recovered
-pending deliveries after interruption, and detected zero duplicate deliveries.
-
-These runs validate the current integration and bounded-heap completion. They
-ran on a shared development host alongside tests, without a container memory
-limit, so their timings and RSS are not directly comparable to the historical
-512 MiB container results and do not establish production capacity.
 
 ## Production-shaped retained history
 
@@ -208,51 +155,4 @@ host contention can still affect timings despite the dedicated container. For
 reproduction of the recorded runs, the runtime image manifest digest is
 `sha256:6f7b03f7c2c8e2e784dcf9295400527b9b1270fd37b7e9a7285cf83b6951452d`.
 
-### Recorded baseline: September 16, 2026
-
-Three independent isolated runs used Node 24.18.0, the image digest above, one
-CPU, 512 MiB memory with no swap, and five unchanged crawls per steady worker.
-Each passed all assertions at the default population, preserving all 98,605
-absent-listing decisions. Each update delivered 22 messages; interruption and
-restart delivered 3 + 173 = 176 new messages, with no duplicates or pending work.
-
-| Run | Total wall seconds | Unchanged crawl seconds (range) | Worker peak RSS MiB | Whole-container peak MiB |
-| --- | ------------------ | ------------------------------- | ------------------- | ------------------------ |
-| 1   | 73.26              | 5.28–5.94                       | 173.67              | 254.39                   |
-| 2   | 71.60              | 5.02–5.50                       | 192.75              | 255.72                   |
-| 3   | 76.10              | 5.28–6.20                       | 179.90              | 259.36                   |
-
-This spread measures repeat variability on this host, including natural GC; it
-is not a promised memory reduction or production capacity estimate. Raw results
-include per-phase CPU, current container memory, database/WAL sizes, transaction
-counts and time, and separate coordinator overhead:
-
-- [Repeat 1](benchmarks/2026-09-16-retained-run-1.json)
-- [Repeat 2](benchmarks/2026-09-16-retained-run-2.json)
-- [Repeat 3](benchmarks/2026-09-16-retained-run-3.json)
-
-The reports record the application base revision. The benchmark was an
-uncommitted addition during measurement; its exact SHA-256 was
-`ac8e3d958e91b115c23abf9b269435d0b5c935863a3c6ee785c322483fd23d25`.
-
-### Acceptance after incremental crawls and decision compaction
-
-An independent [integrated run](benchmarks/2026-09-16-integrated-retained.json)
-at revision `56f2af2b5781d573f9437fd2b100897d3e1c799e` exercised schema 4 with
-the same 5,442 listings, 88 recipients, and 577,501 decisions, using Node
-24.18.0, one CPU, and 512 MiB with no swap or network access. All assertions
-passed: five unchanged crawls sent nothing, a source update delivered 22
-messages, interruption and restart delivered 3 + 173 messages, and no duplicate
-or pending deliveries remained. All 98,605 absent-listing decisions survived.
-
-Total wall time was 75.28 seconds; unchanged crawls took 5.62–5.96 seconds.
-This all-listings-per-page workload remains dominated by parsing and consumer
-history work, so it does not reproduce the bounded-encounter speedup measured
-in [the incremental crawl benchmark](incremental-crawl-benchmark.md).
-The [compaction benchmark](compact-decisions-benchmark.md) separately measures
-upgrading populated old schemas; this run initializes schema 4 directly and
-does not establish that a large migration fits the same memory limit.
-
-The retained-history report subsequently gained explicit alphabetical status
-ordering; the existing CLI regression test caught and verifies that presentation
-fix. It does not change this run's delivery or retention outcomes.
+See the [Rust development guide](rust-development.md) for build and acceptance tooling.

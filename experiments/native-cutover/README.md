@@ -50,8 +50,10 @@ verification and operator-approved promotion.
 The predeploy snapshot predates any work accepted by Rust. In the disposable
 drill, Node did not resend that new work when restarted against the live
 schema-6 state, but it **did resend it after restoring the predeploy snapshot**.
-The current unattended `ops/deploy` failure path always restores that snapshot
-before restarting Node. Keep the prior Node image and snapshot for recovery,
-and review this duplicate risk explicitly before authorizing a live cutover.
-This drill does not establish duplicate-free rollback after Rust has sent new
-work.
+The updated unattended `ops/deploy` checks compatible live state before
+restarting the retained Node image after a failed Rust rollout. Failed
+inspection or readiness requires operator recovery with the service stopped.
+Keep the prior Node image and snapshot for recovery; an explicit restore can
+replay work acknowledged after that snapshot. This drill verifies service-state
+continuity, while the complete host controller still requires its own rollback
+receipt.

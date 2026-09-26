@@ -421,24 +421,27 @@ test(
     const second = await service(t, {
       existingDirectory: first.directory,
       telegram: async (method, payload) => {
-        if (method === "sendMessage" && payload.text.includes("/ru/item/"))
+        if (method === "sendMessage" && payload.text.includes("/ru/item/")) {
           replayed.push(payload.text.match(/\/ru\/item\/(\d+)/u)[1]);
+          // Keep request arrival separate from the durable acknowledgement.
+          if (replayed.length === 6) await delay(500);
+        }
       },
     });
     await waitFor(() => replayed.length === 6, 16000);
     assert.equal(replayed[0], acceptedItem);
     assert.equal(new Set(replayed).size, 6);
-    assert.equal(await second.stop(), 0, second.output());
     const after = new DatabaseSync(join(first.directory, "state.sqlite3"));
-    assert.equal(
-      after
-        .prepare(
-          "SELECT count(*) AS n FROM private_delivery_decisions WHERE recipient_id='42' AND status=0",
-        )
-        .get().n,
-      6,
+    const committed = after.prepare(
+      "SELECT count(*) AS n FROM private_delivery_decisions WHERE recipient_id='42' AND status=0",
     );
-    after.close();
+    try {
+      await waitFor(() => committed.get().n === 6, 5000);
+      assert.equal(await second.stop(), 0, second.output());
+      assert.equal(committed.get().n, 6);
+    } finally {
+      after.close();
+    }
   },
 );
 

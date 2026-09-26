@@ -218,7 +218,7 @@ pub fn operations(
         let edit = e["status"] == "published" && !repost;
 
         let mut payload = json!({
-        "chat_id":config.values["telegramChannelId"],"text":text}
+        "chat_id":config.values["telegramChannelId"],"text":text,"disable_web_page_preview":true}
         );
 
         if edit {

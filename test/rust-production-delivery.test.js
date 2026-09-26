@@ -164,11 +164,13 @@ test(
       operations.map((op) => op.itemId),
       ["2", "1"],
     );
-    for (const op of operations)
+    for (const op of operations) {
       assert.equal(
         op.payload.text,
         formatChannelApartmentMessage(apartments[op.itemId]),
       );
+      assert.equal(op.payload.disable_web_page_preview, true);
+    }
     assert.deepEqual(native({ ...request, action: "operations" }), operations);
     native({
       ...request,
@@ -217,6 +219,7 @@ test(
     })[0];
     assert.equal(edit.method, "editMessageText");
     assert.equal(edit.payload.message_id, 90);
+    assert.equal(edit.payload.disable_web_page_preview, true);
     assert.equal(edit.publishedAt, original.publishedAt);
     native({
       ...request,
@@ -243,6 +246,7 @@ test(
     assert.equal(repost.method, "sendMessage");
     assert.equal(repost.operation, "repost");
     assert.equal(repost.payload.message_id, undefined);
+    assert.equal(repost.payload.disable_web_page_preview, true);
     assert.notEqual(repost.publishedAt, original.publishedAt);
   },
 );

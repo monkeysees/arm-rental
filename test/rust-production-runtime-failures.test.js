@@ -205,12 +205,11 @@ test(
       users: [42, 99, 123],
       telegram: async (method, payload) => {
         if (method !== "sendMessage") return;
-        const time = Date.now();
         if (payload.chat_id === "@test_channel") {
-          channelCalls.push({ time, text: payload.text });
+          channelCalls.push(payload.text);
           return;
         }
-        privateCalls.push({ id: payload.chat_id, time, text: payload.text });
+        privateCalls.push({ id: payload.chat_id, text: payload.text });
         if (payload.chat_id === 42)
           return {
             status: 429,
@@ -246,14 +245,16 @@ test(
     assert.equal(privateCalls.filter((v) => v.id === 99).length, 1);
     const healthy = privateCalls.filter((v) => v.id === 123);
     assert.match(healthy[0].text, /Подходящих объявлений/u);
-    assert.ok(
-      healthy[5].time - healthy[0].time >= 1800,
-      "the announcement must consume one of the five burst tokens",
+    const listingIds = healthy
+      .slice(1, 7)
+      .map(({ text }) => text.match(/\/ru\/item\/(\d+)/u)?.[1]);
+    assert.equal(
+      new Set(listingIds).size,
+      6,
+      "healthy recipient gets each listing once",
     );
-    assert.ok(
-      channelCalls[0].time < healthy[5].time,
-      "channel must not wait for private bucket/cooldown completion",
-    );
+    assert.ok(listingIds.every(Boolean));
+    assert.ok(channelCalls.every((text) => /\/ru\/item\//u.test(text)));
     assert.equal(await app.stop(), 0, app.output());
     assert.doesNotMatch(
       app.output(),

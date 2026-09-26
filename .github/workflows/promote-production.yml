@@ -58,6 +58,14 @@ jobs:
           IMAGE_REPOSITORY="ghcr.io/${GITHUB_REPOSITORY,,}"
           docker pull --quiet "$IMAGE_REPOSITORY:revision-$REVISION" >/dev/null
           IMAGE_REFERENCE="$(docker image inspect --format '{{index .RepoDigests 0}}' "$IMAGE_REPOSITORY:revision-$REVISION")"
+          CANDIDATE_REVISION="$(docker image inspect --format '{{ index .Config.Labels "org.opencontainers.image.revision" }}' "$IMAGE_REPOSITORY:revision-$REVISION")"
+          CANDIDATE_RUNTIME="$(docker image inspect --format '{{ index .Config.Labels "com.rental-apartments.runtime" }}' "$IMAGE_REPOSITORY:revision-$REVISION")"
+          case "$CANDIDATE_RUNTIME" in
+            ''|'<no value>'|node) CANDIDATE_RUNTIME=node ;;
+            rust) ;;
+            *) printf 'Unsupported candidate runtime.\n' >&2; exit 1 ;;
+          esac
+          test "$CANDIDATE_REVISION" = "$REVISION"
 
           mkdir -p release current
           docker pull --quiet "$IMAGE_REPOSITORY:metadata-$REVISION" >/dev/null
@@ -67,13 +75,27 @@ jobs:
 
           docker pull --quiet "$IMAGE_REPOSITORY:production" >/dev/null
           CURRENT_REVISION="$(docker image inspect --format '{{ index .Config.Labels "org.opencontainers.image.revision" }}' "$IMAGE_REPOSITORY:production")"
+          CURRENT_REFERENCE="$(docker image inspect --format '{{index .RepoDigests 0}}' "$IMAGE_REPOSITORY:production")"
+          CURRENT_RUNTIME="$(docker image inspect --format '{{ index .Config.Labels "com.rental-apartments.runtime" }}' "$IMAGE_REPOSITORY:production")"
+          case "$CURRENT_RUNTIME" in
+            ''|'<no value>'|node) CURRENT_RUNTIME=node ;;
+            rust) ;;
+            *) printf 'Unsupported current production runtime.\n' >&2; exit 1 ;;
+          esac
+          [[ "$CURRENT_REVISION" =~ ^[0-9a-f]{40}$ ]]
           docker pull --quiet "$IMAGE_REPOSITORY:metadata-$CURRENT_REVISION" >/dev/null
           CURRENT_CONTAINER="$(docker create "$IMAGE_REPOSITORY:metadata-$CURRENT_REVISION" /release/release-metadata.json)"
           docker cp "$CURRENT_CONTAINER:/release/release-metadata.json" current/release-metadata.json
           docker rm "$CURRENT_CONTAINER" >/dev/null
 
-          # The metadata must name the exact image the pointer will carry.
-          test "$(jq -r .imageReference release/release-metadata.json)" = "$IMAGE_REFERENCE"
+          # Both metadata objects must name the exact pulled image and runtime.
+          jq -e --arg revision "$REVISION" --arg image "$IMAGE_REFERENCE" --arg runtime "$CANDIDATE_RUNTIME" \
+            '.sourceRevision == $revision and .imageReference == $image and (.runtime // "node") == $runtime' \
+            release/release-metadata.json >/dev/null
+          # The current bridge contract must belong to the image production names.
+          jq -e --arg revision "$CURRENT_REVISION" --arg image "$CURRENT_REFERENCE" --arg runtime "$CURRENT_RUNTIME" \
+            '.sourceRevision == $revision and .imageReference == $image and (.runtime // "node") == $runtime' \
+            current/release-metadata.json >/dev/null
 
           printf 'image_repository=%s\n' "$IMAGE_REPOSITORY" >> "$GITHUB_OUTPUT"
           printf 'image_reference=%s\n' "$IMAGE_REFERENCE" >> "$GITHUB_OUTPUT"
@@ -95,6 +117,10 @@ jobs:
 
       - name: Confirm the running release can deploy the candidate
         run: |
+          if [ "$(jq -r '.runtime // "node"' release/release-metadata.json)" = rust ]; then
+            jq -e '.cutoverRollbackContract == "preserve-live-state-v1"' \
+              current/release-metadata.json >/dev/null
+          fi
           node scripts/check-production-transition.js \
             release/release-metadata.json \
             current/release-metadata.json

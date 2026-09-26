@@ -5,6 +5,7 @@ import { promisify } from "node:util";
 import { pathToFileURL } from "node:url";
 
 import { assertRollbackStateCompatibility } from "../src/release-compatibility.js";
+import { SQLITE_APPLICATION_ID } from "../src/sqlite-schema.js";
 
 const executeFile = promisify(execFile);
 const DIGEST_REFERENCE =
@@ -369,6 +370,73 @@ async function inspectLiveState(runtime) {
   return JSON.parse(stdout);
 }
 
+async function inspectStoppedNodeState(contract) {
+  const expression = String.raw`
+    const path = await import("node:path");
+    const { DatabaseSync } = await import("node:sqlite");
+    const root = process.env.DATA_DIRECTORY || "/app/.data";
+    const database = new DatabaseSync(path.join(root, "state.sqlite3"), { readOnly: true });
+    try {
+      console.log(JSON.stringify({
+        stateBackend: "sqlite",
+        stateSchema: database.prepare("PRAGMA user_version").get().user_version,
+        applicationId: database.prepare("PRAGMA application_id").get().application_id,
+        integrity: database.prepare("PRAGMA quick_check").all(),
+        foreignKeyViolations: database.prepare("PRAGMA foreign_key_check").all().length,
+        updateOffset: database.prepare("SELECT update_offset FROM telegram_state WHERE singleton = 1").get()?.update_offset,
+      }));
+    } finally {
+      database.close();
+    }
+  `;
+  const { stdout } = await run(
+    "docker",
+    composeArguments(
+      contract,
+      "node",
+      "run",
+      "--rm",
+      "--no-deps",
+      "bot",
+      "node",
+      "--input-type=module",
+      "--eval",
+      expression,
+    ),
+    { env: releaseEnvironment(contract, contract.previousImage) },
+  );
+  const state = JSON.parse(stdout);
+  if (
+    state.applicationId !== SQLITE_APPLICATION_ID ||
+    state.integrity?.length !== 1 ||
+    Object.values(state.integrity[0])[0] !== "ok" ||
+    state.foreignKeyViolations !== 0 ||
+    !Number.isSafeInteger(state.updateOffset) ||
+    state.updateOffset < 0
+  ) {
+    throw new Error("Stopped SQLite state failed identity or integrity checks");
+  }
+  return state;
+}
+
+async function inspectStoppedState(contract, runtime) {
+  if (runtime === "node") return inspectStoppedNodeState(contract);
+  const { stdout } = await run(
+    "docker",
+    composeArguments(
+      contract,
+      runtime,
+      "run",
+      "--rm",
+      "--no-deps",
+      "bot",
+      "state:inspect",
+    ),
+    { env: releaseEnvironment(contract, contract.previousImage) },
+  );
+  return JSON.parse(stdout);
+}
+
 async function validateSnapshot(contract, runtime) {
   await run(
     "docker",
@@ -581,13 +649,83 @@ async function writeEvidence(contract, runtime, evidence, startedAt) {
   return receipt;
 }
 
-async function recoverPrevious(contract, runtime, previousRuntime) {
+async function confirmSingletonStopped(role) {
+  let stopped;
+  try {
+    const { stdout } = await run("docker", [
+      "inspect",
+      "--format",
+      "{{.State.Running}}",
+      "rental-apartments-bot",
+    ]);
+    stopped = stdout.trim() === "false";
+  } catch {
+    // A failed Compose recreate can remove the old container before it creates
+    // the candidate. Confirm the singleton name is absent before recovery.
+    const { stdout } = await run("docker", [
+      "ps",
+      "--all",
+      "--format",
+      "{{.Names}}",
+      "--filter",
+      "name=^/rental-apartments-bot$",
+    ]);
+    stopped = stdout.trim() === "";
+  }
+  if (!stopped) {
+    throw new Error(
+      `The ${role} container is still running; refusing recovery overlap`,
+    );
+  }
+}
+
+async function recoverPrevious(contract, runtime, previousMetadata) {
   await run("docker", composeArguments(contract, runtime, "stop", "bot"), {
     env: releaseEnvironment(contract, contract.image),
   });
-  await restoreSnapshot(contract, previousRuntime);
-  await startImage(contract, contract.previousImage, previousRuntime);
-  await waitUntilReady(previousRuntime);
+  await confirmSingletonStopped("candidate");
+  const preserveLiveState =
+    contract.stateStrategy === "compatible" &&
+    (contract.operation === "rollback" ||
+      (contract.operation === "deploy" &&
+        runtime === "rust" &&
+        previousMetadata.runtime === "node"));
+  if (preserveLiveState) {
+    assertRollbackStateCompatibility({
+      stateStrategy: "compatible",
+      targetMetadata: previousMetadata,
+      liveState: await inspectStoppedState(contract, previousMetadata.runtime),
+    });
+  } else {
+    await restoreSnapshot(contract, previousMetadata.runtime);
+  }
+  try {
+    await startImage(
+      contract,
+      contract.previousImage,
+      previousMetadata.runtime,
+    );
+    await waitUntilReady(previousMetadata.runtime);
+  } catch (error) {
+    try {
+      await run(
+        "docker",
+        composeArguments(contract, previousMetadata.runtime, "stop", "bot"),
+        { env: releaseEnvironment(contract, contract.previousImage) },
+      );
+      await confirmSingletonStopped("previous image");
+    } catch (cleanupError) {
+      throw new Error(
+        `Previous image recovery failed: ${error.message}; stopping its container failed: ${cleanupError.message}`,
+        { cause: cleanupError },
+      );
+    }
+    throw new Error(
+      `Previous image recovery failed and its container was stopped: ${error.message}`,
+      { cause: error },
+    );
+  }
+  return preserveLiveState;
 }
 
 async function executeRelease(contract) {
@@ -645,15 +783,23 @@ async function executeRelease(contract) {
     );
     return writeEvidence(contract, runtime, evidence, startedAt);
   } catch (error) {
-    // Candidate preflight may update the HTTP cookie jar or a rate snapshot.
-    // Restoring the already-verified snapshot makes failed rollout state exact.
-    await recoverPrevious(
-      contract,
-      targetMetadata.runtime,
-      previousMetadata.runtime,
-    );
+    let preservedLiveState;
+    try {
+      preservedLiveState = await recoverPrevious(
+        contract,
+        targetMetadata.runtime,
+        previousMetadata,
+      );
+    } catch (recoveryError) {
+      throw new Error(
+        `Release failed: ${error.message}; recovery failed: ${recoveryError.message}. Stop and review the live volume before any snapshot restore`,
+        { cause: recoveryError },
+      );
+    }
     throw new Error(
-      `Release failed and the verified snapshot plus previous image were restored: ${error.message}`,
+      preservedLiveState
+        ? `Release failed and the previous image restarted on compatible live SQLite state without snapshot restore: ${error.message}`
+        : `Release failed and the verified snapshot plus previous image were restored: ${error.message}`,
       { cause: error },
     );
   }

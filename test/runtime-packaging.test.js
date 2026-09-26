@@ -50,5 +50,6 @@ test("production packaging verifies the pinned HTTP binary and removes build too
   assert.match(versions, /CURL_IMPERSONATE_AMD64_SHA256=[a-f0-9]{64}/u);
   assert.match(versions, /CURL_IMPERSONATE_ARM64_SHA256=[a-f0-9]{64}/u);
   assert.match(workflow, /curl 8\.21\.0-IMPERSONATE/u);
-  assert.match(publishWorkflow, /image\.curl-impersonate\.version/u);
+  assert.match(publishWorkflow, /curl 8\.21\.0-IMPERSONATE/u);
+  assert.match(publishWorkflow, /experiments\/production-image\/check\.js/u);
 });

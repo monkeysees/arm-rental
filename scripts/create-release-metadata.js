@@ -13,7 +13,7 @@ function parseArguments(arguments_) {
     const value = arguments_[index + 1];
     if (!name?.startsWith("--") || value === undefined) {
       throw new Error(
-        "Usage: create-release-metadata --source-revision SHA (--image-archive PATH | --image-reference REPO@DIGEST --operations-bundle PATH) --output PATH",
+        "Usage: create-release-metadata --source-revision SHA [--runtime node|rust] (--image-archive PATH | --image-reference REPO@DIGEST --operations-bundle PATH) --output PATH",
       );
     }
     values[name.slice(2)] = value;
@@ -40,6 +40,7 @@ function sha256(content) {
 
 export async function createReleaseMetadata({
   sourceRevision,
+  runtime = "node",
   imageArchive,
   imageReference,
   operationsBundle,
@@ -47,6 +48,9 @@ export async function createReleaseMetadata({
 }) {
   if (!/^[a-f0-9]{40}$/u.test(sourceRevision)) {
     throw new Error("source revision must be a full 40-character Git SHA");
+  }
+  if (!["node", "rust"].includes(runtime)) {
+    throw new Error(`unsupported release runtime: ${runtime}`);
   }
 
   if (Boolean(imageArchive) === Boolean(imageReference)) {
@@ -65,9 +69,23 @@ export async function createReleaseMetadata({
   }
 
   const reads = [
-    readFile(resolve(rootDirectory, ".nvmrc"), "utf8"),
-    readFile(resolve(rootDirectory, "Dockerfile"), "utf8"),
+    readFile(
+      resolve(
+        rootDirectory,
+        runtime === "rust" ? "Dockerfile.native" : "Dockerfile",
+      ),
+      "utf8",
+    ),
     readFile(resolve(rootDirectory, "package-lock.json")),
+    runtime === "rust"
+      ? readFile(resolve(rootDirectory, "experiments/rust-replay/Cargo.lock"))
+      : readFile(resolve(rootDirectory, ".nvmrc"), "utf8"),
+    runtime === "rust"
+      ? readFile(
+          resolve(rootDirectory, "scripts/curl-impersonate-version"),
+          "utf8",
+        )
+      : Promise.resolve(undefined),
     imageArchive ? readFile(imageArchive) : Promise.resolve(undefined),
     imageReference
       ? readFile(resolve(rootDirectory, "compose.production.yaml"))
@@ -75,20 +93,34 @@ export async function createReleaseMetadata({
     operationsBundle ? readFile(operationsBundle) : Promise.resolve(undefined),
   ];
   const [
-    nodeVersionText,
     dockerfile,
     packageLock,
+    runtimeInput,
+    curlVersionText,
     archive,
     compose,
     operations,
   ] = await Promise.all(reads);
-  const curlImpersonateVersion = dockerfile.match(
-    /^ARG CURL_IMPERSONATE_VERSION=(?<version>[0-9.]+)$/mu,
+  const curlImpersonateVersion = (
+    runtime === "rust" ? curlVersionText : dockerfile
+  ).match(
+    runtime === "rust"
+      ? /^CURL_IMPERSONATE_VERSION=(?<version>[0-9.]+)$/mu
+      : /^ARG CURL_IMPERSONATE_VERSION=(?<version>[0-9.]+)$/mu,
   )?.groups?.version;
   if (!curlImpersonateVersion) {
     throw new Error(
-      "Dockerfile must declare a pinned CURL_IMPERSONATE_VERSION",
+      "release inputs must declare a pinned CURL_IMPERSONATE_VERSION",
     );
+  }
+  const rustVersion =
+    runtime === "rust"
+      ? dockerfile.match(
+          /^FROM rust:(?<version>[0-9.]+)-bookworm@sha256:[a-f0-9]{64} AS build$/mu,
+        )?.groups?.version
+      : undefined;
+  if (runtime === "rust" && !rustVersion) {
+    throw new Error("Dockerfile.native must pin the Rust toolchain image");
   }
 
   const common = {
@@ -107,9 +139,12 @@ export async function createReleaseMetadata({
     // what comes next. A bridge release carrying cutover machinery lists both
     // backends; every other release lists only the one its verifier accepts.
     deployableStateBackends: ["sqlite"],
-    runtime: "node",
+    runtime,
     deployableRuntimes: ["node", "rust"],
-    nodeVersion: nodeVersionText.trim(),
+    cutoverRollbackContract: "preserve-live-state-v1",
+    ...(runtime === "rust"
+      ? { rustVersion, cargoLockSha256: sha256(runtimeInput) }
+      : { nodeVersion: runtimeInput.trim() }),
     curlImpersonateVersion,
     packageLockSha256: sha256(packageLock),
   };
@@ -136,6 +171,7 @@ async function main() {
   const arguments_ = parseArguments(process.argv.slice(2));
   const metadata = await createReleaseMetadata({
     sourceRevision: arguments_["source-revision"],
+    runtime: arguments_.runtime,
     imageArchive: arguments_["image-archive"],
     imageReference: arguments_["image-reference"],
     operationsBundle: arguments_["operations-bundle"],

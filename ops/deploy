@@ -21,15 +21,47 @@ DEPLOYMENT_SNAPSHOT=""
 DEPLOYMENT_FIRST_INSTALL=false
 DEPLOYMENT_PREVIOUS_RELEASE=""
 DEPLOYMENT_PREVIOUS_ENV=""
+DEPLOYMENT_LIVE_ROLLBACK_REQUIRED=0
+DEPLOYMENT_CANDIDATE_MAY_RUN=0
+
+deployment_recover_candidate() {
+  if ((DEPLOYMENT_LIVE_ROLLBACK_REQUIRED == 1)); then
+    deployment_recover_node_from_live_state \
+      "$DEPLOYMENT_RELEASE" "$DEPLOYMENT_CANDIDATE_ENV" \
+      "$DEPLOYMENT_PREVIOUS_RELEASE" "$DEPLOYMENT_PREVIOUS_ENV" \
+      "$DEPLOYMENT_PREVIOUS_RELEASE/release-metadata.json" \
+      "$DEPLOYMENT_PREVIOUS"
+  else
+    deployment_recover_previous_snapshot \
+      "$DEPLOYMENT_RELEASE" "$DEPLOYMENT_CANDIDATE_ENV" \
+      "$DEPLOYMENT_PREVIOUS_RELEASE" "$DEPLOYMENT_PREVIOUS_ENV" \
+      "$DEPLOYMENT_PREVIOUS" "$DEPLOYMENT_SNAPSHOT"
+  fi
+}
 
 ops_cleanup() {
   local _original_status=$1
-  if [[ -n $DEPLOYMENT_TEMPORARY_DIR && -d $DEPLOYMENT_TEMPORARY_DIR ]]; then
-    rm -rf -- "$DEPLOYMENT_TEMPORARY_DIR"
-  fi
+  local cleanup_status=0
   if ((DEPLOYMENT_RESTART_REQUIRED == 1)); then
-    ops_start_application
+    if ((DEPLOYMENT_CANDIDATE_MAY_RUN == 1)); then
+      ops_set_step rollback-interrupted-candidate
+      if deployment_recover_candidate; then
+        deployment_emit deployment.rollback.completed success \
+          "$DEPLOYMENT_CANDIDATE" "$DEPLOYMENT_PREVIOUS"
+      else
+        deployment_emit deployment.rollback.failed failure \
+          "$DEPLOYMENT_CANDIDATE" "$DEPLOYMENT_PREVIOUS"
+        deployment_emit_alert "$DEPLOYMENT_CANDIDATE" "$DEPLOYMENT_PREVIOUS"
+        cleanup_status=1
+      fi
+    else
+      ops_start_application || cleanup_status=$?
+    fi
   fi
+  if [[ -n $DEPLOYMENT_TEMPORARY_DIR && -d $DEPLOYMENT_TEMPORARY_DIR ]]; then
+    rm -rf -- "$DEPLOYMENT_TEMPORARY_DIR" || cleanup_status=$?
+  fi
+  return "$cleanup_status"
 }
 
 usage() {
@@ -171,6 +203,12 @@ if deployment_is_quarantined "$DEPLOYMENT_CANDIDATE"; then
     "$DEPLOYMENT_CANDIDATE" "$DEPLOYMENT_PREVIOUS"
   exit 0
 fi
+if [[ $DEPLOYMENT_FIRST_INSTALL == false ]]; then
+  ops_set_step retain-previous-image
+  deployment_retain_previous_image \
+    "$DEPLOYMENT_PREVIOUS" \
+    "$DEPLOYMENT_PREVIOUS_RELEASE/release-metadata.json"
+fi
 
 ops_set_step inspect-candidate
 DEPLOYMENT_SOURCE_REVISION=$(
@@ -206,6 +244,11 @@ if [[ $DEPLOYMENT_FIRST_INSTALL == false ]]; then
   deployment_state_transition \
     "$previous_metadata" "$metadata" \
     "$DEPLOYMENT_PREVIOUS" "$DEPLOYMENT_CANDIDATE" >/dev/null
+  candidate_runtime=$(ops_runtime "$DEPLOYMENT_CANDIDATE")
+  previous_runtime=$(ops_runtime "$DEPLOYMENT_PREVIOUS")
+  if [[ $candidate_runtime == rust && $previous_runtime == node ]]; then
+    DEPLOYMENT_LIVE_ROLLBACK_REQUIRED=1
+  fi
 fi
 
 poll_interval_ms=$(deployment_read_optional_setting POLL_INTERVAL_MS)
@@ -243,6 +286,7 @@ expected_channel=skipped
 if [[ -n $(deployment_read_optional_setting TELEGRAM_CHANNEL_ID) ]]; then
   expected_channel=passed
 fi
+DEPLOYMENT_CANDIDATE_MAY_RUN=1
 set +e
 deployment_compose \
   "$DEPLOYMENT_RELEASE" "$DEPLOYMENT_CANDIDATE_ENV" \
@@ -297,9 +341,6 @@ if ((candidate_status == 0)); then
   if [[ $DEPLOYMENT_FIRST_INSTALL == true ]]; then
     deployment_clear_first_install_current \
       "$DEPLOYMENT_RELEASE" "$DEPLOYMENT_CANDIDATE"
-  else
-    deployment_restore_current \
-      "$DEPLOYMENT_PREVIOUS_RELEASE" "$DEPLOYMENT_PREVIOUS"
   fi
 fi
 
@@ -324,23 +365,14 @@ if [[ $DEPLOYMENT_FIRST_INSTALL == true ]]; then
 fi
 
 rollback_result=failed
+rollback_strategy="snapshot-restore"
+if ((DEPLOYMENT_LIVE_ROLLBACK_REQUIRED == 1)); then
+  rollback_strategy="compatible-live"
+fi
 ops_set_step rollback-candidate
 set +e
-deployment_compose \
-  "$DEPLOYMENT_RELEASE" "$DEPLOYMENT_CANDIDATE_ENV" stop bot
+deployment_recover_candidate
 rollback_status=$?
-if ((rollback_status == 0)); then
-  snapshot_container=$(ops_snapshot_container_path "$DEPLOYMENT_SNAPSHOT")
-  ops_app_command "$DEPLOYMENT_PREVIOUS" restore "$snapshot_container"
-  deployment_compose \
-    "$DEPLOYMENT_PREVIOUS_RELEASE" "$DEPLOYMENT_PREVIOUS_ENV" \
-    run --rm --no-deps bot "${OPS_APP_COMMAND[@]}"
-  rollback_status=$?
-fi
-if ((rollback_status == 0)); then
-  ops_start_application
-  rollback_status=$?
-fi
 set -e
 DEPLOYMENT_RESTART_REQUIRED=0
 
@@ -352,10 +384,11 @@ if ((rollback_status == 0)); then
 else
   deployment_emit deployment.rollback.failed failure \
     "$DEPLOYMENT_CANDIDATE" "$DEPLOYMENT_PREVIOUS"
+  deployment_emit_alert "$DEPLOYMENT_CANDIDATE" "$DEPLOYMENT_PREVIOUS"
 fi
 deployment_write_evidence \
   failed "$actor" "$DEPLOYMENT_CANDIDATE" "$DEPLOYMENT_PREVIOUS" \
   "$DEPLOYMENT_SOURCE_REVISION" "$DEPLOYMENT_SNAPSHOT" false \
-  "$rollback_result" "$DEPLOYMENT_RELEASE" >/dev/null
+  "$rollback_result" "$DEPLOYMENT_RELEASE" "$rollback_strategy" >/dev/null
 ops_set_step candidate-verification-failed
 exit 1

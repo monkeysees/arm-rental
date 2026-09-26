@@ -929,19 +929,17 @@ impl Bot {
             db.request_selection(&id.to_string())?;
         }
 
-        if let Some((ids, accepted)) = history_answer {
-            if accepted
-                && !ids.is_empty()
-                && let Some(op) = out
-                    .operations
-                    .iter_mut()
-                    .find(|op| op["method"] != "answerCallbackQuery")
-            {
-                op["payload"]["text"] = json!(format!(
-                    "Хорошо, отправлю их при следующей проверке. Объявлений: {}.",
-                    ids.len()
-                ));
-            }
+        if let Some((ids, true)) = history_answer
+            && !ids.is_empty()
+            && let Some(op) = out
+                .operations
+                .iter_mut()
+                .find(|op| op["method"] != "answerCallbackQuery")
+        {
+            op["payload"]["text"] = json!(format!(
+                "Хорошо, отправлю их при следующей проверке. Объявлений: {}.",
+                ids.len()
+            ));
         }
 
         if let Some(id) = out.offer {

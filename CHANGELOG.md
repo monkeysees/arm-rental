@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Record runner scheduling diagnostics alongside the required native capacity gate.
+
+- Exercise the deployment recovery helper in an isolated Compose project and verify Node continuity after Rust rejection and acknowledgement.
+
 - Publish a rollback-safe Node bridge with pinned prior-image digest and guarded live-state recovery before held Rust promotion.
 
 - Publish scanned Rust candidates behind an explicit cutover gate and add a disposable Node-to-Rust recovery drill.

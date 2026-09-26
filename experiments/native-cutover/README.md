@@ -57,3 +57,33 @@ Keep the prior Node image and snapshot for recovery; an explicit restore can
 replay work acknowledged after that snapshot. This drill verifies service-state
 continuity, while the complete host controller still requires its own rollback
 receipt.
+
+## Deployment recovery helper exercise
+
+Run the separate helper exercise with installed images after the cutover drill:
+
+```bash
+PYTHONDONTWRITEBYTECODE=1 python3 experiments/native-cutover/host_recovery.py \
+  --node-image "$(docker image inspect --format '{{.Id}}' arm-rental-cutover-node:local)" \
+  --native-image "$(docker image inspect --format '{{.Id}}' arm-rental-cutover-native:local)" \
+  --output /tmp/arm-rental-host-recovery-new-run
+```
+
+Use a new absolute output path. For a published Node image transferred with
+`docker save` and `docker load`, pass its exact `sha256:` image ID and
+`--expected-node-revision`; `--node-published-digest` records the host-verified
+digest but cannot resolve that registry digest from a loaded image ID alone.
+The runner creates a unique Compose project and invokes the real
+`deployment_recover_node_from_live_state` helper. It checks recovery after a
+rejected Rust identity preflight and after Rust durably acknowledges a new
+private delivery. Recovered Node must become ready, complete two crawls, retain
+the exact acknowledgement row and Telegram offset, and avoid resending either
+acknowledged listing. `report.json` binds these observations to image IDs,
+source revisions, and hashes of the deployment library and native Compose
+template.
+
+This is a local helper exercise with temporary paths, synthetic peers, and
+Compose startup in place of systemd. It does not run the full `ops/deploy`
+controller, resolve a transferred image's registry digest, or produce a host
+rollback receipt. The live host and production pointer remain outside this
+exercise.

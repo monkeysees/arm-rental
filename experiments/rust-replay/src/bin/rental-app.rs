@@ -22,6 +22,38 @@ fn contract(request: &Value) -> Result<Value> {
     }
 }
 
+fn maintenance_event(name: &str, details: Value) {
+    let mut record = details.as_object().cloned().unwrap_or_default();
+    record.insert(
+        "timestamp".into(),
+        json!(
+            rental_replay::production::storage::iso_timestamp(
+                rental_replay::production::runtime::now_ms()
+            )
+            .unwrap_or_default()
+        ),
+    );
+    record.insert("message".into(), json!(name));
+    record.insert("event".into(), json!(name));
+    record.insert(
+        "applicationVersion".into(),
+        json!(env!("CARGO_PKG_VERSION")),
+    );
+    record.insert(
+        "environment".into(),
+        json!(std::env::var("NODE_ENV").unwrap_or_else(|_| "development".into())),
+    );
+    record.insert(
+        "severity".into(),
+        json!(if name == "alert.firing" || name == "storage.low_disk" {
+            "warn"
+        } else {
+            "info"
+        }),
+    );
+    eprintln!("{}", Value::Object(record));
+}
+
 fn run() -> Result<()> {
     if std::env::args().nth(1).as_deref() == Some("contract") {
         for line in io::stdin().lock().lines() {
@@ -141,6 +173,57 @@ fn run() -> Result<()> {
             )?
         };
         println!("{output}");
+        if args[0] == "storage:check" {
+            let warning = output["status"] == "warning";
+            let mut observation = output.as_object().cloned().unwrap_or_default();
+            observation.insert(
+                "name".into(),
+                json!(if warning {
+                    "storage.low_disk"
+                } else {
+                    "storage.disk_ok"
+                }),
+            );
+            observation.insert("component".into(), json!("storage"));
+            maintenance_event(
+                if warning {
+                    "storage.low_disk"
+                } else {
+                    "storage.disk_ok"
+                },
+                Value::Object(observation.clone()),
+            );
+            observation.insert("alertName".into(), json!("low_disk"));
+            maintenance_event(
+                if warning {
+                    "alert.firing"
+                } else {
+                    "alert.resolved"
+                },
+                Value::Object(observation),
+            );
+            if warning {
+                std::process::exit(2);
+            }
+        } else {
+            maintenance_event("maintenance.report", json!({"report":output}));
+            for alert_name in ["state_database_growth", "state_wal_growth"] {
+                if let Some(alert) = output["alerts"]
+                    .as_array()
+                    .and_then(|alerts| alerts.iter().find(|alert| alert["alertName"] == alert_name))
+                {
+                    maintenance_event("alert.firing", alert.clone());
+                } else {
+                    maintenance_event("alert.resolved", json!({"alertName":alert_name}));
+                }
+            }
+            if output["alerts"]
+                .as_array()
+                .is_some_and(|alerts| !alerts.is_empty())
+            {
+                std::process::exit(2);
+            }
+        }
         return Ok(());
     }
     if matches!(

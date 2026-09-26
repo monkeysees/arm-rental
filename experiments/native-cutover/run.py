@@ -266,14 +266,13 @@ def run(node_image: str, native_image: str, output: Path) -> dict:
             for row in native_state["decisions"]
         ), "new native delivery was not durably acknowledged"
 
-        # Both images serve schema 6. A state-preserving Node restart can read
-        # the native acknowledgement and avoid replay, but the unattended host
-        # deployer currently uses the predeploy snapshot on failure.
+        # Both images serve schema 6. A compatible live-state Node restart
+        # preserves the native acknowledgement and avoids replay.
         compatible_node_recovery = _node_service(harness, node_id, data, backup, output)
         assert compatible_node_recovery["newListingSends"] == 0, "compatible Node restart replayed native acknowledgement"
 
-        # Simulate a rejected post-cutover observation. Node's retained image
-        # restores its matching snapshot before it can read the state again.
+        # Deliberately exercise the older snapshot recovery path to expose
+        # replay of deliveries acknowledged after that snapshot.
         _node(harness, node_id, ["src/recovery-cli.js", "restore", snapshot], data, backup)
         assert _all_rows(harness, data) == predeploy, "post-cutover rollback changed Node snapshot rows"
         _node(harness, node_id, ["src/maintenance-cli.js", "report"], data, backup)
@@ -313,7 +312,7 @@ def run(node_image: str, native_image: str, output: Path) -> dict:
             ],
             "remainingHostOnly": [
                 "This drill does not execute systemd, the GHCR discovery pointer, or the host operations lock.",
-                "The current unattended deployer restores the predeploy snapshot after candidate failure; this drill observed replay of a listing newly acknowledged by Rust after that snapshot. A live compatible-state rollback must be designed and accepted before claiming duplicate-free recovery after native sends.",
+                "This drill observed replay after an explicit predeploy snapshot restore. The updated unattended deployer checks compatible live state before restarting Node after a failed Rust rollout; the complete host controller still requires its own rollback receipt.",
                 "The production host must confirm its deployed bridge revision, independent backup mount, retained Node image, and matching snapshot before promotion.",
                 "The live cutover still needs operator authorization and host readiness, crawl, delivery, and rollback receipts.",
             ],

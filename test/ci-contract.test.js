@@ -257,7 +257,7 @@ test("production publication advances discovery only after scan, push, and metad
   assert.match(workflow, /workflow_run\.head_branch == 'main'/u);
   assert.match(workflow, /group: production-publication/u);
   assert.match(workflow, /cancel-in-progress: false/u);
-  assert.match(workflow, /PRODUCTION_RUNTIME: node/u);
+  assert.match(workflow, /PRODUCTION_RUNTIME: rust/u);
   assert.match(workflow, /name: Validate publication runtime/u);
   assert.match(workflow, /if: env\.PRODUCTION_RUNTIME == 'node'/u);
   assert.match(workflow, /if: env\.PRODUCTION_RUNTIME == 'rust'/u);

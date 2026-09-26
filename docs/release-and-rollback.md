@@ -22,10 +22,11 @@ they cannot falsely report that a requested mutation completed.
 
 `publish-production.yml` runs only after a successful `Required CI` push to
 `main`. It checks out that workflow's exact commit and selects one image with
-`PRODUCTION_RUNTIME`. The setting is `node` for the updated bridge release; a
-later reviewed commit changes it to `rust` after that bridge is deployed. Each
-path verifies the image's runtime, source and lockfile identities, packaged
-service and HTTP closure, then runs the blocking Trivy scan before pushing.
+`PRODUCTION_RUNTIME`. The setting is `rust` for the held candidate; the updated
+Node bridge was published first. Host deployment of that bridge must be
+confirmed before Rust promotion. Each path verifies the image's runtime,
+source and lockfile identities, packaged service and HTTP closure, then runs
+the blocking Trivy scan before pushing.
 GitHub Actions concurrency serializes publication and does not cancel an
 in-progress publisher.
 
@@ -46,8 +47,8 @@ publishes a metadata image tagged `metadata-<full-git-revision>`. Its
 
 Before the first Rust registry push, the publisher reads and binds the current
 `production` image to its metadata and checks that release's runtime deployment
-and live-state rollback contracts. The existing Node bridge does not carry the
-new rollback marker and cannot authorize Rust publication. A Rust candidate
+and live-state rollback contracts. The older Node bridge does not carry the
+rollback marker and cannot authorize Rust publication. A Rust candidate
 fails closed when the pointer cannot be verified. The publisher copies the new
 metadata back out and compares it byte-for-byte before considering `production`.
 A runtime change holds that pointer for operator promotion; a failed quality
@@ -108,28 +109,36 @@ read.
 
 ### Runtime transition to Rust
 
-The currently deployed Node bridge can start Rust, but its rollback path
-restores the predeploy snapshot after a rejected candidate. Publish the updated
-Node bridge with `PRODUCTION_RUNTIME: node` and confirm the host has deployed
-that exact revision before changing the publisher to `rust`. The new bridge
-declares both deployable runtimes and the `preserve-live-state-v1` rollback
-contract. Rust publication and promotion require that marker on the current
-production release; the existing bridge lacks it. The Node bridge publication
-advances the discovery pointer through the normal same-runtime path.
+The older Node bridge can start Rust, but its rollback path restores the
+predeploy snapshot after a rejected candidate. The updated Node bridge was
+published first with `PRODUCTION_RUNTIME: node` and advanced the discovery
+pointer through the same-runtime path. It declares both deployable runtimes and
+the `preserve-live-state-v1` rollback contract. With the publisher now set to
+`rust`, publication requires that marker on the current pointer and holds the
+Rust candidate for explicit promotion. Confirm the host has deployed the
+updated bridge before that promotion; publication alone is not host acceptance.
 
-The current host still runs the older bridge: its attempted #47 Node update
-failed under the old deployer, the application recovered healthy, and the
-unattended timer is paused. Keep that timer paused for this first updated
-bridge rollout. While the application stays live, stage the new immutable Node
-release from its metadata-bound digest using the existing
+On 2026-09-26, the host accepted Node bridge
+`db93d9b9633c92296c75cf4226b2d4e9ad8496a5` at image digest
+`sha256:d43d07fea3e961d7ec6d966e0ca1e28b387925314b57a8eccc7553a289163a82`.
+Its successful receipt completed at `22:35:06Z`, with validated snapshot
+`daily/2026-09-26T22-28-50-466Z`. The normal deploy launcher then succeeded and
+the unattended timer resumed. This records Node bridge acceptance; Rust still
+requires explicit promotion and its own live evidence.
+
+For a host still running the older deployer, pause its unattended timer until
+the first updated bridge rollout is accepted. The earlier #47 update failed
+when discovery displaced the retained image reference. While the application
+stays live, stage the
+immutable Node release from its metadata-bound digest using the existing
 `deployment_extract_release_bundle`, `deployment_verify_release`,
 `deployment_validate_operations_archive`, and `deployment_fetch_release`
 checks. Refuse any pre-existing release directory that has not been verified
 against those inputs. Then invoke that staged release's `ops/deploy` once with
 an operator actor; verify its receipt, image digest, service readiness, backup
 mount and operations lock before re-enabling the timer. Do not unpause the old
-launcher and let it retry the transition. The exact one-time command must be
-checked against the published revision and digest after publication.
+launcher and let it retry the transition. Check the one-time command against
+the published revision and digest before execution.
 
 Once the bridge is current, a Rust candidate can be published, but the
 publisher holds the discovery pointer for this runtime change even though both

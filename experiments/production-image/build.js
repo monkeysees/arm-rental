@@ -6,6 +6,7 @@ import {
   mkdirSync,
   readFileSync,
   readdirSync,
+  rmSync,
   writeFileSync,
 } from "node:fs";
 import path from "node:path";
@@ -113,8 +114,11 @@ for (const block of lock.split("[[package]]").slice(1)) {
     cpSync(path.join(source, file), path.join(destination, file), {
       recursive: true,
     });
-  if (!notices.length)
+  if (!notices.length) {
     cpSync(source, path.join(destination, "source"), { recursive: true });
+    // Keep fallback source, but exclude the crate's unrelated development lock.
+    rmSync(path.join(destination, "source", "Cargo.lock"), { force: true });
+  }
   cpSync(path.join(source, "Cargo.toml"), path.join(destination, "Cargo.toml"));
 }
 cpSync(

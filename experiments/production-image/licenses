@@ -13,7 +13,11 @@ for source in /usr/local/cargo/registry/src/*/*; do
     cp -a "$notice" "$destination/"
     found=true
   done
-  if [[ "$found" == false ]]; then cp -a "$source" "$destination/source"; fi
+  if [[ "$found" == false ]]; then
+    cp -a "$source" "$destination/source"
+    # A crate's development lockfile does not describe this image's dependencies.
+    rm -f -- "$destination/source/Cargo.lock"
+  fi
 done
 for documentation in /usr/local/rustup/toolchains/*/share/doc/rust; do
   cp "$documentation"/COPYRIGHT*.html /licenses/rust-toolchain/

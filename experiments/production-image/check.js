@@ -129,6 +129,14 @@ assert(
   ),
 );
 assert(files.includes("usr/local/bin/rental-app"));
+assert(files.includes("usr/local/share/licenses/rental-app/Cargo.lock"));
+assert(
+  !files.some((file) =>
+    /^usr\/local\/share\/licenses\/rental-app\/[^/]+\/source\/Cargo\.lock$/.test(
+      file,
+    ),
+  ),
+);
 assert(
   files.some((file) =>
     file.startsWith("usr/local/share/licenses/rust-toolchain/"),

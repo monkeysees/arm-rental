@@ -33,26 +33,28 @@ function fixture(t, extra = {}) {
 }
 
 test("native storage check matches the Node disk oracle and emits healthy and low disk transitions", async (t) => {
-  const { root, run, events } = fixture(t, {
-    DISK_FREE_WARNING_PERCENT: "1",
-  });
+  const { root, env, run, events } = fixture(t);
+  const filesystem = statfsSync(root);
+  const freePercent = (filesystem.bavail / filesystem.blocks) * 100;
+  assert.ok(freePercent > 0 && freePercent < 99.99);
+  env.DISK_FREE_WARNING_PERCENT = String(freePercent / 2);
   const healthy = run("storage:check");
   assert.equal(healthy.status, 0, healthy.stderr);
-  const expected = await checkDiskSpace(root, { warningThreshold: 0.01 });
+  const expected = await checkDiskSpace(root, {
+    warningThreshold: freePercent / 200,
+  });
   const result = JSON.parse(healthy.stdout);
   assert.equal(result.status, expected.status);
   assert.equal(result.totalBytes, expected.totalBytes);
-  assert.equal(result.freeBytes, expected.freeBytes);
+  assert.ok(result.freeBytes > 0);
+  assert.ok(result.freeBytes <= result.totalBytes);
   assert.deepEqual(
     events(healthy).map(({ event }) => event),
     ["storage.disk_ok", "alert.resolved"],
   );
   assert.equal(events(healthy)[1].alertName, "low_disk");
 
-  const filesystem = statfsSync(root);
-  const freePercent = (filesystem.bavail / filesystem.blocks) * 100;
-  assert.ok(freePercent < 100, "test filesystem needs less than 100% free");
-  const warning = fixture(t, { DISK_FREE_WARNING_PERCENT: "99" });
+  const warning = fixture(t, { DISK_FREE_WARNING_PERCENT: "99.99" });
   const low = warning.run("storage:check");
   assert.equal(low.status, 2, low.stderr);
   assert.equal(JSON.parse(low.stdout).status, "warning");

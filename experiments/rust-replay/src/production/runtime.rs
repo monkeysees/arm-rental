@@ -163,6 +163,7 @@ fn poll_thread(
     fatal: Arc<AtomicBool>,
     health: SharedHealth,
     cancellations: Cancellations,
+    recipient_state_generation: Arc<AtomicUsize>,
 ) -> thread::JoinHandle<()> {
     thread::spawn(move || {
         let mut bot = Bot::new();
@@ -214,6 +215,7 @@ fn poll_thread(
                             if let Some(cancel) = cancellations.lock().unwrap().get(&id) {
                                 cancel.store(true, Ordering::Relaxed);
                             }
+                            recipient_state_generation.fetch_add(1, Ordering::Release);
                         } else {
                             outgoing.push(op);
                         }
@@ -233,6 +235,8 @@ fn poll_thread(
                 let _guard = guard.lock().unwrap();
                 if deactivate(&db.lock().unwrap(), id).is_err() {
                     fail_runtime(&fatal, &stop);
+                } else {
+                    recipient_state_generation.fetch_add(1, Ordering::Release);
                 }
             }
             match result {
@@ -267,6 +271,7 @@ struct Job {
     consumed: bool,
     cancelled: bool,
     count: usize,
+    checked_recipient_state_generation: Option<usize>,
 }
 struct Bucket {
     tokens: f64,
@@ -288,6 +293,7 @@ impl Scheduler {
         stop: &Arc<AtomicBool>,
         fatal: &Arc<AtomicBool>,
         cancellations: &Cancellations,
+        recipient_state_generation: &Arc<AtomicUsize>,
     ) -> Result<Value> {
         let users = db.lock().unwrap().load_telegram()?["users"]
             .as_object()
@@ -310,6 +316,7 @@ impl Scheduler {
                 consumed: false,
                 cancelled: false,
                 count: 0,
+                checked_recipient_state_generation: None,
             });
         }
         let (sender, receiver) = mpsc::channel::<(Job, Result<bool>)>();
@@ -384,6 +391,32 @@ impl Scheduler {
                 }
                 let mut job = jobs.pop_front().unwrap();
                 if job.due > Instant::now() {
+                    let generation = recipient_state_generation.load(Ordering::Acquire);
+                    if job.checked_recipient_state_generation != Some(generation) {
+                        let eligible = (|| -> Result<bool> {
+                            let guard = gate(gates, job.id);
+                            let _guard = guard.lock().unwrap();
+                            let user = db.lock().unwrap().load_user(job.id)?;
+                            Ok(user.is_some_and(|user| {
+                                user["active"] == true
+                                    && config.authorized(job.id)
+                                    && user.get("deletionPendingAt").is_none()
+                            }))
+                        })();
+                        match eligible {
+                            Ok(false) => {
+                                self.buckets.remove(&job.id);
+                                progressed = true;
+                                continue;
+                            }
+                            Ok(true) => job.checked_recipient_state_generation = Some(generation),
+                            Err(error) => {
+                                failure.get_or_insert(error);
+                                fail_runtime(fatal, stop);
+                                break;
+                            }
+                        }
+                    }
                     jobs.push_back(job);
                     continue;
                 }
@@ -852,6 +885,7 @@ pub fn serve(config: Config, options: &HashMap<String, String>) -> Result<()> {
     let health_worker = health::start_server(&config, health.clone(), stop.clone())?;
     let gates: Gates = Arc::new(Mutex::new(HashMap::new()));
     let cancellations: Cancellations = Arc::new(Mutex::new(HashMap::new()));
+    let recipient_state_generation = Arc::new(AtomicUsize::new(0));
     let poll = poll_thread(
         config.clone(),
         db.clone(),
@@ -861,6 +895,7 @@ pub fn serve(config: Config, options: &HashMap<String, String>) -> Result<()> {
         fatal.clone(),
         health.clone(),
         cancellations.clone(),
+        recipient_state_generation.clone(),
     );
     let metadata_tg = telegram.clone();
     let metadata_stop = stop.clone();
@@ -1050,6 +1085,7 @@ pub fn serve(config: Config, options: &HashMap<String, String>) -> Result<()> {
                             &stop,
                             &fatal,
                             &cancellations,
+                            &recipient_state_generation,
                         );
                         let channel_result = if let Some(worker) = channel_worker {
                             worker.join().map_err(|_| "channel worker panicked")?

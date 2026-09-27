@@ -1,91 +1,75 @@
 # Telegram token rotation
 
-Use this runbook to replace a compromised, scheduled-to-expire, or
-operator-requested BotFather token without losing apartment classification or
-private/channel delivery acknowledgements.
+Use this runbook to replace a BotFather token without changing the Rust
+service's SQLite delivery acknowledgements. Production stores the token in the
+root-owned `/etc/rental-apartments/env`, outside the image and Git checkout.
+Never paste a token into a command argument, ticket, log query or terminal
+recording; enter it through the authorized concealed editor or secret facility.
 
-## Prerequisites
+## Before rotation
 
-- Exclusive access to BotFather and the production secret facility.
-- Permission to stop and start the singleton service.
-- A healthy persistent volume and a current snapshot made by the deployment's
-  approved backup procedure.
-- The immutable image reference and production Compose file used by the running
-  release.
+Confirm the immutable running image, readiness and backup mount through the
+normal SSH operator tools:
 
-Do not paste a token into a shell command, command argument, chat, ticket, log
-query, or terminal recording. Use the secret facility's concealed input. On a
-dedicated host that uses the supported environment-file fallback, edit
-`.env.production` interactively and keep it mode `0600`; do not print it.
+```sh
+rentalctl status
+rentalctl timers
+sudo systemctl start rental-backup.service
+sudo systemctl status rental-backup.service --no-pager
+```
 
-## Safe checks
+The backup service holds the shared operations lock, stops the application,
+creates and validates a fresh snapshot, and restarts the same image. Confirm
+it succeeded and the service is ready before revoking the old credential.
+Do not copy an individual live SQLite file or open a sealed snapshot without
+`immutable=1` or a private copy.
 
-1. Confirm the service is the expected singleton and record its image without
-   inspecting its environment:
+After the backup completes, hold the same lock in a dedicated maintenance
+shell for the stop, secret edit and restart. If the lock is busy, wait for the
+other operation to finish; do not rotate during an active deployment:
 
-   ```sh
-   docker inspect --format \
-     'running={{.State.Running}} image={{.Config.Image}}' \
-     rental-apartments-bot
-   ```
-
-2. Confirm the persistent volume name and take the approved snapshot. Do not
-   copy individual live JSON files while the service is writing.
-3. Stop the service and wait for graceful shutdown:
-
-   ```sh
-   docker compose --file compose.production.yaml stop
-   docker inspect --format '{{.State.Running}}' rental-apartments-bot
-   ```
-
-   The expected final value is `false`. Escalate instead of continuing if the
-   process does not stop cleanly or another replica is present.
+```sh
+sudo flock -n /var/lib/rental-apartments-ops/operations.lock bash
+```
 
 ## Rotate and restart
 
-1. Ask BotFather to revoke the old token and issue a replacement.
-2. Replace only `TELEGRAM_BOT_TOKEN` in the production secret. Do not change,
-   delete, restore, or copy anything under `DATA_DIRECTORY`.
-3. For the dedicated-host environment-file fallback, verify access permissions
-   without displaying content:
+1. Stop the singleton and confirm its container is stopped:
 
    ```sh
-   chmod 0600 .env.production
-   stat -c 'mode=%a file=%n' .env.production
+   sudo systemctl stop rental-apartments.service
+   docker inspect --format '{{.State.Running}}' rental-apartments-bot
    ```
 
-   Expected output contains `mode=600`.
-
-4. Recreate the stopped service with the same immutable image and persistent
-   volume:
+2. Ask BotFather to revoke the old token and issue a replacement. Edit only
+   `TELEGRAM_BOT_TOKEN` in the authorized secret facility. On the dedicated
+   host, use `sudoedit /etc/rental-apartments/env` and preserve root ownership
+   and mode `0600`; inspect permissions without printing the file:
 
    ```sh
-   docker compose --file compose.production.yaml up --detach --force-recreate
+   sudo stat -c 'mode=%a owner=%U file=%n' /etc/rental-apartments/env
    ```
 
-5. Confirm one process is running and inspect only application logs. Successful
-   startup acquires the singleton lease and proceeds to Telegram polling;
-   logs must not contain the old or replacement token.
-6. Confirm the existing delivery files still exist with restricted modes:
+3. Start the installed systemd unit. It uses the verified current Rust release,
+   native Compose override and unchanged persistent SQLite volume:
 
    ```sh
-   docker exec rental-apartments-bot \
-     find /app/.data -maxdepth 1 -type f -name '*.json' \
-     -exec stat -c 'mode=%a file=%n' '{}' +
+   sudo systemctl start rental-apartments.service
+   rentalctl status
+   rentalctl logs --since 20m --event startup.preflight.completed
    ```
 
-   Existing state files report `mode=600`. The next normal crawl must not
-   re-publish acknowledged private or channel messages.
+Require ready preflight, a successful crawl and no unexpected replay of prior
+acknowledgements. Check only sanitized event fields. The database identity,
+Telegram offset and delivery history should remain unchanged apart from normal
+live activity. Exit the maintenance shell to release its operations lock.
 
 ## Failure and recovery
 
-If Telegram rejects the new credential, stop the service, correct or rotate the
-secret again, and restart against the same persistent volume. A revoked token
-cannot be restored as rollback; issue another replacement through BotFather.
-Never delete or reset delivery state to troubleshoot authentication.
-
-Restore the pre-rotation volume snapshot only if independent validation proves
-the persistent state itself was damaged. Authentication failure alone is not a
-restore condition. Escalate when BotFather access is unavailable, state files
-changed unexpectedly, startup reports an unsafe path or permission error, or a
-post-rotation crawl attempts to resend acknowledged history.
+If Telegram rejects the replacement credential, stop the service, correct the
+secret and restart the same immutable image and volume. A revoked token cannot
+be restored as a rollback; request another replacement from BotFather. Do not
+reset SQLite or restore a snapshot for authentication failure alone. Restore
+only if independent validation proves state damage, using the
+[state recovery procedure](state-recovery.md); a restore can replay work
+accepted after its snapshot.

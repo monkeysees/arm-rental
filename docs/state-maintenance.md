@@ -116,7 +116,7 @@ restoring a retained legacy snapshot does not reinstall its browser profile.
 A separate read-only backup inventory reports retained usage and per-snapshot
 paths/bytes, splitting browser-bearing legacy snapshots, browser-free current
 snapshots, and legacy/unknown formats. Unknown is not a claim of restorability.
-Existing daily/weekly retention and protected recovery points remain intact.
+Existing daily and weekly Rust recovery points remain intact.
 Allocated bytes may differ from filesystem free-space changes due to filesystem
 accounting and open file handles.
 

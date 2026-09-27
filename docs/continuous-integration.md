@@ -1,108 +1,63 @@
 # Continuous integration
 
-`Required CI` runs for every pull request and every push to `main`. Repository
-branch protection must require both stable check names:
+`Required CI` runs for every pull request and push to `main`. Branch protection
+requires both stable checks:
 
 - `Required CI / Required / quality`
 - `Required CI / Required / production artifact`
 
-The quality job uses the exact Node release in `.nvmrc`, installs the lockfile
-with `npm ci`, builds and checks the native application with pinned Rust 1.94.0,
-runs `npm run check`, independently runs the coverage gate, and
-audits production dependencies with
-`npm audit --omit=dev --audit-level=high`. The coverage command measures
-`src/**/*.js` and fails below 90% lines or 80% branches.
+The quality job uses the pinned Rust 1.94.0 build image. Its `scripts/check`
+entrypoint runs Cargo formatting, checking, Clippy and tests, Python standard
+library tests, and the production contract. The contract checks shell syntax
+and ShellCheck, systemd units, Compose rendering, workflow action pins and
+release boundaries. It uses a temporary filesystem root with synthetic
+Docker/network dependencies and command placeholders, so the checks do not
+need the production host or secrets. The static Compose render substitutes
+only a verified production environment-file path in a temporary copy.
 
-The aggregate production contract is intentionally limited to baseline runner
-tools plus Docker, jq, ShellCheck, and systemd-analyze. It uses `grep` for text
-contracts instead of relying on optional hosted-image packages such as
-ripgrep; its integration test fails if `rg` is invoked. ShellCheck is enforced
-at warning severity and above. Its style and informational heuristics are not
-release gates because they report false positives for intentional jq programs
-and trap callbacks. Systemd verification runs against a temporary filesystem
-root with explicit Docker/network stubs and executable placeholders, so clean
-runners validate unit dependencies and command declarations without needing the
-production host layout. Compose disables environment-file and host-path
-resolution during this static render. The validator first asserts and replaces
-only the production secret-file path in a temporary Compose copy with an empty
-temporary environment file; its normalized model and consistency checks remain
-enabled.
+The artifact job builds the Linux AMD64 Rust image from exact committed Git
+objects with `scripts/native-release.py`. The producer stages a restricted
+context and records Cargo lock, source-input, executable, curl and transport
+closure digests; it has no Node, npm or package-lock input. The job validates
+the native CLI and immutable image labels, runs packaged service, maintenance
+and isolated recovery acceptance against local Telegram, List.am and CBA
+peers, and checks the 500-recipient capacity contract. The image is non-root,
+read-only and shell-free. Tests use disposable synthetic state and make no
+production API call.
 
-Coverage thresholds and the measured source glob live in `package.json` so the
-same gate runs locally and in CI. Lowering either threshold or adding an
-exclusion is an exception: the pull request must state why the code cannot be
-measured, identify the compensating test, and receive explicit reviewer
-approval. `test/ci-contract.test.js` pins the current thresholds and source
-scope, so an exception cannot be introduced only by changing workflow YAML.
-Temporary exceptions must include a removal issue and expiry date in this
-document; there are currently no exceptions.
-
-The artifact job builds the Linux AMD64 Node production image and separately
-builds and exercises the Rust candidate image. The Node image uses source revision
-and package-lock digest build arguments. The Docker build verifies those
-arguments before installing only production dependencies. npm and Corepack are
-then removed because the application runs directly with Node and does not need
-package-management tooling in production. The job verifies the pinned Node and
-curl-impersonate executables and all image labels. Trivy 0.69.3 scans both OS packages and
-application libraries in both images and fails on every high or critical finding for which a
-fix is available. Findings that Debian marks `affected`, `fix_deferred`, or
-`will_not_fix` without publishing a fixed package remain visible to security
-review but do not permanently block unrelated releases that cannot remediate
-them. The HTTP binary archive is pinned by SHA256 for Linux AMD64 and ARM64, with redistribution licenses retained. The offline image smoke verifies the Safari profile and cookie persistence under the production restrictions. The source revision, runtime versions, and lock digest remain available
-as OCI labels for verification. Once these gates complete, the runner discards
-the candidate image. The job intentionally does not use `docker save` or
-`actions/upload-artifact`: no downstream workflow or host consumes that
-archive, and retaining one several-hundred-megabyte copy per pull-request run
-would exhaust Actions artifact storage without adding release evidence.
-
-The same artifact job runs the packaged Rust production parity check and the
-500-recipient capacity check with Python peers and no Node coordinator. The
-capacity report retains both full-wall and source-separated timing, the frozen
-historical digest, exact delivery and restart outcomes, and the 24-hour
-activity edge. These checks use disposable synthetic state and do not mutate
-the published image or live data.
+Trivy 0.69.3 scans OS packages and linked application libraries. Every high
+or critical finding with an available fix blocks the image. Debian findings
+marked `affected`, `fix_deferred` or `will_not_fix` without a published fix
+remain visible for security review. The required job discards its validated
+candidate image; publication repeats the build, acceptance and scan rather
+than consuming an Actions artifact.
 
 ## Production publication
 
-`Publish production` is a separate `workflow_run` workflow. It can run only
-after a successful `Required CI` push to `main`, checks out the triggering
-workflow's exact `head_sha`, and builds the runtime selected by its explicit
-`PRODUCTION_RUNTIME` setting. The setting is `rust` for the held candidate.
-The updated Node bridge was published first; host deployment must be confirmed
-before promoting the Rust pointer. Both paths repeat runtime and provenance
-checks, packaged image checks, and the blocking Trivy scan before any registry
-push.
+`Publish production` is a separate `workflow_run` workflow. It starts only
+after successful required checks on a `main` push and checks out that run's
+exact `head_sha`. Publication runs under the single
+`production-publication` concurrency group without cancellation. It pushes
+the scanned image by immutable GHCR digest, creates schema-3 release metadata
+and an operations bundle from the same Git revision, then verifies their
+bytes and hashes before advancing the mutable `production` discovery tag.
 
-The workflow uses the single `production-publication` concurrency group with
-`cancel-in-progress: false`. Once a run starts publishing, a newer run waits;
-it cannot cancel a publisher between immutable-object creation and pointer
-advancement.
+The schema-3 bundle binds the image digest to Cargo and source-input
+provenance, the binary and transport closure, canonical source and transport
+manifests, Compose, and an exact Git archive of `ops/` and `infra/systemd/`.
+The publisher first checks the transition against the installed host release.
+A runtime-capability contraction is held for explicit promotion until its
+bridge release has been accepted on the host. The first Rust-only contraction
+requires the committed `docs/evidence/issue50-bridge-receipt.json` and verifies
+it against the exact currently published bridge before registry push. An
+unsupported transition fails
+before the discovery pointer moves. The VPS obtains an immutable image and
+metadata by digest; it never rebuilds source or deploys the mutable tag.
 
-Registry mutation occurs in this order:
-
-1. authenticate with the workflow-scoped package token;
-2. push the exact scanned local image and capture its
-   `ghcr.io/<repository>@sha256:<digest>` reference;
-3. create and push digest-bound release metadata containing the source
-   revision, image digest, package-lock digest, production Compose digest, and
-   deterministic operations-bundle digest;
-4. create a stopped container from the commandless scratch metadata image with
-   an explicit inert command, then extract and compare the published metadata;
-   and
-5. classify the transition against the current release; advance the
-   `production` discovery pointer for a same-runtime Node bridge, or hold it
-   for an explicitly promoted Node-to-Rust transition.
-
-The VPS never deploys the mutable tag. It resolves the pointer, validates the
-metadata object and exact Git commit, and renders Compose with the resulting
-digest. See [release and rollback](release-and-rollback.md).
-
-All GitHub Actions references use full commit SHAs, and the Trivy binary version
-is fixed. Dependabot opens monthly pull requests for npm, Docker, and GitHub
-Actions updates. Updates remain subject to both required checks and human
-review; no update workflow merges or mutates production automatically.
-
-The vulnerability database download, production image build, Trivy scan, GHCR
-push, and registry digest resolution require GitHub-hosted network and package
-services. They cannot be fully reproduced by `npm run check`; use the required
-hosted jobs and the publication receipt as the release authority.
+Workflow actions use full immutable commit pins. Dependabot proposes base
+image and GitHub Actions updates as reviewable pull requests and has no
+production mutation capability. The build, vulnerability database download,
+registry push and digest resolution need hosted network and package services;
+local `scripts/check` does not substitute for the hosted results. See the
+[release runbook](release-and-rollback.md) for the promotion and deployment
+receipts.

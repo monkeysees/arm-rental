@@ -1,4 +1,8 @@
-# Rust parity remediation plan
+# Archived Rust parity remediation plan
+
+This plan records the earlier Node-to-Rust work and is no longer an execution
+checklist. Use the [parity ledger](rust-parity.md) and [Rust development
+guide](rust-development.md) for accepted behavior and current checks.
 
 The standalone Rust candidate has five confirmed regressions against the Node
 production contract. Resolve them before treating the candidate as ready for a
@@ -71,7 +75,7 @@ results.
 - Run the pinned Rust formatting, check, test, Clippy and release build, then
   the repository's Node lint, formatting, full test, coverage and production
   contract gates. Use `RENTAL_APP_BINARY` for the native differential tests;
-  see [Rust development](rust-development.md#build-and-regression-checks).
+  see [Rust development](rust-development.md#local-checks-and-service).
 - Repeat packaged service and maintenance acceptance after the CLI and runtime
   changes. Repeat the 500 recipient fairness, durability and capacity run after
   the scheduler change, since removing deferred work changes its timing.

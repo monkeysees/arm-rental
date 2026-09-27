@@ -21,11 +21,10 @@ they cannot falsely report that a requested mutation completed.
 ## Publication prerequisites and gates
 
 `publish-production.yml` runs only after a successful `Required CI` push to
-`main`. It checks out that workflow's exact commit and selects one image with
-`PRODUCTION_RUNTIME`. The setting is `rust` for the accepted production release;
-the updated Node bridge was published first and verified on the host before
-the initial Rust promotion. Each path verifies the image's runtime,
-source and provenance identities, packaged service and HTTP closure, then runs
+`main`. It checks out that workflow's exact commit and builds the Rust image
+from committed Git inputs. The first Rust promotion followed an accepted Node
+bridge; that is historical cutover evidence. The publisher verifies the image's
+runtime, source and provenance identities, packaged service and HTTP closure, then runs
 the blocking Trivy scan before pushing.
 GitHub Actions concurrency serializes publication and does not cancel an
 in-progress publisher.
@@ -40,21 +39,19 @@ publishes a metadata image tagged `metadata-<full-git-revision>`. Its
   (`deployableStateBackends`);
 - the tested live-state rollback capability
   (`cutoverRollbackContract: preserve-live-state-v1`);
-- the `package-lock.json` digest for historical schema-2 releases;
 - the Rust toolchain, Cargo lock, source-input, executable, and transport
   digests for schema-3 Rust releases;
 - the production Compose digest; and
 - a deterministic archive digest for `ops/` and `infra/systemd/`.
 
-Before the first Rust registry push, the publisher reads and binds the current
-`production` image to its metadata and checks that release's runtime deployment
-and live-state rollback contracts. The older Node bridge does not carry the
-rollback marker and cannot authorize Rust publication. A Rust candidate
-fails closed when the pointer cannot be verified. The publisher copies the new
+Before a registry push, the publisher reads and binds the current `production`
+image to its metadata and checks that release's runtime, deployment and
+live-state rollback contracts. A candidate fails closed when the pointer
+cannot be verified. The publisher copies the new
 metadata back out and compares it byte-for-byte before considering `production`.
-A runtime change holds that pointer for operator promotion; a failed quality
-gate, provenance check, scan, candidate push, or metadata push cannot change
-host discovery.
+A runtime or deployable-capability contraction holds that pointer for operator
+promotion; a failed quality gate, provenance check, scan, candidate push, or
+metadata push cannot change host discovery.
 
 ### Cargo provenance transition (#49)
 
@@ -120,23 +117,45 @@ Later schema-3-to-schema-3 publication verifies the exact current release and
 can advance normally. A missing, mismatched, or unknown contract fails before
 pointer mutation.
 
-An unattended schema-3-to-schema-2 provenance downgrade is refused before
-the service stops. A retained historical schema-2 Node release remains an
-explicit, snapshot-backed operator rollback target. For that path,
-`scripts/release-operations.js rollback --state-strategy restore` requires
-`--target-release /var/lib/rental-apartments/releases/<revision>-<digest-prefix>`;
-it retrieves the published bundle, verifies the image and installed release,
-then validates and restores the selected snapshot with that Node image's own
-commands and Compose file before starting Node. The release must be under the
-canonical `/var/lib/rental-apartments/releases` directory owned by the
-`rental-deploy` account, directly under root-owned trusted ancestors. The
-target must be an immediate child of that directory. This is the host-bootstrap
-ownership contract. The retained release and its files must be root-owned, with no group- or
-world-writable path. The snapshot must predate any
-schema the old image cannot read, and restoring it can replay work accepted
-after the snapshot.
+### Rust-only runtime capability transition (#50)
 
-### First upgrade to the HTTP transport
+The first schema-3 Rust release retained the bridge capability
+`deployableRuntimes: ["node", "rust"]` so its deployer could safely accept
+releases from the earlier cutover. A new Rust-only release narrows this to
+`["rust"]`. The publisher's `scripts/native-release.py gate` requires the
+committed, sanitized `docs/evidence/issue50-bridge-receipt.json` that binds the
+accepted intermediate Rust bridge to its exact source, image, metadata and
+host receipt. It verifies that evidence against the current published
+release before the first Rust-only registry push. The first capability
+contraction is published with the discovery pointer held until the separate
+promotion workflow confirms the bridge is running on the host. A later
+Rust-only-to-bridge expansion and a schema-3-to-schema-2 downgrade are both
+refused before production stops.
+
+The intermediate bridge at source `cee50575e31f08f2e70e9b4d275e236ba9e05df7`
+and digest `c98d61e1…` was accepted on the host on 2026-09-27. Its success
+receipt is `20260927T214134Z-success-c98d61e1ba3aa523.json` with validated
+predeploy snapshot `daily/2026-09-27T21-35-17-704Z`. The immutable snapshot
+and live SQLite state had the same identity, source/channel binding, schema 6,
+offset and all 717,673 decision rows; the following normal deploy poll was a
+successful no-op. The [sanitized bridge attestation](evidence/issue50-bridge-receipt.json)
+binds the deployed image, receipt and archived verifier bytes. This bridge
+advertised both runtime capabilities for the transition while running Rust.
+
+An unattended schema-3-to-schema-2 provenance downgrade is refused before
+the service stops. The retired pre-SQLite Node image and snapshot cannot be a
+manual target for the current SQLite database. Manual rollback must select a
+verified retained Rust release whose metadata covers the installed schema, or
+restore a matching validated Rust snapshot with its release. Snapshot restore
+can replay work accepted after that snapshot.
+
+The retained schema-2 Rust release at source `9c95f8f3efb161f507cc26c33312a64dcfa3c6e0`
+and digest `6d2808e1…` has one recognized Cargo-capable archived verifier
+variant. Verification still binds its exact source, image, release bundle and
+payload; this exception does not admit other schema-2 verifier variants or
+restore Node capability.
+
+### Historical first upgrade to the HTTP transport
 
 The preceding release's deployer requires `SYS_ADMIN` in candidate Compose.
 The HTTP release drops all capabilities and enables `no-new-privileges`, so
@@ -188,7 +207,7 @@ only one reached. The machinery stays because it is what would gate any future
 backend or storage change; it is not a path back to JSON, which no release can
 read.
 
-### Runtime transition to Rust
+### Historical runtime transition to Rust
 
 The older Node bridge can start Rust, but its rollback path restores the
 predeploy snapshot after a rejected candidate. The updated Node bridge was
@@ -242,7 +261,7 @@ candidate digest, and its metadata object. Retain the GitHub run URL; never put
 tokens or rendered environment files in release evidence.
 
 Before requesting the pointer move, run the
-[disposable Node-to-Rust cutover drill](../experiments/native-cutover/README.md)
+[archived disposable Node-to-Rust cutover drill](https://github.com/monkeysees/arm-rental/blob/790ecdb66593d0bff685bc2c537cbe3e7f88735e/experiments/native-cutover/README.md)
 with the accepted image IDs and retain its sanitized `report.json`. It checks a
 Node-created predeploy snapshot, failed native startup and exact-row Node
 rollback, then native readiness, crawl, new delivery and prior acknowledgement
@@ -330,7 +349,7 @@ continuity and supported guarded recovery from the failed first attempt. The
 recipients' Telegram inboxes were not inspected externally, and no deliberate
 rollback of the healthy Rust service was performed. This first Rust release
 carried package-lock provenance for its host verifier; the later Cargo
-provenance deployment is recorded below. Node retirement remains #50 work.
+provenance deployment and Node retirement are recorded below.
 
 ### Accepted Cargo provenance deployment (2026-09-27)
 
@@ -363,9 +382,37 @@ not inspected. No deliberate rollback of the healthy release was performed.
 The installed release uses schema-3 `cargo-source-v1` provenance, with no
 package-lock metadata field, artifact, or image label. Retention contains this
 release and two prior Rust digests (`6d2808e1…` and `98ecade8…`). A separate
-protected pre-SQLite Node image and JSON snapshot remain pinned pending the
-retirement decision in #50. That pair cannot recover the current SQLite state;
-the ordinary SQLite-era Node rollback image has rotated out of retention.
+protected pre-SQLite Node image and JSON snapshot were still pinned at this
+acceptance point. That pair could not recover the current SQLite state; the
+ordinary SQLite-era Node rollback image had rotated out of retention.
+
+### Isolated Rust recovery and Node retirement (2026-09-27)
+
+After the schema-3 release was accepted, the operator ran the existing
+`rental-restore-drill.service` against validated snapshot
+`daily/2026-09-27T20-20-12-399Z`. The first drill refused that snapshot because
+a read-only audit had opened its SQLite file without `immutable=1` and created
+an empty WAL and 32 KiB SHM sidecar outside its six-file manifest. All six
+manifest files still matched their recorded hashes. The two inspection-created
+sidecars and their hashes were preserved as diagnostics; under the operations
+lock the operator verified no open reader, removed only those two exact files,
+and revalidated the full manifest. The unchanged isolated drill then passed at
+`20:36:37Z` without stopping, restarting, or changing the live Rust container
+or its SQLite state. Future inspection of a sealed snapshot uses `immutable=1`
+or a private copy.
+
+With that recovery proof and explicit retirement approval, the operator used
+`ops/unprotect-migration-rollback` to release the sole historical pre-SQLite
+entry: Node image
+`ghcr.io/monkeysees/arm-rental@sha256:6ab96bd5cee7ca06dd772a4fb815b45ee610359f5a2649c753157e1f37398711`
+and snapshot
+`/mnt/rental-apartments-backups/protected/pre-sqlite-2026-08-19T07-32-32-202Z`.
+The supported retention-aware image-cleanup service then removed the unretained
+Node image and its metadata image. Its dry-run afterward found no removal
+candidate. The current Rust image and two ordinary Rust rollback entries,
+their snapshots, and the healthy live container remained unchanged. The
+historical release directory may remain as inert evidence; it is not a
+recoverable Node image or snapshot.
 
 ## Host prerequisites and safe checks
 
@@ -450,11 +497,10 @@ For a new digest, `ops/deploy`:
 The retention index keeps the current and two prior evidence records. Release
 directories, digest-pinned Docker images, receipts, and associated deployment
 snapshots must not be manually removed while referenced by that index.
-A host may still carry one `protectedReleases` entry left from the SQLite
-cutover, pinning a pre-SQLite snapshot, the bridge application image, and its
-release-metadata image against ordinary current-plus-two rotation. Nothing can
-create another. That snapshot cannot be read by this release; see
-[releasing the stranded rollback point](state-recovery.md#releasing-the-stranded-rollback-point).
+The one `protectedReleases` entry left from the SQLite cutover was released
+under #50 and its pre-SQLite snapshot and Node images were retired. No current
+release can create a new protected entry. Only the current-plus-two Rust
+retention set is available for rollback; see [state recovery](state-recovery.md).
 
 After a candidate is accepted, deployment performs retention-aware image
 cleanup. A weekly timer retries the same idempotent operation as a safety net:
@@ -468,8 +514,8 @@ sudo journalctl -u rental-image-cleanup.service --since -30m
 The dry run lists only managed application and release-metadata image IDs that
 are absent from the retention index and unused by every container. Never
 substitute `docker system prune` or `docker image prune -a`; those commands do
-not understand rollback retention and may remove the two protected prior
-images. An invalid index, current-image mismatch, missing protected image, or
+not understand rollback retention and may remove the two retained prior Rust
+images. An invalid index, current-image mismatch, missing retained image, or
 running-container mismatch fails before deletion.
 
 The first install is intentionally separate. It requires no current symlink or
@@ -495,15 +541,13 @@ rewrite an unsupported database. Candidate acceptance must show a
 `source.integrity.checked` record and `crawl.succeeded` record with the same
 crawl ID.
 
-The retained Node bridge and deployed Rust application accept SQLite schemas 1–6
-and write schema 6. The upgrade to
-schema 4 replaces private delivery rows transactionally, then reclaims free
-pages with a retryable one-time VACUUM before startup continues. Allow temporary
-space for replacement pages, WAL, and the VACUUM copy, and preserve the stopped
-service's pre-deploy snapshot on independent storage. Images whose supported
-schema range excludes 6 cannot use `state-strategy=compatible` against this live state: use the existing
-snapshot restore rollback path. See the [schema contract](sqlite-schema.md)
-for migration and interruption behavior.
+The deployed Rust application accepts SQLite schemas 1–6 and writes schema 6.
+The schema-4 upgrade replaces private delivery rows transactionally, then
+reclaims free pages with a retryable one-time VACUUM. Allow temporary space
+for replacement pages, WAL and the VACUUM copy. An image whose supported
+schema range excludes 6 cannot use `state-strategy=compatible` against the
+current live state; use a matching snapshot with the restore strategy. See the
+[schema contract](sqlite-schema.md) for migration and interruption behavior.
 
 The restored deployment configuration remains the access-policy authority;
 never infer an access mode from snapshot users or resume users that the
@@ -513,27 +557,22 @@ contains `deletionPendingAt` must resume that deletion; rolling back across the
 deletion boundary is allowed only with the matching, internally consistent
 pre-deletion snapshot of both bot and private-delivery state.
 
-On a failed Rust candidate with a retained Node predecessor, unattended
-recovery stops and confirms the candidate is stopped, inspects live SQLite
-state read-only, checks its schema against the prior release, then starts the
-previous immutable Node image on that live state and requires readiness. It
-does not automatically restore the older pre-deploy snapshot, which could
-erase Rust acknowledgements and cause repeated delivery. A failed deployment
-receipt records `rollback.stateStrategy` as `compatible-live` for this path or
-`snapshot-restore` for other transitions. A successful recovery emits
+On a failed Rust candidate, unattended recovery stops and confirms the
+candidate is stopped, validates the matching predeploy snapshot, restores it
+with the prior immutable Rust release, then requires readiness. The failed
+receipt records `rollback.stateStrategy: snapshot-restore`. The historical
+first cutover used `compatible-live` to recover its Node predecessor without
+erasing Rust acknowledgements; that path is no longer an available rollback
+target. A successful recovery emits
 `deployment.rollback.completed`, records `rollback.result: completed`, opens a
 deployment alert, and leaves `rental-deploy.service` failed so the incident is
 visible.
 
-This guarded live-state path covers Rust launch and observation failures. If
-the candidate cannot be confirmed stopped, live state is incompatible or
-corrupt, or the previous image cannot become ready, recovery leaves the service
-stopped and alerts for operator action. For other runtime transitions, the
-previous image restores the verified pre-deploy snapshot before restart. The
-validated snapshot and retained image remain available for an explicit
-operator restore after a failed Rust cutover; that restore can replay work
-accepted after the snapshot. Deployment never converts state during a code
-release.
+If the candidate cannot be confirmed stopped, the snapshot is invalid, or the
+previous image cannot become ready, recovery leaves the service stopped and
+alerts for operator action. The retained Rust snapshot and image remain
+available for explicit recovery. Restoring a snapshot can replay work accepted
+after it was taken. Deployment never converts state during a code release.
 
 If guarded recovery, snapshot restore, or previous-image readiness fails, the command records
 `deployment.rollback.failed`, preserves its evidence, and leaves the unit
@@ -579,19 +618,27 @@ release, restoring another validated snapshot, or keeping the bot stopped.
 Follow [state recovery](state-recovery.md), retain all pre-change and failure
 evidence, and escalate before destructive volume or snapshot changes.
 
-The manual `scripts/release-operations.js` runner selects commands from each
-immutable image's `com.rental-apartments.runtime` label. Rust images use the
-bundled native Compose override, `rental-app` readiness probes and native backup
-commands. Explicit `node` labels and retained images without a runtime label use
-their existing Node commands; an unknown label fails before the running service
-is stopped. Candidate and retained images are evaluated independently, so a
-rollback across runtimes keeps using the retained image's own recovery tools.
-For a snapshot-backed rollback from Rust to historical Node, supply the
-verified installed Node release with `--target-release`. The runner checks its
-published schema-2 package-lock bundle and image labels before stopping Rust,
-uses that release's base Compose, and runs Node backup validation and restore
-against the selected snapshot. Its `--state-strategy compatible` path continues
-to inspect live state and does not restore a snapshot.
+The manual `scripts/release-operations.py` runner exposes `validate`, `deploy`
+and `rollback` with the established long options and `--dry-run`. It acquires
+the shared operations lock itself. Candidate and retained release bundles are
+verified before the service stops; both images must explicitly declare the
+Rust runtime and pass the published schema-3 metadata and bundle checks.
+`--target-release` may select only a verified retained release. The
+`--state-strategy compatible` path preserves compatible live SQLite state;
+`--state-strategy restore` validates and restores the selected matching
+snapshot and can replay work accepted after that snapshot.
+
+```sh
+python3 scripts/release-operations.py --help
+```
+
+Supply `--environment production`, an accountable `--actor`, immutable
+`--image` and `--previous-image` references, a published daily or weekly
+`--snapshot`, the poll interval, observation duration and delivery mode. Run
+`validate` or `--dry-run` first to check the request without Docker; execution
+then verifies both published Rust artifacts before stopping the service. Run
+the script with the permissions needed for the shared operations lock; do not
+hold a separate external lock around it.
 
 For a Rust container, the compatible-rollback check runs
 `rental-app state:inspect`. This command reads the installed SQLite identity,

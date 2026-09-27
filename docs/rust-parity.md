@@ -1,8 +1,8 @@
 # Rust application parity
 
-Issue [#44](https://github.com/monkeysees/arm-rental/issues/44) requires the complete
-application and maintenance lifecycle. This document tracks production behavior;
-the retained replay implementation does not establish production parity.
+Issue [#44](https://github.com/monkeysees/arm-rental/issues/44) required the complete
+application and maintenance lifecycle. This document tracks production behavior,
+the frozen Node oracle, and its Node-free regression replacements under #50.
 
 ## Frozen source baseline
 
@@ -28,56 +28,53 @@ shared listing inventory, narrower history candidate selection and completion of
 initial selection when all stored listings already have terminal decisions.
 These changes form part of the rewrite baseline alongside production behavior.
 
-## Contract inventory
+## Active Node-free parity ledger
 
-The table links native implementations to their independent acceptance seams.
-Targeted coverage is recorded here; full-suite, packaged-service and capacity
-acceptance remain separate gates in the verification record below.
+The former Node differential tests were capture tools. The maintained oracle is a
+reviewed fixture from the frozen Node source revision above; the acceptance
+runner compares Rust output without executing Node. Python process tests also
+inspect SQLite and local HTTP requests independently. Historical verification
+results below describe the earlier candidate at the time they were recorded.
 
-| Contract                                                                                          | Source and existing regression coverage                                                                                                                                    | Rust acceptance status                                                                                                                                                                                                                                                             |
-| ------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Configuration, access modes, managed paths and explicit initialization                            | `config.js`, `config-catalog.js`, `state-init.js`; `config.test.js`, `state-init.test.js`                                                                                  | [config.rs](../experiments/rust-replay/src/production/config.rs); [config](../test/rust-production-config.test.js), [storage](../test/rust-production-storage.test.js), [smoke](../test/rust-production-smoke.test.js)                                                             |
-| Regular Ads, Top Ads exclusion, canonical identities and both card layouts                        | `list-am.js`; `list-am.test.js`, `list-am-fixture.test.js`                                                                                                                 | [source.rs](../experiments/rust-replay/src/production/source.rs); [domain](../test/rust-production-domain.test.js)                                                                                                                                                                 |
-| Day/instant posting dates, inferred years and supplied dates                                      | `posting-date.js`, `source-activity.js`; `posting-date.test.js`, `crawler.test.js`                                                                                         | [source.rs](../experiments/rust-replay/src/production/source.rs); [domain](../test/rust-production-domain.test.js), [crawl](../test/rust-production-crawl.test.js)                                                                                                                 |
-| Source integrity, reason precedence, per-kind history and atomic failure                          | `source-integrity.js`, `apartment-state.js`; `source-integrity.test.js`, `apartment-state.test.js`                                                                         | [source.rs](../experiments/rust-replay/src/production/source.rs); [domain](../test/rust-production-domain.test.js), [crawl](../test/rust-production-crawl.test.js)                                                                                                                 |
-| Apartment/house pagination, independent watermarks, encounter order and retained history          | `crawler.js`, `sqlite-apartments-repository.js`; `crawler.test.js`, `incremental-crawl.test.js`                                                                            | [crawl.rs](../experiments/rust-replay/src/production/crawl.rs); [crawl](../test/rust-production-crawl.test.js), [service](../test/rust-production-service.test.js)                                                                                                                 |
-| Pinned HTTP profile, cookies, pacing, challenges, bounded redirects and cancellation              | `list-am-http.js`, `list-am-operation.js`; `list-am-http.test.js`, `list-am-operation.test.js`                                                                             | [transport.rs](../experiments/rust-replay/src/production/transport.rs); [transport](../test/rust-production-transport.test.js), [crawl](../test/rust-production-crawl.test.js), [smoke](../test/rust-production-smoke.test.js)                                                     |
-| CBA retrieval, atomic quotes, daily refresh/hourly retry and AMD normalization                    | `exchange-rates.js`, `prices.js`; `exchange-rates.test.js`, `prices.test.js`                                                                                               | [runtime.rs](../experiments/rust-replay/src/production/runtime.rs); [domain](../test/rust-production-domain.test.js), [service](../test/rust-production-service.test.js)                                                                                                           |
-| Private polling, durable offsets, commands, menus, callbacks and conversations                    | `bot.js`, `filter-ui.js`, `telegram.js`; `telegram.test.js`                                                                                                                | [bot.rs](../experiments/rust-replay/src/production/bot.rs); [telegram](../test/rust-production-telegram.test.js), [service](../test/rust-production-service.test.js)                                                                                                               |
-| Metadata synchronization, Russian output, original currencies and optional fields                 | `telegram-metadata.js`, `telegram.js`; `telegram.test.js`                                                                                                                  | [bot.rs](../experiments/rust-replay/src/production/bot.rs); [telegram](../test/rust-production-telegram.test.js), [delivery](../test/rust-production-delivery.test.js)                                                                                                             |
-| Authorization, inbound limits, policy changes and identifier-free telemetry                       | `bot.js`, `rate-limit.js`; `rate-limits.test.js`, `telegram.test.js`                                                                                                       | [bot.rs](../experiments/rust-replay/src/production/bot.rs); [telegram](../test/rust-production-telegram.test.js), [runtime-failures](../test/rust-production-runtime-failures.test.js)                                                                                             |
-| Filters, housing kinds, regions/places, ranges and history-release consent                        | `filters.js`, `filter-ui.js`, `bot.js`; `filters.test.js`, `telegram.test.js`, `crawler.test.js`                                                                           | [filters.rs](../experiments/rust-replay/src/production/filters.rs); [domain](../test/rust-production-domain.test.js), [telegram](../test/rust-production-telegram.test.js), [delivery](../test/rust-production-delivery.test.js)                                                   |
-| Start/restart consent, initial limit, 24-hour activity window and source redelivery               | `crawler.js`, `delivery-selection.js`, `source-activity.js`; `crawler.test.js`, `deletion.test.js`                                                                         | [private.rs](../experiments/rust-replay/src/production/private.rs); [delivery](../test/rust-production-delivery.test.js), [runtime-failures](../test/rust-production-runtime-failures.test.js)                                                                                     |
-| Compact decisions, durable work, fair eight-operation scheduling and retry waits                  | `sqlite-private-deliveries-repository.js`, `private-delivery-scheduler.js`; `private-delivery-scheduling.test.js`, `sqlite-delivery-migration.test.js`                     | [runtime.rs](../experiments/rust-replay/src/production/runtime.rs); [delivery](../test/rust-production-delivery.test.js), [runtime-failures](../test/rust-production-runtime-failures.test.js)                                                                                     |
-| Channel independence, apartment-only selection, hashtags, edits/reposts and acknowledgements      | `channel.js`, `sqlite-channel-deliveries-repository.js`; `channel.test.js`, `sqlite-channel-incremental.test.js`                                                           | [channel.rs](../experiments/rust-replay/src/production/channel.rs); [delivery](../test/rust-production-delivery.test.js), [runtime-failures](../test/rust-production-runtime-failures.test.js)                                                                                     |
-| Confirmed deletion, policy-suspended users, atomic removal and restart                            | `bot.js`, `sqlite-telegram-repository.js`; `deletion.test.js`, `sqlite-state.test.js`                                                                                      | [bot.rs](../experiments/rust-replay/src/production/bot.rs); [telegram](../test/rust-production-telegram.test.js), [runtime-failures](../test/rust-production-runtime-failures.test.js)                                                                                             |
-| Production database identity, schema/domain validation, target binding and permissions            | `sqlite-database.js`, `sqlite-repositories.js`; `sqlite-state.test.js`, `sqlite-state-access.test.js`                                                                      | [storage.rs](../experiments/rust-replay/src/production/storage.rs); [storage](../test/rust-production-storage.test.js)                                                                                                                                                             |
-| Atomic schema 1–6 upgrades, exact timestamp domain and retryable compaction                       | `sqlite-schema.js`, `sqlite-*-migration.js`; `sqlite-decisions-migration.test.js`, `sqlite-delivery-migration.test.js`                                                     | [storage.rs](../experiments/rust-replay/src/production/storage.rs); [storage](../test/rust-production-storage.test.js)                                                                                                                                                             |
-| Initialization, consistent backup, validation, restore, disk checks and reporting                 | `state-init.js`, `recovery.js`, `maintenance.js`; `state-init.test.js`, `recovery.test.js`, `maintenance.test.js`                                                          | [recovery.rs](../experiments/rust-replay/src/production/recovery.rs); [recovery](../test/rust-production-recovery.test.js)                                                                                                                                                         |
-| Cross-process singleton, stale recovery, preflight, readiness and shutdown                        | `singleton-lock.js`, `preflight.js`, `application.js`, `health.js`; `singleton.test.js`, `preflight.test.js`, `application.test.js`, `health.test.js`                      | [runtime.rs](../experiments/rust-replay/src/production/runtime.rs); [lease](../test/rust-production-lease.test.js), [health](../test/rust-production-health.test.js), [health-cli](../test/rust-production-health-cli.test.js), [service](../test/rust-production-service.test.js) |
-| Redacted logs, owner alerts, source grace, host monitoring, timers and lock behavior              | `logger.js`, `health.js`, `ops/`; `logger.test.js`, `operations-observability.test.js`, `operations-systemd.test.js`                                                       | [health.rs](../experiments/rust-replay/src/production/health.rs); [health](../test/rust-production-health.test.js), [runtime-failures](../test/rust-production-runtime-failures.test.js)                                                                                           |
-| Native runtime/maintenance packaging, deployment consumers and snapshot-backed rollback           | `Dockerfile`, `compose.production.yaml`, `ops/`; `runtime-packaging.test.js`, `release-operations.test.js`, `deployment-automation.test.js`, `production-contract.test.js` | [operations.rs](../experiments/rust-replay/src/production/operations.rs); [browser-cleanup](../test/rust-production-browser-cleanup.test.js), [recovery](../test/rust-production-recovery.test.js)                                                                                 |
-| Full-app differential regression, 500-recipient fairness/durability/capacity and process failures | `experiments/node-replay/`, production tests and local peers                                                                                                               | [runtime.rs](../experiments/rust-replay/src/production/runtime.rs); [service](../test/rust-production-service.test.js), [runtime-failures](../test/rust-production-runtime-failures.test.js)                                                                                       |
+| Retired regression file                  | Maintained native assertion                                                                                                                                                                    |
+| ---------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| rust-production-config.test.js           | 16 frozen configuration vectors in experiments/native-acceptance/fixtures/contract-expected.json; invalid policy and mode rejection in lifecycle.py                                            |
+| rust-production-domain.test.js           | 122 frozen source, date, price, filter, CBA, integrity, rendering and Unicode vectors in contract-expected.json, with external HTML hashes                                                     |
+| rust-production-telegram.test.js         | Four frozen full conversations with exact Bot API operations and state in contract-expected.json; service.py checks live controls and policy                                                   |
+| rust-production-delivery.test.js         | All eight initial selection, consent, channel retry/edit/repost, deletion and changed-listing cases in test/native-delivery-boundaries.test.py                                                 |
+| rust-history-offset.test.js              | Four injected consent-write failure/replay combinations and the invalid-filter offset boundary in test/native-delivery-boundaries.test.py                                                      |
+| rust-production-crawl.test.js            | Apartment and house discovery, repeated crawl and late house identity rejection with unchanged rows in test/native-crawl-boundaries.test.py                                                    |
+| rust-production-deleted-retry.test.js    | Delete and stop during long Telegram retry while another recipient and crawl continue in test/native-process-failures.test.py                                                                  |
+| rust-production-runtime-failures.test.js | Eight announcement, authorization, cooldown, deletion, replay, cancellation and channel-failure process cases in test/native-process-failures.test.py                                          |
+| rust-production-smoke.test.js            | Source cancellation, child reap, managed symlink, cookie, pacing, challenge and redirect boundaries in test/native-process-failures.test.py                                                    |
+| rust-production-preflight.test.js        | First-page count-drop rejection with unchanged crawl state in test/native-process-failures.test.py                                                                                             |
+| rust-production-service.test.js          | Packaged two-category service, private controls, channel edit, retries and restart in experiments/native-acceptance/service.py                                                                 |
+| rust-production-transport.test.js        | Local Telegram 429 peer, exact payload and durable retry outcome in experiments/native-acceptance/service.py                                                                                   |
+| rust-production-storage.test.js          | Frozen populated v1–v5 upgrades, all table rows, signed-year timestamps, wrong identity, mode, noncanonical data and late migration rollback in experiments/native-acceptance/lifecycle.py     |
+| rust-production-recovery.test.js         | Backup validation, exact row restore, tamper refusal and failed install rollback in experiments/native-acceptance/lifecycle.py; maintenance status in test/native-lifecycle-boundaries.test.py |
+| rust-production-health.test.js           | Three frozen health transitions and exact age boundaries in test/fixtures/native-lifecycle/health.json and test/native-lifecycle-boundaries.test.py                                            |
+| rust-production-health-cli.test.js       | Safe readiness projection, denial of secret reasons and exit codes in test/native-lifecycle-boundaries.test.py                                                                                 |
+| rust-production-inspection.test.js       | Read-only active WAL, absent/foreign/newer schema and unchanged files in test/native-lifecycle-boundaries.test.py                                                                              |
+| rust-production-lease.test.js            | Live singleton exclusion and stale-socket recovery in test/native-lifecycle-boundaries.test.py                                                                                                 |
+| rust-production-live-storage.test.js     | Live disk status and locked maintenance boundary in test/native-lifecycle-boundaries.test.py                                                                                                   |
+| rust-production-browser-cleanup.test.js  | Exact retired-browser inventory, symlink refusal, removal and backup usage in test/native-lifecycle-boundaries.test.py                                                                         |
+| rust-maintenance-contract.test.js        | Healthy, warning and error disk/maintenance statuses in test/native-lifecycle-boundaries.test.py                                                                                               |
+| rust-maintenance-wrapper-status.test.js  | Wrapper propagation of status 0/2 and service restart boundaries in test/native-lifecycle-boundaries.test.py                                                                                   |
+| rust-publication-preflight.test.js       | Rust-only publisher and host transition gate checks in test/native-release-gate.test.py and test/native-release-workflows.test.py                                                              |
 
-Packaging and host integration are implemented in
-[`Dockerfile.native`](../Dockerfile.native),
-[`ops/lib/runtime.sh`](../ops/lib/runtime.sh) and
-[`ops/service`](../ops/service), with
-[`native-operations.test.js`](../test/native-operations.test.js) and the retained
-deployment, systemd and observability regressions. The
-[`image checker`](../experiments/production-image/check.js) exercises the actual
-runtime closure. The
-[`production acceptance runner`](../experiments/production-acceptance/run.js)
-loads the independent 500-recipient fixture and checks real service output,
-retained decisions, interruption recovery and capacity; its generated results
-stay outside the repository.
+The packaged native gate is experiments/native-acceptance/run.py. The separate
+experiments/native-capacity/run.py preserves the 500-recipient, 3,277,500-row
+historical fingerprint, eight-worker bound, fairness, 50 retries and interrupted
+restart checks. experiments/native-cutover/rust_rollback.py exercises compatible
+Rust live-state restart and explicit older-snapshot replay. Host operations and
+release gates have their own Python checks; a local drill does not replace a
+production deployment receipt.
 
-Test filenames above are under `test/`. The Node test oracle must remain
-independent of Rust output. Local peers and synthetic populated production
-databases must cover successes, malformed inputs, retries, cancellation, policy
-changes, deletion, channel edits and meaningful crash boundaries. No whole-machine
-RAM, physical Pi or further language-comparison gate is required. Catch-up timing
-failures still require resolution before capacity acceptance.
+The old rental-replay binary and its Node-calling Rust integration tests were
+prototype-only. The maintained crate path and package identity remain the
+production source contract, while rental-app and production modules are its
+only executable application. No expected value in these active gates is
+generated from the candidate Rust output.
 
 ## Verification record
 
@@ -107,17 +104,18 @@ The first live attempt passed Rust observation but failed at final systemd
 start because the installed unit still used Node-only direct Compose. Guarded
 `compatible-live` rollback restored healthy Node without replacing live SQLite
 state; the approved unit was then installed before the successful retry. The
-retained Node image and matching snapshot remain rollback options. No external
-recipient inbox was inspected, and no deliberate rollback of the healthy Rust
-service was performed. The current release still needs package-lock provenance
-for host verification; Cargo-only provenance and Node retirement remain #49
-and #50 work. See [release and rollback](release-and-rollback.md) for receipts
-and the effective-unit preflight.
+retained Node image and matching snapshot were rollback options at that cutover.
+No external recipient inbox was inspected, and no deliberate rollback of the
+healthy Rust service was performed. Later #49 releases use Cargo-source
+provenance; #50 retires the Node application and its active test runner. See
+[release and rollback](release-and-rollback.md) for receipts and the effective-unit
+preflight.
 
-The implementation lives under `experiments/rust-replay/src/production/`, with a
-separate `rental-app` binary. The historical `rental-replay` binary and independent
-Node oracle remain separate. The user confirmed service/local-peer, native
-maintenance/production-SQLite and independent differential/capacity test boundaries.
+The implementation lives under `experiments/rust-replay/src/production/`, with
+the `rental-app` binary. The historical `rental-replay` prototype has since been
+retired; frozen Node outputs remain an independent data oracle. The user
+confirmed service/local-peer, native maintenance/production-SQLite and
+independent differential/capacity test boundaries.
 
 ### Remediated candidate (2026-09-26)
 

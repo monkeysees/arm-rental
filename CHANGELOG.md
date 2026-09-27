@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Retire the approved pre-SQLite Node recovery pair and replace Node application, test, release, and host command paths with Rust and Python tooling, frozen parity fixtures, and guarded Rust rollback.
+
 - Prepare the deployed verifier for Rust-only runtime claims after the approved retirement of the protected Node recovery pair.
 
 - Accept the live Cargo-source Rust release with validated schema-3 provenance and preserved SQLite decisions; retain the incompatible pre-SQLite Node recovery pair pending retirement approval.

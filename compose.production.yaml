@@ -7,7 +7,9 @@ services:
     labels:
       com.rental-apartments.environment: production
     init: true
-    user: "node"
+    user: "1000:1000"
+    entrypoint: ["/usr/local/bin/rental-app"]
+    command: ["serve"]
     cap_drop:
       - ALL
     security_opt:
@@ -40,7 +42,7 @@ services:
         tag: rental-apartments.production
         labels: com.rental-apartments.environment
     healthcheck:
-      test: ["CMD", "node", "src/health-check.js", "--restart-unresponsive"]
+      test: ["CMD", "/usr/local/bin/rental-app", "health-check", "--restart-unresponsive"]
       interval: 30s
       timeout: 5s
       start_period: 60s

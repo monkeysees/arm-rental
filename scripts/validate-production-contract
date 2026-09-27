@@ -150,19 +150,9 @@ for removed in \
   }
 done
 
-node --input-type=module -e '
-  import { readFile } from "node:fs/promises";
-  const pkg = JSON.parse(await readFile("package.json", "utf8"));
-  for (const script of ["staging:smoke", "staging:soak", "release:rehearse"]) {
-    if (Object.hasOwn(pkg.scripts, script)) {
-      throw new Error(`removed package script returned: ${script}`);
-    }
-  }
-'
-
 if grep -ERin \
   'NODE_ENV[=:].*(staging|pre-?production)|environment[=:].*(staging|pre-?production)' \
-  src scripts ops infra compose.production.yaml .github/workflows package.json; then
+  experiments/rust-replay/src scripts ops infra compose.production.yaml .github/workflows; then
   printf 'A second deployed environment returned to production artifacts\n' >&2
   exit 65
 fi

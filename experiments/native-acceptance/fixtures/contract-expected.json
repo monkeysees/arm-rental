@@ -1,0 +1,6134 @@
+{
+  "provenance": {
+    "nodeSourceRevision": "b5a4f09cebf62999af06e35e8f132c9e9dc45e12",
+    "vectorOrigin": "Frozen rust-production-domain/config/telegram differential scenarios",
+    "generatedAt": "2026-09-27",
+    "nodeRuntime": "v24.18.0"
+  },
+  "cases": [
+    {
+      "name": "parse-regular-page.html",
+      "input": {
+        "op": "parse",
+        "kind": "apartment",
+        "referenceMs": 1767268800000
+      },
+      "expected": {
+        "apartments": [
+          {
+            "url": "https://www.list.am/ru/item/999999990000002",
+            "itemId": "999999990000002",
+            "title": "Sanitized regular listing 2",
+            "price": {
+              "amount": 220000,
+              "currency": "֏"
+            },
+            "location": "Sanitized district",
+            "rooms": 2,
+            "areaSqM": 60,
+            "floor": "3/9",
+            "date": "Friday, July 24, 2026, 14:32"
+          },
+          {
+            "url": "https://www.list.am/ru/item/999999990000003",
+            "itemId": "999999990000003",
+            "title": "Sanitized regular listing 3",
+            "price": {
+              "amount": 230000,
+              "currency": "֏"
+            },
+            "location": "Sanitized district",
+            "rooms": 2,
+            "areaSqM": 60,
+            "floor": "3/9",
+            "date": "Friday, July 24, 2026, 14:33"
+          }
+        ],
+        "candidateCount": 2,
+        "uniqueCandidateCount": 2,
+        "parsedCount": 2,
+        "duplicateCount": 0,
+        "rejectedCount": 0,
+        "completeness": {
+          "title": 2,
+          "date": 2,
+          "price": 2,
+          "location": 2,
+          "rooms": 2,
+          "areaSqM": 2,
+          "floor": 2
+        }
+      },
+      "htmlFixture": "test/fixtures/list-am-real-shape/regular-page.html",
+      "htmlSha256": "24c6fa64c071e41e83083c84f8c1595025ee3f0a389e482c472486f08a02be30"
+    },
+    {
+      "name": "parse-regular-page-redesign.html",
+      "input": {
+        "op": "parse",
+        "kind": "apartment",
+        "referenceMs": 1767268800000
+      },
+      "expected": {
+        "apartments": [
+          {
+            "url": "https://www.list.am/ru/item/999999990000010",
+            "itemId": "999999990000010",
+            "title": "Sanitized regular listing 10",
+            "price": {
+              "amount": 300000,
+              "currency": "֏"
+            },
+            "location": "Sanitized district 10",
+            "rooms": 2,
+            "areaSqM": 60,
+            "floor": "3/9",
+            "date": "Июль 24"
+          },
+          {
+            "url": "https://www.list.am/ru/item/999999990000011",
+            "itemId": "999999990000011",
+            "title": "Sanitized regular listing 11",
+            "price": {
+              "amount": 310000,
+              "currency": "֏"
+            },
+            "location": "Sanitized district 11",
+            "rooms": 2,
+            "areaSqM": 60,
+            "floor": "3/9",
+            "date": null
+          },
+          {
+            "url": "https://www.list.am/ru/item/999999990000012",
+            "itemId": "999999990000012",
+            "title": "Sanitized regular listing 12",
+            "price": {
+              "amount": 320000,
+              "currency": "֏"
+            },
+            "location": "Sanitized district 12",
+            "rooms": 2,
+            "areaSqM": 60,
+            "floor": "3/9",
+            "date": "Июль 24"
+          },
+          {
+            "url": "https://www.list.am/ru/item/999999990000013",
+            "itemId": "999999990000013",
+            "title": "Sanitized regular listing 13",
+            "price": {
+              "amount": 330000,
+              "currency": "֏"
+            },
+            "location": "Sanitized district 13",
+            "rooms": 2,
+            "areaSqM": 60,
+            "floor": "3/9",
+            "date": "Июль 24"
+          },
+          {
+            "url": "https://www.list.am/ru/item/999999990000014",
+            "itemId": "999999990000014",
+            "title": "Sanitized regular listing 14",
+            "price": {
+              "amount": 340000,
+              "currency": "֏"
+            },
+            "location": "Sanitized district 14",
+            "rooms": 2,
+            "areaSqM": 60,
+            "floor": "3/9",
+            "date": "Июль 24"
+          },
+          {
+            "url": "https://www.list.am/ru/item/999999990000015",
+            "itemId": "999999990000015",
+            "title": "Sanitized regular listing 15",
+            "price": {
+              "amount": 350000,
+              "currency": "֏"
+            },
+            "location": "Sanitized district 15",
+            "rooms": 2,
+            "areaSqM": 60,
+            "floor": "3/9",
+            "date": "Июль 24"
+          },
+          {
+            "url": "https://www.list.am/ru/item/999999990000016",
+            "itemId": "999999990000016",
+            "title": "Sanitized regular listing 16",
+            "price": {
+              "amount": 360000,
+              "currency": "֏"
+            },
+            "location": "Sanitized district 16",
+            "rooms": 2,
+            "areaSqM": 60,
+            "floor": "3/9",
+            "date": "Июль 24"
+          },
+          {
+            "url": "https://www.list.am/ru/item/999999990000017",
+            "itemId": "999999990000017",
+            "title": "Sanitized regular listing 17",
+            "price": {
+              "amount": 370000,
+              "currency": "֏"
+            },
+            "location": "Sanitized district 17",
+            "rooms": 2,
+            "areaSqM": 60,
+            "floor": "3/9",
+            "date": "Июль 24"
+          },
+          {
+            "url": "https://www.list.am/ru/item/999999990000018",
+            "itemId": "999999990000018",
+            "title": "Sanitized regular listing 18",
+            "price": {
+              "amount": 380000,
+              "currency": "֏"
+            },
+            "location": "Sanitized district 18",
+            "rooms": 2,
+            "areaSqM": 60,
+            "floor": "3/9",
+            "date": "Июль 24"
+          },
+          {
+            "url": "https://www.list.am/ru/item/999999990000019",
+            "itemId": "999999990000019",
+            "title": "Sanitized regular listing 19",
+            "price": {
+              "amount": 390000,
+              "currency": "֏"
+            },
+            "location": "Sanitized district 19",
+            "rooms": 2,
+            "areaSqM": 60,
+            "floor": "3/9",
+            "date": "Июль 24"
+          },
+          {
+            "url": "https://www.list.am/ru/item/999999990000020",
+            "itemId": "999999990000020",
+            "title": "Sanitized regular listing 20",
+            "price": {
+              "amount": 400000,
+              "currency": "֏"
+            },
+            "location": "Sanitized district 20",
+            "rooms": 2,
+            "areaSqM": 60,
+            "floor": "3/9",
+            "date": "Июль 24"
+          },
+          {
+            "url": "https://www.list.am/ru/item/999999990000021",
+            "itemId": "999999990000021",
+            "title": "Sanitized regular listing 21",
+            "price": {
+              "amount": 410000,
+              "currency": "֏"
+            },
+            "location": "Sanitized district 21",
+            "rooms": 2,
+            "areaSqM": 60,
+            "floor": "3/9",
+            "date": "Июль 24"
+          },
+          {
+            "url": "https://www.list.am/ru/item/999999990000022",
+            "itemId": "999999990000022",
+            "title": "Sanitized regular listing 22",
+            "price": {
+              "amount": 420000,
+              "currency": "֏"
+            },
+            "location": "Sanitized district 22",
+            "rooms": 2,
+            "areaSqM": 60,
+            "floor": "3/9",
+            "date": "Июль 24"
+          },
+          {
+            "url": "https://www.list.am/ru/item/999999990000023",
+            "itemId": "999999990000023",
+            "title": "Sanitized regular listing 23",
+            "price": {
+              "amount": 430000,
+              "currency": "֏"
+            },
+            "location": "Sanitized district 23",
+            "rooms": 2,
+            "areaSqM": 60,
+            "floor": "3/9",
+            "date": "Июль 24"
+          },
+          {
+            "url": "https://www.list.am/ru/item/999999990000024",
+            "itemId": "999999990000024",
+            "title": "Sanitized regular listing 24",
+            "price": {
+              "amount": 440000,
+              "currency": "֏"
+            },
+            "location": "Sanitized district 24",
+            "rooms": 2,
+            "areaSqM": 60,
+            "floor": "3/9",
+            "date": "Июль 24"
+          },
+          {
+            "url": "https://www.list.am/ru/item/999999990000025",
+            "itemId": "999999990000025",
+            "title": "Sanitized regular listing 25",
+            "price": {
+              "amount": 450000,
+              "currency": "֏"
+            },
+            "location": "Sanitized district 25",
+            "rooms": 2,
+            "areaSqM": 60,
+            "floor": "3/9",
+            "date": "Июль 24"
+          },
+          {
+            "url": "https://www.list.am/ru/item/999999990000026",
+            "itemId": "999999990000026",
+            "title": "Sanitized regular listing 26",
+            "price": {
+              "amount": 460000,
+              "currency": "֏"
+            },
+            "location": "Sanitized district 26",
+            "rooms": 2,
+            "areaSqM": 60,
+            "floor": "3/9",
+            "date": "Июль 24"
+          },
+          {
+            "url": "https://www.list.am/ru/item/999999990000027",
+            "itemId": "999999990000027",
+            "title": "Sanitized regular listing 27",
+            "price": {
+              "amount": 470000,
+              "currency": "֏"
+            },
+            "location": "Sanitized district 27",
+            "rooms": 2,
+            "areaSqM": 60,
+            "floor": "3/9",
+            "date": "Июль 24"
+          },
+          {
+            "url": "https://www.list.am/ru/item/999999990000028",
+            "itemId": "999999990000028",
+            "title": "Sanitized regular listing 28",
+            "price": {
+              "amount": 480000,
+              "currency": "֏"
+            },
+            "location": "Sanitized district 28",
+            "rooms": 2,
+            "areaSqM": 60,
+            "floor": "3/9",
+            "date": "Июль 24"
+          },
+          {
+            "url": "https://www.list.am/ru/item/999999990000029",
+            "itemId": "999999990000029",
+            "title": "Sanitized regular listing 29",
+            "price": {
+              "amount": 490000,
+              "currency": "֏"
+            },
+            "location": "Sanitized district 29",
+            "rooms": 2,
+            "areaSqM": 60,
+            "floor": "3/9",
+            "date": "Июль 24"
+          },
+          {
+            "url": "https://www.list.am/ru/item/999999990000030",
+            "itemId": "999999990000030",
+            "title": "Sanitized regular listing 30",
+            "price": {
+              "amount": 500000,
+              "currency": "֏"
+            },
+            "location": "Sanitized district 30",
+            "rooms": 2,
+            "areaSqM": 60,
+            "floor": "3/9",
+            "date": "Июль 24"
+          },
+          {
+            "url": "https://www.list.am/ru/item/999999990000031",
+            "itemId": "999999990000031",
+            "title": "Sanitized regular listing 31",
+            "price": {
+              "amount": 510000,
+              "currency": "֏"
+            },
+            "location": "Sanitized district 31",
+            "rooms": 2,
+            "areaSqM": 60,
+            "floor": "3/9",
+            "date": "Июль 24"
+          },
+          {
+            "url": "https://www.list.am/ru/item/999999990000032",
+            "itemId": "999999990000032",
+            "title": "Sanitized regular listing 32",
+            "price": {
+              "amount": 520000,
+              "currency": "֏"
+            },
+            "location": "Sanitized district 32",
+            "rooms": 2,
+            "areaSqM": 60,
+            "floor": "3/9",
+            "date": "Июль 24"
+          },
+          {
+            "url": "https://www.list.am/ru/item/999999990000033",
+            "itemId": "999999990000033",
+            "title": "Sanitized regular listing 33",
+            "price": {
+              "amount": 530000,
+              "currency": "֏"
+            },
+            "location": "Sanitized district 33",
+            "rooms": 2,
+            "areaSqM": 60,
+            "floor": "3/9",
+            "date": "Июль 24"
+          },
+          {
+            "url": "https://www.list.am/ru/item/999999990000034",
+            "itemId": "999999990000034",
+            "title": "Sanitized regular listing 34",
+            "price": {
+              "amount": 540000,
+              "currency": "֏"
+            },
+            "location": "Sanitized district 34",
+            "rooms": 2,
+            "areaSqM": 60,
+            "floor": "3/9",
+            "date": "Июль 24"
+          },
+          {
+            "url": "https://www.list.am/ru/item/999999990000035",
+            "itemId": "999999990000035",
+            "title": "Sanitized regular listing 35",
+            "price": {
+              "amount": 550000,
+              "currency": "֏"
+            },
+            "location": "Sanitized district 35",
+            "rooms": 2,
+            "areaSqM": 60,
+            "floor": "3/9",
+            "date": "Июль 24"
+          },
+          {
+            "url": "https://www.list.am/ru/item/999999990000036",
+            "itemId": "999999990000036",
+            "title": "Sanitized regular listing 36",
+            "price": {
+              "amount": 560000,
+              "currency": "֏"
+            },
+            "location": "Sanitized district 36",
+            "rooms": 2,
+            "areaSqM": 60,
+            "floor": "3/9",
+            "date": "Июль 24"
+          },
+          {
+            "url": "https://www.list.am/ru/item/999999990000037",
+            "itemId": "999999990000037",
+            "title": "Sanitized regular listing 37",
+            "price": {
+              "amount": 570000,
+              "currency": "֏"
+            },
+            "location": "Sanitized district 37",
+            "rooms": 2,
+            "areaSqM": 60,
+            "floor": "3/9",
+            "date": "Июль 24"
+          },
+          {
+            "url": "https://www.list.am/ru/item/999999990000038",
+            "itemId": "999999990000038",
+            "title": "Sanitized regular listing 38",
+            "price": {
+              "amount": 580000,
+              "currency": "֏"
+            },
+            "location": "Sanitized district 38",
+            "rooms": 2,
+            "areaSqM": 60,
+            "floor": "3/9",
+            "date": "Июль 24"
+          },
+          {
+            "url": "https://www.list.am/ru/item/999999990000039",
+            "itemId": "999999990000039",
+            "title": "Sanitized regular listing 39",
+            "price": {
+              "amount": 590000,
+              "currency": "֏"
+            },
+            "location": "Sanitized district 39",
+            "rooms": 2,
+            "areaSqM": 60,
+            "floor": "3/9",
+            "date": "Июль 24"
+          },
+          {
+            "url": "https://www.list.am/ru/item/999999990000040",
+            "itemId": "999999990000040",
+            "title": "Sanitized regular listing 40",
+            "price": {
+              "amount": 600000,
+              "currency": "֏"
+            },
+            "location": "Sanitized district 40",
+            "rooms": 2,
+            "areaSqM": 60,
+            "floor": "3/9",
+            "date": "Июль 24"
+          },
+          {
+            "url": "https://www.list.am/ru/item/999999990000041",
+            "itemId": "999999990000041",
+            "title": "Sanitized regular listing 41",
+            "price": {
+              "amount": 610000,
+              "currency": "֏"
+            },
+            "location": "Sanitized district 41",
+            "rooms": 2,
+            "areaSqM": 60,
+            "floor": "3/9",
+            "date": "Июль 24"
+          },
+          {
+            "url": "https://www.list.am/ru/item/999999990000042",
+            "itemId": "999999990000042",
+            "title": "Sanitized regular listing 42",
+            "price": {
+              "amount": 620000,
+              "currency": "֏"
+            },
+            "location": "Sanitized district 42",
+            "rooms": 2,
+            "areaSqM": 60,
+            "floor": "3/9",
+            "date": "Июль 24"
+          },
+          {
+            "url": "https://www.list.am/ru/item/999999990000043",
+            "itemId": "999999990000043",
+            "title": "Sanitized regular listing 43",
+            "price": {
+              "amount": 630000,
+              "currency": "֏"
+            },
+            "location": "Sanitized district 43",
+            "rooms": 2,
+            "areaSqM": 60,
+            "floor": "3/9",
+            "date": "Июль 24"
+          },
+          {
+            "url": "https://www.list.am/ru/item/999999990000044",
+            "itemId": "999999990000044",
+            "title": "Sanitized regular listing 44",
+            "price": {
+              "amount": 640000,
+              "currency": "֏"
+            },
+            "location": "Sanitized district 44",
+            "rooms": 2,
+            "areaSqM": 60,
+            "floor": "3/9",
+            "date": "Июль 24"
+          },
+          {
+            "url": "https://www.list.am/ru/item/999999990000045",
+            "itemId": "999999990000045",
+            "title": "Sanitized regular listing 45",
+            "price": {
+              "amount": 650000,
+              "currency": "֏"
+            },
+            "location": "Sanitized district 45",
+            "rooms": 2,
+            "areaSqM": 60,
+            "floor": "3/9",
+            "date": "Июль 24"
+          },
+          {
+            "url": "https://www.list.am/ru/item/999999990000046",
+            "itemId": "999999990000046",
+            "title": "Sanitized regular listing 46",
+            "price": {
+              "amount": 660000,
+              "currency": "֏"
+            },
+            "location": "Sanitized district 46",
+            "rooms": 2,
+            "areaSqM": 60,
+            "floor": "3/9",
+            "date": "Июль 24"
+          },
+          {
+            "url": "https://www.list.am/ru/item/999999990000047",
+            "itemId": "999999990000047",
+            "title": "Sanitized regular listing 47",
+            "price": {
+              "amount": 670000,
+              "currency": "֏"
+            },
+            "location": "Sanitized district 47",
+            "rooms": 2,
+            "areaSqM": 60,
+            "floor": "3/9",
+            "date": "Июль 24"
+          },
+          {
+            "url": "https://www.list.am/ru/item/999999990000048",
+            "itemId": "999999990000048",
+            "title": "Sanitized regular listing 48",
+            "price": {
+              "amount": 680000,
+              "currency": "֏"
+            },
+            "location": "Sanitized district 48",
+            "rooms": 2,
+            "areaSqM": 60,
+            "floor": "3/9",
+            "date": "Июль 24"
+          },
+          {
+            "url": "https://www.list.am/ru/item/999999990000049",
+            "itemId": "999999990000049",
+            "title": "Sanitized regular listing 49",
+            "price": {
+              "amount": 690000,
+              "currency": "֏"
+            },
+            "location": "Sanitized district 49",
+            "rooms": 2,
+            "areaSqM": 60,
+            "floor": "3/9",
+            "date": "Июль 24"
+          },
+          {
+            "url": "https://www.list.am/ru/item/999999990000050",
+            "itemId": "999999990000050",
+            "title": "Sanitized regular listing 50",
+            "price": {
+              "amount": 700000,
+              "currency": "֏"
+            },
+            "location": "Sanitized district 50",
+            "rooms": 2,
+            "areaSqM": 60,
+            "floor": "3/9",
+            "date": "Июль 24"
+          },
+          {
+            "url": "https://www.list.am/ru/item/999999990000051",
+            "itemId": "999999990000051",
+            "title": "Sanitized regular listing 51",
+            "price": {
+              "amount": 710000,
+              "currency": "֏"
+            },
+            "location": "Sanitized district 51",
+            "rooms": 2,
+            "areaSqM": 60,
+            "floor": "3/9",
+            "date": "Июль 24"
+          },
+          {
+            "url": "https://www.list.am/ru/item/999999990000052",
+            "itemId": "999999990000052",
+            "title": "Sanitized regular listing 52",
+            "price": {
+              "amount": 720000,
+              "currency": "֏"
+            },
+            "location": "Sanitized district 52",
+            "rooms": 2,
+            "areaSqM": 60,
+            "floor": "3/9",
+            "date": "Июль 24"
+          },
+          {
+            "url": "https://www.list.am/ru/item/999999990000053",
+            "itemId": "999999990000053",
+            "title": "Sanitized regular listing 53",
+            "price": {
+              "amount": 730000,
+              "currency": "֏"
+            },
+            "location": "Sanitized district 53",
+            "rooms": 2,
+            "areaSqM": 60,
+            "floor": "3/9",
+            "date": "Июль 24"
+          },
+          {
+            "url": "https://www.list.am/ru/item/999999990000054",
+            "itemId": "999999990000054",
+            "title": "Sanitized regular listing 54",
+            "price": {
+              "amount": 740000,
+              "currency": "֏"
+            },
+            "location": "Sanitized district 54",
+            "rooms": 2,
+            "areaSqM": 60,
+            "floor": "3/9",
+            "date": "Июль 24"
+          },
+          {
+            "url": "https://www.list.am/ru/item/999999990000055",
+            "itemId": "999999990000055",
+            "title": "Sanitized regular listing 55",
+            "price": {
+              "amount": 750000,
+              "currency": "֏"
+            },
+            "location": "Sanitized district 55",
+            "rooms": 2,
+            "areaSqM": 60,
+            "floor": "3/9",
+            "date": "Июль 24"
+          },
+          {
+            "url": "https://www.list.am/ru/item/999999990000056",
+            "itemId": "999999990000056",
+            "title": "Sanitized regular listing 56",
+            "price": {
+              "amount": 760000,
+              "currency": "֏"
+            },
+            "location": "Sanitized district 56",
+            "rooms": 2,
+            "areaSqM": 60,
+            "floor": "3/9",
+            "date": "Июль 24"
+          },
+          {
+            "url": "https://www.list.am/ru/item/999999990000057",
+            "itemId": "999999990000057",
+            "title": "Sanitized regular listing 57",
+            "price": {
+              "amount": 770000,
+              "currency": "֏"
+            },
+            "location": "Sanitized district 57",
+            "rooms": 2,
+            "areaSqM": 60,
+            "floor": "3/9",
+            "date": "Июль 24"
+          },
+          {
+            "url": "https://www.list.am/ru/item/999999990000058",
+            "itemId": "999999990000058",
+            "title": "Sanitized regular listing 58",
+            "price": {
+              "amount": 780000,
+              "currency": "֏"
+            },
+            "location": "Sanitized district 58",
+            "rooms": 2,
+            "areaSqM": 60,
+            "floor": "3/9",
+            "date": "Июль 24"
+          },
+          {
+            "url": "https://www.list.am/ru/item/999999990000059",
+            "itemId": "999999990000059",
+            "title": "Sanitized regular listing 59",
+            "price": {
+              "amount": 790000,
+              "currency": "֏"
+            },
+            "location": "Sanitized district 59",
+            "rooms": 2,
+            "areaSqM": 60,
+            "floor": "3/9",
+            "date": "Июль 24"
+          },
+          {
+            "url": "https://www.list.am/ru/item/999999990000060",
+            "itemId": "999999990000060",
+            "title": "Sanitized regular listing 60",
+            "price": {
+              "amount": 800000,
+              "currency": "֏"
+            },
+            "location": "Sanitized district 60",
+            "rooms": 2,
+            "areaSqM": 60,
+            "floor": "3/9",
+            "date": "Июль 24"
+          },
+          {
+            "url": "https://www.list.am/ru/item/999999990000061",
+            "itemId": "999999990000061",
+            "title": "Sanitized regular listing 61",
+            "price": {
+              "amount": 810000,
+              "currency": "֏"
+            },
+            "location": "Sanitized district 61",
+            "rooms": 2,
+            "areaSqM": 60,
+            "floor": "3/9",
+            "date": "Июль 24"
+          },
+          {
+            "url": "https://www.list.am/ru/item/999999990000062",
+            "itemId": "999999990000062",
+            "title": "Sanitized regular listing 62",
+            "price": {
+              "amount": 820000,
+              "currency": "֏"
+            },
+            "location": "Sanitized district 62",
+            "rooms": 2,
+            "areaSqM": 60,
+            "floor": "3/9",
+            "date": "Июль 24"
+          },
+          {
+            "url": "https://www.list.am/ru/item/999999990000063",
+            "itemId": "999999990000063",
+            "title": "Sanitized regular listing 63",
+            "price": {
+              "amount": 830000,
+              "currency": "֏"
+            },
+            "location": "Sanitized district 63",
+            "rooms": 2,
+            "areaSqM": 60,
+            "floor": "3/9",
+            "date": "Июль 24"
+          },
+          {
+            "url": "https://www.list.am/ru/item/999999990000064",
+            "itemId": "999999990000064",
+            "title": "Sanitized regular listing 64",
+            "price": {
+              "amount": 840000,
+              "currency": "֏"
+            },
+            "location": "Sanitized district 64",
+            "rooms": 2,
+            "areaSqM": 60,
+            "floor": "3/9",
+            "date": "Июль 24"
+          },
+          {
+            "url": "https://www.list.am/ru/item/999999990000065",
+            "itemId": "999999990000065",
+            "title": "Sanitized regular listing 65",
+            "price": {
+              "amount": 850000,
+              "currency": "֏"
+            },
+            "location": "Sanitized district 65",
+            "rooms": 2,
+            "areaSqM": 60,
+            "floor": "3/9",
+            "date": "Июль 24"
+          },
+          {
+            "url": "https://www.list.am/ru/item/999999990000066",
+            "itemId": "999999990000066",
+            "title": "Sanitized regular listing 66",
+            "price": {
+              "amount": 860000,
+              "currency": "֏"
+            },
+            "location": "Sanitized district 66",
+            "rooms": 2,
+            "areaSqM": 60,
+            "floor": "3/9",
+            "date": "Июль 24"
+          },
+          {
+            "url": "https://www.list.am/ru/item/999999990000067",
+            "itemId": "999999990000067",
+            "title": "Sanitized regular listing 67",
+            "price": {
+              "amount": 870000,
+              "currency": "֏"
+            },
+            "location": "Sanitized district 67",
+            "rooms": 2,
+            "areaSqM": 60,
+            "floor": "3/9",
+            "date": "Июль 24"
+          },
+          {
+            "url": "https://www.list.am/ru/item/999999990000068",
+            "itemId": "999999990000068",
+            "title": "Sanitized regular listing 68",
+            "price": {
+              "amount": 880000,
+              "currency": "֏"
+            },
+            "location": "Sanitized district 68",
+            "rooms": 2,
+            "areaSqM": 60,
+            "floor": "3/9",
+            "date": "Июль 24"
+          },
+          {
+            "url": "https://www.list.am/ru/item/999999990000069",
+            "itemId": "999999990000069",
+            "title": "Sanitized regular listing 69",
+            "price": {
+              "amount": 890000,
+              "currency": "֏"
+            },
+            "location": "Sanitized district 69",
+            "rooms": 2,
+            "areaSqM": 60,
+            "floor": "3/9",
+            "date": "Июль 24"
+          },
+          {
+            "url": "https://www.list.am/ru/item/999999990000070",
+            "itemId": "999999990000070",
+            "title": "Sanitized regular listing 70",
+            "price": {
+              "amount": 900000,
+              "currency": "֏"
+            },
+            "location": "Sanitized district 70",
+            "rooms": 2,
+            "areaSqM": 60,
+            "floor": "3/9",
+            "date": "Июль 24"
+          },
+          {
+            "url": "https://www.list.am/ru/item/999999990000071",
+            "itemId": "999999990000071",
+            "title": "Sanitized regular listing 71",
+            "price": {
+              "amount": 910000,
+              "currency": "֏"
+            },
+            "location": "Sanitized district 71",
+            "rooms": 2,
+            "areaSqM": 60,
+            "floor": "3/9",
+            "date": "Июль 24"
+          },
+          {
+            "url": "https://www.list.am/ru/item/999999990000072",
+            "itemId": "999999990000072",
+            "title": "Sanitized regular listing 72",
+            "price": {
+              "amount": 920000,
+              "currency": "֏"
+            },
+            "location": "Sanitized district 72",
+            "rooms": 2,
+            "areaSqM": 60,
+            "floor": "3/9",
+            "date": "Июль 24"
+          },
+          {
+            "url": "https://www.list.am/ru/item/999999990000073",
+            "itemId": "999999990000073",
+            "title": "Sanitized regular listing 73",
+            "price": {
+              "amount": 930000,
+              "currency": "֏"
+            },
+            "location": "Sanitized district 73",
+            "rooms": 2,
+            "areaSqM": 60,
+            "floor": "3/9",
+            "date": "Июль 24"
+          },
+          {
+            "url": "https://www.list.am/ru/item/999999990000074",
+            "itemId": "999999990000074",
+            "title": "Sanitized regular listing 74",
+            "price": {
+              "amount": 940000,
+              "currency": "֏"
+            },
+            "location": "Sanitized district 74",
+            "rooms": 2,
+            "areaSqM": 60,
+            "floor": "3/9",
+            "date": "Июль 24"
+          },
+          {
+            "url": "https://www.list.am/ru/item/999999990000075",
+            "itemId": "999999990000075",
+            "title": "Sanitized regular listing 75",
+            "price": {
+              "amount": 950000,
+              "currency": "֏"
+            },
+            "location": "Sanitized district 75",
+            "rooms": 2,
+            "areaSqM": 60,
+            "floor": "3/9",
+            "date": "Июль 24"
+          },
+          {
+            "url": "https://www.list.am/ru/item/999999990000076",
+            "itemId": "999999990000076",
+            "title": "Sanitized regular listing 76",
+            "price": {
+              "amount": 960000,
+              "currency": "֏"
+            },
+            "location": "Sanitized district 76",
+            "rooms": 2,
+            "areaSqM": 60,
+            "floor": "3/9",
+            "date": "Июль 24"
+          },
+          {
+            "url": "https://www.list.am/ru/item/999999990000077",
+            "itemId": "999999990000077",
+            "title": "Sanitized regular listing 77",
+            "price": {
+              "amount": 970000,
+              "currency": "֏"
+            },
+            "location": "Sanitized district 77",
+            "rooms": 2,
+            "areaSqM": 60,
+            "floor": "3/9",
+            "date": "Июль 24"
+          },
+          {
+            "url": "https://www.list.am/ru/item/999999990000078",
+            "itemId": "999999990000078",
+            "title": "Sanitized regular listing 78",
+            "price": {
+              "amount": 980000,
+              "currency": "֏"
+            },
+            "location": "Sanitized district 78",
+            "rooms": 2,
+            "areaSqM": 60,
+            "floor": "3/9",
+            "date": "Июль 24"
+          },
+          {
+            "url": "https://www.list.am/ru/item/999999990000079",
+            "itemId": "999999990000079",
+            "title": "Sanitized regular listing 79",
+            "price": {
+              "amount": 990000,
+              "currency": "֏"
+            },
+            "location": "Sanitized district 79",
+            "rooms": 2,
+            "areaSqM": 60,
+            "floor": "3/9",
+            "date": "Июль 24"
+          },
+          {
+            "url": "https://www.list.am/ru/item/999999990000080",
+            "itemId": "999999990000080",
+            "title": "Sanitized regular listing 80",
+            "price": {
+              "amount": 1000000,
+              "currency": "֏"
+            },
+            "location": "Sanitized district 80",
+            "rooms": 2,
+            "areaSqM": 60,
+            "floor": "3/9",
+            "date": "Июль 24"
+          },
+          {
+            "url": "https://www.list.am/ru/item/999999990000081",
+            "itemId": "999999990000081",
+            "title": "Sanitized regular listing 81",
+            "price": {
+              "amount": 1010000,
+              "currency": "֏"
+            },
+            "location": "Sanitized district 81",
+            "rooms": 2,
+            "areaSqM": 60,
+            "floor": "3/9",
+            "date": "Июль 24"
+          },
+          {
+            "url": "https://www.list.am/ru/item/999999990000082",
+            "itemId": "999999990000082",
+            "title": "Sanitized regular listing 82",
+            "price": {
+              "amount": 1020000,
+              "currency": "֏"
+            },
+            "location": "Sanitized district 82",
+            "rooms": 2,
+            "areaSqM": 60,
+            "floor": "3/9",
+            "date": "Июль 24"
+          },
+          {
+            "url": "https://www.list.am/ru/item/999999990000083",
+            "itemId": "999999990000083",
+            "title": "Sanitized regular listing 83",
+            "price": {
+              "amount": 1030000,
+              "currency": "֏"
+            },
+            "location": "Sanitized district 83",
+            "rooms": 2,
+            "areaSqM": 60,
+            "floor": "3/9",
+            "date": "Июль 24"
+          },
+          {
+            "url": "https://www.list.am/ru/item/999999990000084",
+            "itemId": "999999990000084",
+            "title": "Sanitized regular listing 84",
+            "price": {
+              "amount": 1040000,
+              "currency": "֏"
+            },
+            "location": "Sanitized district 84",
+            "rooms": 2,
+            "areaSqM": 60,
+            "floor": "3/9",
+            "date": "Июль 24"
+          },
+          {
+            "url": "https://www.list.am/ru/item/999999990000085",
+            "itemId": "999999990000085",
+            "title": "Sanitized regular listing 85",
+            "price": {
+              "amount": 1050000,
+              "currency": "֏"
+            },
+            "location": "Sanitized district 85",
+            "rooms": 2,
+            "areaSqM": 60,
+            "floor": "3/9",
+            "date": "Июль 24"
+          },
+          {
+            "url": "https://www.list.am/ru/item/999999990000086",
+            "itemId": "999999990000086",
+            "title": "Sanitized regular listing 86",
+            "price": {
+              "amount": 1060000,
+              "currency": "֏"
+            },
+            "location": "Sanitized district 86",
+            "rooms": 2,
+            "areaSqM": 60,
+            "floor": "3/9",
+            "date": "Июль 24"
+          },
+          {
+            "url": "https://www.list.am/ru/item/999999990000087",
+            "itemId": "999999990000087",
+            "title": "Sanitized regular listing 87",
+            "price": {
+              "amount": 1070000,
+              "currency": "֏"
+            },
+            "location": "Sanitized district 87",
+            "rooms": 2,
+            "areaSqM": 60,
+            "floor": "3/9",
+            "date": "Июль 24"
+          },
+          {
+            "url": "https://www.list.am/ru/item/999999990000088",
+            "itemId": "999999990000088",
+            "title": "Sanitized regular listing 88",
+            "price": {
+              "amount": 1080000,
+              "currency": "֏"
+            },
+            "location": "Sanitized district 88",
+            "rooms": 2,
+            "areaSqM": 60,
+            "floor": "3/9",
+            "date": "Июль 24"
+          },
+          {
+            "url": "https://www.list.am/ru/item/999999990000089",
+            "itemId": "999999990000089",
+            "title": "Sanitized regular listing 89",
+            "price": {
+              "amount": 1090000,
+              "currency": "֏"
+            },
+            "location": "Sanitized district 89",
+            "rooms": 2,
+            "areaSqM": 60,
+            "floor": "3/9",
+            "date": "Июль 24"
+          },
+          {
+            "url": "https://www.list.am/ru/item/999999990000090",
+            "itemId": "999999990000090",
+            "title": "Sanitized regular listing 90",
+            "price": {
+              "amount": 1100000,
+              "currency": "֏"
+            },
+            "location": "Sanitized district 90",
+            "rooms": 2,
+            "areaSqM": 60,
+            "floor": "3/9",
+            "date": "Июль 24"
+          },
+          {
+            "url": "https://www.list.am/ru/item/999999990000091",
+            "itemId": "999999990000091",
+            "title": "Sanitized regular listing 91",
+            "price": {
+              "amount": 1110000,
+              "currency": "֏"
+            },
+            "location": "Sanitized district 91",
+            "rooms": 2,
+            "areaSqM": 60,
+            "floor": "3/9",
+            "date": "Июль 24"
+          },
+          {
+            "url": "https://www.list.am/ru/item/999999990000092",
+            "itemId": "999999990000092",
+            "title": "Sanitized regular listing 92",
+            "price": {
+              "amount": 1120000,
+              "currency": "֏"
+            },
+            "location": "Sanitized district 92",
+            "rooms": 2,
+            "areaSqM": 60,
+            "floor": "3/9",
+            "date": "Июль 24"
+          },
+          {
+            "url": "https://www.list.am/ru/item/999999990000093",
+            "itemId": "999999990000093",
+            "title": "Sanitized regular listing 93",
+            "price": {
+              "amount": 1130000,
+              "currency": "֏"
+            },
+            "location": "Sanitized district 93",
+            "rooms": 2,
+            "areaSqM": 60,
+            "floor": "3/9",
+            "date": "Июль 24"
+          },
+          {
+            "url": "https://www.list.am/ru/item/999999990000094",
+            "itemId": "999999990000094",
+            "title": "Sanitized regular listing 94",
+            "price": {
+              "amount": 1140000,
+              "currency": "֏"
+            },
+            "location": "Sanitized district 94",
+            "rooms": 2,
+            "areaSqM": 60,
+            "floor": "3/9",
+            "date": "Июль 24"
+          },
+          {
+            "url": "https://www.list.am/ru/item/999999990000095",
+            "itemId": "999999990000095",
+            "title": "Sanitized regular listing 95",
+            "price": {
+              "amount": 1150000,
+              "currency": "֏"
+            },
+            "location": "Sanitized district 95",
+            "rooms": 2,
+            "areaSqM": 60,
+            "floor": "3/9",
+            "date": "Июль 24"
+          },
+          {
+            "url": "https://www.list.am/ru/item/999999990000096",
+            "itemId": "999999990000096",
+            "title": "Sanitized regular listing 96",
+            "price": {
+              "amount": 1160000,
+              "currency": "֏"
+            },
+            "location": "Sanitized district 96",
+            "rooms": 2,
+            "areaSqM": 60,
+            "floor": "3/9",
+            "date": "Июль 24"
+          },
+          {
+            "url": "https://www.list.am/ru/item/999999990000097",
+            "itemId": "999999990000097",
+            "title": "Sanitized regular listing 97",
+            "price": {
+              "amount": 1170000,
+              "currency": "֏"
+            },
+            "location": "Sanitized district 97",
+            "rooms": 2,
+            "areaSqM": 60,
+            "floor": "3/9",
+            "date": "Июль 24"
+          },
+          {
+            "url": "https://www.list.am/ru/item/999999990000098",
+            "itemId": "999999990000098",
+            "title": "Sanitized regular listing 98",
+            "price": {
+              "amount": 1180000,
+              "currency": "֏"
+            },
+            "location": "Sanitized district 98",
+            "rooms": 2,
+            "areaSqM": 60,
+            "floor": "3/9",
+            "date": "Июль 24"
+          },
+          {
+            "url": "https://www.list.am/ru/item/999999990000099",
+            "itemId": "999999990000099",
+            "title": "Sanitized regular listing 99",
+            "price": {
+              "amount": 1190000,
+              "currency": "֏"
+            },
+            "location": "Sanitized district 99",
+            "rooms": 2,
+            "areaSqM": 60,
+            "floor": "3/9",
+            "date": "Июль 24"
+          },
+          {
+            "url": "https://www.list.am/ru/item/999999990000100",
+            "itemId": "999999990000100",
+            "title": "Sanitized regular listing 100",
+            "price": {
+              "amount": 1200000,
+              "currency": "֏"
+            },
+            "location": "Sanitized district 100",
+            "rooms": 2,
+            "areaSqM": 60,
+            "floor": "3/9",
+            "date": "Июль 24"
+          },
+          {
+            "url": "https://www.list.am/ru/item/999999990000101",
+            "itemId": "999999990000101",
+            "title": "Sanitized regular listing 101",
+            "price": {
+              "amount": 1210000,
+              "currency": "֏"
+            },
+            "location": "Sanitized district 101",
+            "rooms": 2,
+            "areaSqM": 60,
+            "floor": "3/9",
+            "date": "Июль 24"
+          },
+          {
+            "url": "https://www.list.am/ru/item/999999990000102",
+            "itemId": "999999990000102",
+            "title": "Sanitized regular listing 102",
+            "price": {
+              "amount": 1220000,
+              "currency": "֏"
+            },
+            "location": "Sanitized district 102",
+            "rooms": 2,
+            "areaSqM": 60,
+            "floor": "3/9",
+            "date": "Июль 24"
+          },
+          {
+            "url": "https://www.list.am/ru/item/999999990000103",
+            "itemId": "999999990000103",
+            "title": "Sanitized regular listing 103",
+            "price": {
+              "amount": 1230000,
+              "currency": "֏"
+            },
+            "location": "Sanitized district 103",
+            "rooms": 2,
+            "areaSqM": 60,
+            "floor": "3/9",
+            "date": "Июль 24"
+          },
+          {
+            "url": "https://www.list.am/ru/item/999999990000104",
+            "itemId": "999999990000104",
+            "title": "Sanitized regular listing 104",
+            "price": {
+              "amount": 1240000,
+              "currency": "֏"
+            },
+            "location": "Sanitized district 104",
+            "rooms": 2,
+            "areaSqM": 60,
+            "floor": "3/9",
+            "date": "Июль 24"
+          },
+          {
+            "url": "https://www.list.am/ru/item/999999990000105",
+            "itemId": "999999990000105",
+            "title": "Sanitized regular listing 105",
+            "price": {
+              "amount": 1250000,
+              "currency": "֏"
+            },
+            "location": "Sanitized district 105",
+            "rooms": 2,
+            "areaSqM": 60,
+            "floor": "3/9",
+            "date": "Июль 24"
+          },
+          {
+            "url": "https://www.list.am/ru/item/999999990000106",
+            "itemId": "999999990000106",
+            "title": "Sanitized regular listing 106",
+            "price": {
+              "amount": 1260000,
+              "currency": "֏"
+            },
+            "location": "Sanitized district 106",
+            "rooms": 2,
+            "areaSqM": 60,
+            "floor": "3/9",
+            "date": "Июль 24"
+          },
+          {
+            "url": "https://www.list.am/ru/item/999999990000107",
+            "itemId": "999999990000107",
+            "title": "Sanitized regular listing 107",
+            "price": {
+              "amount": 1270000,
+              "currency": "֏"
+            },
+            "location": "Sanitized district 107",
+            "rooms": 2,
+            "areaSqM": 60,
+            "floor": "3/9",
+            "date": "Июль 24"
+          },
+          {
+            "url": "https://www.list.am/ru/item/999999990000108",
+            "itemId": "999999990000108",
+            "title": "Sanitized regular listing 108",
+            "price": {
+              "amount": 1280000,
+              "currency": "֏"
+            },
+            "location": "Sanitized district 108",
+            "rooms": 2,
+            "areaSqM": 60,
+            "floor": "3/9",
+            "date": "Июль 24"
+          },
+          {
+            "url": "https://www.list.am/ru/item/999999990000109",
+            "itemId": "999999990000109",
+            "title": "Sanitized regular listing 109",
+            "price": {
+              "amount": 1290000,
+              "currency": "֏"
+            },
+            "location": "Sanitized district 109",
+            "rooms": 2,
+            "areaSqM": 60,
+            "floor": "3/9",
+            "date": "Июль 24"
+          }
+        ],
+        "candidateCount": 100,
+        "uniqueCandidateCount": 100,
+        "parsedCount": 100,
+        "duplicateCount": 0,
+        "rejectedCount": 0,
+        "completeness": {
+          "title": 100,
+          "date": 99,
+          "price": 100,
+          "location": 100,
+          "rooms": 100,
+          "areaSqM": 100,
+          "floor": 100
+        }
+      },
+      "htmlFixture": "test/fixtures/list-am-real-shape/regular-page-redesign.html",
+      "htmlSha256": "10a19ca581053d3f9696cc3a4d29506f554e80e9ccc4bd0b11bf2f164cbf1836"
+    },
+    {
+      "name": "parse-empty",
+      "input": {
+        "op": "parse",
+        "html": "<div id=\"contentr\"></div>",
+        "referenceMs": 1767268800000
+      },
+      "expected": {
+        "apartments": [],
+        "candidateCount": 0,
+        "uniqueCandidateCount": 0,
+        "parsedCount": 0,
+        "duplicateCount": 0,
+        "rejectedCount": 0,
+        "completeness": {
+          "title": 0,
+          "date": 0,
+          "price": 0,
+          "location": 0,
+          "rooms": 0,
+          "areaSqM": 0,
+          "floor": 0
+        }
+      }
+    },
+    {
+      "name": "parse-foreign",
+      "input": {
+        "op": "parse",
+        "html": "<div id=\"contentr\"><a class=\"category-data-list-card__destination\" href=\"https://evil.test/ru/item/1\"><div class=\"dltitle\">Title</div></a></div>",
+        "referenceMs": 1767268800000
+      },
+      "expected": {
+        "apartments": [],
+        "candidateCount": 1,
+        "uniqueCandidateCount": 0,
+        "parsedCount": 0,
+        "duplicateCount": 0,
+        "rejectedCount": 1,
+        "completeness": {
+          "title": 0,
+          "date": 0,
+          "price": 0,
+          "location": 0,
+          "rooms": 0,
+          "areaSqM": 0,
+          "floor": 0
+        }
+      }
+    },
+    {
+      "name": "parse-duplicate-top",
+      "input": {
+        "op": "parse",
+        "html": "<div id=\"contentr\"><a class=\"fav-item-info-container\" href=\"/ru/item/01?foo=bar\"><div class=\"dltitle\">Дом</div><div class=\"at\">Кентрон, 3 ком., 100 кв.м., 2/4 этаж</div><div class=\"p\">150 000 ֏</div></a><div id=\"tp\"><a class=\"fav-item-info-container\" href=\"/ru/item/2\">Top</a></div><a class=\"fav-item-info-container\" href=\"/ru/item/01\">Duplicate</a></div>",
+        "referenceMs": 1767268800000
+      },
+      "expected": {
+        "apartments": [
+          {
+            "url": "https://www.list.am/ru/item/01",
+            "itemId": "01",
+            "title": "Дом",
+            "price": {
+              "amount": 150000,
+              "currency": "֏"
+            },
+            "location": "Кентрон",
+            "rooms": 3,
+            "areaSqM": 100,
+            "floor": "2/4",
+            "date": null
+          }
+        ],
+        "candidateCount": 2,
+        "uniqueCandidateCount": 1,
+        "parsedCount": 1,
+        "duplicateCount": 1,
+        "rejectedCount": 0,
+        "completeness": {
+          "title": 1,
+          "date": 0,
+          "price": 1,
+          "location": 1,
+          "rooms": 1,
+          "areaSqM": 1,
+          "floor": 1
+        }
+      }
+    },
+    {
+      "name": "parse-numeric",
+      "input": {
+        "op": "parse",
+        "html": "<div id=\"contentr\"><a class=\"fav-item-info-container\" href=\"/item/42\"><div class=\"dltitle\">Квартира</div><div class=\"p\">150000 AMD</div><div class=\"at\">Кентрон, 2 ком., 50 кв.м., 2/4 этаж</div></a></div>",
+        "referenceMs": 1767268800000
+      },
+      "expected": {
+        "apartments": [
+          {
+            "url": "https://www.list.am/ru/item/42",
+            "itemId": "42",
+            "title": "Квартира",
+            "price": {
+              "amount": 150000,
+              "currency": "AMD"
+            },
+            "location": "Кентрон",
+            "rooms": 2,
+            "areaSqM": 50,
+            "floor": "2/4",
+            "date": null
+          }
+        ],
+        "candidateCount": 1,
+        "uniqueCandidateCount": 1,
+        "parsedCount": 1,
+        "duplicateCount": 0,
+        "rejectedCount": 0,
+        "completeness": {
+          "title": 1,
+          "date": 0,
+          "price": 1,
+          "location": 1,
+          "rooms": 1,
+          "areaSqM": 1,
+          "floor": 1
+        }
+      }
+    },
+    {
+      "name": "parse-missing-regular",
+      "input": {
+        "op": "parse",
+        "html": "<html><div>challenge</div></html>",
+        "referenceMs": 1767268800000
+      },
+      "expected": {
+        "error": "Could not find the List.am Regular Ads section"
+      },
+      "comparison": "error-present"
+    },
+    {
+      "name": "date-sort-null",
+      "input": {
+        "op": "date",
+        "value": null,
+        "referenceMs": 1767268800000
+      },
+      "expected": null
+    },
+    {
+      "name": "date-index-null",
+      "input": {
+        "op": "date",
+        "action": "index",
+        "value": null,
+        "referenceMs": 1767268800000
+      },
+      "expected": {
+        "bucket": "fixed",
+        "key": null
+      }
+    },
+    {
+      "name": "date-sort-\"\"",
+      "input": {
+        "op": "date",
+        "value": "",
+        "referenceMs": 1767268800000
+      },
+      "expected": null
+    },
+    {
+      "name": "date-index-\"\"",
+      "input": {
+        "op": "date",
+        "action": "index",
+        "value": "",
+        "referenceMs": 1767268800000
+      },
+      "expected": {
+        "bucket": "fixed",
+        "key": null
+      }
+    },
+    {
+      "name": "date-sort-\"Сегодня, 00:00\"",
+      "input": {
+        "op": "date",
+        "value": "Сегодня, 00:00",
+        "referenceMs": 1767268800000
+      },
+      "expected": 1767311999999
+    },
+    {
+      "name": "date-index-\"Сегодня, 00:00\"",
+      "input": {
+        "op": "date",
+        "action": "index",
+        "value": "Сегодня, 00:00",
+        "referenceMs": 1767268800000
+      },
+      "expected": {
+        "bucket": "relative",
+        "key": 0
+      }
+    },
+    {
+      "name": "date-sort-\"Вчера, 23:59\"",
+      "input": {
+        "op": "date",
+        "value": "Вчера, 23:59",
+        "referenceMs": 1767268800000
+      },
+      "expected": 1767225599999
+    },
+    {
+      "name": "date-index-\"Вчера, 23:59\"",
+      "input": {
+        "op": "date",
+        "action": "index",
+        "value": "Вчера, 23:59",
+        "referenceMs": 1767268800000
+      },
+      "expected": {
+        "bucket": "relative",
+        "key": -1
+      }
+    },
+    {
+      "name": "date-sort-\"today, 25:00\"",
+      "input": {
+        "op": "date",
+        "value": "today, 25:00",
+        "referenceMs": 1767268800000
+      },
+      "expected": null
+    },
+    {
+      "name": "date-index-\"today, 25:00\"",
+      "input": {
+        "op": "date",
+        "action": "index",
+        "value": "today, 25:00",
+        "referenceMs": 1767268800000
+      },
+      "expected": {
+        "bucket": "fixed",
+        "key": null
+      }
+    },
+    {
+      "name": "date-sort-\"Декабрь 31\"",
+      "input": {
+        "op": "date",
+        "value": "Декабрь 31",
+        "referenceMs": 1767268800000
+      },
+      "expected": 1767225599999
+    },
+    {
+      "name": "date-index-\"Декабрь 31\"",
+      "input": {
+        "op": "date",
+        "action": "index",
+        "value": "Декабрь 31",
+        "referenceMs": 1767268800000
+      },
+      "expected": {
+        "bucket": "annual",
+        "key": 383
+      }
+    },
+    {
+      "name": "date-sort-\"Январь 03\"",
+      "input": {
+        "op": "date",
+        "value": "Январь 03",
+        "referenceMs": 1767268800000
+      },
+      "expected": 1735948799999
+    },
+    {
+      "name": "date-index-\"Январь 03\"",
+      "input": {
+        "op": "date",
+        "action": "index",
+        "value": "Январь 03",
+        "referenceMs": 1767268800000
+      },
+      "expected": {
+        "bucket": "annual",
+        "key": 3
+      }
+    },
+    {
+      "name": "date-sort-\"Февраль 29\"",
+      "input": {
+        "op": "date",
+        "value": "Февраль 29",
+        "referenceMs": 1767268800000
+      },
+      "expected": null
+    },
+    {
+      "name": "date-index-\"Февраль 29\"",
+      "input": {
+        "op": "date",
+        "action": "index",
+        "value": "Февраль 29",
+        "referenceMs": 1767268800000
+      },
+      "expected": {
+        "bucket": "annual",
+        "key": 61
+      }
+    },
+    {
+      "name": "date-sort-\"February 29\"",
+      "input": {
+        "op": "date",
+        "value": "February 29",
+        "referenceMs": 1767268800000
+      },
+      "expected": null
+    },
+    {
+      "name": "date-index-\"February 29\"",
+      "input": {
+        "op": "date",
+        "action": "index",
+        "value": "February 29",
+        "referenceMs": 1767268800000
+      },
+      "expected": {
+        "bucket": "annual",
+        "key": 61
+      }
+    },
+    {
+      "name": "date-sort-\"Пятница, Июль 24, 2026, 14:31\"",
+      "input": {
+        "op": "date",
+        "value": "Пятница, Июль 24, 2026, 14:31",
+        "referenceMs": 1767268800000
+      },
+      "expected": 1784903460000
+    },
+    {
+      "name": "date-index-\"Пятница, Июль 24, 2026, 14:31\"",
+      "input": {
+        "op": "date",
+        "action": "index",
+        "value": "Пятница, Июль 24, 2026, 14:31",
+        "referenceMs": 1767268800000
+      },
+      "expected": {
+        "bucket": "fixed",
+        "key": 1784903460000
+      }
+    },
+    {
+      "name": "date-sort-\"Monday, January 01, 2026, 00:00\"",
+      "input": {
+        "op": "date",
+        "value": "Monday, January 01, 2026, 00:00",
+        "referenceMs": 1767268800000
+      },
+      "expected": 1767225600000
+    },
+    {
+      "name": "date-index-\"Monday, January 01, 2026, 00:00\"",
+      "input": {
+        "op": "date",
+        "action": "index",
+        "value": "Monday, January 01, 2026, 00:00",
+        "referenceMs": 1767268800000
+      },
+      "expected": {
+        "bucket": "fixed",
+        "key": 1767225600000
+      }
+    },
+    {
+      "name": "date-sort-\"Пятница, Февраль 30, 2026, 14:31\"",
+      "input": {
+        "op": "date",
+        "value": "Пятница, Февраль 30, 2026, 14:31",
+        "referenceMs": 1767268800000
+      },
+      "expected": null
+    },
+    {
+      "name": "date-index-\"Пятница, Февраль 30, 2026, 14:31\"",
+      "input": {
+        "op": "date",
+        "action": "index",
+        "value": "Пятница, Февраль 30, 2026, 14:31",
+        "referenceMs": 1767268800000
+      },
+      "expected": {
+        "bucket": "fixed",
+        "key": null
+      }
+    },
+    {
+      "name": "date-format",
+      "input": {
+        "op": "date",
+        "action": "format",
+        "referenceMs": 1767268800000
+      },
+      "expected": "Четверг, Январь 01, 2026, 12:00"
+    },
+    {
+      "name": "price-parse-200 000 ֏",
+      "input": {
+        "op": "price",
+        "value": "200 000 ֏"
+      },
+      "expected": {
+        "amount": 200000,
+        "currency": "֏"
+      }
+    },
+    {
+      "name": "price-normalize-200 000 ֏",
+      "input": {
+        "op": "price",
+        "price": {
+          "amount": 200000,
+          "currency": "֏"
+        },
+        "rates": {
+          "fetchedAt": "2026-01-01T12:00:00.000Z",
+          "effectiveDate": "2025-12-31",
+          "rates": {
+            "USD": {
+              "amount": 1,
+              "rate": 390.25
+            },
+            "EUR": {
+              "amount": 1,
+              "rate": 422.5
+            },
+            "RUB": {
+              "amount": 100,
+              "rate": 425
+            }
+          }
+        }
+      },
+      "expected": {
+        "amountAmd": 200000,
+        "originalAmount": 200000,
+        "originalCurrency": "AMD",
+        "exchangeRate": null,
+        "exchangeRateFetchedAt": null,
+        "exchangeRateEffectiveDate": null
+      }
+    },
+    {
+      "name": "price-parse-$1,200",
+      "input": {
+        "op": "price",
+        "value": "$1,200"
+      },
+      "expected": {
+        "amount": 1200,
+        "currency": "$"
+      }
+    },
+    {
+      "name": "price-normalize-$1,200",
+      "input": {
+        "op": "price",
+        "price": {
+          "amount": 1200,
+          "currency": "$"
+        },
+        "rates": {
+          "fetchedAt": "2026-01-01T12:00:00.000Z",
+          "effectiveDate": "2025-12-31",
+          "rates": {
+            "USD": {
+              "amount": 1,
+              "rate": 390.25
+            },
+            "EUR": {
+              "amount": 1,
+              "rate": 422.5
+            },
+            "RUB": {
+              "amount": 100,
+              "rate": 425
+            }
+          }
+        }
+      },
+      "expected": {
+        "amountAmd": 468300,
+        "originalAmount": 1200,
+        "originalCurrency": "USD",
+        "exchangeRate": 390.25,
+        "exchangeRateFetchedAt": "2026-01-01T12:00:00.000Z",
+        "exchangeRateEffectiveDate": "2025-12-31"
+      }
+    },
+    {
+      "name": "price-parse-1.234,50 EUR",
+      "input": {
+        "op": "price",
+        "value": "1.234,50 EUR"
+      },
+      "expected": {
+        "amount": 1234.5,
+        "currency": "EUR"
+      }
+    },
+    {
+      "name": "price-normalize-1.234,50 EUR",
+      "input": {
+        "op": "price",
+        "price": {
+          "amount": 1234.5,
+          "currency": "EUR"
+        },
+        "rates": {
+          "fetchedAt": "2026-01-01T12:00:00.000Z",
+          "effectiveDate": "2025-12-31",
+          "rates": {
+            "USD": {
+              "amount": 1,
+              "rate": 390.25
+            },
+            "EUR": {
+              "amount": 1,
+              "rate": 422.5
+            },
+            "RUB": {
+              "amount": 100,
+              "rate": 425
+            }
+          }
+        }
+      },
+      "expected": {
+        "amountAmd": 521576,
+        "originalAmount": 1234.5,
+        "originalCurrency": "EUR",
+        "exchangeRate": 422.5,
+        "exchangeRateFetchedAt": "2026-01-01T12:00:00.000Z",
+        "exchangeRateEffectiveDate": "2025-12-31"
+      }
+    },
+    {
+      "name": "price-parse-цена договорная",
+      "input": {
+        "op": "price",
+        "value": "цена договорная"
+      },
+      "expected": {
+        "amount": null,
+        "currency": null
+      }
+    },
+    {
+      "name": "price-normalize-цена договорная",
+      "input": {
+        "op": "price",
+        "price": {
+          "amount": null,
+          "currency": null
+        },
+        "rates": {
+          "fetchedAt": "2026-01-01T12:00:00.000Z",
+          "effectiveDate": "2025-12-31",
+          "rates": {
+            "USD": {
+              "amount": 1,
+              "rate": 390.25
+            },
+            "EUR": {
+              "amount": 1,
+              "rate": 422.5
+            },
+            "RUB": {
+              "amount": 100,
+              "rate": 425
+            }
+          }
+        }
+      },
+      "expected": {
+        "amountAmd": null,
+        "originalAmount": null,
+        "originalCurrency": null,
+        "exchangeRate": null,
+        "exchangeRateFetchedAt": null,
+        "exchangeRateEffectiveDate": null
+      }
+    },
+    {
+      "name": "price-parse-25,3 ₽",
+      "input": {
+        "op": "price",
+        "value": "25,3 ₽"
+      },
+      "expected": {
+        "amount": 25.3,
+        "currency": "₽"
+      }
+    },
+    {
+      "name": "price-normalize-25,3 ₽",
+      "input": {
+        "op": "price",
+        "price": {
+          "amount": 25.3,
+          "currency": "₽"
+        },
+        "rates": {
+          "fetchedAt": "2026-01-01T12:00:00.000Z",
+          "effectiveDate": "2025-12-31",
+          "rates": {
+            "USD": {
+              "amount": 1,
+              "rate": 390.25
+            },
+            "EUR": {
+              "amount": 1,
+              "rate": 422.5
+            },
+            "RUB": {
+              "amount": 100,
+              "rate": 425
+            }
+          }
+        }
+      },
+      "expected": {
+        "amountAmd": 108,
+        "originalAmount": 25.3,
+        "originalCurrency": "RUB",
+        "exchangeRate": 4.25,
+        "exchangeRateFetchedAt": "2026-01-01T12:00:00.000Z",
+        "exchangeRateEffectiveDate": "2025-12-31"
+      }
+    },
+    {
+      "name": "price-parse-0 AMD",
+      "input": {
+        "op": "price",
+        "value": "0 AMD"
+      },
+      "expected": {
+        "amount": 0,
+        "currency": "AMD"
+      }
+    },
+    {
+      "name": "price-normalize-0 AMD",
+      "input": {
+        "op": "price",
+        "price": {
+          "amount": 0,
+          "currency": "AMD"
+        },
+        "rates": {
+          "fetchedAt": "2026-01-01T12:00:00.000Z",
+          "effectiveDate": "2025-12-31",
+          "rates": {
+            "USD": {
+              "amount": 1,
+              "rate": 390.25
+            },
+            "EUR": {
+              "amount": 1,
+              "rate": 422.5
+            },
+            "RUB": {
+              "amount": 100,
+              "rate": 425
+            }
+          }
+        }
+      },
+      "expected": {
+        "amountAmd": 0,
+        "originalAmount": 0,
+        "originalCurrency": "AMD",
+        "exchangeRate": null,
+        "exchangeRateFetchedAt": null,
+        "exchangeRateEffectiveDate": null
+      }
+    },
+    {
+      "name": "filters-normalize-0",
+      "input": {
+        "op": "filters",
+        "filters": null
+      },
+      "expected": {
+        "kinds": [
+          "apartment"
+        ],
+        "price": {
+          "min": null,
+          "max": null
+        },
+        "rooms": {
+          "min": null,
+          "max": null
+        },
+        "locations": []
+      }
+    },
+    {
+      "name": "filters-match-0-0",
+      "input": {
+        "op": "filters",
+        "action": "match",
+        "filters": null,
+        "apartment": {
+          "kind": "house",
+          "price": {
+            "amount": 100000,
+            "currency": "AMD"
+          },
+          "rooms": 3,
+          "location": "Ереван / Кентрон"
+        }
+      },
+      "expected": false
+    },
+    {
+      "name": "filters-match-0-1",
+      "input": {
+        "op": "filters",
+        "action": "match",
+        "filters": null,
+        "apartment": {
+          "kind": "bad",
+          "price": {
+            "amountAmd": 150000
+          },
+          "rooms": 2,
+          "location": "Кентрон"
+        }
+      },
+      "expected": true
+    },
+    {
+      "name": "filters-normalize-1",
+      "input": {
+        "op": "filters",
+        "filters": {}
+      },
+      "expected": {
+        "kinds": [
+          "apartment"
+        ],
+        "price": {
+          "min": null,
+          "max": null
+        },
+        "rooms": {
+          "min": null,
+          "max": null
+        },
+        "locations": []
+      }
+    },
+    {
+      "name": "filters-match-1-0",
+      "input": {
+        "op": "filters",
+        "action": "match",
+        "filters": {},
+        "apartment": {
+          "kind": "house",
+          "price": {
+            "amount": 100000,
+            "currency": "AMD"
+          },
+          "rooms": 3,
+          "location": "Ереван / Кентрон"
+        }
+      },
+      "expected": false
+    },
+    {
+      "name": "filters-match-1-1",
+      "input": {
+        "op": "filters",
+        "action": "match",
+        "filters": {},
+        "apartment": {
+          "kind": "bad",
+          "price": {
+            "amountAmd": 150000
+          },
+          "rooms": 2,
+          "location": "Кентрон"
+        }
+      },
+      "expected": true
+    },
+    {
+      "name": "filters-normalize-2",
+      "input": {
+        "op": "filters",
+        "filters": {
+          "kinds": [
+            "house",
+            "apartment",
+            "house"
+          ],
+          "price": {
+            "min": 0,
+            "max": 250000
+          },
+          "rooms": {
+            "min": 2
+          },
+          "locations": [
+            "p:0:6",
+            "r:0",
+            "garbage"
+          ]
+        }
+      },
+      "expected": {
+        "kinds": [
+          "apartment",
+          "house"
+        ],
+        "price": {
+          "min": 0,
+          "max": 250000
+        },
+        "rooms": {
+          "min": 2,
+          "max": null
+        },
+        "locations": [
+          "r:0"
+        ]
+      }
+    },
+    {
+      "name": "filters-match-2-0",
+      "input": {
+        "op": "filters",
+        "action": "match",
+        "filters": {
+          "kinds": [
+            "house",
+            "apartment",
+            "house"
+          ],
+          "price": {
+            "min": 0,
+            "max": 250000
+          },
+          "rooms": {
+            "min": 2
+          },
+          "locations": [
+            "p:0:6",
+            "r:0",
+            "garbage"
+          ]
+        },
+        "apartment": {
+          "kind": "house",
+          "price": {
+            "amount": 100000,
+            "currency": "AMD"
+          },
+          "rooms": 3,
+          "location": "Ереван / Кентрон"
+        }
+      },
+      "expected": true
+    },
+    {
+      "name": "filters-match-2-1",
+      "input": {
+        "op": "filters",
+        "action": "match",
+        "filters": {
+          "kinds": [
+            "house",
+            "apartment",
+            "house"
+          ],
+          "price": {
+            "min": 0,
+            "max": 250000
+          },
+          "rooms": {
+            "min": 2
+          },
+          "locations": [
+            "p:0:6",
+            "r:0",
+            "garbage"
+          ]
+        },
+        "apartment": {
+          "kind": "bad",
+          "price": {
+            "amountAmd": 150000
+          },
+          "rooms": 2,
+          "location": "Кентрон"
+        }
+      },
+      "expected": true
+    },
+    {
+      "name": "filters-normalize-3",
+      "input": {
+        "op": "filters",
+        "filters": {
+          "kinds": [
+            "bad"
+          ],
+          "locations": [
+            "p:0:6"
+          ]
+        }
+      },
+      "expected": {
+        "kinds": [
+          "apartment"
+        ],
+        "price": {
+          "min": null,
+          "max": null
+        },
+        "rooms": {
+          "min": null,
+          "max": null
+        },
+        "locations": [
+          "p:0:6"
+        ]
+      }
+    },
+    {
+      "name": "filters-match-3-0",
+      "input": {
+        "op": "filters",
+        "action": "match",
+        "filters": {
+          "kinds": [
+            "bad"
+          ],
+          "locations": [
+            "p:0:6"
+          ]
+        },
+        "apartment": {
+          "kind": "house",
+          "price": {
+            "amount": 100000,
+            "currency": "AMD"
+          },
+          "rooms": 3,
+          "location": "Ереван / Кентрон"
+        }
+      },
+      "expected": false
+    },
+    {
+      "name": "filters-match-3-1",
+      "input": {
+        "op": "filters",
+        "action": "match",
+        "filters": {
+          "kinds": [
+            "bad"
+          ],
+          "locations": [
+            "p:0:6"
+          ]
+        },
+        "apartment": {
+          "kind": "bad",
+          "price": {
+            "amountAmd": 150000
+          },
+          "rooms": 2,
+          "location": "Кентрон"
+        }
+      },
+      "expected": true
+    },
+    {
+      "name": "filters-normalize-4",
+      "input": {
+        "op": "filters",
+        "filters": {
+          "locations": [
+            "r:00",
+            "p:0:06",
+            "r:+1",
+            "p:0:6",
+            "r:1:extra"
+          ]
+        }
+      },
+      "expected": {
+        "kinds": [
+          "apartment"
+        ],
+        "price": {
+          "min": null,
+          "max": null
+        },
+        "rooms": {
+          "min": null,
+          "max": null
+        },
+        "locations": [
+          "p:0:6"
+        ]
+      }
+    },
+    {
+      "name": "filters-match-4-0",
+      "input": {
+        "op": "filters",
+        "action": "match",
+        "filters": {
+          "locations": [
+            "r:00",
+            "p:0:06",
+            "r:+1",
+            "p:0:6",
+            "r:1:extra"
+          ]
+        },
+        "apartment": {
+          "kind": "house",
+          "price": {
+            "amount": 100000,
+            "currency": "AMD"
+          },
+          "rooms": 3,
+          "location": "Ереван / Кентрон"
+        }
+      },
+      "expected": false
+    },
+    {
+      "name": "filters-match-4-1",
+      "input": {
+        "op": "filters",
+        "action": "match",
+        "filters": {
+          "locations": [
+            "r:00",
+            "p:0:06",
+            "r:+1",
+            "p:0:6",
+            "r:1:extra"
+          ]
+        },
+        "apartment": {
+          "kind": "bad",
+          "price": {
+            "amountAmd": 150000
+          },
+          "rooms": 2,
+          "location": "Кентрон"
+        }
+      },
+      "expected": true
+    },
+    {
+      "name": "range-price-100000-250000",
+      "input": {
+        "op": "filters",
+        "action": "range",
+        "value": "100000-250000",
+        "kind": "price"
+      },
+      "expected": {
+        "min": 100000,
+        "max": 250000
+      }
+    },
+    {
+      "name": "range-price-100000-",
+      "input": {
+        "op": "filters",
+        "action": "range",
+        "value": "100000-",
+        "kind": "price"
+      },
+      "expected": {
+        "min": 100000,
+        "max": null
+      }
+    },
+    {
+      "name": "range-price--250000",
+      "input": {
+        "op": "filters",
+        "action": "range",
+        "value": "-250000",
+        "kind": "price"
+      },
+      "expected": {
+        "min": null,
+        "max": 250000
+      }
+    },
+    {
+      "name": "range-price- 2 — 4 ",
+      "input": {
+        "op": "filters",
+        "action": "range",
+        "value": " 2 — 4 ",
+        "kind": "price"
+      },
+      "expected": {
+        "min": 2,
+        "max": 4
+      }
+    },
+    {
+      "name": "range-price-нет",
+      "input": {
+        "op": "filters",
+        "action": "range",
+        "value": "нет",
+        "kind": "price"
+      },
+      "expected": {
+        "min": null,
+        "max": null
+      }
+    },
+    {
+      "name": "range-price-0",
+      "input": {
+        "op": "filters",
+        "action": "range",
+        "value": "0",
+        "kind": "price"
+      },
+      "expected": {
+        "min": 0,
+        "max": 0
+      }
+    },
+    {
+      "name": "range-price--",
+      "input": {
+        "op": "filters",
+        "action": "range",
+        "value": "-",
+        "kind": "price"
+      },
+      "expected": {
+        "error": "Цена: укажите хотя бы одну границу диапазона."
+      }
+    },
+    {
+      "name": "range-price-nope",
+      "input": {
+        "op": "filters",
+        "action": "range",
+        "value": "nope",
+        "kind": "price"
+      },
+      "expected": {
+        "error": "Цена: введите целое число или диапазон, например «100000-250000», «100000-» или «-250000»."
+      }
+    },
+    {
+      "name": "range-price-1.5",
+      "input": {
+        "op": "filters",
+        "action": "range",
+        "value": "1.5",
+        "kind": "price"
+      },
+      "expected": {
+        "error": "Цена: введите целое число или диапазон, например «100000-250000», «100000-» или «-250000»."
+      }
+    },
+    {
+      "name": "range-price-1-2-3",
+      "input": {
+        "op": "filters",
+        "action": "range",
+        "value": "1-2-3",
+        "kind": "price"
+      },
+      "expected": {
+        "error": "Цена: введите целое число или диапазон, например «100000-250000», «100000-» или «-250000»."
+      }
+    },
+    {
+      "name": "range-price-9007199254740992",
+      "input": {
+        "op": "filters",
+        "action": "range",
+        "value": "9007199254740992",
+        "kind": "price"
+      },
+      "expected": {
+        "error": "Цена: число слишком большое."
+      }
+    },
+    {
+      "name": "range-price-3-2",
+      "input": {
+        "op": "filters",
+        "action": "range",
+        "value": "3-2",
+        "kind": "price"
+      },
+      "expected": {
+        "error": "Цена: минимальное значение не может быть больше максимального."
+      }
+    },
+    {
+      "name": "range-rooms-100000-250000",
+      "input": {
+        "op": "filters",
+        "action": "range",
+        "value": "100000-250000",
+        "kind": "rooms"
+      },
+      "expected": {
+        "min": 100000,
+        "max": 250000
+      }
+    },
+    {
+      "name": "range-rooms-100000-",
+      "input": {
+        "op": "filters",
+        "action": "range",
+        "value": "100000-",
+        "kind": "rooms"
+      },
+      "expected": {
+        "min": 100000,
+        "max": null
+      }
+    },
+    {
+      "name": "range-rooms--250000",
+      "input": {
+        "op": "filters",
+        "action": "range",
+        "value": "-250000",
+        "kind": "rooms"
+      },
+      "expected": {
+        "min": null,
+        "max": 250000
+      }
+    },
+    {
+      "name": "range-rooms- 2 — 4 ",
+      "input": {
+        "op": "filters",
+        "action": "range",
+        "value": " 2 — 4 ",
+        "kind": "rooms"
+      },
+      "expected": {
+        "min": 2,
+        "max": 4
+      }
+    },
+    {
+      "name": "range-rooms-нет",
+      "input": {
+        "op": "filters",
+        "action": "range",
+        "value": "нет",
+        "kind": "rooms"
+      },
+      "expected": {
+        "min": null,
+        "max": null
+      }
+    },
+    {
+      "name": "range-rooms-0",
+      "input": {
+        "op": "filters",
+        "action": "range",
+        "value": "0",
+        "kind": "rooms"
+      },
+      "expected": {
+        "error": "Количество комнат должно быть не меньше одного."
+      }
+    },
+    {
+      "name": "range-rooms--",
+      "input": {
+        "op": "filters",
+        "action": "range",
+        "value": "-",
+        "kind": "rooms"
+      },
+      "expected": {
+        "error": "Количество комнат: укажите хотя бы одну границу диапазона."
+      }
+    },
+    {
+      "name": "range-rooms-nope",
+      "input": {
+        "op": "filters",
+        "action": "range",
+        "value": "nope",
+        "kind": "rooms"
+      },
+      "expected": {
+        "error": "Количество комнат: введите целое число или диапазон, например «1-3», «2-» или «-4»."
+      }
+    },
+    {
+      "name": "range-rooms-1.5",
+      "input": {
+        "op": "filters",
+        "action": "range",
+        "value": "1.5",
+        "kind": "rooms"
+      },
+      "expected": {
+        "error": "Количество комнат: введите целое число или диапазон, например «1-3», «2-» или «-4»."
+      }
+    },
+    {
+      "name": "range-rooms-1-2-3",
+      "input": {
+        "op": "filters",
+        "action": "range",
+        "value": "1-2-3",
+        "kind": "rooms"
+      },
+      "expected": {
+        "error": "Количество комнат: введите целое число или диапазон, например «1-3», «2-» или «-4»."
+      }
+    },
+    {
+      "name": "range-rooms-9007199254740992",
+      "input": {
+        "op": "filters",
+        "action": "range",
+        "value": "9007199254740992",
+        "kind": "rooms"
+      },
+      "expected": {
+        "error": "Количество комнат: число слишком большое."
+      }
+    },
+    {
+      "name": "range-rooms-3-2",
+      "input": {
+        "op": "filters",
+        "action": "range",
+        "value": "3-2",
+        "kind": "rooms"
+      },
+      "expected": {
+        "error": "Количество комнат: минимальное значение не может быть больше максимального."
+      }
+    },
+    {
+      "name": "channel-filters-0",
+      "input": {
+        "op": "filters",
+        "action": "channel"
+      },
+      "expected": {
+        "kinds": [
+          "apartment"
+        ],
+        "price": {
+          "min": null,
+          "max": null
+        },
+        "rooms": {
+          "min": null,
+          "max": null
+        },
+        "locations": [
+          "r:0"
+        ]
+      }
+    },
+    {
+      "name": "channel-filters-1",
+      "input": {
+        "op": "filters",
+        "action": "channel",
+        "price": "100000-",
+        "rooms": "2-4",
+        "locations": "region:Котайк,place:Кентрон"
+      },
+      "expected": {
+        "kinds": [
+          "apartment"
+        ],
+        "price": {
+          "min": 100000,
+          "max": null
+        },
+        "rooms": {
+          "min": 2,
+          "max": 4
+        },
+        "locations": [
+          "r:3",
+          "p:0:6"
+        ]
+      }
+    },
+    {
+      "name": "channel-filters-2",
+      "input": {
+        "op": "filters",
+        "action": "channel",
+        "locations": "all"
+      },
+      "expected": {
+        "kinds": [
+          "apartment"
+        ],
+        "price": {
+          "min": null,
+          "max": null
+        },
+        "rooms": {
+          "min": null,
+          "max": null
+        },
+        "locations": []
+      }
+    },
+    {
+      "name": "format-private-12",
+      "input": {
+        "op": "format",
+        "apartment": {
+          "itemId": "12",
+          "url": "https://www.list.am/ru/item/12",
+          "kind": "house",
+          "price": {
+            "amountAmd": 468495,
+            "originalAmount": 1200.5,
+            "originalCurrency": "USD",
+            "exchangeRate": 390.25,
+            "exchangeRateFetchedAt": "2026-01-01T12:00:00.000Z",
+            "exchangeRateEffectiveDate": "2025-12-31"
+          },
+          "rooms": 3,
+          "areaSqM": 65.5,
+          "location": "Ереван, Кентрон",
+          "floor": "2/4"
+        }
+      },
+      "expected": "Дом 12\nЦена: 1 200,5 $\nМестоположение: Ереван, Кентрон\nКоличество комнат: 3\nПлощадь: 65.5 м²\nЭтаж: 2/4\nhttps://www.list.am/ru/item/12"
+    },
+    {
+      "name": "format-channel-12",
+      "input": {
+        "op": "format",
+        "apartment": {
+          "itemId": "12",
+          "url": "https://www.list.am/ru/item/12",
+          "kind": "house",
+          "price": {
+            "amountAmd": 468495,
+            "originalAmount": 1200.5,
+            "originalCurrency": "USD",
+            "exchangeRate": 390.25,
+            "exchangeRateFetchedAt": "2026-01-01T12:00:00.000Z",
+            "exchangeRateEffectiveDate": "2025-12-31"
+          },
+          "rooms": 3,
+          "areaSqM": 65.5,
+          "location": "Ереван, Кентрон",
+          "floor": "2/4"
+        },
+        "channel": true
+      },
+      "expected": "Дом 12\nЦена: 1 200,5 $\nМестоположение: Ереван, Кентрон\nКоличество комнат: 3\nПлощадь: 65.5 м²\nЭтаж: 2/4\nhttps://www.list.am/ru/item/12\n\n#ереван #кентрон #цена_451_500 #3комн"
+    },
+    {
+      "name": "format-private-13",
+      "input": {
+        "op": "format",
+        "apartment": {
+          "itemId": "13",
+          "url": "https://www.list.am/ru/item/13",
+          "price": {
+            "amount": 0,
+            "currency": "AMD"
+          },
+          "location": "неизвестное место"
+        }
+      },
+      "expected": "Квартира 13\nЦена: 0 AMD\nМестоположение: неизвестное место\nКоличество комнат: не указано\nПлощадь: не указана\nЭтаж: не указан\nhttps://www.list.am/ru/item/13"
+    },
+    {
+      "name": "format-channel-13",
+      "input": {
+        "op": "format",
+        "apartment": {
+          "itemId": "13",
+          "url": "https://www.list.am/ru/item/13",
+          "price": {
+            "amount": 0,
+            "currency": "AMD"
+          },
+          "location": "неизвестное место"
+        },
+        "channel": true
+      },
+      "expected": "Квартира 13\nЦена: 0 AMD\nМестоположение: неизвестное место\nКоличество комнат: не указано\nПлощадь: не указана\nЭтаж: не указан\nhttps://www.list.am/ru/item/13\n\n#регион_не_указан #неизвестное_место #цена_не_указана #комнаты_не_указаны"
+    },
+    {
+      "name": "format-private-42",
+      "input": {
+        "op": "format",
+        "apartment": {
+          "itemId": "42",
+          "url": "x",
+          "kind": "apartment",
+          "location": "Ереван／Кентрон",
+          "price": {
+            "amountAmd": 150000
+          },
+          "rooms": 2
+        }
+      },
+      "expected": "Квартира 42\nЦена: не указана\nМестоположение: Ереван／Кентрон\nКоличество комнат: 2\nПлощадь: не указана\nЭтаж: не указан\nx"
+    },
+    {
+      "name": "format-channel-42",
+      "input": {
+        "op": "format",
+        "apartment": {
+          "itemId": "42",
+          "url": "x",
+          "kind": "apartment",
+          "location": "Ереван／Кентрон",
+          "price": {
+            "amountAmd": 150000
+          },
+          "rooms": 2
+        },
+        "channel": true
+      },
+      "expected": "Квартира 42\nЦена: не указана\nМестоположение: Ереван／Кентрон\nКоличество комнат: 2\nПлощадь: не указана\nЭтаж: не указан\nx\n\n#ереван #кентрон #цена_101_150 #2комн"
+    },
+    {
+      "name": "unicode-location-match",
+      "input": {
+        "op": "filters",
+        "action": "match",
+        "apartment": {
+          "itemId": "42",
+          "url": "x",
+          "kind": "apartment",
+          "location": "Ереван／Кентрон",
+          "price": {
+            "amountAmd": 150000
+          },
+          "rooms": 2
+        },
+        "filters": {
+          "locations": [
+            "p:0:6"
+          ]
+        }
+      },
+      "expected": true
+    },
+    {
+      "name": "cba-valid",
+      "input": {
+        "op": "rates",
+        "xml": "<soap:Envelope xmlns:soap='http://schemas.xmlsoap.org/soap/envelope/'><soap:Body><ExchangeRatesLatestResponse><ExchangeRatesLatestResult><CurrentDate>2026-01-01T00:00:00</CurrentDate><Rates><ExchangeRate><ISO>USD</ISO><Amount>1</Amount><Rate>390,25</Rate></ExchangeRate><ExchangeRate><ISO>EUR</ISO><Amount>1</Amount><Rate>420.5</Rate></ExchangeRate><ExchangeRate><ISO>RUB</ISO><Amount>100</Amount><Rate>425</Rate></ExchangeRate></Rates></ExchangeRatesLatestResult></ExchangeRatesLatestResponse></soap:Body></soap:Envelope>",
+        "fetchedAt": "2026-01-01T12:00:00.000Z"
+      },
+      "expected": {
+        "version": 1,
+        "type": "cba-exchange-rates",
+        "baseCurrency": "AMD",
+        "fetchedAt": "2026-01-01T12:00:00.000Z",
+        "effectiveDate": "2026-01-01",
+        "rates": {
+          "USD": {
+            "amount": 1,
+            "rate": 390.25
+          },
+          "EUR": {
+            "amount": 1,
+            "rate": 420.5
+          },
+          "RUB": {
+            "amount": 100,
+            "rate": 425
+          }
+        }
+      }
+    },
+    {
+      "name": "cba-case-invalid",
+      "input": {
+        "op": "rates",
+        "xml": "<exchangerateslatestresult><CurrentDate>2026-01-01</CurrentDate></exchangerateslatestresult>",
+        "fetchedAt": "2026-01-01T00:00:00.000Z"
+      },
+      "expected": {
+        "error": "CBA exchange-rate response did not contain a result"
+      }
+    },
+    {
+      "name": "source-integrity-0",
+      "input": {
+        "op": "integrity",
+        "diagnostics": {
+          "apartments": [],
+          "candidateCount": 0,
+          "uniqueCandidateCount": 4,
+          "parsedCount": 4,
+          "duplicateCount": 0,
+          "rejectedCount": 0,
+          "completeness": {
+            "title": 4,
+            "date": 0,
+            "price": 0,
+            "location": 0,
+            "rooms": 0,
+            "areaSqM": 0,
+            "floor": 0
+          }
+        },
+        "page": 1,
+        "priorFirstPageCounts": []
+      },
+      "expected": {
+        "error": "List.am source integrity check failed: FIRST_PAGE_EMPTY"
+      }
+    },
+    {
+      "name": "source-integrity-1",
+      "input": {
+        "op": "integrity",
+        "diagnostics": {
+          "apartments": [],
+          "candidateCount": 4,
+          "uniqueCandidateCount": 4,
+          "parsedCount": 3,
+          "duplicateCount": 0,
+          "rejectedCount": 1,
+          "completeness": {
+            "title": 4,
+            "date": 0,
+            "price": 0,
+            "location": 0,
+            "rooms": 0,
+            "areaSqM": 0,
+            "floor": 0
+          }
+        },
+        "page": 1,
+        "priorFirstPageCounts": []
+      },
+      "expected": {
+        "error": "List.am source integrity check failed: PARSE_SUCCESS_BELOW_THRESHOLD"
+      }
+    },
+    {
+      "name": "source-integrity-2",
+      "input": {
+        "op": "integrity",
+        "diagnostics": {
+          "apartments": [],
+          "candidateCount": 4,
+          "uniqueCandidateCount": 4,
+          "parsedCount": 4,
+          "duplicateCount": 0,
+          "rejectedCount": 1,
+          "completeness": {
+            "title": 4,
+            "date": 0,
+            "price": 0,
+            "location": 0,
+            "rooms": 0,
+            "areaSqM": 0,
+            "floor": 0
+          }
+        },
+        "page": 2,
+        "priorFirstPageCounts": []
+      },
+      "expected": {
+        "error": "List.am source integrity check failed: IDENTITY_REJECTION"
+      }
+    },
+    {
+      "name": "source-integrity-3",
+      "input": {
+        "op": "integrity",
+        "diagnostics": {
+          "apartments": [],
+          "candidateCount": 4,
+          "uniqueCandidateCount": 4,
+          "parsedCount": 4,
+          "duplicateCount": 0,
+          "rejectedCount": 0,
+          "completeness": {
+            "title": 3,
+            "date": 0,
+            "price": 0,
+            "location": 0,
+            "rooms": 0,
+            "areaSqM": 0,
+            "floor": 0
+          }
+        },
+        "page": 1,
+        "priorFirstPageCounts": []
+      },
+      "expected": {
+        "error": "List.am source integrity check failed: TITLE_COMPLETENESS_BELOW_THRESHOLD"
+      }
+    },
+    {
+      "name": "source-integrity-4",
+      "input": {
+        "op": "integrity",
+        "diagnostics": {
+          "apartments": [],
+          "candidateCount": 4,
+          "uniqueCandidateCount": 4,
+          "parsedCount": 4,
+          "duplicateCount": 0,
+          "rejectedCount": 0,
+          "completeness": {
+            "title": 4,
+            "date": 0,
+            "price": 0,
+            "location": 0,
+            "rooms": 0,
+            "areaSqM": 0,
+            "floor": 0
+          }
+        },
+        "page": 1,
+        "priorFirstPageCounts": [
+          12,
+          14,
+          16
+        ]
+      },
+      "expected": {
+        "error": "List.am source integrity check failed: FIRST_PAGE_COUNT_DROP"
+      }
+    },
+    {
+      "name": "source-integrity-5",
+      "input": {
+        "op": "integrity",
+        "diagnostics": {
+          "apartments": [],
+          "candidateCount": 4,
+          "uniqueCandidateCount": 4,
+          "parsedCount": 4,
+          "duplicateCount": 0,
+          "rejectedCount": 0,
+          "completeness": {
+            "title": 4,
+            "date": 0,
+            "price": 0,
+            "location": 0,
+            "rooms": 0,
+            "areaSqM": 0,
+            "floor": 0
+          }
+        },
+        "page": 1,
+        "priorFirstPageCounts": [
+          7,
+          8,
+          9
+        ]
+      },
+      "expected": {
+        "apartments": [],
+        "candidateCount": 4,
+        "uniqueCandidateCount": 4,
+        "parsedCount": 4,
+        "duplicateCount": 0,
+        "rejectedCount": 0,
+        "completeness": {
+          "title": 4,
+          "date": 0,
+          "price": 0,
+          "location": 0,
+          "rooms": 0,
+          "areaSqM": 0,
+          "floor": 0
+        }
+      }
+    },
+    {
+      "name": "source-integrity-6",
+      "input": {
+        "op": "integrity",
+        "diagnostics": {
+          "apartments": [],
+          "candidateCount": 4,
+          "uniqueCandidateCount": 4,
+          "parsedCount": 4,
+          "duplicateCount": 0,
+          "rejectedCount": 0,
+          "completeness": {
+            "title": 4,
+            "date": 0,
+            "price": 0,
+            "location": 0,
+            "rooms": 0,
+            "areaSqM": 0,
+            "floor": 0
+          }
+        },
+        "page": 2,
+        "priorFirstPageCounts": [
+          12,
+          14,
+          16
+        ]
+      },
+      "expected": {
+        "apartments": [],
+        "candidateCount": 4,
+        "uniqueCandidateCount": 4,
+        "parsedCount": 4,
+        "duplicateCount": 0,
+        "rejectedCount": 0,
+        "completeness": {
+          "title": 4,
+          "date": 0,
+          "price": 0,
+          "location": 0,
+          "rooms": 0,
+          "areaSqM": 0,
+          "floor": 0
+        }
+      }
+    },
+    {
+      "name": "config-valid-0",
+      "input": {
+        "op": "config",
+        "env": {
+          "TELEGRAM_BOT_TOKEN": "123456:synthetic-test-token",
+          "TELEGRAM_OWNER_ID": "123"
+        },
+        "cwd": "/tmp/parity"
+      },
+      "expected": {
+        "environmentName": "development",
+        "dataDirectory": "/tmp/parity/.data",
+        "listUrlTemplate": "https://www.list.am/ru/category/56/{page}?n=0&cmtype=0&crc=0&gl=2&srt=3",
+        "listSources": [
+          {
+            "kind": "apartment",
+            "urlTemplate": "https://www.list.am/ru/category/56/{page}?n=0&cmtype=0&crc=0&gl=2&srt=3"
+          },
+          {
+            "kind": "house",
+            "urlTemplate": "https://www.list.am/ru/category/1377/{page}?n=0&cmtype=0&crc=0&gl=2&srt=3"
+          }
+        ],
+        "initialPageCount": 10,
+        "addedCategoryPageCount": 2,
+        "initialDeliveryLimit": 100,
+        "apartmentsStateFile": "/tmp/parity/.data/apartments.json",
+        "deliveryStateFile": "/tmp/parity/.data/telegram-deliveries.json",
+        "channelDeliveryStateFile": "/tmp/parity/.data/telegram-channel-deliveries.json",
+        "exchangeRatesStateFile": "/tmp/parity/.data/exchange-rates.json",
+        "telegramBotToken": "123456:synthetic-test-token",
+        "telegramOwnerId": 123,
+        "telegramAccessMode": "public",
+        "telegramAllowedUserIds": [],
+        "telegramUserUpdatesPerMinute": 30,
+        "telegramPrivateDeliveriesPerMinute": 20,
+        "telegramChannelId": null,
+        "channelFilters": {
+          "kinds": [
+            "apartment"
+          ],
+          "price": {
+            "min": null,
+            "max": null
+          },
+          "rooms": {
+            "min": null,
+            "max": null
+          },
+          "locations": [
+            "r:0"
+          ]
+        },
+        "telegramStateFile": "/tmp/parity/.data/telegram-bot.json",
+        "telegramPollTimeoutSeconds": 25,
+        "pollIntervalMs": 60000,
+        "timeoutMs": 30000,
+        "externalRetryBaseMs": 1000,
+        "externalRetryMaxMs": 60000,
+        "curlImpersonatePath": "/usr/local/bin/curl-impersonate",
+        "listAmCookieFile": "/tmp/parity/.data/list-am-cookies.txt",
+        "backupDailyRetention": 7,
+        "backupWeeklyRetention": 4,
+        "diskFreeWarningFraction": 0.2,
+        "healthHost": "127.0.0.1",
+        "healthPort": 8787
+      }
+    },
+    {
+      "name": "config-valid-1",
+      "input": {
+        "op": "config",
+        "env": {
+          "TELEGRAM_BOT_TOKEN": "123456:synthetic-test-token",
+          "TELEGRAM_OWNER_ID": "0x7b",
+          "HEALTH_PORT": "0b10000000000000",
+          "DISK_FREE_WARNING_PERCENT": "0o24"
+        },
+        "cwd": "/tmp/parity"
+      },
+      "expected": {
+        "environmentName": "development",
+        "dataDirectory": "/tmp/parity/.data",
+        "listUrlTemplate": "https://www.list.am/ru/category/56/{page}?n=0&cmtype=0&crc=0&gl=2&srt=3",
+        "listSources": [
+          {
+            "kind": "apartment",
+            "urlTemplate": "https://www.list.am/ru/category/56/{page}?n=0&cmtype=0&crc=0&gl=2&srt=3"
+          },
+          {
+            "kind": "house",
+            "urlTemplate": "https://www.list.am/ru/category/1377/{page}?n=0&cmtype=0&crc=0&gl=2&srt=3"
+          }
+        ],
+        "initialPageCount": 10,
+        "addedCategoryPageCount": 2,
+        "initialDeliveryLimit": 100,
+        "apartmentsStateFile": "/tmp/parity/.data/apartments.json",
+        "deliveryStateFile": "/tmp/parity/.data/telegram-deliveries.json",
+        "channelDeliveryStateFile": "/tmp/parity/.data/telegram-channel-deliveries.json",
+        "exchangeRatesStateFile": "/tmp/parity/.data/exchange-rates.json",
+        "telegramBotToken": "123456:synthetic-test-token",
+        "telegramOwnerId": 123,
+        "telegramAccessMode": "public",
+        "telegramAllowedUserIds": [],
+        "telegramUserUpdatesPerMinute": 30,
+        "telegramPrivateDeliveriesPerMinute": 20,
+        "telegramChannelId": null,
+        "channelFilters": {
+          "kinds": [
+            "apartment"
+          ],
+          "price": {
+            "min": null,
+            "max": null
+          },
+          "rooms": {
+            "min": null,
+            "max": null
+          },
+          "locations": [
+            "r:0"
+          ]
+        },
+        "telegramStateFile": "/tmp/parity/.data/telegram-bot.json",
+        "telegramPollTimeoutSeconds": 25,
+        "pollIntervalMs": 60000,
+        "timeoutMs": 30000,
+        "externalRetryBaseMs": 1000,
+        "externalRetryMaxMs": 60000,
+        "curlImpersonatePath": "/usr/local/bin/curl-impersonate",
+        "listAmCookieFile": "/tmp/parity/.data/list-am-cookies.txt",
+        "backupDailyRetention": 7,
+        "backupWeeklyRetention": 4,
+        "diskFreeWarningFraction": 0.2,
+        "healthHost": "127.0.0.1",
+        "healthPort": 8192
+      }
+    },
+    {
+      "name": "config-valid-2",
+      "input": {
+        "op": "config",
+        "env": {
+          "TELEGRAM_BOT_TOKEN": "123456:synthetic-test-token",
+          "TELEGRAM_OWNER_ID": "123",
+          "TELEGRAM_ACCESS_MODE": "allowlist",
+          "TELEGRAM_ALLOWED_USER_IDS": "456,789"
+        },
+        "cwd": "/tmp/parity"
+      },
+      "expected": {
+        "environmentName": "development",
+        "dataDirectory": "/tmp/parity/.data",
+        "listUrlTemplate": "https://www.list.am/ru/category/56/{page}?n=0&cmtype=0&crc=0&gl=2&srt=3",
+        "listSources": [
+          {
+            "kind": "apartment",
+            "urlTemplate": "https://www.list.am/ru/category/56/{page}?n=0&cmtype=0&crc=0&gl=2&srt=3"
+          },
+          {
+            "kind": "house",
+            "urlTemplate": "https://www.list.am/ru/category/1377/{page}?n=0&cmtype=0&crc=0&gl=2&srt=3"
+          }
+        ],
+        "initialPageCount": 10,
+        "addedCategoryPageCount": 2,
+        "initialDeliveryLimit": 100,
+        "apartmentsStateFile": "/tmp/parity/.data/apartments.json",
+        "deliveryStateFile": "/tmp/parity/.data/telegram-deliveries.json",
+        "channelDeliveryStateFile": "/tmp/parity/.data/telegram-channel-deliveries.json",
+        "exchangeRatesStateFile": "/tmp/parity/.data/exchange-rates.json",
+        "telegramBotToken": "123456:synthetic-test-token",
+        "telegramOwnerId": 123,
+        "telegramAccessMode": "allowlist",
+        "telegramAllowedUserIds": [
+          456,
+          789
+        ],
+        "telegramUserUpdatesPerMinute": 30,
+        "telegramPrivateDeliveriesPerMinute": 20,
+        "telegramChannelId": null,
+        "channelFilters": {
+          "kinds": [
+            "apartment"
+          ],
+          "price": {
+            "min": null,
+            "max": null
+          },
+          "rooms": {
+            "min": null,
+            "max": null
+          },
+          "locations": [
+            "r:0"
+          ]
+        },
+        "telegramStateFile": "/tmp/parity/.data/telegram-bot.json",
+        "telegramPollTimeoutSeconds": 25,
+        "pollIntervalMs": 60000,
+        "timeoutMs": 30000,
+        "externalRetryBaseMs": 1000,
+        "externalRetryMaxMs": 60000,
+        "curlImpersonatePath": "/usr/local/bin/curl-impersonate",
+        "listAmCookieFile": "/tmp/parity/.data/list-am-cookies.txt",
+        "backupDailyRetention": 7,
+        "backupWeeklyRetention": 4,
+        "diskFreeWarningFraction": 0.2,
+        "healthHost": "127.0.0.1",
+        "healthPort": 8787
+      }
+    },
+    {
+      "name": "config-valid-3",
+      "input": {
+        "op": "config",
+        "env": {
+          "TELEGRAM_BOT_TOKEN": "123456:synthetic-test-token",
+          "TELEGRAM_OWNER_ID": "123",
+          "DATA_DIRECTORY": "state/../data",
+          "HEALTH_HOST": "::1",
+          "HEALTH_PORT": "9001"
+        },
+        "cwd": "/tmp/parity"
+      },
+      "expected": {
+        "environmentName": "development",
+        "dataDirectory": "/tmp/parity/data",
+        "listUrlTemplate": "https://www.list.am/ru/category/56/{page}?n=0&cmtype=0&crc=0&gl=2&srt=3",
+        "listSources": [
+          {
+            "kind": "apartment",
+            "urlTemplate": "https://www.list.am/ru/category/56/{page}?n=0&cmtype=0&crc=0&gl=2&srt=3"
+          },
+          {
+            "kind": "house",
+            "urlTemplate": "https://www.list.am/ru/category/1377/{page}?n=0&cmtype=0&crc=0&gl=2&srt=3"
+          }
+        ],
+        "initialPageCount": 10,
+        "addedCategoryPageCount": 2,
+        "initialDeliveryLimit": 100,
+        "apartmentsStateFile": "/tmp/parity/data/apartments.json",
+        "deliveryStateFile": "/tmp/parity/data/telegram-deliveries.json",
+        "channelDeliveryStateFile": "/tmp/parity/data/telegram-channel-deliveries.json",
+        "exchangeRatesStateFile": "/tmp/parity/data/exchange-rates.json",
+        "telegramBotToken": "123456:synthetic-test-token",
+        "telegramOwnerId": 123,
+        "telegramAccessMode": "public",
+        "telegramAllowedUserIds": [],
+        "telegramUserUpdatesPerMinute": 30,
+        "telegramPrivateDeliveriesPerMinute": 20,
+        "telegramChannelId": null,
+        "channelFilters": {
+          "kinds": [
+            "apartment"
+          ],
+          "price": {
+            "min": null,
+            "max": null
+          },
+          "rooms": {
+            "min": null,
+            "max": null
+          },
+          "locations": [
+            "r:0"
+          ]
+        },
+        "telegramStateFile": "/tmp/parity/data/telegram-bot.json",
+        "telegramPollTimeoutSeconds": 25,
+        "pollIntervalMs": 60000,
+        "timeoutMs": 30000,
+        "externalRetryBaseMs": 1000,
+        "externalRetryMaxMs": 60000,
+        "curlImpersonatePath": "/usr/local/bin/curl-impersonate",
+        "listAmCookieFile": "/tmp/parity/data/list-am-cookies.txt",
+        "backupDailyRetention": 7,
+        "backupWeeklyRetention": 4,
+        "diskFreeWarningFraction": 0.2,
+        "healthHost": "::1",
+        "healthPort": 9001
+      }
+    },
+    {
+      "name": "config-valid-4",
+      "input": {
+        "op": "config",
+        "env": {
+          "TELEGRAM_BOT_TOKEN": "123456:synthetic-test-token",
+          "TELEGRAM_OWNER_ID": "123",
+          "TELEGRAM_CHANNEL_ID": "@example_channel",
+          "CHANNEL_FILTER_PRICE_AMD": "150000-",
+          "CHANNEL_FILTER_ROOMS": "1-3",
+          "CHANNEL_FILTER_LOCATIONS": "all"
+        },
+        "cwd": "/tmp/parity"
+      },
+      "expected": {
+        "environmentName": "development",
+        "dataDirectory": "/tmp/parity/.data",
+        "listUrlTemplate": "https://www.list.am/ru/category/56/{page}?n=0&cmtype=0&crc=0&gl=2&srt=3",
+        "listSources": [
+          {
+            "kind": "apartment",
+            "urlTemplate": "https://www.list.am/ru/category/56/{page}?n=0&cmtype=0&crc=0&gl=2&srt=3"
+          },
+          {
+            "kind": "house",
+            "urlTemplate": "https://www.list.am/ru/category/1377/{page}?n=0&cmtype=0&crc=0&gl=2&srt=3"
+          }
+        ],
+        "initialPageCount": 10,
+        "addedCategoryPageCount": 2,
+        "initialDeliveryLimit": 100,
+        "apartmentsStateFile": "/tmp/parity/.data/apartments.json",
+        "deliveryStateFile": "/tmp/parity/.data/telegram-deliveries.json",
+        "channelDeliveryStateFile": "/tmp/parity/.data/telegram-channel-deliveries.json",
+        "exchangeRatesStateFile": "/tmp/parity/.data/exchange-rates.json",
+        "telegramBotToken": "123456:synthetic-test-token",
+        "telegramOwnerId": 123,
+        "telegramAccessMode": "public",
+        "telegramAllowedUserIds": [],
+        "telegramUserUpdatesPerMinute": 30,
+        "telegramPrivateDeliveriesPerMinute": 20,
+        "telegramChannelId": "@example_channel",
+        "channelFilters": {
+          "kinds": [
+            "apartment"
+          ],
+          "price": {
+            "min": 150000,
+            "max": null
+          },
+          "rooms": {
+            "min": 1,
+            "max": 3
+          },
+          "locations": []
+        },
+        "telegramStateFile": "/tmp/parity/.data/telegram-bot.json",
+        "telegramPollTimeoutSeconds": 25,
+        "pollIntervalMs": 60000,
+        "timeoutMs": 30000,
+        "externalRetryBaseMs": 1000,
+        "externalRetryMaxMs": 60000,
+        "curlImpersonatePath": "/usr/local/bin/curl-impersonate",
+        "listAmCookieFile": "/tmp/parity/.data/list-am-cookies.txt",
+        "backupDailyRetention": 7,
+        "backupWeeklyRetention": 4,
+        "diskFreeWarningFraction": 0.2,
+        "healthHost": "127.0.0.1",
+        "healthPort": 8787
+      }
+    },
+    {
+      "name": "config-invalid-0",
+      "input": {
+        "op": "config",
+        "env": {
+          "TELEGRAM_BOT_TOKEN": "123456:synthetic-test-token",
+          "TELEGRAM_OWNER_ID": "123",
+          "NODE_ENV": "production"
+        },
+        "cwd": "/tmp/parity"
+      },
+      "expected": {
+        "error": "DATA_DIRECTORY is required"
+      },
+      "comparison": "error-present"
+    },
+    {
+      "name": "config-invalid-1",
+      "input": {
+        "op": "config",
+        "env": {
+          "TELEGRAM_BOT_TOKEN": "123456:synthetic-test-token",
+          "TELEGRAM_OWNER_ID": "123",
+          "TELEGRAM_ACCESS_MODE": "allowlist"
+        },
+        "cwd": "/tmp/parity"
+      },
+      "expected": {
+        "error": "TELEGRAM_ALLOWED_USER_IDS must contain at least one ID in allowlist mode"
+      },
+      "comparison": "error-present"
+    },
+    {
+      "name": "config-invalid-2",
+      "input": {
+        "op": "config",
+        "env": {
+          "TELEGRAM_BOT_TOKEN": "123456:synthetic-test-token",
+          "TELEGRAM_OWNER_ID": "123",
+          "TELEGRAM_ALLOWED_USER_IDS": "456"
+        },
+        "cwd": "/tmp/parity"
+      },
+      "expected": {
+        "error": "TELEGRAM_ALLOWED_USER_IDS must be blank unless TELEGRAM_ACCESS_MODE is allowlist"
+      },
+      "comparison": "error-present"
+    },
+    {
+      "name": "config-invalid-3",
+      "input": {
+        "op": "config",
+        "env": {
+          "TELEGRAM_BOT_TOKEN": "123456:synthetic-test-token",
+          "TELEGRAM_OWNER_ID": "123",
+          "TELEGRAM_ACCESS_MODE": "allowlist",
+          "TELEGRAM_ALLOWED_USER_IDS": "123"
+        },
+        "cwd": "/tmp/parity"
+      },
+      "expected": {
+        "error": "TELEGRAM_ALLOWED_USER_IDS must not repeat TELEGRAM_OWNER_ID"
+      },
+      "comparison": "error-present"
+    },
+    {
+      "name": "config-invalid-4",
+      "input": {
+        "op": "config",
+        "env": {
+          "TELEGRAM_BOT_TOKEN": "123456:synthetic-test-token",
+          "TELEGRAM_OWNER_ID": "123",
+          "TELEGRAM_PRIVATE_DELIVERIES_PER_MINUTE": "31"
+        },
+        "cwd": "/tmp/parity"
+      },
+      "expected": {
+        "error": "TELEGRAM_PRIVATE_DELIVERIES_PER_MINUTE must be an integer from 1 through 30"
+      },
+      "comparison": "error-present"
+    },
+    {
+      "name": "config-invalid-5",
+      "input": {
+        "op": "config",
+        "env": {
+          "TELEGRAM_BOT_TOKEN": "123456:synthetic-test-token",
+          "TELEGRAM_OWNER_ID": "123",
+          "EXTERNAL_RETRY_MAX_MS": "300001"
+        },
+        "cwd": "/tmp/parity"
+      },
+      "expected": {
+        "error": "EXTERNAL_RETRY_MAX_MS must not exceed 300000"
+      },
+      "comparison": "error-present"
+    },
+    {
+      "name": "config-invalid-6",
+      "input": {
+        "op": "config",
+        "env": {
+          "TELEGRAM_BOT_TOKEN": "123456:synthetic-test-token",
+          "TELEGRAM_OWNER_ID": "123",
+          "DATA_DIRECTORY": "/"
+        },
+        "cwd": "/tmp/parity"
+      },
+      "expected": {
+        "error": "DATA_DIRECTORY must not be the filesystem root"
+      },
+      "comparison": "error-present"
+    },
+    {
+      "name": "config-invalid-7",
+      "input": {
+        "op": "config",
+        "env": {
+          "TELEGRAM_BOT_TOKEN": "123456:synthetic-test-token",
+          "TELEGRAM_OWNER_ID": "123",
+          "LIST_AM_COOKIE_FILE": "/outside/cookies"
+        },
+        "cwd": "/tmp/parity"
+      },
+      "expected": {
+        "error": "LIST_AM_COOKIE_FILE must resolve inside DATA_DIRECTORY (/tmp/parity/.data)"
+      },
+      "comparison": "error-present"
+    },
+    {
+      "name": "config-invalid-8",
+      "input": {
+        "op": "config",
+        "env": {
+          "TELEGRAM_BOT_TOKEN": "123456:synthetic-test-token",
+          "TELEGRAM_OWNER_ID": "123",
+          "APARTMENTS_STATE_FILE": "/tmp/parity/.data/state.sqlite3"
+        },
+        "cwd": "/tmp/parity"
+      },
+      "expected": {
+        "error": "APARTMENTS_STATE_FILE conflicts with a reserved runtime path"
+      },
+      "comparison": "error-present"
+    },
+    {
+      "name": "config-invalid-9",
+      "input": {
+        "op": "config",
+        "env": {
+          "TELEGRAM_BOT_TOKEN": "123456:synthetic-test-token",
+          "TELEGRAM_OWNER_ID": "123",
+          "HEALTH_HOST": "0.0.0.0"
+        },
+        "cwd": "/tmp/parity"
+      },
+      "expected": {
+        "error": "HEALTH_HOST must be a loopback address (127.0.0.1 or ::1)"
+      },
+      "comparison": "error-present"
+    },
+    {
+      "name": "config-invalid-10",
+      "input": {
+        "op": "config",
+        "env": {
+          "TELEGRAM_BOT_TOKEN": "123456:synthetic-test-token",
+          "TELEGRAM_OWNER_ID": "123",
+          "BACKUP_DAILY_RETENTION": "6"
+        },
+        "cwd": "/tmp/parity"
+      },
+      "expected": {
+        "error": "BACKUP_DAILY_RETENTION must be at least 7"
+      },
+      "comparison": "error-present"
+    },
+    {
+      "name": "bot-conversation",
+      "input": {
+        "op": "bot",
+        "config": {
+          "telegramAccessMode": "public",
+          "telegramUserUpdatesPerMinute": 100,
+          "initialDeliveryLimit": 25
+        },
+        "updates": [
+          {
+            "update_id": 1,
+            "message": {
+              "message_id": 200,
+              "from": {
+                "id": 42
+              },
+              "chat": {
+                "type": "private",
+                "id": 42
+              },
+              "text": "/start"
+            }
+          },
+          {
+            "update_id": 2,
+            "callback_query": {
+              "id": "query2",
+              "from": {
+                "id": 42
+              },
+              "data": "m:start",
+              "message": {
+                "message_id": 200,
+                "chat": {
+                  "type": "private",
+                  "id": 42
+                }
+              }
+            }
+          },
+          {
+            "update_id": 3,
+            "callback_query": {
+              "id": "query3",
+              "from": {
+                "id": 42
+              },
+              "data": "m:start:new",
+              "message": {
+                "message_id": 200,
+                "chat": {
+                  "type": "private",
+                  "id": 42
+                }
+              }
+            }
+          },
+          {
+            "update_id": 4,
+            "callback_query": {
+              "id": "query4",
+              "from": {
+                "id": 42
+              },
+              "data": "f:price",
+              "message": {
+                "message_id": 200,
+                "chat": {
+                  "type": "private",
+                  "id": 42
+                }
+              }
+            }
+          },
+          {
+            "update_id": 5,
+            "message": {
+              "message_id": 200,
+              "from": {
+                "id": 42
+              },
+              "chat": {
+                "type": "private",
+                "id": 42
+              },
+              "text": "100000-250000"
+            }
+          },
+          {
+            "update_id": 6,
+            "callback_query": {
+              "id": "query6",
+              "from": {
+                "id": 42
+              },
+              "data": "f:rooms",
+              "message": {
+                "message_id": 200,
+                "chat": {
+                  "type": "private",
+                  "id": 42
+                }
+              }
+            }
+          },
+          {
+            "update_id": 7,
+            "message": {
+              "message_id": 200,
+              "from": {
+                "id": 42
+              },
+              "chat": {
+                "type": "private",
+                "id": 42
+              },
+              "text": "0"
+            }
+          },
+          {
+            "update_id": 8,
+            "message": {
+              "message_id": 200,
+              "from": {
+                "id": 42
+              },
+              "chat": {
+                "type": "private",
+                "id": 42
+              },
+              "text": "/clear"
+            }
+          },
+          {
+            "update_id": 9,
+            "callback_query": {
+              "id": "query9",
+              "from": {
+                "id": 42
+              },
+              "data": "f:kinds",
+              "message": {
+                "message_id": 200,
+                "chat": {
+                  "type": "private",
+                  "id": 42
+                }
+              }
+            }
+          },
+          {
+            "update_id": 10,
+            "callback_query": {
+              "id": "query10",
+              "from": {
+                "id": 42
+              },
+              "data": "f:kind:house",
+              "message": {
+                "message_id": 200,
+                "chat": {
+                  "type": "private",
+                  "id": 42
+                }
+              }
+            }
+          },
+          {
+            "update_id": 11,
+            "callback_query": {
+              "id": "query11",
+              "from": {
+                "id": 42
+              },
+              "data": "f:kind:apartment",
+              "message": {
+                "message_id": 200,
+                "chat": {
+                  "type": "private",
+                  "id": 42
+                }
+              }
+            }
+          },
+          {
+            "update_id": 12,
+            "callback_query": {
+              "id": "query12",
+              "from": {
+                "id": 42
+              },
+              "data": "f:kind:house",
+              "message": {
+                "message_id": 200,
+                "chat": {
+                  "type": "private",
+                  "id": 42
+                }
+              }
+            }
+          },
+          {
+            "update_id": 13,
+            "callback_query": {
+              "id": "query13",
+              "from": {
+                "id": 42
+              },
+              "data": "f:locations",
+              "message": {
+                "message_id": 200,
+                "chat": {
+                  "type": "private",
+                  "id": 42
+                }
+              }
+            }
+          },
+          {
+            "update_id": 14,
+            "callback_query": {
+              "id": "query14",
+              "from": {
+                "id": 42
+              },
+              "data": "f:region:0",
+              "message": {
+                "message_id": 200,
+                "chat": {
+                  "type": "private",
+                  "id": 42
+                }
+              }
+            }
+          },
+          {
+            "update_id": 15,
+            "callback_query": {
+              "id": "query15",
+              "from": {
+                "id": 42
+              },
+              "data": "f:place:0:6",
+              "message": {
+                "message_id": 200,
+                "chat": {
+                  "type": "private",
+                  "id": 42
+                }
+              }
+            }
+          },
+          {
+            "update_id": 16,
+            "callback_query": {
+              "id": "query16",
+              "from": {
+                "id": 42
+              },
+              "data": "f:all:0",
+              "message": {
+                "message_id": 200,
+                "chat": {
+                  "type": "private",
+                  "id": 42
+                }
+              }
+            }
+          },
+          {
+            "update_id": 17,
+            "callback_query": {
+              "id": "query17",
+              "from": {
+                "id": 42
+              },
+              "data": "f:place:0:1",
+              "message": {
+                "message_id": 200,
+                "chat": {
+                  "type": "private",
+                  "id": 42
+                }
+              }
+            }
+          },
+          {
+            "update_id": 18,
+            "callback_query": {
+              "id": "query18",
+              "from": {
+                "id": 42
+              },
+              "data": "f:locations",
+              "message": {
+                "message_id": 200,
+                "chat": {
+                  "type": "private",
+                  "id": 42
+                }
+              }
+            }
+          },
+          {
+            "update_id": 19,
+            "callback_query": {
+              "id": "query19",
+              "from": {
+                "id": 42
+              },
+              "data": "f:menu",
+              "message": {
+                "message_id": 200,
+                "chat": {
+                  "type": "private",
+                  "id": 42
+                }
+              }
+            }
+          },
+          {
+            "update_id": 20,
+            "callback_query": {
+              "id": "query20",
+              "from": {
+                "id": 42
+              },
+              "data": "m:stop",
+              "message": {
+                "message_id": 200,
+                "chat": {
+                  "type": "private",
+                  "id": 42
+                }
+              }
+            }
+          },
+          {
+            "update_id": 21,
+            "message": {
+              "message_id": 200,
+              "from": {
+                "id": 42
+              },
+              "chat": {
+                "type": "private",
+                "id": 42
+              },
+              "text": "/menu@TestBot"
+            }
+          },
+          {
+            "update_id": 22,
+            "callback_query": {
+              "id": "query22",
+              "from": {
+                "id": 42
+              },
+              "data": "f:reset",
+              "message": {
+                "message_id": 200,
+                "chat": {
+                  "type": "private",
+                  "id": 42
+                }
+              }
+            }
+          },
+          {
+            "update_id": 23,
+            "message": {
+              "message_id": 200,
+              "from": {
+                "id": 42
+              },
+              "chat": {
+                "type": "private",
+                "id": 42
+              },
+              "text": "/stop"
+            }
+          }
+        ]
+      },
+      "expected": {
+        "state": {
+          "version": 3,
+          "type": "telegram-bot",
+          "updateOffset": 24,
+          "users": {
+            "42": {
+              "active": false,
+              "chatId": 42,
+              "sendInitialApartments": false,
+              "filters": {
+                "kinds": [
+                  "apartment"
+                ],
+                "price": {
+                  "min": null,
+                  "max": null
+                },
+                "rooms": {
+                  "min": null,
+                  "max": null
+                },
+                "locations": []
+              },
+              "pendingFilterInput": null
+            }
+          }
+        },
+        "operations": [
+          {
+            "method": "sendMessage",
+            "payload": {
+              "chat_id": 42,
+              "text": "Главное меню\n\nМониторинг: остановлен\nТип жилья: Квартиры\nЦена (֏): без ограничений\nКомнаты: без ограничений\nМестоположение: без ограничений",
+              "reply_markup": {
+                "inline_keyboard": [
+                  [
+                    {
+                      "text": "Цена, ֏",
+                      "callback_data": "f:price"
+                    },
+                    {
+                      "text": "Комнаты",
+                      "callback_data": "f:rooms"
+                    }
+                  ],
+                  [
+                    {
+                      "text": "Тип жилья",
+                      "callback_data": "f:kinds"
+                    },
+                    {
+                      "text": "Местоположение",
+                      "callback_data": "f:locations"
+                    }
+                  ],
+                  [
+                    {
+                      "text": "Сбросить фильтры",
+                      "callback_data": "f:reset"
+                    }
+                  ],
+                  [
+                    {
+                      "text": "Запустить мониторинг",
+                      "callback_data": "m:start"
+                    }
+                  ]
+                ]
+              }
+            }
+          },
+          {
+            "method": "answerCallbackQuery",
+            "payload": {
+              "callback_query_id": "query2"
+            }
+          },
+          {
+            "method": "editMessageText",
+            "payload": {
+              "chat_id": 42,
+              "message_id": 200,
+              "text": "Отправить уже найденные объявления?\n\nПеред запуском мониторинга бот может отправить подходящие объявления за последние 24 часа — не больше 25. Или можно начать только с новых объявлений.",
+              "reply_markup": {
+                "inline_keyboard": [
+                  [
+                    {
+                      "text": "Да, отправить",
+                      "callback_data": "m:start:initial"
+                    }
+                  ],
+                  [
+                    {
+                      "text": "Нет, только новые",
+                      "callback_data": "m:start:new"
+                    }
+                  ],
+                  [
+                    {
+                      "text": "← В главное меню",
+                      "callback_data": "f:menu"
+                    }
+                  ]
+                ]
+              }
+            }
+          },
+          {
+            "method": "answerCallbackQuery",
+            "payload": {
+              "callback_query_id": "query3"
+            }
+          },
+          {
+            "method": "editMessageText",
+            "payload": {
+              "chat_id": 42,
+              "message_id": 200,
+              "text": "Главное меню\n\nМониторинг: запущен\nТип жилья: Квартиры\nЦена (֏): без ограничений\nКомнаты: без ограничений\nМестоположение: без ограничений",
+              "reply_markup": {
+                "inline_keyboard": [
+                  [
+                    {
+                      "text": "Цена, ֏",
+                      "callback_data": "f:price"
+                    },
+                    {
+                      "text": "Комнаты",
+                      "callback_data": "f:rooms"
+                    }
+                  ],
+                  [
+                    {
+                      "text": "Тип жилья",
+                      "callback_data": "f:kinds"
+                    },
+                    {
+                      "text": "Местоположение",
+                      "callback_data": "f:locations"
+                    }
+                  ],
+                  [
+                    {
+                      "text": "Сбросить фильтры",
+                      "callback_data": "f:reset"
+                    }
+                  ],
+                  [
+                    {
+                      "text": "Остановить мониторинг",
+                      "callback_data": "m:stop"
+                    }
+                  ]
+                ]
+              }
+            }
+          },
+          {
+            "method": "sendMessage",
+            "payload": {
+              "chat_id": 42,
+              "text": "Введите точную цену или диапазон в армянских драмах.\nПримеры: «100000-250000», «100000-» (от 100 000), «-250000» (до 250 000).\nЧтобы снять это ограничение, отправьте «нет» или /clear.\nЧтобы отменить ввод и сохранить текущее значение фильтра, отправьте /cancel."
+            }
+          },
+          {
+            "method": "answerCallbackQuery",
+            "payload": {
+              "callback_query_id": "query4"
+            }
+          },
+          {
+            "method": "sendMessage",
+            "payload": {
+              "chat_id": 42,
+              "text": "Главное меню\n\nМониторинг: запущен\nТип жилья: Квартиры\nЦена (֏): 100 000–250 000\nКомнаты: без ограничений\nМестоположение: без ограничений",
+              "reply_markup": {
+                "inline_keyboard": [
+                  [
+                    {
+                      "text": "Цена, ֏",
+                      "callback_data": "f:price"
+                    },
+                    {
+                      "text": "Комнаты",
+                      "callback_data": "f:rooms"
+                    }
+                  ],
+                  [
+                    {
+                      "text": "Тип жилья",
+                      "callback_data": "f:kinds"
+                    },
+                    {
+                      "text": "Местоположение",
+                      "callback_data": "f:locations"
+                    }
+                  ],
+                  [
+                    {
+                      "text": "Сбросить фильтры",
+                      "callback_data": "f:reset"
+                    }
+                  ],
+                  [
+                    {
+                      "text": "Остановить мониторинг",
+                      "callback_data": "m:stop"
+                    }
+                  ]
+                ]
+              }
+            }
+          },
+          {
+            "method": "sendMessage",
+            "payload": {
+              "chat_id": 42,
+              "text": "Введите точное количество комнат или диапазон.\nПримеры: «1-3», «2-» (от 2), «-4» (до 4).\nЧтобы снять это ограничение, отправьте «нет» или /clear.\nЧтобы отменить ввод и сохранить текущее значение фильтра, отправьте /cancel."
+            }
+          },
+          {
+            "method": "answerCallbackQuery",
+            "payload": {
+              "callback_query_id": "query6"
+            }
+          },
+          {
+            "method": "sendMessage",
+            "payload": {
+              "chat_id": 42,
+              "text": "Количество комнат должно быть не меньше одного.\nПопробуйте ещё раз, отправьте /clear, чтобы снять это ограничение, или /cancel, чтобы отменить ввод и сохранить текущее значение фильтра."
+            }
+          },
+          {
+            "method": "sendMessage",
+            "payload": {
+              "chat_id": 42,
+              "text": "Главное меню\n\nМониторинг: запущен\nТип жилья: Квартиры\nЦена (֏): 100 000–250 000\nКомнаты: без ограничений\nМестоположение: без ограничений",
+              "reply_markup": {
+                "inline_keyboard": [
+                  [
+                    {
+                      "text": "Цена, ֏",
+                      "callback_data": "f:price"
+                    },
+                    {
+                      "text": "Комнаты",
+                      "callback_data": "f:rooms"
+                    }
+                  ],
+                  [
+                    {
+                      "text": "Тип жилья",
+                      "callback_data": "f:kinds"
+                    },
+                    {
+                      "text": "Местоположение",
+                      "callback_data": "f:locations"
+                    }
+                  ],
+                  [
+                    {
+                      "text": "Сбросить фильтры",
+                      "callback_data": "f:reset"
+                    }
+                  ],
+                  [
+                    {
+                      "text": "Остановить мониторинг",
+                      "callback_data": "m:stop"
+                    }
+                  ]
+                ]
+              }
+            }
+          },
+          {
+            "method": "editMessageText",
+            "payload": {
+              "chat_id": 42,
+              "message_id": 200,
+              "text": "Тип жилья\n\nВыберите, какие объявления отслеживать. Можно выбрать оба типа, но не меньше одного.\nВыбрано: Квартиры",
+              "reply_markup": {
+                "inline_keyboard": [
+                  [
+                    {
+                      "text": "✅ Квартиры",
+                      "callback_data": "f:kind:apartment"
+                    }
+                  ],
+                  [
+                    {
+                      "text": "▫️ Дома",
+                      "callback_data": "f:kind:house"
+                    }
+                  ],
+                  [
+                    {
+                      "text": "← В главное меню",
+                      "callback_data": "f:menu"
+                    }
+                  ]
+                ]
+              }
+            }
+          },
+          {
+            "method": "answerCallbackQuery",
+            "payload": {
+              "callback_query_id": "query9"
+            }
+          },
+          {
+            "method": "editMessageText",
+            "payload": {
+              "chat_id": 42,
+              "message_id": 200,
+              "text": "Тип жилья\n\nВыберите, какие объявления отслеживать. Можно выбрать оба типа, но не меньше одного.\nВыбрано: Квартиры и дома",
+              "reply_markup": {
+                "inline_keyboard": [
+                  [
+                    {
+                      "text": "✅ Квартиры",
+                      "callback_data": "f:kind:apartment"
+                    }
+                  ],
+                  [
+                    {
+                      "text": "✅ Дома",
+                      "callback_data": "f:kind:house"
+                    }
+                  ],
+                  [
+                    {
+                      "text": "← В главное меню",
+                      "callback_data": "f:menu"
+                    }
+                  ]
+                ]
+              }
+            }
+          },
+          {
+            "method": "answerCallbackQuery",
+            "payload": {
+              "callback_query_id": "query10"
+            }
+          },
+          {
+            "method": "editMessageText",
+            "payload": {
+              "chat_id": 42,
+              "message_id": 200,
+              "text": "Тип жилья\n\nВыберите, какие объявления отслеживать. Можно выбрать оба типа, но не меньше одного.\nВыбрано: Дома",
+              "reply_markup": {
+                "inline_keyboard": [
+                  [
+                    {
+                      "text": "▫️ Квартиры",
+                      "callback_data": "f:kind:apartment"
+                    }
+                  ],
+                  [
+                    {
+                      "text": "✅ Дома",
+                      "callback_data": "f:kind:house"
+                    }
+                  ],
+                  [
+                    {
+                      "text": "← В главное меню",
+                      "callback_data": "f:menu"
+                    }
+                  ]
+                ]
+              }
+            }
+          },
+          {
+            "method": "answerCallbackQuery",
+            "payload": {
+              "callback_query_id": "query11"
+            }
+          },
+          {
+            "method": "editMessageText",
+            "payload": {
+              "chat_id": 42,
+              "message_id": 200,
+              "text": "Тип жилья\n\nВыберите, какие объявления отслеживать. Можно выбрать оба типа, но не меньше одного.\nВыбрано: Дома",
+              "reply_markup": {
+                "inline_keyboard": [
+                  [
+                    {
+                      "text": "▫️ Квартиры",
+                      "callback_data": "f:kind:apartment"
+                    }
+                  ],
+                  [
+                    {
+                      "text": "✅ Дома",
+                      "callback_data": "f:kind:house"
+                    }
+                  ],
+                  [
+                    {
+                      "text": "← В главное меню",
+                      "callback_data": "f:menu"
+                    }
+                  ]
+                ]
+              }
+            }
+          },
+          {
+            "method": "answerCallbackQuery",
+            "payload": {
+              "callback_query_id": "query12"
+            }
+          },
+          {
+            "method": "editMessageText",
+            "payload": {
+              "chat_id": 42,
+              "message_id": 200,
+              "text": "Выбор местоположения\n\nОткройте нужный раздел. Можно выбрать его целиком или указать одно или несколько отдельных мест.\nВыбрано: без ограничений",
+              "reply_markup": {
+                "inline_keyboard": [
+                  [
+                    {
+                      "text": "▫️ Ереван",
+                      "callback_data": "f:region:0"
+                    }
+                  ],
+                  [
+                    {
+                      "text": "▫️ Армавир",
+                      "callback_data": "f:region:1"
+                    }
+                  ],
+                  [
+                    {
+                      "text": "▫️ Арарат",
+                      "callback_data": "f:region:2"
+                    }
+                  ],
+                  [
+                    {
+                      "text": "▫️ Котайк",
+                      "callback_data": "f:region:3"
+                    }
+                  ],
+                  [
+                    {
+                      "text": "▫️ Ширак",
+                      "callback_data": "f:region:4"
+                    }
+                  ],
+                  [
+                    {
+                      "text": "▫️ Лори",
+                      "callback_data": "f:region:5"
+                    }
+                  ],
+                  [
+                    {
+                      "text": "▫️ Гехаркуник",
+                      "callback_data": "f:region:6"
+                    }
+                  ],
+                  [
+                    {
+                      "text": "▫️ Сюник",
+                      "callback_data": "f:region:7"
+                    }
+                  ],
+                  [
+                    {
+                      "text": "▫️ Арагацотн",
+                      "callback_data": "f:region:8"
+                    }
+                  ],
+                  [
+                    {
+                      "text": "▫️ Тавуш",
+                      "callback_data": "f:region:9"
+                    }
+                  ],
+                  [
+                    {
+                      "text": "▫️ Вайоц Дзор",
+                      "callback_data": "f:region:10"
+                    }
+                  ],
+                  [
+                    {
+                      "text": "← В главное меню",
+                      "callback_data": "f:menu"
+                    }
+                  ]
+                ]
+              }
+            }
+          },
+          {
+            "method": "answerCallbackQuery",
+            "payload": {
+              "callback_query_id": "query13"
+            }
+          },
+          {
+            "method": "editMessageText",
+            "payload": {
+              "chat_id": 42,
+              "message_id": 200,
+              "text": "Ереван и его районы\n\nВыберите весь Ереван или один или несколько его районов.",
+              "reply_markup": {
+                "inline_keyboard": [
+                  [
+                    {
+                      "text": "▫️ Весь Ереван",
+                      "callback_data": "f:all:0"
+                    }
+                  ],
+                  [
+                    {
+                      "text": "▫️ Ачапняк",
+                      "callback_data": "f:place:0:0"
+                    }
+                  ],
+                  [
+                    {
+                      "text": "▫️ Арабкир",
+                      "callback_data": "f:place:0:1"
+                    }
+                  ],
+                  [
+                    {
+                      "text": "▫️ Аван",
+                      "callback_data": "f:place:0:2"
+                    }
+                  ],
+                  [
+                    {
+                      "text": "▫️ Давташен",
+                      "callback_data": "f:place:0:3"
+                    }
+                  ],
+                  [
+                    {
+                      "text": "▫️ Эребуни",
+                      "callback_data": "f:place:0:4"
+                    }
+                  ],
+                  [
+                    {
+                      "text": "▫️ Канакер-Зейтун",
+                      "callback_data": "f:place:0:5"
+                    }
+                  ],
+                  [
+                    {
+                      "text": "▫️ Кентрон",
+                      "callback_data": "f:place:0:6"
+                    }
+                  ],
+                  [
+                    {
+                      "text": "▫️ Малатия-Себастия",
+                      "callback_data": "f:place:0:7"
+                    }
+                  ],
+                  [
+                    {
+                      "text": "▫️ Нор Норк",
+                      "callback_data": "f:place:0:8"
+                    }
+                  ],
+                  [
+                    {
+                      "text": "▫️ Норк-Мараш",
+                      "callback_data": "f:place:0:9"
+                    }
+                  ],
+                  [
+                    {
+                      "text": "▫️ Нубарашен",
+                      "callback_data": "f:place:0:10"
+                    }
+                  ],
+                  [
+                    {
+                      "text": "▫️ Шенгавит",
+                      "callback_data": "f:place:0:11"
+                    }
+                  ],
+                  [
+                    {
+                      "text": "← К списку",
+                      "callback_data": "f:locations"
+                    }
+                  ]
+                ]
+              }
+            }
+          },
+          {
+            "method": "answerCallbackQuery",
+            "payload": {
+              "callback_query_id": "query14"
+            }
+          },
+          {
+            "method": "editMessageText",
+            "payload": {
+              "chat_id": 42,
+              "message_id": 200,
+              "text": "Ереван и его районы\n\nВыберите весь Ереван или один или несколько его районов.",
+              "reply_markup": {
+                "inline_keyboard": [
+                  [
+                    {
+                      "text": "▫️ Весь Ереван",
+                      "callback_data": "f:all:0"
+                    }
+                  ],
+                  [
+                    {
+                      "text": "▫️ Ачапняк",
+                      "callback_data": "f:place:0:0"
+                    }
+                  ],
+                  [
+                    {
+                      "text": "▫️ Арабкир",
+                      "callback_data": "f:place:0:1"
+                    }
+                  ],
+                  [
+                    {
+                      "text": "▫️ Аван",
+                      "callback_data": "f:place:0:2"
+                    }
+                  ],
+                  [
+                    {
+                      "text": "▫️ Давташен",
+                      "callback_data": "f:place:0:3"
+                    }
+                  ],
+                  [
+                    {
+                      "text": "▫️ Эребуни",
+                      "callback_data": "f:place:0:4"
+                    }
+                  ],
+                  [
+                    {
+                      "text": "▫️ Канакер-Зейтун",
+                      "callback_data": "f:place:0:5"
+                    }
+                  ],
+                  [
+                    {
+                      "text": "✅ Кентрон",
+                      "callback_data": "f:place:0:6"
+                    }
+                  ],
+                  [
+                    {
+                      "text": "▫️ Малатия-Себастия",
+                      "callback_data": "f:place:0:7"
+                    }
+                  ],
+                  [
+                    {
+                      "text": "▫️ Нор Норк",
+                      "callback_data": "f:place:0:8"
+                    }
+                  ],
+                  [
+                    {
+                      "text": "▫️ Норк-Мараш",
+                      "callback_data": "f:place:0:9"
+                    }
+                  ],
+                  [
+                    {
+                      "text": "▫️ Нубарашен",
+                      "callback_data": "f:place:0:10"
+                    }
+                  ],
+                  [
+                    {
+                      "text": "▫️ Шенгавит",
+                      "callback_data": "f:place:0:11"
+                    }
+                  ],
+                  [
+                    {
+                      "text": "← К списку",
+                      "callback_data": "f:locations"
+                    }
+                  ]
+                ]
+              }
+            }
+          },
+          {
+            "method": "answerCallbackQuery",
+            "payload": {
+              "callback_query_id": "query15"
+            }
+          },
+          {
+            "method": "editMessageText",
+            "payload": {
+              "chat_id": 42,
+              "message_id": 200,
+              "text": "Ереван и его районы\n\nВыберите весь Ереван или один или несколько его районов.",
+              "reply_markup": {
+                "inline_keyboard": [
+                  [
+                    {
+                      "text": "✅ Весь Ереван",
+                      "callback_data": "f:all:0"
+                    }
+                  ],
+                  [
+                    {
+                      "text": "▫️ Ачапняк",
+                      "callback_data": "f:place:0:0"
+                    }
+                  ],
+                  [
+                    {
+                      "text": "▫️ Арабкир",
+                      "callback_data": "f:place:0:1"
+                    }
+                  ],
+                  [
+                    {
+                      "text": "▫️ Аван",
+                      "callback_data": "f:place:0:2"
+                    }
+                  ],
+                  [
+                    {
+                      "text": "▫️ Давташен",
+                      "callback_data": "f:place:0:3"
+                    }
+                  ],
+                  [
+                    {
+                      "text": "▫️ Эребуни",
+                      "callback_data": "f:place:0:4"
+                    }
+                  ],
+                  [
+                    {
+                      "text": "▫️ Канакер-Зейтун",
+                      "callback_data": "f:place:0:5"
+                    }
+                  ],
+                  [
+                    {
+                      "text": "▫️ Кентрон",
+                      "callback_data": "f:place:0:6"
+                    }
+                  ],
+                  [
+                    {
+                      "text": "▫️ Малатия-Себастия",
+                      "callback_data": "f:place:0:7"
+                    }
+                  ],
+                  [
+                    {
+                      "text": "▫️ Нор Норк",
+                      "callback_data": "f:place:0:8"
+                    }
+                  ],
+                  [
+                    {
+                      "text": "▫️ Норк-Мараш",
+                      "callback_data": "f:place:0:9"
+                    }
+                  ],
+                  [
+                    {
+                      "text": "▫️ Нубарашен",
+                      "callback_data": "f:place:0:10"
+                    }
+                  ],
+                  [
+                    {
+                      "text": "▫️ Шенгавит",
+                      "callback_data": "f:place:0:11"
+                    }
+                  ],
+                  [
+                    {
+                      "text": "← К списку",
+                      "callback_data": "f:locations"
+                    }
+                  ]
+                ]
+              }
+            }
+          },
+          {
+            "method": "answerCallbackQuery",
+            "payload": {
+              "callback_query_id": "query16"
+            }
+          },
+          {
+            "method": "editMessageText",
+            "payload": {
+              "chat_id": 42,
+              "message_id": 200,
+              "text": "Ереван и его районы\n\nВыберите весь Ереван или один или несколько его районов.",
+              "reply_markup": {
+                "inline_keyboard": [
+                  [
+                    {
+                      "text": "▫️ Весь Ереван",
+                      "callback_data": "f:all:0"
+                    }
+                  ],
+                  [
+                    {
+                      "text": "▫️ Ачапняк",
+                      "callback_data": "f:place:0:0"
+                    }
+                  ],
+                  [
+                    {
+                      "text": "✅ Арабкир",
+                      "callback_data": "f:place:0:1"
+                    }
+                  ],
+                  [
+                    {
+                      "text": "▫️ Аван",
+                      "callback_data": "f:place:0:2"
+                    }
+                  ],
+                  [
+                    {
+                      "text": "▫️ Давташен",
+                      "callback_data": "f:place:0:3"
+                    }
+                  ],
+                  [
+                    {
+                      "text": "▫️ Эребуни",
+                      "callback_data": "f:place:0:4"
+                    }
+                  ],
+                  [
+                    {
+                      "text": "▫️ Канакер-Зейтун",
+                      "callback_data": "f:place:0:5"
+                    }
+                  ],
+                  [
+                    {
+                      "text": "▫️ Кентрон",
+                      "callback_data": "f:place:0:6"
+                    }
+                  ],
+                  [
+                    {
+                      "text": "▫️ Малатия-Себастия",
+                      "callback_data": "f:place:0:7"
+                    }
+                  ],
+                  [
+                    {
+                      "text": "▫️ Нор Норк",
+                      "callback_data": "f:place:0:8"
+                    }
+                  ],
+                  [
+                    {
+                      "text": "▫️ Норк-Мараш",
+                      "callback_data": "f:place:0:9"
+                    }
+                  ],
+                  [
+                    {
+                      "text": "▫️ Нубарашен",
+                      "callback_data": "f:place:0:10"
+                    }
+                  ],
+                  [
+                    {
+                      "text": "▫️ Шенгавит",
+                      "callback_data": "f:place:0:11"
+                    }
+                  ],
+                  [
+                    {
+                      "text": "← К списку",
+                      "callback_data": "f:locations"
+                    }
+                  ]
+                ]
+              }
+            }
+          },
+          {
+            "method": "answerCallbackQuery",
+            "payload": {
+              "callback_query_id": "query17"
+            }
+          },
+          {
+            "method": "editMessageText",
+            "payload": {
+              "chat_id": 42,
+              "message_id": 200,
+              "text": "Выбор местоположения\n\nОткройте нужный раздел. Можно выбрать его целиком или указать одно или несколько отдельных мест.\nВыбрано: Арабкир",
+              "reply_markup": {
+                "inline_keyboard": [
+                  [
+                    {
+                      "text": "• 1 Ереван",
+                      "callback_data": "f:region:0"
+                    }
+                  ],
+                  [
+                    {
+                      "text": "▫️ Армавир",
+                      "callback_data": "f:region:1"
+                    }
+                  ],
+                  [
+                    {
+                      "text": "▫️ Арарат",
+                      "callback_data": "f:region:2"
+                    }
+                  ],
+                  [
+                    {
+                      "text": "▫️ Котайк",
+                      "callback_data": "f:region:3"
+                    }
+                  ],
+                  [
+                    {
+                      "text": "▫️ Ширак",
+                      "callback_data": "f:region:4"
+                    }
+                  ],
+                  [
+                    {
+                      "text": "▫️ Лори",
+                      "callback_data": "f:region:5"
+                    }
+                  ],
+                  [
+                    {
+                      "text": "▫️ Гехаркуник",
+                      "callback_data": "f:region:6"
+                    }
+                  ],
+                  [
+                    {
+                      "text": "▫️ Сюник",
+                      "callback_data": "f:region:7"
+                    }
+                  ],
+                  [
+                    {
+                      "text": "▫️ Арагацотн",
+                      "callback_data": "f:region:8"
+                    }
+                  ],
+                  [
+                    {
+                      "text": "▫️ Тавуш",
+                      "callback_data": "f:region:9"
+                    }
+                  ],
+                  [
+                    {
+                      "text": "▫️ Вайоц Дзор",
+                      "callback_data": "f:region:10"
+                    }
+                  ],
+                  [
+                    {
+                      "text": "← В главное меню",
+                      "callback_data": "f:menu"
+                    }
+                  ]
+                ]
+              }
+            }
+          },
+          {
+            "method": "answerCallbackQuery",
+            "payload": {
+              "callback_query_id": "query18"
+            }
+          },
+          {
+            "method": "editMessageText",
+            "payload": {
+              "chat_id": 42,
+              "message_id": 200,
+              "text": "Главное меню\n\nМониторинг: запущен\nТип жилья: Дома\nЦена (֏): 100 000–250 000\nКомнаты: без ограничений\nМестоположение: Арабкир",
+              "reply_markup": {
+                "inline_keyboard": [
+                  [
+                    {
+                      "text": "Цена, ֏",
+                      "callback_data": "f:price"
+                    },
+                    {
+                      "text": "Комнаты",
+                      "callback_data": "f:rooms"
+                    }
+                  ],
+                  [
+                    {
+                      "text": "Тип жилья",
+                      "callback_data": "f:kinds"
+                    },
+                    {
+                      "text": "Местоположение",
+                      "callback_data": "f:locations"
+                    }
+                  ],
+                  [
+                    {
+                      "text": "Сбросить фильтры",
+                      "callback_data": "f:reset"
+                    }
+                  ],
+                  [
+                    {
+                      "text": "Остановить мониторинг",
+                      "callback_data": "m:stop"
+                    }
+                  ]
+                ]
+              }
+            }
+          },
+          {
+            "method": "answerCallbackQuery",
+            "payload": {
+              "callback_query_id": "query19"
+            }
+          },
+          {
+            "method": "answerCallbackQuery",
+            "payload": {
+              "callback_query_id": "query20"
+            }
+          },
+          {
+            "method": "editMessageText",
+            "payload": {
+              "chat_id": 42,
+              "message_id": 200,
+              "text": "Главное меню\n\nМониторинг: остановлен\nТип жилья: Дома\nЦена (֏): 100 000–250 000\nКомнаты: без ограничений\nМестоположение: Арабкир",
+              "reply_markup": {
+                "inline_keyboard": [
+                  [
+                    {
+                      "text": "Цена, ֏",
+                      "callback_data": "f:price"
+                    },
+                    {
+                      "text": "Комнаты",
+                      "callback_data": "f:rooms"
+                    }
+                  ],
+                  [
+                    {
+                      "text": "Тип жилья",
+                      "callback_data": "f:kinds"
+                    },
+                    {
+                      "text": "Местоположение",
+                      "callback_data": "f:locations"
+                    }
+                  ],
+                  [
+                    {
+                      "text": "Сбросить фильтры",
+                      "callback_data": "f:reset"
+                    }
+                  ],
+                  [
+                    {
+                      "text": "Запустить мониторинг",
+                      "callback_data": "m:start"
+                    }
+                  ]
+                ]
+              }
+            }
+          },
+          {
+            "method": "sendMessage",
+            "payload": {
+              "chat_id": 42,
+              "text": "Главное меню\n\nМониторинг: остановлен\nТип жилья: Дома\nЦена (֏): 100 000–250 000\nКомнаты: без ограничений\nМестоположение: Арабкир",
+              "reply_markup": {
+                "inline_keyboard": [
+                  [
+                    {
+                      "text": "Цена, ֏",
+                      "callback_data": "f:price"
+                    },
+                    {
+                      "text": "Комнаты",
+                      "callback_data": "f:rooms"
+                    }
+                  ],
+                  [
+                    {
+                      "text": "Тип жилья",
+                      "callback_data": "f:kinds"
+                    },
+                    {
+                      "text": "Местоположение",
+                      "callback_data": "f:locations"
+                    }
+                  ],
+                  [
+                    {
+                      "text": "Сбросить фильтры",
+                      "callback_data": "f:reset"
+                    }
+                  ],
+                  [
+                    {
+                      "text": "Запустить мониторинг",
+                      "callback_data": "m:start"
+                    }
+                  ]
+                ]
+              }
+            }
+          },
+          {
+            "method": "editMessageText",
+            "payload": {
+              "chat_id": 42,
+              "message_id": 200,
+              "text": "Главное меню\n\nМониторинг: остановлен\nТип жилья: Квартиры\nЦена (֏): без ограничений\nКомнаты: без ограничений\nМестоположение: без ограничений",
+              "reply_markup": {
+                "inline_keyboard": [
+                  [
+                    {
+                      "text": "Цена, ֏",
+                      "callback_data": "f:price"
+                    },
+                    {
+                      "text": "Комнаты",
+                      "callback_data": "f:rooms"
+                    }
+                  ],
+                  [
+                    {
+                      "text": "Тип жилья",
+                      "callback_data": "f:kinds"
+                    },
+                    {
+                      "text": "Местоположение",
+                      "callback_data": "f:locations"
+                    }
+                  ],
+                  [
+                    {
+                      "text": "Сбросить фильтры",
+                      "callback_data": "f:reset"
+                    }
+                  ],
+                  [
+                    {
+                      "text": "Запустить мониторинг",
+                      "callback_data": "m:start"
+                    }
+                  ]
+                ]
+              }
+            }
+          },
+          {
+            "method": "answerCallbackQuery",
+            "payload": {
+              "callback_query_id": "query22"
+            }
+          },
+          {
+            "method": "sendMessage",
+            "payload": {
+              "chat_id": 42,
+              "text": "Главное меню\n\nМониторинг: остановлен\nТип жилья: Квартиры\nЦена (֏): без ограничений\nКомнаты: без ограничений\nМестоположение: без ограничений",
+              "reply_markup": {
+                "inline_keyboard": [
+                  [
+                    {
+                      "text": "Цена, ֏",
+                      "callback_data": "f:price"
+                    },
+                    {
+                      "text": "Комнаты",
+                      "callback_data": "f:rooms"
+                    }
+                  ],
+                  [
+                    {
+                      "text": "Тип жилья",
+                      "callback_data": "f:kinds"
+                    },
+                    {
+                      "text": "Местоположение",
+                      "callback_data": "f:locations"
+                    }
+                  ],
+                  [
+                    {
+                      "text": "Сбросить фильтры",
+                      "callback_data": "f:reset"
+                    }
+                  ],
+                  [
+                    {
+                      "text": "Запустить мониторинг",
+                      "callback_data": "m:start"
+                    }
+                  ]
+                ]
+              }
+            }
+          }
+        ]
+      },
+      "comparison": "state-and-operations"
+    },
+    {
+      "name": "bot-policy-boundary",
+      "input": {
+        "op": "bot",
+        "config": {
+          "telegramAccessMode": "allowlist",
+          "telegramAllowedUserIds": [
+            7
+          ],
+          "telegramOwnerId": 1
+        },
+        "updates": [
+          {
+            "update_id": 1,
+            "message": {
+              "message_id": 200,
+              "from": {
+                "id": 42
+              },
+              "chat": {
+                "type": "private",
+                "id": 42
+              },
+              "text": "/start"
+            }
+          },
+          {
+            "update_id": 2,
+            "callback_query": {
+              "id": "query2",
+              "from": {
+                "id": 42
+              },
+              "data": "m:start:initial",
+              "message": {
+                "message_id": 200,
+                "chat": {
+                  "type": "private",
+                  "id": 42
+                }
+              }
+            }
+          },
+          {
+            "update_id": 3,
+            "message": {
+              "message_id": 200,
+              "from": {
+                "id": 42
+              },
+              "chat": {
+                "type": "group",
+                "id": 42
+              },
+              "text": "/start"
+            }
+          },
+          {
+            "update_id": 4,
+            "callback_query": {
+              "id": "query4",
+              "from": {
+                "id": 99
+              },
+              "data": "m:start",
+              "message": {
+                "message_id": 200,
+                "chat": {
+                  "type": "private",
+                  "id": 100
+                }
+              }
+            }
+          },
+          {
+            "update_id": 5,
+            "message": {
+              "message_id": 200,
+              "from": {
+                "id": 7
+              },
+              "chat": {
+                "type": "private",
+                "id": 7
+              },
+              "text": "/start"
+            }
+          }
+        ]
+      },
+      "expected": {
+        "state": {
+          "version": 3,
+          "type": "telegram-bot",
+          "updateOffset": 6,
+          "users": {
+            "7": {
+              "active": false,
+              "chatId": 7,
+              "sendInitialApartments": true,
+              "filters": {
+                "kinds": [
+                  "apartment"
+                ],
+                "price": {
+                  "min": null,
+                  "max": null
+                },
+                "rooms": {
+                  "min": null,
+                  "max": null
+                },
+                "locations": []
+              },
+              "pendingFilterInput": null
+            }
+          }
+        },
+        "operations": [
+          {
+            "method": "sendMessage",
+            "payload": {
+              "chat_id": 42,
+              "text": "Доступ к боту ограничен. Ваш Telegram ID: 42."
+            }
+          },
+          {
+            "method": "answerCallbackQuery",
+            "payload": {
+              "callback_query_id": "query2"
+            }
+          },
+          {
+            "method": "answerCallbackQuery",
+            "payload": {
+              "callback_query_id": "query4"
+            }
+          },
+          {
+            "method": "sendMessage",
+            "payload": {
+              "chat_id": 7,
+              "text": "Главное меню\n\nМониторинг: остановлен\nТип жилья: Квартиры\nЦена (֏): без ограничений\nКомнаты: без ограничений\nМестоположение: без ограничений",
+              "reply_markup": {
+                "inline_keyboard": [
+                  [
+                    {
+                      "text": "Цена, ֏",
+                      "callback_data": "f:price"
+                    },
+                    {
+                      "text": "Комнаты",
+                      "callback_data": "f:rooms"
+                    }
+                  ],
+                  [
+                    {
+                      "text": "Тип жилья",
+                      "callback_data": "f:kinds"
+                    },
+                    {
+                      "text": "Местоположение",
+                      "callback_data": "f:locations"
+                    }
+                  ],
+                  [
+                    {
+                      "text": "Сбросить фильтры",
+                      "callback_data": "f:reset"
+                    }
+                  ],
+                  [
+                    {
+                      "text": "Запустить мониторинг",
+                      "callback_data": "m:start"
+                    }
+                  ]
+                ]
+              }
+            }
+          }
+        ]
+      },
+      "comparison": "state-and-operations"
+    },
+    {
+      "name": "bot-throttling",
+      "input": {
+        "op": "bot",
+        "config": {
+          "telegramUserUpdatesPerMinute": 2
+        },
+        "updates": [
+          {
+            "update_id": 1,
+            "message": {
+              "message_id": 200,
+              "from": {
+                "id": 42
+              },
+              "chat": {
+                "type": "private",
+                "id": 42
+              },
+              "text": "/start"
+            }
+          },
+          {
+            "update_id": 2,
+            "callback_query": {
+              "id": "query2",
+              "from": {
+                "id": 42
+              },
+              "data": "f:price",
+              "message": {
+                "message_id": 200,
+                "chat": {
+                  "type": "private",
+                  "id": 42
+                }
+              }
+            }
+          },
+          {
+            "update_id": 3,
+            "callback_query": {
+              "id": "query3",
+              "from": {
+                "id": 42
+              },
+              "data": "m:start",
+              "message": {
+                "message_id": 200,
+                "chat": {
+                  "type": "private",
+                  "id": 42
+                }
+              }
+            }
+          },
+          {
+            "update_id": 4,
+            "message": {
+              "message_id": 200,
+              "from": {
+                "id": 42
+              },
+              "chat": {
+                "type": "private",
+                "id": 42
+              },
+              "text": "/start"
+            }
+          },
+          {
+            "update_id": 5,
+            "callback_query": {
+              "id": "query5",
+              "from": {
+                "id": 42
+              },
+              "data": "unknown",
+              "message": {
+                "message_id": 200,
+                "chat": {
+                  "type": "private",
+                  "id": 42
+                }
+              }
+            }
+          }
+        ]
+      },
+      "expected": {
+        "state": {
+          "version": 3,
+          "type": "telegram-bot",
+          "updateOffset": 6,
+          "users": {
+            "42": {
+              "active": false,
+              "chatId": 42,
+              "sendInitialApartments": true,
+              "filters": {
+                "kinds": [
+                  "apartment"
+                ],
+                "price": {
+                  "min": null,
+                  "max": null
+                },
+                "rooms": {
+                  "min": null,
+                  "max": null
+                },
+                "locations": []
+              },
+              "pendingFilterInput": "price"
+            }
+          }
+        },
+        "operations": [
+          {
+            "method": "sendMessage",
+            "payload": {
+              "chat_id": 42,
+              "text": "Главное меню\n\nМониторинг: остановлен\nТип жилья: Квартиры\nЦена (֏): без ограничений\nКомнаты: без ограничений\nМестоположение: без ограничений",
+              "reply_markup": {
+                "inline_keyboard": [
+                  [
+                    {
+                      "text": "Цена, ֏",
+                      "callback_data": "f:price"
+                    },
+                    {
+                      "text": "Комнаты",
+                      "callback_data": "f:rooms"
+                    }
+                  ],
+                  [
+                    {
+                      "text": "Тип жилья",
+                      "callback_data": "f:kinds"
+                    },
+                    {
+                      "text": "Местоположение",
+                      "callback_data": "f:locations"
+                    }
+                  ],
+                  [
+                    {
+                      "text": "Сбросить фильтры",
+                      "callback_data": "f:reset"
+                    }
+                  ],
+                  [
+                    {
+                      "text": "Запустить мониторинг",
+                      "callback_data": "m:start"
+                    }
+                  ]
+                ]
+              }
+            }
+          },
+          {
+            "method": "sendMessage",
+            "payload": {
+              "chat_id": 42,
+              "text": "Введите точную цену или диапазон в армянских драмах.\nПримеры: «100000-250000», «100000-» (от 100 000), «-250000» (до 250 000).\nЧтобы снять это ограничение, отправьте «нет» или /clear.\nЧтобы отменить ввод и сохранить текущее значение фильтра, отправьте /cancel."
+            }
+          },
+          {
+            "method": "answerCallbackQuery",
+            "payload": {
+              "callback_query_id": "query2"
+            }
+          },
+          {
+            "method": "answerCallbackQuery",
+            "payload": {
+              "callback_query_id": "query3"
+            }
+          },
+          {
+            "method": "sendMessage",
+            "payload": {
+              "chat_id": 42,
+              "text": "Слишком много запросов. Пожалуйста, попробуйте ещё раз позже."
+            }
+          },
+          {
+            "method": "answerCallbackQuery",
+            "payload": {
+              "callback_query_id": "query5"
+            }
+          }
+        ]
+      },
+      "comparison": "state-and-operations"
+    },
+    {
+      "name": "bot-deletion-stale",
+      "input": {
+        "op": "bot",
+        "config": {
+          "telegramAccessMode": "owner",
+          "telegramOwnerId": 1
+        },
+        "state": {
+          "version": 3,
+          "type": "telegram-bot",
+          "updateOffset": 2,
+          "users": {
+            "42": {
+              "active": false,
+              "chatId": 42,
+              "sendInitialApartments": true,
+              "filters": {
+                "kinds": [
+                  "apartment"
+                ],
+                "price": {
+                  "min": null,
+                  "max": null
+                },
+                "rooms": {
+                  "min": null,
+                  "max": null
+                },
+                "locations": []
+              },
+              "pendingFilterInput": null
+            }
+          }
+        },
+        "updates": [
+          {
+            "update_id": 2,
+            "callback_query": {
+              "id": "query2",
+              "from": {
+                "id": 42
+              },
+              "data": "d:confirm",
+              "message": {
+                "message_id": 200,
+                "chat": {
+                  "type": "private",
+                  "id": 42
+                }
+              }
+            }
+          },
+          {
+            "update_id": 3,
+            "message": {
+              "message_id": 200,
+              "from": {
+                "id": 42
+              },
+              "chat": {
+                "type": "private",
+                "id": 42
+              },
+              "text": "/delete_my_data"
+            }
+          },
+          {
+            "update_id": 4,
+            "callback_query": {
+              "id": "query4",
+              "from": {
+                "id": 42
+              },
+              "data": "d:cancel",
+              "message": {
+                "message_id": 200,
+                "chat": {
+                  "type": "private",
+                  "id": 42
+                }
+              }
+            }
+          },
+          {
+            "update_id": 5,
+            "callback_query": {
+              "id": "query5",
+              "from": {
+                "id": 42
+              },
+              "data": "d:confirm",
+              "message": {
+                "message_id": 200,
+                "chat": {
+                  "type": "private",
+                  "id": 42
+                }
+              }
+            }
+          },
+          {
+            "update_id": 6,
+            "message": {
+              "message_id": 200,
+              "from": {
+                "id": 42
+              },
+              "chat": {
+                "type": "private",
+                "id": 42
+              },
+              "text": "/delete_my_data"
+            }
+          },
+          {
+            "update_id": 7,
+            "message": {
+              "message_id": 200,
+              "from": {
+                "id": 42
+              },
+              "chat": {
+                "type": "private",
+                "id": 42
+              },
+              "text": "/start"
+            }
+          }
+        ]
+      },
+      "expected": {
+        "state": {
+          "version": 3,
+          "type": "telegram-bot",
+          "updateOffset": 8,
+          "users": {
+            "42": {
+              "active": false,
+              "chatId": 42,
+              "sendInitialApartments": true,
+              "filters": {
+                "kinds": [
+                  "apartment"
+                ],
+                "price": {
+                  "min": null,
+                  "max": null
+                },
+                "rooms": {
+                  "min": null,
+                  "max": null
+                },
+                "locations": []
+              },
+              "pendingFilterInput": null
+            }
+          }
+        },
+        "operations": [
+          {
+            "method": "answerCallbackQuery",
+            "payload": {
+              "callback_query_id": "query2"
+            }
+          },
+          {
+            "method": "sendMessage",
+            "payload": {
+              "chat_id": 42,
+              "text": "Удалить все ваши данные?\n\nБудут удалены фильтры и история уведомлений, а мониторинг остановится.\nПри новой регистрации подписка будет создана заново, и потребуется снова выбрать, отправлять ли уже найденные объявления.",
+              "reply_markup": {
+                "inline_keyboard": [
+                  [
+                    {
+                      "text": "Удалить мои данные",
+                      "callback_data": "d:confirm"
+                    }
+                  ],
+                  [
+                    {
+                      "text": "Отмена",
+                      "callback_data": "d:cancel"
+                    }
+                  ]
+                ]
+              }
+            }
+          },
+          {
+            "method": "answerCallbackQuery",
+            "payload": {
+              "callback_query_id": "query4"
+            }
+          },
+          {
+            "method": "editMessageText",
+            "payload": {
+              "chat_id": 42,
+              "message_id": 200,
+              "text": "Удаление данных отменено."
+            }
+          },
+          {
+            "method": "answerCallbackQuery",
+            "payload": {
+              "callback_query_id": "query5"
+            }
+          },
+          {
+            "method": "sendMessage",
+            "payload": {
+              "chat_id": 42,
+              "text": "Доступ к боту ограничен. Ваш Telegram ID: 42."
+            }
+          }
+        ]
+      },
+      "comparison": "state-and-operations"
+    }
+  ]
+}

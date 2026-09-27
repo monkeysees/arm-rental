@@ -1,4 +1,8 @@
-# Offline native schema migration
+# Archived offline native schema migration exercise
+
+This describes an early prototype exercise. Its commands are historical and
+are not a supported production migration path. Use the [SQLite schema
+contract](sqlite-schema.md) for the maintained Rust service.
 
 Issue [#41](https://github.com/monkeysees/arm-rental/issues/41) adds an experimental
 Rust `migrate` command on `experiment/22-runtime-comparison`. It requires no Node

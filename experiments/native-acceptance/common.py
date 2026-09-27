@@ -20,8 +20,12 @@ BACKUP_PATH = "/app-backups"
 APP_PATH = "/usr/local/bin/rental-app"
 
 
-def command(args: list[str], *, check: bool = True, timeout: int = 60) -> subprocess.CompletedProcess[str]:
-    result = subprocess.run(args, capture_output=True, text=True, timeout=timeout, check=False)
+def command(
+    args: list[str], *, check: bool = True, timeout: int = 60, input_text: str | None = None
+) -> subprocess.CompletedProcess[str]:
+    result = subprocess.run(
+        args, input=input_text, capture_output=True, text=True, timeout=timeout, check=False
+    )
     if check and result.returncode:
         raise AssertionError(f"Command failed ({result.returncode}): {args!r}\n{result.stderr}\n{result.stdout}")
     return result
@@ -156,11 +160,13 @@ class Harness:
         network: str = "none",
         check: bool = True,
         timeout: int = 60,
+        input_text: str | None = None,
     ) -> subprocess.CompletedProcess[str]:
         return command(
-            ["docker", "run", "--rm", *self._runtime_args(data_volume=data_volume, backup_volume=backup_volume, env=env, network=network), self.image_id, *args],
+            ["docker", "run", "--rm", *(["--interactive"] if input_text is not None else []), *self._runtime_args(data_volume=data_volume, backup_volume=backup_volume, env=env, network=network), self.image_id, *args],
             check=check,
             timeout=timeout,
+            input_text=input_text,
         )
 
     def start_app(

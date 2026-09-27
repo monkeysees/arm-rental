@@ -1,4 +1,8 @@
-# Offline native Rust service
+# Archived offline native Rust service exercise
+
+This describes an early prototype exercise. Its experiment commands are
+historical and are not maintained release checks. Use the [Rust development
+guide](rust-development.md) for current service acceptance.
 
 Issue [#39](https://github.com/monkeysees/arm-rental/issues/39) adds an experimental
 native service on `experiment/22-runtime-comparison`. Production code, state and

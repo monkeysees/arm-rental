@@ -9,7 +9,7 @@ identity, or Telegram response payload.
 Always stop the service before changing state or running source smoke:
 
 ```sh
-docker compose --file compose.production.yaml stop
+sudo systemctl stop rental-apartments.service
 ```
 
 Use the same production environment and persistent volume for every check.
@@ -58,7 +58,8 @@ database metadata:
 
 ```sh
 docker inspect --format '{{.State.Running}}' rental-apartments-bot
-npm run backup:validate -- /app-backups/daily/SELECTED_SNAPSHOT
+sudo /opt/rental-apartments/current/ops/service run --rm --no-deps bot \
+  backup:validate --snapshot /app-backups/daily/SELECTED_SNAPSHOT
 ```
 
 Expected output is `false` and a valid manifest-v3 (or supported v2) identity/count summary
@@ -128,6 +129,7 @@ After remediation, start the service and require one structured result with
 `status: "ready"` before considering it operational:
 
 ```sh
-docker compose --file compose.production.yaml up --detach
-docker compose --file compose.production.yaml logs --tail 100
+sudo systemctl start rental-apartments.service
+rentalctl logs --since 20m --event startup.preflight.completed
+rentalctl status
 ```

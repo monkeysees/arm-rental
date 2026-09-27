@@ -19,38 +19,34 @@ jobs:
       - name: Check out repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      - name: Use production Node.js
-        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
-        with:
-          node-version-file: .nvmrc
-          cache: npm
-
-      - name: Record runtime
-        run: node --version
-
-      - name: Install locked dependencies
-        run: npm ci
-
       - name: Build and check the native application with the pinned toolchain
         run: |
           docker build -f experiments/rust-replay/Dockerfile.build -t rental-rust-build .
           docker run --rm -v "$PWD:/repo" \
-            -v "$(command -v node):/usr/local/bin/node:ro" \
             -w /repo/experiments/rust-replay rental-rust-build \
-            sh -c 'cargo fmt --check && cargo check --locked --all-targets && cargo clippy --locked --all-targets -- -D warnings && cargo test --locked && cargo build --locked --bin rental-app'
+            sh -c 'test ! -e /usr/local/bin/node && test ! -e /usr/bin/node && cargo fmt --check && cargo check --locked --all-targets && cargo clippy --locked --all-targets -- -D warnings && cargo test --locked && cargo build --locked --bin rental-app'
           printf 'RENTAL_APP_BINARY=%s/experiments/rust-replay/target/debug/rental-app\n' "$PWD" >> "$GITHUB_ENV"
 
-      - name: Run lint, format, and test checks
-        run: npm run check
+      - name: Provide pinned ShellCheck for the host contract checks
+        run: |
+          mkdir -p "$RUNNER_TEMP/check-bin"
+          cat > "$RUNNER_TEMP/check-bin/shellcheck" <<'SH'
+          #!/bin/sh
+          exec docker run --rm --volume "$PWD:/work:ro" --workdir /work \
+            koalaman/shellcheck@sha256:61862eba1fcf09a484ebcc6feea46f1782532571a34ed51fedf90dd25f925a8d "$@"
+          SH
+          chmod +x "$RUNNER_TEMP/check-bin/shellcheck"
+          printf '%s\n' "$RUNNER_TEMP/check-bin" >> "$GITHUB_PATH"
 
-      - name: Validate production deployment contract
-        run: npm run check:production-contract
-
-      - name: Enforce coverage floors
-        run: npm run test:coverage
-
-      - name: Audit production dependencies
-        run: npm audit --omit=dev --audit-level=high
+      - name: Run Rust and Python checks without Node execution
+        run: |
+          restricted="$RUNNER_TEMP/no-node-bin"
+          mkdir -p "$restricted"
+          for executable in node npm npx; do
+            printf '#!/bin/sh\nprintf "Forbidden Node tool invoked: %s\\n" >&2\nexit 97\n' "$executable" > "$restricted/$executable"
+            chmod +x "$restricted/$executable"
+          done
+          PATH="$restricted:$PATH" scripts/check --already-built
 
   production-artifact:
     name: Required / production artifact
@@ -60,40 +56,6 @@ jobs:
     steps:
       - name: Check out repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-
-      - name: Use production Node.js
-        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
-        with:
-          node-version-file: .nvmrc
-          cache: npm
-
-      - name: Build production image
-        env:
-          SOURCE_REVISION: ${{ github.sha }}
-        run: |
-          PACKAGE_LOCK_SHA256="$(sha256sum package-lock.json | cut -d ' ' -f 1)"
-          docker build \
-            --platform linux/amd64 \
-            --target production \
-            --build-arg SOURCE_REVISION="$SOURCE_REVISION" \
-            --build-arg PACKAGE_LOCK_SHA256="$PACKAGE_LOCK_SHA256" \
-            --tag rental-apartments-bot:ci \
-            .
-
-      - name: Verify deployment runtime metadata
-        env:
-          SOURCE_REVISION: ${{ github.sha }}
-        run: |
-          PACKAGE_LOCK_SHA256="$(sha256sum package-lock.json | cut -d ' ' -f 1)"
-          test "$(docker image inspect --format '{{ index .Config.Labels "org.opencontainers.image.revision" }}' rental-apartments-bot:ci)" = "$SOURCE_REVISION"
-          test "$(docker image inspect --format '{{ index .Config.Labels "org.opencontainers.image.node.version" }}' rental-apartments-bot:ci)" = "24.18.0"
-          test "$(docker image inspect --format '{{ index .Config.Labels "org.opencontainers.image.curl-impersonate.version" }}' rental-apartments-bot:ci)" = "2.2.2"
-          test "$(docker image inspect --format '{{ index .Config.Labels "org.opencontainers.image.package-lock.sha256" }}' rental-apartments-bot:ci)" = "$PACKAGE_LOCK_SHA256"
-          test "$(docker run --rm --entrypoint node rental-apartments-bot:ci --version)" = "v24.18.0"
-          docker run --rm --entrypoint /usr/local/bin/curl-impersonate rental-apartments-bot:ci --version | grep -F 'curl 8.21.0-IMPERSONATE'
-
-      - name: Smoke-test production HTTP transport
-        run: scripts/smoke-production-runtime-image rental-apartments-bot:ci
 
       - name: Build and exercise the native candidate image
         env:
@@ -195,23 +157,11 @@ jobs:
       - name: Verify Cargo producer, metadata, and transition gates
         run: PYTHONDONTWRITEBYTECODE=1 python3 test/native-release-producer.test.py
 
-      - name: Exercise production-shaped Cargo deployment and historical Node rollback
+      - name: Exercise Rust-only snapshot and acknowledgement rollback
         run: |
-          PYTHONDONTWRITEBYTECODE=1 python3 experiments/native-cutover/run.py \
-            --node-image rental-apartments-bot:ci \
-            --native-image rental-apartments-native:ci \
-            --output "$RUNNER_TEMP/cargo-cutover"
-
-      - name: Scan OS and application dependencies
-        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # 0.36.0
-        with:
-          image-ref: rental-apartments-bot:ci
-          scanners: vuln
-          vuln-type: os,library
-          severity: HIGH,CRITICAL
-          ignore-unfixed: true
-          exit-code: 1
-          version: v0.69.3
+          PYTHONDONTWRITEBYTECODE=1 python3 experiments/native-cutover/rust_rollback.py \
+            --image rental-apartments-native:ci \
+            --output "$RUNNER_TEMP/rust-rollback-drill"
 
       - name: Scan native OS and linked application dependencies
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # 0.36.0

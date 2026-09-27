@@ -44,50 +44,52 @@ SQLite and payloads are loaded for the next send. This trades peak throughput fo
 population grows.
 
 The [Rust development guide](docs/rust-development.md) describes the production
-`rental-app` service, native maintenance commands, image build and independent
-acceptance checks for the [complete Rust rewrite](https://github.com/monkeysees/arm-rental/issues/44).
-The [parity ledger](docs/rust-parity.md) records the frozen Node baseline and
-verification status. The Rust cutover was accepted on 2026-09-27; the Node
-application and npm tooling remain for development, regression comparison and
-retained-image rollback until their separate retirement work is complete.
+`rental-app` service, maintenance commands, image build and independent
+acceptance checks. The [parity ledger](docs/rust-parity.md) records the frozen
+Node comparison baseline and Rust acceptance evidence. Rust production was
+accepted on 2026-09-27; the historical Node implementation is no longer a
+supported service or rollback image.
 
 Private delivery makes one promise about time: a user is only ever sent
-apartments List.am posted or changed within the last 24 hours. Everything the
+listings that List.am posted or changed within the last 24 hours. Everything the
 crawl discovers is still stored, but an older card waits for its next List.am
 update instead of arriving as news. The same bound governs redelivery, so an
-already sent apartment is sent again only for a change List.am made inside that
+already sent listing is sent again only for a change List.am made inside that
 window.
 
 Whenever a user starts monitoring — the first time, or again after a pause —
-the bot asks whether to send the matching apartments of the last 24 hours or to
+the bot asks whether to send the matching listings of the last 24 hours or to
 begin with new listings only. The answer is applied to whatever the database
 holds at the next crawl, so a pause never delivers its backlog unannounced. At
-most `INITIAL_DELIVERY_LIMIT` apartments are sent, oldest first; the default is 100. Declined apartments are marked as skipped and are never released, and
+most `INITIAL_DELIVERY_LIMIT` listings are sent, oldest first; the default
+is 100. Declined listings are marked as skipped and are never released, and
 non-matching ones are marked as filtered.
 
 Changing a filter releases nothing on its own. When a filter edit admits
-apartments that were rejected under the previous filters and are still inside
+listings that were rejected under the previous filters and are still inside
 the 24-hour window, the bot offers them the next time the user opens the main
 menu, and sends them only if the user accepts. Declining marks them skipped, so
-the same apartments are not offered again. A rejected apartment still arrives
-on its own when List.am changes its data after the rejection and inside the
+the same listings are not offered again. A rejected listing still arrives on
+its own when List.am changes its data after the rejection and inside the
 window, because that is fresh source activity rather than history.
 
 A batch that carries history — the answer to a start, a restart, or an accepted
-filter release — is preceded by a message naming how many apartments follow. A
-routine crawl delivering what it has just discovered sends the apartment alone.
+filter release — is preceded by a message naming how many listings follow. A
+routine crawl delivering what it has just discovered sends the listing alone.
 
-## Retained Node development requirements
+## Development requirements
 
-- Node.js 24.18.0 (use `.nvmrc` locally)
+- Rust 1.94.0 with Cargo (the pinned build image is
+  `experiments/rust-replay/Dockerfile.build`)
+- Python 3.11 or newer, Git, Docker, Bash, jq, GNU tar and coreutils for image
+  production and verification
 - Linux with the pinned curl-impersonate executable (installed below)
 - A Telegram bot token and the numeric Telegram user ID of its owner. The owner
   receives server alerts and is always authorized for private controls.
 
-## Run the retained Node service locally
+## Run the Rust service locally
 
 ```sh
-npm install
 sudo scripts/install-curl-impersonate /usr/local
 cp .env.example .env
 ```
@@ -99,11 +101,21 @@ TELEGRAM_BOT_TOKEN=123456:replace-with-the-token-from-botfather
 TELEGRAM_OWNER_ID=123456789
 ```
 
-Start the bot:
+Load the local configuration, initialize an absent SQLite database once, and
+start the bot from the repository root:
 
 ```sh
-npm start
+set -a
+. ./.env
+set +a
+cargo run --locked --manifest-path experiments/rust-replay/Cargo.toml \
+  --bin rental-app -- state:init
+cargo run --locked --manifest-path experiments/rust-replay/Cargo.toml \
+  --bin rental-app -- serve
 ```
+
+On later starts, run only the `serve` command. The `NODE_ENV` variable retains
+its established name in the Rust configuration contract.
 
 On each process start, the bot attempts to synchronize its source-controlled
 Telegram profile descriptions and private-chat command menu. The command menu
@@ -234,7 +246,7 @@ List.am pages use curl-impersonate with the pinned Safari `safari2601` profile,
 a private persisted cookie jar, and two-second spacing between requests.
 Challenges stop the crawl and apply backoff; there is no JavaScript execution.
 See [source operations](docs/source-operations.md) for the stopped-service
-`npm run source:smoke` check and recovery procedure.
+`rental-app source:smoke` check and recovery procedure.
 
 The initial crawl can discover many apartments and consequently send many
 Telegram messages. Delivery state is persisted per message and Telegram rate
@@ -332,21 +344,22 @@ root-only initial secret handling, SSH-only firewall, protected backup volume,
 and safe check/dry-run workflow are documented in
 [docs/host-bootstrap.md](docs/host-bootstrap.md).
 
-Production completion requires observed restore, forced-failure rollback,
-Docker restart, host reboot, and timer-freshness evidence. The
-[production recovery exercise runbook](docs/production-exercises.md) describes
-the disruptive authorization boundary and the phased
-`ops/production-exercise` command. The checked-in evidence template is
-intentionally pending; deterministic tests do not claim that a VPS exercise
-ran.
+The isolated Rust restore drill was accepted after the schema-3 production
+release. A full disruptive production exercise, including a deliberate failed
+deployment and host reboot, has a separate authorization boundary in the
+[production recovery exercise runbook](docs/production-exercises.md). Its
+checked-in evidence template remains pending.
 
 ## Quality checks
 
+On Linux with Rust 1.94.0, Python, ShellCheck, Docker and systemd tools:
+
 ```sh
-npm run check
-npm run test:coverage
-npm run check:production-contract
+scripts/check
 ```
+
+The [CI guide](docs/continuous-integration.md) describes the required Rust,
+Python, production contract and native-image gates.
 
 ## Production image
 
@@ -359,7 +372,7 @@ source `9c95f8f3efb161f507cc26c33312a64dcfa3c6e0` carried legacy
 package-lock provenance and a verifier for both schema-2 and schema-3 releases.
 The schema-3 Rust release contract uses Cargo and source-input provenance with
 no package-lock input. See [Rust image build
-and acceptance](docs/rust-development.md#production-candidate-image) and the
+and acceptance](docs/rust-development.md#production-image-and-provenance) and the
 [release runbook](docs/release-and-rollback.md#cargo-provenance-transition-49)
 for subsequent live acceptance evidence.
 
@@ -383,9 +396,8 @@ The producer needs Python 3.11 or newer, Git, and Docker. Release metadata and
 host verification also use Bash, jq, GNU tar, and GNU coreutils (including
 `sha256sum`). The publisher binds the scanned immutable image to canonical
 source and transport manifests, Compose, and an exact Git operations archive.
-The host verifies the schema-3 bundle before deployment. Node and npm remain
-for development and regression checks while their separate retirement work
-continues.
+The host verifies the schema-3 bundle before deployment. The historical Node
+source and npm release path are retired.
 
 Mount `/app/.data` on durable storage and supply the production environment.
 The image contains the HTTP executable and needs no runtime downloads.
@@ -411,8 +423,8 @@ Recoverable source failures keep Telegram controls available while preflight
 retries every minute (or after a longer valid `Retry-After`). Only
 `status: "ready"` permits crawling; source retries do not exhaust supervisor restarts.
 
-List.am challenges report the non-ready `source_challenge` status. The retained
-Node `npm run source:smoke` helper requires the service to be stopped before it
+List.am challenges report the non-ready `source_challenge` status. The Rust
+`rental-app source:smoke` command requires the service to be stopped before it
 acquires the singleton lease. See
 [source operations](docs/source-operations.md) and
 [startup preflight remediation](docs/startup-preflight.md).
@@ -424,9 +436,8 @@ that context. The Rust image runs as UID/GID 1000 and does not read `.env` at
 runtime; the host supplies its root-owned environment file
 to Compose.
 
-`compose.production.yaml` defines the stable singleton topology and retains
-Node defaults for historical rollback. Host operations add
-`ops/compose.native.yaml` when the immutable image declares the Rust runtime.
+`compose.production.yaml` defines the stable singleton topology. Host
+operations apply `ops/compose.native.yaml` for the immutable Rust image.
 On the host, validate the active release's selected Compose files without
 rendering the secret environment:
 

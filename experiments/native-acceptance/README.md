@@ -9,10 +9,11 @@ the candidate Rust application to generate expected values.
 
 The frozen Node production source is commit
 `b5a4f09cebf62999af06e35e8f132c9e9dc45e12` on `main`, as recorded in
-[`docs/rust-parity.md`](../../docs/rust-parity.md). The schema and formatting
-sources used here are identical on this branch and that commit (`git diff
---quiet b5a4f09cebf62999af06e35e8f132c9e9dc45e12 --` followed by the
-paths below returned zero when the fixtures were reviewed).
+[`docs/rust-parity.md`](../../docs/rust-parity.md). Its schema and formatting
+sources were byte-identical to the working branch at fixture capture and
+review (`git diff --quiet b5a4f09cebf62999af06e35e8f132c9e9dc45e12 --`
+followed by the paths below returned zero). The `src/` paths below refer to
+that archived Node source, which is no longer in the active tree.
 
 `fixtures/schema-v1-populated.sql` uses the Node `SCHEMA_V1` physical schema
 from `src/sqlite-schema.js`, also retained as `test/fixtures/sqlite-v2.sql`.
@@ -52,6 +53,19 @@ The expected channel edit changes only the apartment title and keeps its
 publication identity. The house is a private delivery and is excluded from
 the apartment-only channel.
 
+`fixtures/contract-expected.json` freezes 122 inputs and Node outputs from the
+existing Rust differential scenarios for source parsing, posting dates, CBA
+rates and prices, filters, source integrity, configuration, Russian message
+formatting, and four complete Telegram update conversations. The outputs were
+captured with Node v24.18.0 from pure Node source files at the frozen
+`b5a4f09cebf62999af06e35e8f132c9e9dc45e12` revision; those files are
+byte-identical at capture time. The two large sanitized HTML inputs remain in
+`test/fixtures/list-am-real-shape/` and are bound by SHA-256 in each case.
+Invalid configurations and a missing Regular Ads section intentionally compare
+error presence and token redaction because the Rust CLI uses safe error codes
+rather than Node's prose. Telegram cases compare exact Node state and Bot API
+operations; the Rust-only outcome array is checked structurally.
+
 ## Integrity and use
 
 `fixtures/manifest.json` contains a SHA-256 digest for every other file in
@@ -71,10 +85,13 @@ Run wrong-target, wrong-application-ID, and newer-schema checks on separate
 copies and verify that rejection leaves the source unchanged. The service
 scenario uses only synthetic local List.am, CBA, and Telegram peers; assert
 the observed HTTP payloads and durable state against `service-expected.json`.
+Feed the frozen contract cases to the packaged app's `contract` command in one
+newline-delimited stream and compare every response before the service scenario.
 
-These small fixtures cover every supported upgrade entry version and a
-representative retained-state shape. They do not replace the larger replay
-contract in `experiments/node-replay/contract.json` or the 500-recipient
-capacity work in issue #47. The native runner's report must identify the
-source revision, packaged image digest, binary hash, fixture hashes, and any
-remaining parity gaps.
+These fixtures cover every supported upgrade entry version and a
+representative retained-state shape. The separate, frozen
+`experiments/native-capacity/` gate covers the 500-recipient contract. The
+native runner's report identifies the source revision, packaged image digest,
+binary hash, fixture hashes, and complementary native checks. The process,
+delivery, crawl, lifecycle and Rust rollback checks are separate commands in
+the Node-free development and CI gate.

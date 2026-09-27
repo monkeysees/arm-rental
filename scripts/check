@@ -1,0 +1,39 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+
+root=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
+cd "$root"
+
+case "${1:-}" in
+  '')
+    cd experiments/rust-replay
+    cargo fmt --check
+    cargo check --locked --all-targets
+    cargo clippy --locked --all-targets -- -D warnings
+    cargo test --locked
+    cargo build --locked --bin rental-app
+    cd "$root"
+    ;;
+  --already-built) ;;
+  *) printf 'Usage: scripts/check [--already-built]\n' >&2; exit 64 ;;
+esac
+
+export RENTAL_APP_BINARY="${RENTAL_APP_BINARY:-$root/experiments/rust-replay/target/debug/rental-app}"
+export PYTHONDONTWRITEBYTECODE=1
+scripts/validate-production-contract
+python3 test/native-lifecycle-boundaries.test.py
+python3 test/native-process-failures.test.py
+python3 test/native-delivery-boundaries.test.py
+python3 test/native-crawl-boundaries.test.py
+python3 test/native-release-gate.test.py
+python3 test/native-deployment.test.py
+python3 test/native-provenance.test.py
+python3 test/native-image-retention.test.py
+python3 test/native-operations-systemd.test.py
+python3 test/native-release-workflows.test.py
+python3 test/release-operations.test.py
+python3 test/native-hcloud-bootstrap.test.py
+python3 test/native-production-exercise.test.py
+python3 test/native-observability.test.py
+python3 test/native-isolation-ci.test.py
+python3 test/native-docs.test.py

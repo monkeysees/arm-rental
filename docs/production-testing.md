@@ -12,9 +12,10 @@ The optional [resource baseline](resource-baseline.md) measures synthetic
 isolated state and simulated Telegram delivery; its results are capacity
 evidence for the stated fixtures, not production acceptance evidence.
 
-Every candidate must pass `npm run check` and `npm run test:coverage` before an
-image can be published. The suite exercises the production boundaries with
-fakes, local HTTP servers, temporary directories, and real child processes:
+Every candidate must pass `scripts/check` and both required GitHub CI jobs
+before an image can be published. The suite exercises the production
+boundaries with fakes, local HTTP servers, temporary directories, and real
+child processes:
 
 - HTTP transport tests cover cookie persistence, challenge detection, redirects,
   bounded responses, timeouts, cancellation, and process cleanup;
@@ -26,13 +27,13 @@ fakes, local HTTP servers, temporary directories, and real child processes:
 - deployment contract tests inspect the Dockerfile, Compose definition, and
   build context without requiring production credentials.
 
-The hosted workflow additionally runs the production dependency audit, builds
-the exact production image, verifies the pinned Node and curl-impersonate executables,
-runs image execution checks, and blocks publication on the configured
-high/critical vulnerability scan. These gates are reproducible and must make no
+The hosted workflow builds the exact Rust production image, verifies pinned
+Rust and curl-impersonate inputs, runs native service and recovery checks, and
+blocks publication on the configured high/critical vulnerability scan. These
+gates are reproducible and must make no
 Telegram, List.am, or CBA call.
 
-`npm run check:production-contract` is the aggregate deployment gate. On the
+The production contract check is the aggregate deployment gate. On the
 Linux CI runner it checks shell syntax and ShellCheck, verifies systemd units,
 renders and inspects Compose, checks immutable workflow action pins, rejects
 removed secondary-environment paths, and rejects external logging/metrics
@@ -40,9 +41,8 @@ servers. Systemd verification uses a temporary root with declared dependency
 stubs and command placeholders instead of assuming production paths exist on
 the runner. Compose rendering skips production environment-file and host-path
 resolution, after asserting and replacing only the production secret-file path
-in a temporary Compose copy, but retains model consistency checks. Fake-command
-integration tests prove the aggregator invokes every validator without
-requiring Docker or systemd locally.
+in a temporary Compose copy, but retains model consistency checks. The local
+gate requires Docker and `systemd-analyze` on Linux.
 
 ## Pre-deploy safety boundary
 

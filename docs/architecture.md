@@ -9,9 +9,9 @@ production paths, systemd units, and persistent storage remain stable.
 The application discovers long-term apartment and house rentals from List.am for
 a multi-user private Telegram bot and, when configured, a public Telegram
 channel. It reads only the site's **Regular Ads** section and ignores **Top
-Ads**. `src/target.js` names one List.am category per housing kind — apartments
-in category 56 and houses in category 1377 — and `src/property-kind.js` owns the
-kind vocabulary those categories produce. The apartment template remains the
+Ads**. The Rust [source module](../experiments/rust-replay/src/production/source.rs)
+names one List.am category per housing kind — apartments in category 56 and
+houses in category 1377. The apartment template remains the
 installation's stored identity, so adding a category rebinds no existing state.
 Private access defaults to `public`, in which any private sender may use the
 bot; `owner` restricts controls to `TELEGRAM_OWNER_ID`, and `allowlist` requires
@@ -33,22 +33,22 @@ canonical AMD amount drives all price filtering and channel price-band hashtags.
 
 ## Production deployment model
 
-The live service is Rust. Detailed `src/*.js` implementation descriptions in
-the later sections document the retained Node baseline and its active
-regression oracle; the corresponding Rust modules are under
-`experiments/rust-replay/src/production/`. Node release commands remain
-available for the retained rollback images.
+The live service is Rust. Its production modules are under
+`experiments/rust-replay/src/production/`; `rental-app` exposes serving,
+maintenance, state, recovery, source smoke and health commands. The former Node
+implementation and its recovery image have been retired. The dated cutover
+evidence remains in [Rust parity](rust-parity.md) and the
+[release runbook](release-and-rollback.md).
 
-### Rust service and retained Node baseline
+### Rust service
 
-The Rust service has a separate `rental-app` executable under
-`experiments/rust-replay/src/production/`; `rental-replay` retains the experimental
+The Rust service has one `rental-app` executable under
+`experiments/rust-replay/src/production/`; its `contract` subcommand runs the
 fixture protocol. The service uses the production SQLite application ID and
 schema 6, including transactional upgrades from supported older schemas. Its
-configuration catalog and Russian bot vocabulary preserve the frozen Node
-contract, with independent Node differential tests at CLI, service/local-peer
-and persisted-state boundaries. See [Rust parity](rust-parity.md) for local and
-live acceptance evidence and remaining limits.
+configuration catalog and Russian bot vocabulary preserve the accepted
+behavior contract. See [Rust parity](rust-parity.md) for local and live
+acceptance evidence and remaining limits.
 
 Source parsing, filters, crawl commits, Telegram control handling, private
 classification, channel publication, health and recovery are separate modules.
@@ -63,10 +63,22 @@ acknowledgement remains ambiguous and can produce a duplicate after restart.
 `Dockerfile.native` assembles a non-root, read-only runtime with curl, native
 libraries, certificates and licenses. Host operations select native command
 arguments and `ops/compose.native.yaml` only for images explicitly labelled
-`com.rental-apartments.runtime=rust`. Existing published Node images retain
-their documented command contract for rollback. The production publisher now
-selects the native image; the base Compose file retains Node defaults so each
-release's runtime-specific override can be selected by verified host operations.
+`com.rental-apartments.runtime=rust`. The production publisher selects this
+native image from an exact Git revision.
+
+The active module boundaries are:
+
+| Responsibility                                 | Rust modules                                                                                                                                                                                                         |
+| ---------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Configuration, preflight and lifecycle         | [config.rs](../experiments/rust-replay/src/production/config.rs), [runtime.rs](../experiments/rust-replay/src/production/runtime.rs), [lease.rs](../experiments/rust-replay/src/production/lease.rs)                 |
+| List.am HTTP, parsing and crawl commits        | [transport.rs](../experiments/rust-replay/src/production/transport.rs), [source.rs](../experiments/rust-replay/src/production/source.rs), [crawl.rs](../experiments/rust-replay/src/production/crawl.rs)             |
+| Telegram controls and private/channel delivery | [bot.rs](../experiments/rust-replay/src/production/bot.rs), [private.rs](../experiments/rust-replay/src/production/private.rs), [channel.rs](../experiments/rust-replay/src/production/channel.rs)                   |
+| SQLite state, backup and maintenance           | [storage.rs](../experiments/rust-replay/src/production/storage.rs), [recovery.rs](../experiments/rust-replay/src/production/recovery.rs), [operations.rs](../experiments/rust-replay/src/production/operations.rs)   |
+| Readiness and operator inspection              | [health.rs](../experiments/rust-replay/src/production/health.rs), [health_cli.rs](../experiments/rust-replay/src/production/health_cli.rs), [inspection.rs](../experiments/rust-replay/src/production/inspection.rs) |
+
+The [CLI](../experiments/rust-replay/src/bin/rental-app.rs) dispatches these
+modules. `NODE_ENV` remains the public runtime-mode configuration name despite
+the Rust implementation.
 
 ### Installed service
 
@@ -212,10 +224,11 @@ top-level entry fails closed before the application starts.
 installation and the verified current release thereafter. Deployment shares
 the global operations lock, snapshots before mutation, verifies startup and a
 complete observation window, atomically advances runtime pointers, and
-recovers the prior digest on failure. A failed Rust candidate with a retained
-Node predecessor uses guarded compatible-live recovery so a predeploy snapshot
-does not erase new acknowledgements; other transitions restore the matching
-snapshot. Failed candidate digests are quarantined to prevent retry loops.
+recovers the prior digest on failure. A failed candidate restores its matching
+predeploy Rust snapshot before the previous Rust image restarts. The first Rust
+cutover had a guarded compatible-live recovery path for its Node predecessor;
+that path is historical. Failed candidate digests are quarantined to prevent
+retry loops.
 
 The host deploys each candidate with the operations bundle of the release it is
 already running, so a candidate whose state backend that release cannot deploy
@@ -230,15 +243,12 @@ operator to report the revision the host actually runs and refuses unless that
 matches the release `production` names. An unreadable pointer fails closed
 rather than reading as a first publication.
 
-No cutover remains to classify: deployment refuses any release, current or
-candidate, that does not declare the SQLite backend, and every refusal names
-both the contract the candidate declared and the one this release deploys.
-Nothing can take a protected rollback point any more.
-`ops/unprotect-migration-rollback` survives as the only way to release the one
-protection a host may still carry from the cutover, and it deletes the snapshot
-that entry named. Until it is run, retention keeps pinning the bridge image
-beside a snapshot no release can read. It edits state only and never stops the
-application.
+Deployment refuses a release that does not declare the SQLite backend or an
+unsupported runtime capability. The protected pre-SQLite Node image and
+snapshot were retired under [#50](https://github.com/monkeysees/arm-rental/issues/50)
+after the isolated Rust restore drill. No protected Node recovery entry remains;
+normal retention holds the current Rust release and at most two Rust rollback
+releases.
 
 Accepted deployments update a retention index containing the current release
 and at most two rollback releases before invoking retention-aware image
@@ -322,7 +332,8 @@ tests verify the collection contract but do not claim real VPS observations.
 
 ### Health and readiness boundary
 
-`src/health.js` owns a sanitized, in-memory operational projection. It does not
+[health.rs](../experiments/rust-replay/src/production/health.rs) owns a sanitized,
+in-memory operational projection. It does not
 read Telegram or apartment state and never retains errors, upstream bodies,
 credentials, owner/channel identifiers, apartment data, or stacks. Startup
 preflight results populate configuration, storage, Telegram, List.am,
@@ -356,9 +367,8 @@ and reason codes let private alerting distinguish Telegram, List.am challenge,
 List.am, CBA, storage, and configuration remediation without exposing raw
 exceptions.
 
-The native image healthcheck calls `rental-app health-check`; the retained Node
-image calls `src/health-check.js` from a separate process, which gives `/live`
-three seconds to answer — inside Compose's
+The native image healthcheck calls `rental-app health-check` from a separate
+process, which gives `/live` three seconds to answer — inside Compose's
 five-second check timeout, so a failing probe always survives long enough to
 record its own failure. Docker runs the command on every probe rather than only
 on the ones that change the reported status, so the command owns the recovery
@@ -367,10 +377,9 @@ container's `/tmp` tmpfs, discards any count it cannot parse, and kills the
 application only on the third consecutive failure, one probe behind the
 `retries: 2` unhealthy report. A single success clears the run, and the tmpfs
 gives the count exactly the lifetime of one container. The target is identified
-as the Node executable running `src/index.js` as its first non-option argument,
-which excludes the PID 1 container init that carries the same script among its
-own arguments and that the kernel would refuse to kill from inside its own PID
-namespace. Killing the application makes init exit non-zero and the bounded
+as the `rental-app` executable running `serve` with the same data directory;
+PID 1 and the probe process are excluded. Killing the application makes init
+exit non-zero and the bounded
 `on-failure` policy restart it. It never restarts on `/ready` failure because
 repeated restarts cannot repair upstream, permission, verification, or
 stale-crawl conditions. Probe behavior and private operator access are
@@ -390,27 +399,26 @@ inputs, not unrelated working-tree files. The producer uses Python 3.11 or
 newer, Git, and Docker; metadata and host verification also require Bash, jq,
 GNU tar, and GNU coreutils (including `sha256sum`).
 
-Node.js 24.18.0 remains pinned for the retained application, differential
-oracle and repository checks. CI still installs its locked dependency graph
-with `npm ci`. On 2026-09-27, the host accepted a schema-2 Rust intermediate at
+On 2026-09-27, the host accepted a schema-2 Rust intermediate at
 source `9c95f8f3efb161f507cc26c33312a64dcfa3c6e0`. Its metadata retained
 the legacy package-lock digest and its host verifier supported both schema-2
 and schema-3 contracts. The schema-3 Rust release removes that provenance
 input; the [release runbook](release-and-rollback.md#cargo-provenance-transition-49)
 records its separate publication and live acceptance evidence.
-Historical Node images retain their own command and provenance contracts for
-rollback.
+The first live schema-3 Rust release followed with exact Cargo and source-input
+provenance. Both receipts remain dated evidence; new releases follow the
+Rust-only producer and verifier contract.
 
 ### Continuous integration and artifact provenance
 
 The two branch-protection boundaries are the stable `Required / quality` and
-`Required / production artifact` jobs. The first runs Rust checks and the
-retained Node repository checks, 90%-line/80%-branch coverage gate and
-high-severity production dependency audit. The second builds the Node bridge
-and exact Rust production candidate, exercises the native image's service,
-maintenance and 500-recipient contracts under production container restrictions,
-and scans OS packages and application libraries. Local fixtures supply external
-responses; no production credentials or List.am access are needed.
+`Required / production artifact` jobs. The first runs pinned Cargo formatting,
+type checking, linting and tests, Python tests, and the production contract.
+The second builds the exact Rust production candidate, exercises the native
+image's service, maintenance and 500-recipient contracts under production
+container restrictions, and scans OS packages and application libraries. Local
+fixtures supply external responses; no production credentials or List.am
+access are needed.
 The required job keeps the validated image ephemeral; publication repeats
 build, validation, and scanning before publishing to GHCR.
 
@@ -451,7 +459,7 @@ include it. Rolling back to a release that predates the SQLite cutover is not
 supported: no snapshot this release can read carries the state such a release
 would need.
 
-Workflow actions are immutable commit pins. Dependabot proposes npm, base
+Workflow actions are immutable commit pins. Dependabot proposes base
 image, and workflow-action updates as reviewable pull requests and has no
 deployment capability. Coverage exception review, branch-protection setup,
 artifact contents, and hosted-only validation are documented in
@@ -459,982 +467,134 @@ artifact contents, and hosted-only validation are documented in
 
 ### Singleton lease and supervision
 
-`DATA_DIRECTORY` identifies the persistent storage root and defaults to
-`.data`. The default apartment, delivery, exchange-rate, Telegram, channel, and
-HTTP-cookie paths are resolved beneath it. Explicit per-file overrides
-remain available, but the process-wide singleton lease always lives directly in
-this directory.
-
-Before constructing the HTTP transport or entering Telegram polling,
-`src/index.js` starts the lifecycle in `src/application.js`, which calls
-`src/singleton-lock.js`. The lock is a Unix-domain socket at
-`.singleton.sock`, with operator-readable owner metadata in `.singleton.json`.
-A socket provides a kernel-owned live lease: it cannot be acquired by a second
-process, and the kernel releases its listener when the owner exits even if no
-shutdown handler runs. A contender connects to prove the owner is live and
-exits with a message containing its PID and hostname. It does not rely on a PID
-file alone, avoiding PID reuse and cross-container PID namespace ambiguity.
-
-An abrupt exit can leave the socket pathname behind even though its listener is
-gone. Startup distinguishes this connection-refused state from a live owner,
-serializes cleanup through `.singleton-recovery`, removes only the stale socket,
-and retries the atomic bind. Recovery ownership itself has a short stale
-threshold so a crash during cleanup cannot permanently prevent restart. Lock
-release compares the socket inode and metadata lease identifier before deleting
-either path, preventing an old owner from removing a successor's lease.
-
-[`compose.production.yaml`](../compose.production.yaml) is the production
-supervision definition. It combines a fixed container name and one declared
-replica, so explicit scaling is rejected, with stop-first update and rollback
-ordering, so old and new releases do not overlap. Planned replacement sends
-SIGTERM and allows 45 seconds for shutdown. Unexpected failure is retried at
-five-second intervals with at most five attempts; this bounds restart loops
-while stale socket recovery permits a crash restart on the same volume.
-
-The retained Node service runs directly under a minimal init process. On SIGINT or SIGTERM the
-application aborts Telegram long polling, crawl and exchange-rate work, waits
-for their awaited state writes to finish, closes the HTTP transport, and only then releases
-the lease. Delivery acknowledgements remain the backlog boundary: an
-acknowledged item is not re-enqueued after restart, while an interrupted
-unacknowledged send retains the documented at-least-once behavior.
-
-### Deployment artifact isolation
-
-The native producer constructs a context from an allowlist of committed Git
-objects: the Rust source and lockfile, native Dockerfile, pinned transport and
-assembly scripts, and production Compose definitions. Local environment files,
-the complete `.data` tree (including HTTP cookies), dependency and coverage
-trees, Git metadata, logs, and development caches cannot enter it. The runtime
-does not load a local environment file; production configuration enters at
-container creation rather than becoming an image layer. The retained Node
-Dockerfile and npm toolchain remain for historical releases and tests.
-
-The final Rust process runs as UID/GID 1000 through the native Compose override. Compose drops all
-capabilities, enables `no-new-privileges`, makes the root filesystem read-only,
-and publishes no ports. `/app/.data` is persistent; `/tmp` and `/sqlite-tmp`
-are separate 128 MiB tmpfs mounts with `nosuid,nodev,noexec`. SQLite scratch
-uses the private `/sqlite-tmp` mount; its database and WAL remain persistent.
-The native image gate checks the installed curl-impersonate identity and
-executes its Safari profile against a local HTTP fixture.
-
-### Configuration and secret boundary
-
-`src/config.js` is the fail-fast boundary before the singleton lease and all
-long-running loops. It accepts only the `development`, `test`, and `production`
-runtime modes and validates numeric and filter ranges while building the
-configuration. `src/config-catalog.js` is the code-owned inventory of supported
-environment inputs, including their parser constraints, runtime defaults,
-production explicitness, sensitivity classification, and documentation-safe
-purpose. `getConfig` reads environment values and defaults through that catalog;
-catalog inspection therefore does not load `.env`, runtime state, or configured
-secret and identifier values. The catalog defines `public`, `owner`, and
-`allowlist` access modes plus per-user inbound and per-recipient outbound rate
-limits; access configuration does not alter the owner-alert route or create a
-private-user admission limit. Production has no implicit storage or executable
-choices: `NODE_ENV=production`, `DATA_DIRECTORY`, and
-an absolute `CURL_IMPERSONATE_PATH` must all be explicit.
-
-`src/environment-config.js` is the shared strict parser for runtime mode and
-the loopback health endpoint. The main configuration, JSON logger, and sibling
-health-check process therefore use the same catalog defaults and reject the
-same invalid values. Log `applicationVersion` comes only from immutable package
-metadata; an undeclared environment override cannot forge release provenance.
-
-Apartment, private-delivery, channel-delivery, exchange-rate, Telegram bot, and
-HTTP-cookie paths are normalized and must be distinct children of
-`DATA_DIRECTORY`. Startup rejects filesystem-root storage, paths outside the
-configured tree, non-regular state files, and symlinked managed paths. Before
-the lease is acquired it creates and probes the persistent tree, restricts
-managed directories to `0700`, and restricts existing state files to `0600`.
-Atomic state replacements create their temporary files as `0600`, so the final
-file does not inherit a permissive process umask.
-
-The Telegram bot token is accepted only from the process environment populated
-by a deployment secret facility or, on a dedicated host, a host-only mode-0600
-environment file. No CLI option or image build argument accepts it. The
-structured logger recursively redacts token-shaped strings, Telegram Bot API
-and file URLs, sensitive-key values, authorization headers, and Bearer/Basic
-credentials in normal context and serialized errors. Rotation changes only the
-external secret and deliberately preserves every file in the persistent data
-directory; the operator runbook is
-[`docs/token-rotation.md`](token-rotation.md).
-
-### Observability boundary
-
-`src/logger.js` is the application logging boundary. Every newline JSON record
-has UTC timestamp, severity, environment, application version, stable event
-name, and message. Warning/error signatures exclude volatile crawl IDs, so
-identical failures are rate-limited for five minutes and the next emitted
-record reports the suppressed count. Redaction runs after the complete record
-is assembled, including generated event names, nested values, and error stacks.
-
-`src/retry.js` provides the shared expected-external-failure policy. Network
-errors, List.am challenge failures, and HTTP 5xx responses retry with
-exponential delay and jitter, bounded
-by the validated `EXTERNAL_RETRY_MAX_MS` value (at most five minutes). A
-successful operation resets its backoff object. Telegram's server-supplied
-`retry_after` is deliberately authoritative for HTTP 429. Terminal credential
-or permission errors, invalid configuration, and incompatible state escape to
-the supervisor instead of entering runtime retry loops.
-
-List.am requests have no immediate page retries. A failed crawl backs off
-before the next attempt. Challenges and HTTP 429 wait at least
-`POLL_INTERVAL_MS`; a server `Retry-After` remains authoritative even beyond
-the ordinary backoff cap. Successful crawls reset exponential backoff.
-
-Crawl completion and failure events carry a random crawl ID and elapsed
-milliseconds. Successful crawl records also expose the page, discovery,
-update, notification, filtering, private/channel re-admission, channel
-send/edit, and total counters as log-derived metrics. Retry and
-channel-operation records are correlated with the same crawl where applicable.
-There is no public metrics surface.
-
-`HealthMonitor` emits firing/resolved events for readiness, List.am
-challenges, invalid Telegram access, five crawl failures, and stale rates.
-A challenge affects readiness immediately; the dedicated alert waits for five
-challenged crawls without validated source recovery. A successful integrity
-check clears it even when later delivery fails. Preflight challenges alert
-immediately because crawling has not begun. Recovery commands emit backup,
-restore-test, and low-disk events. Docker sends application records to bounded
-persistent journald storage. The short-lived `ops/monitor`
-systemd job derives restart-loop and other host-level alerts from bounded
-journal, Docker, filesystem, and timer observations, persists an atomic local
-snapshot, and sends deduplicated transitions to the Telegram owner. The alert
-projection accepts either a scalar stable reason or a bounded array of stable
-reason codes, preserving compound readiness failures without admitting
-arbitrary journal text. Operators inspect logs, readiness, metrics, and timers
-only through `rentalctl` over SSH; its normal log view adds a compact,
-allowlisted diagnostic-context field while excluding identifiers, URLs, and
-unknown fields. There is no external collector or inbound observability
-service. Retention, alert routes, and scheduled operational checks are
-specified in [`docs/observability.md`](observability.md).
-
-### Startup preflight boundary
-
-`src/application.js` does not enter Telegram polling or either monitoring loop
-until `src/preflight.js` returns `ready`. Storage validation first proves that
-the managed tree supports create, write, rename, and removal; the singleton
-lease is then acquired and remains held for the rest of preflight and runtime.
-Each stored domain — apartments, channel delivery, exchange rates, and the
-Telegram bot — is then read once through its repository. Decoding the rows is
-what proves they are usable, and the rebuilt state is re-checked against the
-target identities its runtime consumer relies on: the List.am URL template,
-Telegram owner, channel username, and AMD rate base. Moving that read ahead of
-the first delivery is the point, because a bad row would otherwise surface
-mid-crawl.
-
-Private delivery is proved without being rebuilt. It is the one domain whose
-size is unbounded — a decision per apartment per recipient, retained for
-listings List.am dropped long ago — so holding it to check it would make every
-start block for as long as the history happened to be. The schema's own
-constraints already refuse an unknown status and an unlinked recipient, which
-leaves the decision timestamp; SQLite reformats each one through its own date
-parser, and a value that does not survive that round trip is exactly the value
-the repository refuses when it next reads that recipient. The check is a
-count, so no row is materialized.
-
-Rows that cannot be read, rebuild into malformed state, or are judged malformed
-in place produce `ERR_STATE_INCOMPATIBLE` naming the domain and the reason, and
-are never interpreted as empty state. A domain with no rows yet is an untouched
-domain, not a failure.
-
-External checks use Telegram `getMe`, `getChat`, and `getChatMember` to verify
-credentials, channel reachability, and the bot's Post Messages and Edit
-Messages administrator permissions. Preflight validates the native executable
-and asks the exchange-rate service for either a compatible persisted snapshot
-or a successful CBA retrieval before parsing the configured List.am target.
-Invalid credentials and channel configuration are terminal. A List.am challenge instead produces the distinct
-`source_challenge` non-ready state and source-operations remediation.
-
-Each startup preflight attempt emits a structured `Startup preflight completed` result. It
-contains component states, a stable failure code, terminal/readiness flags, and
-when applicable the affected state domain and the reason its stored rows were
-rejected, or the source remediation command. It
-never contains the bot token, Telegram API URL, bot identity, or response
-payload. Recoverable List.am startup failures report not-ready immediately,
-then start Telegram controls while gating crawling behind a preflight retry.
-Retries wait at least `POLL_INTERVAL_MS` or a longer valid `Retry-After` and
-continue until recovery without consuming supervisor restarts. The lease and
-health endpoint remain live; signals cancel the wait immediately. Terminal
-configuration, state, executable, and Telegram credential failures exit without
-waiting. Process shutdown releases the HTTP transport and lease.
-Operational diagnosis and recovery are documented in
-[`docs/startup-preflight.md`](startup-preflight.md).
-
-### List.am HTTP transport boundary
-
-`src/list-am-http.js` invokes curl-impersonate directly without a shell, with
-profile `safari2601`, HTTPS-only requests, bounded output, and a request timeout.
-It waits at least two seconds between requests. Up to five manual redirects
-are permitted only within `https://www.list.am`; pagination redirects return
-the destination body so existing repeated-page detection remains effective.
-The transport never executes JavaScript or fetches page images.
-
-The mode-`0600` cookie jar lives inside `DATA_DIRECTORY`. Each fetch stages it
-in a private directory and atomically replaces the persisted jar after a valid
-HTTP response. Failed or challenged requests preserve the previous jar.
-Concurrent fetches are rejected. Abort and close kill and reap an active
-subprocess and remove temporary files. Startup verifies the executable's
-impersonation identity; runtime never downloads executable code.
-
-Explicit `cf-mitigated: challenge` headers and recognizable verification
-interstitials raise `ERR_LIST_AM_CHALLENGE`. Missing listing content alone is
-a source-integrity failure. Other HTTP statuses and `Retry-After` headers
-reach the crawler unchanged. `list_am.challenge` reports component `list_am`,
-HTTP status, and `challengeSource` (`edge` or `interstitial`), with no URL,
-cookies, or raw response body. Preflight reports `source_challenge`.
-
-`npm run source:smoke` acquires the service singleton lease, validates page one
-of both categories with the same transport and integrity checks, and reports
-aggregate page/listing counts. It runs only with the service stopped and
-writes no verification marker. See [source operations](source-operations.md).
-
-Successive successful crawls retain the configured poll interval with its
-existing jitter. Failed crawls use backoff; challenge and rate-limit delays
-cannot be shortened by user activation.
-
-### Production-focused test boundary
-
-Deployment-boundary coverage combines deterministic integration tests with
-post-deploy verification and isolated operational exercises. HTTP transport
-tests cover executable identity, cookies, challenge detection, bounded
-redirects and output, cancellation, timeout, and child cleanup.
-
-Persistence integration tests use the real filesystem and
-child processes to cover restrictive modes, flush and rename rollback, schema
-rejection, singleton contention, and intact snapshot restore.
-
-CI also checks the production Docker, Compose, release, configuration, and
-documentation contracts without credentials or network access. Hosted gates
-build and scan the exact Rust image and exercise its native and curl-impersonate
-binaries.
-The documentation consistency gate derives maintained Markdown and valid local
-path targets from the Git index while also requiring each target to exist in
-the worktree. A directory qualifies only when it contains a tracked descendant,
-so untracked files cannot enter validation or satisfy repository references.
-After a stop-first production deployment, sanitized probes and structured
-events must show ready preflight, one successful crawl, the expected delivery
-mode, and continued readiness. Restore and rollback exercises use isolated or
-snapshot-backed production workflows and collect only schema-allowlisted
-evidence. These boundaries are documented in
-[`docs/production-testing.md`](production-testing.md).
-
-The offline retained-history benchmark drives real parsing, classification,
-delivery acknowledgements, and SQLite through synthetic source responses. It
-separates setup, repeated crawls within one process, delivery bursts, and
-restart recovery, with coordinator overhead reported separately. Deterministic
-counts and ordering checks accompany CPU, RSS, container memory, and storage
-measurements; the existing large historical-decision workload remains available.
-See [resource baselines](resource-baseline.md) for reproduction and limitations.
-
-### Durable state and recovery boundary
-
-`src/sqlite-database.js` securely creates `state.sqlite3` at mode `0600`, checks
-SQLite 3.51.3 or newer, validates application ID `0x41524d52` and schema version
-before persistent pragmas, and requires WAL, `synchronous=FULL`, foreign keys,
-and a 5-second busy timeout. Ordered schema migrations and their source revision
-commit transactionally. The transaction helper rejects asynchronous callbacks,
-always rolls back failures, and maps SQLite errors to stable sanitized codes.
-
-Repository transactions emit `state.transaction.completed` or
-`state.transaction.failed` with a stable operation, bounded row count,
-duration, database/WAL bytes, and schema version. Each transaction brackets
-only the rows it writes, so a private delivery acknowledgement reports the cost
-of that single row rather than of a surrounding state comparison. Checkpoints
-emit matching events. The collector reports p50/p95, failures, busy exhaustion,
-rows changed, and current database/WAL size by operation. Values, SQL, item
-IDs, chat IDs, and absolute database paths are never logged, and telemetry
-failures cannot alter durability.
-
-`src/state.js` remains the atomic JSON primitive only for the defensive
-migration sentinels and maintenance history.
-Normal SQLite domain mutations do not call it.
-
-`src/recovery.js` owns the persistence recovery boundary. Backup and restore
-acquire the singleton lease while the service is stopped. Manifest-v3 backups
-validate database identity, schema, target bindings, full integrity, foreign
-keys, logical counts, and update offset. Node's SQLite backup API produces a
-consistent standalone database; a new connection validates it before hashes
-and the snapshot are published atomically. WAL/SHM and disposable HTTP cookies
-are not copied. Retention requires seven daily and four weekly recovery
-points on independent storage.
-
-Restore accepts manifests v3 and v2, validating each version's declared files
-and hashes. Legacy v2 profile artifacts are not installed or required by the
-new transport. Manifest-v1 snapshots predate SQLite and remain unsupported.
-Managed live entries are staged in a private rollback directory before the
-snapshot entries are installed. Failed installation or validation restores the
-prior entries. A successful restore still requires a stopped-service source
-smoke before normal startup.
-
-`src/recovery-cli.js` exposes backup, snapshot validation, restore, and the
-20%-free-space check. Its structured `backup.*`, `restore.*`, and
-`storage.low_disk` events are stable alert hooks without introducing the
-generalized health and alert policy reserved for later production-readiness
-work. Daily automation, the 24-hour RPO, one-hour RTO, quarterly drill, and
-operator escalation are documented in
-[`docs/state-recovery.md`](state-recovery.md).
-
-`src/maintenance.js` is the weekly state-growth boundary. Under the singleton
-lease it runs integrity and foreign-key checks, checkpoints WAL, and reports
-database/WAL sizes, logical counts, and managed bytes. A small versioned JSON
-history stores the previous aggregate sample for growth reporting. Maintenance
-does not delete domain records. Retention and capacity response are documented
-in [state maintenance](state-maintenance.md).
-
-`ops/browser-cleanup` serializes with production operations, verifies the active
-HTTP-only image and a valid browser-free snapshot, and reports retained backup
-usage without altering retention. Both dry-run and apply stop the application
-briefly and restart it through the cleanup trap. The Node cleanup command takes
-the singleton lease and considers only the fixed `chrome-profile` directory;
-ownership, symlink, hardlink, and filesystem checks fail closed before deletion.
-SQLite, HTTP cookies, leases, and unrelated paths are outside its deletion scope.
-
-### Release and rollback boundary
-
-The retained manual `scripts/release-operations.js` runner is a non-interactive
-release contract. Before
-any Docker mutation it requires two immutable image IDs/digests, a named human
-operator, a published and validated recovery point, an explicit private/channel
-expectation, and an observation window no shorter than one configured crawl
-interval plus five minutes. Only production contracts are accepted. Validation
-and dry-run modes perform no Docker call or write; the only mutating operations
-are the explicit production deploy and rollback paths.
-
-The runner verifies the fixed one-replica, stop-first Compose shape and existing
-named data volume, stops and confirms the old container before creating the new
-one, and never replaces or prunes the volume or image. Normal startup remains
-the only preflight implementation; application loops cannot begin until it is
-ready. Success additionally requires a ready preflight record, Telegram and
-expected channel checks, a successful crawl, and final readiness after the full
-observation window.
-
-A failed Rust candidate with a retained Node predecessor is stopped and
-checked before Node restarts against schema-compatible live SQLite state. This
-preserves acknowledgements made after the predeploy snapshot; the first live
-attempt exercised this guarded recovery. Other transitions restore the matching
-validated snapshot before starting the previous artifact. Production recovery
-exercises also verify snapshot-backed stop-first rollback without introducing
-a second deployment environment. The
-independent backup volume is externally provisioned and mounted separately from
-application data. Release and rollback procedures, evidence
-receipts, and escalation are in
-[`docs/release-and-rollback.md`](release-and-rollback.md). The initial launch
-sequence and approval boundary are in
-[`docs/deployment-from-scratch.md`](deployment-from-scratch.md), and all
-operator procedures are indexed in
-[`docs/operational-runbooks.md`](operational-runbooks.md).
-
-## Runtime flow
-
-1. `src/index.js` validates private and channel configuration, acquires the
-   persistent-directory singleton lease, and runs the startup preflight. Only a
-   ready result permits the reusable HTTP page fetcher and Telegram bot
-   to enter their long-running loops. At bot startup, the source-controlled
-   profile short description, empty-chat description, and complete supported
-   command list in the Telegram metadata module are synchronized through the
-   Telegram Bot API. Commands are scoped to private chats because group commands
-   are ignored. Synchronization is attempted immediately without blocking
-   polling or monitoring. A failure is logged and retried hourly until the first
-   complete success, after which the metadata loop exits; this auxiliary
-   operation never fails bot startup. Each Bot API request also uses the normal
-   short transient-failure retry policy before the hourly retry is scheduled.
-2. One loop in `src/bot.js` long-polls Telegram. A private `/start` or `/menu`
-   from an authorized Telegram user creates or reopens that user's main menu
-   without changing an existing monitoring choice; unauthorized senders cannot create
-   private state, new users are inactive by default, and group chats are
-   ignored. Authorization uses the Telegram sender ID only after a private chat
-   has proved that its chat ID is the same value. Persisted users excluded by a
-   narrower deployment policy remain unchanged and suspended at runtime; a
-   later policy expansion restores their saved activation choice. A reserved
-   persisted-user routing hook permits `/delete_my_data` to remain reachable
-   for suspended users without allowing unknown users to create state. Russian
-   confirmation and cancellation controls precede deletion. Confirmation first
-   persists an inactive marker; recovery then cancels the recipient's product
-   wait, drains classification/send/acknowledgement work, removes private
-   delivery history, removes the bot user without changing the global update
-   offset, and clears only that user's token buckets. Startup and every update
-   loop resume markers before activation or delivery. Unknown users receive a
-   bounded no-data reply, and completed users may register as new inactive
-   subscriptions. `/filters` opens the same per-user price, room, and hierarchical
-   location controls. Authorized private messages and callbacks share a
-   per-sender, continuously refilled in-memory token bucket. Denied `/start` and
-   `/menu` replies and excessive-request replies each have a separate
-   five-minute response gate; callbacks are acknowledged without editing their
-   messages.
-   The inbound decision for a sender and Telegram update ID is reused across a
-   transient replay, preventing a failed durable write or later reply from
-   charging the same update twice.
-   These process-local controls expire after inactivity and reset on restart,
-   while the service retains no admission capacity for persisted private
-   users. The start callback first asks whether to send the matching apartments
-   of the last day of List.am activity, at most `INITIAL_DELIVERY_LIMIT` of
-   them, or to monitor new listings only; monitoring remains inactive until
-   that choice is persisted. The question is asked at every start, not only the
-   first, because a pause leaves a backlog the answer has to decide. The final
-   start and stop callbacks durably toggle only that user's delivery state
-   before refreshing the panel, wake the dormant crawl loop on activation, and
-   update readiness state on either transition. Activation also reopens that
-   recipient's selection gate, after the answer itself is durable and before
-   the loop wakes, so the first crawl of the session classifies the backlog
-   against the answer instead of delivering it as news.
-   Every refreshed main menu then offers the rejected history a filter edit
-   uncovered: the matches inside the same window that the previous filters
-   rejected, capped by the same limit. Sending them clears those rejections for
-   the next crawl; declining marks them skipped, which delivery never releases,
-   so the offer does not return. The offer is derived from stored decisions
-   rather than from a remembered question, so an unanswered one survives a
-   restart and a satisfied one disappears on its own. `/stop` performs the same per-user
-   deactivation as the stop callback and sends the refreshed main menu; it does
-   not terminate the bot process. Range values are collected from that user's
-   next text message. The entry prompt explains that `/cancel` abandons only
-   that user's pending input, preserves the current filter value, and sends the
-   current main menu again. During that same pending entry, `нет` and `/clear`
-   both remove only the selected price or room restriction, preserve all other
-   filters and monitoring state, persist the change, and send the main menu.
-3. A crawl loop runs when private monitoring is active or a channel is
-   configured. With neither condition, it waits for activation. After apartment
-   state is committed, private admission/delivery and `src/channel.js` publication
-   run concurrently through independent repository operations. Channel state, formatting,
-   and Telegram failures are isolated from private delivery and the update
-   loop.
-   All users and the public channel share this one crawl. Activation may wake a
-   dormant loop only after the configured crawl interval has elapsed since its
-   last attempt; repeated controls, filter changes, denied updates, and future
-   deletion actions neither move that timestamp nor reset crawl-failure
-   backoff. The loop rechecks effective recipients after this cadence wait, so
-   a user who stops meanwhile returns it to dormancy without starting or dating
-   another crawl attempt.
-4. A separate activation-independent loop asks `src/exchange-rates.js` for the
-   persisted CBA snapshot. The service refreshes USD, EUR, and RUB together when
-   it is at least 24 hours old. A failed refresh keeps the last snapshot active
-   and suppresses another attempt for one hour; concurrent refresh requests
-   share one in-flight operation.
-5. `src/crawler.js` walks the configured List.am categories one after another,
-   fetching their pages sequentially through `src/list-am-http.js`, and parsing each page with
-   `src/list-am.js`. Every parsed card is tagged with the kind its category
-   publishes, and item identity remains global, so a listing that appeared in
-   both categories would still be stored once. Because each category is read
-   newest-first but the categories are read in turn, their encounters are
-   merged back into one newest-first order by posting date, with unreadable
-   dates keeping their source position behind the dated cards. Every later
-   decision reads that single stream.
-6. `src/prices.js` maps source currency symbols to ISO codes and converts every
-   newly discovered USD, EUR, or RUB price to whole AMD before apartment state
-   is committed. It also migrates version 1 apartment records on their next
-   crawl. The rate audit attached to a stored apartment is not rewritten by a
-   later daily exchange-rate refresh.
-7. Pagination is decided per category from that category's own stored history.
-   With no listing of that kind, pages 1 through 10 are parsed. Otherwise the
-   newest posting date stored for that kind is the temporal watermark. Cards are
-   read newest-first through every card sharing that watermark — every card of
-   the same day, for the day-granular dates List.am now displays — and parsing
-   stops when an older posting date is reached. Known IDs above the watermark do not
-   stop discovery. If stored dates cannot be parsed, the crawl falls back to the
-   configured initial page count. Empty pages and repeated page signatures also
-   stop that category. A category introduced to a running installation therefore
-   performs its own first crawl while established categories continue
-   incrementally, and the per-category outcome — initial run, pages parsed,
-   watermark, stopping date, exhaustion — is reported in `sources` on both the
-   crawl result and the stored crawl metadata.
-8. Known cards encountered before or at the stopping watermark are compared
-   across source title, original price, location, rooms, area, floor, URL, and
-   posting date. A change replaces the source fields, preserves `firstSeenAt`,
-   and records `updatedAt`. Every encounter records `lastSeenAt`, including
-   when a renewed ad retains an older displayed posting date and otherwise
-   unchanged content. An original amount or currency change is normalized with
-   the latest persisted rate and replaces its rate audit; otherwise the prior
-   canonical price and audit remain unchanged.
-9. Newly discovered and updated records are atomically committed before
-   Telegram delivery begins. The crawl fans out across authorized active users,
-   each with independent `src/filters.js` admission and delivery history.
-   `src/private-delivery-scheduler.js` limits private work to eight concurrent
-   classification/send operations. Recipients take one message per turn and
-   return to the end of the queue; each recipient remains sequential and
-   oldest-first. A slow network operation occupies one slot; product-rate and
-   Telegram retry waits occupy none. Channel publication remains independent.
-   A worker reads and persists only its own recipient's rows:
-   its history is read where it is about to be classified, keyed by
-   `(recipient_id, item_id)` and restricted to source changes and durable pending IDs,
-   and it commits one bounded write per initial
-   selection, re-admission batch, classification batch, or acknowledgement.
-   The decision table retains every answer the installation has recorded,
-   including those naming listings List.am has since dropped, so no crawl path
-   reads it whole or loads a recipient's absent-listing decisions into memory.
-   Initial selection, migration, and an explicit filter change include older
-   stored listings because non-matches are classified even outside the delivery
-   window. Each recipient's source cursor and normalized filter fingerprint
-   prevent routine unchanged crawls from repeating that scan. Candidate IDs and
-   cursor advancement commit together before classification, and outstanding
-   sends remain queued across interruption. Menu history offers use the
-   stored listing order to scope the same indexed read. Returning listings
-   recover their original decisions; no retention cutoff or schema migration
-   is involved. Those writes still pass through a serialized,
-   failure-latching chain: it orders them against atomic user deletion
-   and stops recording once a write has
-   failed. Every delivery decision is bounded to the last day of List.am
-   activity, measured against the instant the crawl read the source
-   (`SOURCE_ACTIVITY_WINDOW_MS` in `src/source-activity.js`): an apartment
-   enters the pending set only when List.am posted it or changed it inside that
-   window, whatever path admitted it. Posting dates carry no time zone and are
-   compared as UTC calendar components, so the day-wide window absorbs the
-   source's offset, and cards with an unparsable date fall back to
-   `firstSeenAt`.
-   With the recipient's selection gate open, the crawl classifies that window's
-   undecided matches against the user's stored answer: the newest
-   `INITIAL_DELIVERY_LIMIT` are selected, shedding any rejection they carry
-   from earlier filters, and the remainder — every match inside the window when
-   the user declined — is atomically marked `skipped`. The default limit is 100. Matches outside the window are left undecided, so a later List.am
-   update can still deliver them as fresh activity. Non-matches that carry no
-   decision yet become `filtered`, keeping the timestamp of their first
-   rejection.
-   A filtered apartment is durably re-admitted only when it matches the current
-   filters and its source `updatedAt` advances beyond its rejection timestamp
-   and lies inside the window. A widened filter releases nothing here: the bot
-   offers that backlog through the menu and clears the rejections only once the
-   user accepts. A previously delivered apartment similarly becomes pending
-   again when its source `updatedAt` is later than that user's last successful
-   notification, lies inside the window, and it still matches. Skipped history
-   is never released. Source order is reversed so selected
-   messages are delivered oldest first, then acknowledged one at a time. A
-   batch that carries anything the crawl did not discover itself, or that
-   follows a selection, is preceded by one Russian heads-up message naming its
-   size; a batch of freshly discovered listings is sent without one. Each
-   private recipient has a process-local token bucket with a fixed burst of five
-   apartment messages and continuous refill at the configured per-minute rate.
-   Initial selections, new apartments, and updated-apartment redelivery all use
-   this boundary; control replies and public-channel operations do not. A live
-   authorization predicate is checked before any recipient classification and,
-   after any product-rate wait, immediately before each send, so a narrowed
-   policy cannot mutate a suspended user's delivery history during a long batch.
-   A
-   terminal private-chat delivery error deactivates only the unavailable user;
-   it does not terminate other subscriptions or channel publication.
-10. `src/channel.js` independently evaluates environment filters. With no
-    compatible channel state, it atomically classifies the full apartment order:
-    the latest matching `INITIAL_DELIVERY_LIMIT` become `pending`, older matches
-    become `skipped_initial`, and non-matches become `filtered`. Pending posts
-    are sent oldest first. Later unseen IDs are admitted as `pending` or
-    `filtered`. Re-admission applies the same
-    `SOURCE_ACTIVITY_WINDOW_MS` bound as private delivery, measured against the
-    publisher's own clock. A filtered apartment is durably re-admitted as
-    `pending` when its data matches and either its source `updatedAt` advances
-    beyond its classification time and lies inside the window
-    (`updated_match`), or List.am posted it inside the window
-    (`recent_match`). An initially skipped match whose `lastSeenAt` advances
-    beyond its channel classification time and lies inside the window is also
-    durably re-admitted (`reencountered`); this lets a renewed historical ad
-    publish without releasing the untouched backlog. Classification flags never
-    expire on their own, so the window is also what stops a changed filter
-    fingerprint from publishing everything List.am has touched since
-    classification: the fingerprint change is logged, and only the current day
-    of source activity is released.
-11. Published channel entries retain Telegram message IDs and SHA-256 hashes of
-    the complete rendered message. A changed hash within three days of channel
-    publication triggers `editMessageText`; once the post is strictly older
-    than 72 hours, the publisher sends the updated apartment as a new message
-    and manages that new message ID and publication timestamp. An unchanged
-    hash, including a posting-date-only source update, makes no request. If
-    Telegram reports a missing message, the publisher sends a replacement and
-    stores its new ID. Published posts remain managed even when later data would
-    not match the current channel filters.
-
-## Filter model
-
-Private filters live per user in Telegram bot state and default to no
-restriction other than the housing kind, which defaults to apartments.
-Housing-kind selection is a non-empty subset of `src/property-kind.js`, stored
-in catalog order; an absent, malformed, or empty selection normalizes back to
-apartments rather than widening, so a subscription stored before houses existed
-keeps following exactly what it followed. A listing with no stored kind is an
-apartment for the same reason. The kind menu refuses to clear the last selected
-kind, and resetting filters returns the selection to apartments.
-Price and room filters each have nullable inclusive `min` and `max` bounds.
-Price input and comparison are always in AMD, using the apartment's canonical
-`amountAmd`; the private notification still renders `originalAmount` and
-`originalCurrency`. Each range submission, location toggle, and reset is
-persisted immediately; the interface has no deferred save action.
-
-Location configuration is a static ordered hierarchy in `src/filters.js`.
-Ереван is deliberately the first region and its districts are the first
-place-level choices. Stable compact IDs (`r:<region>` and
-`p:<region>:<place>`) keep Telegram callback data below its size limit and make
-multiple selections inexpensive to persist. Selecting a whole region matches
-the region and all children. Selecting a child removes the whole-region choice
-for that region, while selections in other regions remain intact.
-`src/filter-ui.js` owns presentation and keeps matching rules independent of
-Telegram. Its main menu presents both filter settings and monitoring state and
-controls, with navigation returning to that broader menu instead of describing
-it as filters alone. The price, room, location, and monitoring buttons use
-text-only labels; selection-state markers remain confined to the hierarchical
-location menus where they convey state. The reset action is explicitly labeled
-as applying to filters, since it does not change monitoring state.
-
-Channel filters are parsed once from the environment and never read or mutate
-private bot state. They select the apartment kind explicitly rather than
-inheriting the default. Price and rooms use the same inclusive exact/open/closed
-ranges. Location selectors resolve case-insensitive human-readable region and
-place names to the same stable IDs. Multiple locations are OR conditions;
-price, rooms, and location are AND conditions. Blank locations default to the
-whole Yerevan region, and `all` removes the location restriction. Unknown,
-ambiguous, malformed, duplicate, or whole-region/child conflicts fail startup.
-
-## Channel rendering
-
-`formatChannelApartmentMessage` reuses `formatApartmentMessage` verbatim, adds
-one blank line, then appends hashtags in region, locality, AMD price band, and
-room order. Region inference uses the configured locality hierarchy. Hashtag
-text is NFKC-normalized and Russian-lowercased; spaces and hyphens collapse to
-underscores, unsupported characters are removed, and duplicate region/locality
-tags are omitted.
-
-Positive canonical AMD prices use inclusive 50,000-dram bands. Missing prices,
-locations, regions, and rooms receive explicit Russian fallback tags. Rendering
-never changes private apartment messages, which continue to show original
-source prices without hashtags.
-
-## Persistence
-
-Private crawl fan-out evaluates source freshness once per listing and checks
-for a recent source update before matching a rejected listing against a user's
-filters. Scheduler operations start across event-loop turns, keeping health and
-source I/O serviceable. `PRIVATE_DELIVERY_CONCURRENCY` is a fixed internal setting
-of eight, rather than another operator environment variable. It bounds active
-classification snapshots and private HTTP attempts, at the cost of lower peak
-throughput.
-
-The scheduler retains one small descriptor per recipient and at most eight
-active operations. Classification may still load one recipient's full candidate
-history; it never retains every recipient's full pending payload list. Selected
-IDs, their order, and captured durable work tokens go into the connection-local
-SQLite TEMP table `private_delivery_batch`. The pinned SQLite build uses
-file-backed temporary storage with a roughly 2 MiB page cache; overflow uses
-`SQLITE_TMPDIR` (the existing bounded 128 MiB production scratch mount). Exhausting
-scratch space fails delivery without discarding durable pending work. One payload
-is read per send turn. The temporary table is not part of the durable schema or
-backups, and is cleared when delivery finishes or fails. A successful send commits
-its acknowledgement, captured work-token removal, and temporary-item removal in
-one transaction; a newer menu acceptance token is preserved. Restart rebuilds the
-temporary selection from existing durable decisions and outstanding work.
-
-Per-recipient product tokens cover announcements and listing messages. A logical
-message consumes one token even if Telegram needs retries. Private Telegram calls
-make one HTTP attempt per turn; up to four attempts retain the existing backoff,
-retry telemetry, and authoritative `retry_after` semantics. One abortable scheduler
-timer covers the earliest ready recipient; waiting recipients retain deadlines
-and attempt counts, not text or payloads. Other Telegram call sites retain their
-normal inline retry behavior.
-
-Each classification or send-and-acknowledge turn holds the existing recipient
-deletion barrier. Deletion cancels the recipient's crawl lifetime, wakes a sleeping
-scheduler, drains its active turn, and removes its private rows and temporary
-batch. Recreating the same chat ID cannot revive an old lifetime. Authorization
-is checked before each turn and again immediately before HTTP. Shutdown stops
-new turns, aborts active private HTTP attempts and the scheduler timer, waits for
-accepted sends to finish their local acknowledgements, and clears temporary
-batches. Unsent work stays durable; no rate-limit or retry deadline must elapse
-inside the supported 45-second shutdown grace.
-
-Application state is one versioned `state.sqlite3` database on persistent local
-storage. `application_metadata` binds its immutable database ID to the List.am
-URL template and configured channel. `schema_migrations` plus `PRAGMA
-user_version` provide forward-only schema compatibility. Schema version 2 adds
-no tables: it backfills the housing kind everything created before houses left
-implicit — `apartment` on every stored listing payload, an explicit apartment
-selection on every stored filter, and the flat first-page history reseated as
-the apartment category's own series.
-
-Schema version 3 adds indexed category/date watermarks and per-listing encounter
-sequence, position, and last-seen columns. It migrates the previous order once,
-then removes the serialized historical order from crawl metadata. Fixed,
-relative, and yearless dates retain their existing interpretation at read time.
-
-Schema version 4 stores private delivery decisions as integer milliseconds and
-status codes in a `STRICT, WITHOUT ROWID` table. The composite recipient/item
-primary key serves bounded lookups and recipient deletion; the unused status
-index is removed. Repository APIs preserve status names and exact canonical ISO
-timestamps. Conversion and schema bookkeeping commit transactionally, then a
-durable pending marker makes space reclamation with `VACUUM` retryable after an
-interruption. Older binaries require their matching pre-deploy snapshot before
-rollback. See the [schema contract](sqlite-schema.md).
-
-Schema version 5 adds a shared indexed source-change sequence on each listing,
-private recipient cursors and filter fingerprints, and a durable private work
-table. Schema version 6 adds the channel source cursor, durable channel work,
-and an index for channel admission statuses. Existing decisions remain intact;
-the first upgraded pass reconciles them before routine incremental selection.
-Both consumers share listing decoding and source revisions, while retaining
-their different admission rules. Older binaries require their pre-upgrade
-snapshot for rollback.
-
-- `apartments` stores a normalized listing JSON payload plus indexed discovery
-  and encounter fields per item. Discovery reads bounded category watermarks
-  and looks up only IDs on encountered pages. `crawl_state` stores checked time,
-  crawl metadata, sequence, total count, and bounded per-kind source-integrity
-  history. Changed payloads, encountered ordering/last-seen fields, and crawl
-  metadata commit atomically before Telegram work starts. An unchanged crawl
-  serializes no retained listing payloads and rebuilds no membership table;
-  absent listings remain available for later re-encounters. Ordering projects
-  the current encounters first, followed by previously retained encounter order.
-  An indexed scan finds only legacy raw-price payloads for their one-time
-  canonicalization in the same transaction.
-- `private_recipients` and `private_delivery_decisions` store one row per
-  recipient/item terminal decision (`notified`, `skipped`, or `filtered`).
-  A missing terminal decision remains undecided; `private_delivery_work`
-  explicitly retains candidates awaiting classification or delivery. Initial selection and batch classification commit
-  before delivery, filtered re-admission deletes its obsolete row before the
-  network call and queues the item, and a successful send is followed immediately by one-row
-  acknowledgement. Schema 4 encodes these statuses as 0, 1, and 2 and stores
-  exact signed epoch milliseconds; absent-listing decisions remain retained.
-- `channel_state` and `channel_deliveries` store target/fingerprint admission
-  state plus pending, filtered, skipped-initial, and published rows. Published
-  rows alone may contain message ID, content hash, publication time, and optional
-  update time. Sends, replacements, edits, and reposts update acknowledgement
-  fields only after Telegram accepts the operation. `channel_work` retains
-  publication and edit candidates, including failures across process restarts.
-  Routine selection uses payload changes and encounters of initially skipped
-  posts; unchanged published encounters need no rendering or comparison.
-  Candidate reads are paged, and the combined pending/new work follows the
-  retained source order. Initial classification streams the listing table in
-  one transaction; explicit fingerprint changes reconcile rejected history.
-- `telegram_state` stores the nonnegative update offset and optional legacy
-  recipient binding. `telegram_users` stores activation, initial-send choice,
-  normalized filters, pending range input, and deletion marker. Each processed
-  update commits its offset with its user mutation before callback
-  acknowledgement or a replay-sensitive response. User deletion first commits
-  the inactive marker, drains the recipient barrier, then deletes the user and
-  private-delivery rows atomically.
-- `exchange_rate_state` stores one validated USD/EUR/RUB snapshot as compact
-  JSON. A refresh replaces the in-memory snapshot only after the database commit
-  succeeds.
-- Inbound token buckets, denial-response timestamps, and private delivery rate
-  buckets remain process-local. They use a monotonic process clock, evict idle
-  entries after 15 minutes, and restart empty.
-- `list-am-cookies.txt` stores the private HTTP session and is excluded from snapshots.
-- `.maintenance-history.json` stores only the previous successful maintenance
-  timestamp and aggregate managed byte count. It is excluded from application
-  state thresholds, entry counts, and managed-growth totals.
-
-Routine private and channel delivery no longer load the full retained listing
-or channel-decision projection after a crawl commits. They use indexed source
-revisions plus their durable work tables. Full projections remain available for
-validation/export and explicit private history offers; selection/filter changes
-may reconcile history once.
-
-The five legacy JSON paths contain only incompatible `sqlite-migrated`
-sentinels after cutover. They carry backend, migration, and database identities
-without application data so an older image fails closed. Nothing reads them:
-configuration secures their permissions and backup carries them so a restore
-leaves the data directory as it was found. No importer remains that could write
-them, and no snapshot predating the cutover can be restored.
-
-## Parsing model
-
-The parser scopes card selection to `#contentr`, List.am's Regular Ads
-container. Candidate selectors intentionally do not require an item-shaped
-`href`, so malformed identities remain visible to diagnostics; descendants of
-`#tp`, which contains Top Ads, are excluded. The current card class is the
-primary selector; the legacy `.dl` anchor shape is used only when no primary
-cards exist. A candidate becomes an apartment only when its URL has the exact
-List.am item-path boundary. Duplicate canonical IDs and rejected identities are
-counted without retaining card HTML or rejected attributes.
-
-`parseRegularApartments` returns the normalized apartments together with
-candidate, unique-candidate, parsed, duplicate, and rejected counts. Its
-completeness object counts usable normalized title, date, price, location,
-rooms, area, and floor values. Crawling, startup preflight, and source
-smoke consume this diagnostic result; the legacy array helper is only a
-compatibility wrapper. Posting-date validation and crawl ordering share
-`src/posting-date.js`, preventing completeness and watermark decisions from
-interpreting dates differently. That module reads three displayed forms: a
-dated instant carrying its year, a relative day such as `Сегодня`, and a month
-and day without a year. Only the first names an instant. The other two resolve
-to the last millisecond of the day they name, because a card that states a day
-could have been posted at any hour of it, and reading the day as midnight
-would retire it from delivery up to a day early. A form without a year takes
-the year it was read in, or the year before when that would place it in the
-future. One granularity per category matters: were a card printed as
-`Сегодня, 00:00` read as an instant while same-day cards printed as a date
-were read as a day, the watermark would treat the first as history. The parser initially returns source price
-`{ amount, currency }`; `src/prices.js` turns it into the canonical and
-original-price fields before persistence. Words such as "monthly" are
-discarded. A candidate is an ad-card anchor, never any anchor inside the list
-container: the advertising banners and pagination List.am places among the
-cards would otherwise each read as a card whose identity cannot be resolved,
-and one such rejection stops a crawl. Rooms, area, and floor are matched by
-the label each states rather than by position, so a card that omits one — a
-house commonly publishes no area or floor — still yields the rest, and both
-the interpunct-separated attribute line of the redesigned card and the older
-comma-separated one parse. The location is read from the card's own location
-element, falling back to a leading attribute segment that names no attribute.
-The original posting date is retained as displayed by List.am. Some redesigned
-cards carry no date element at all, and a card without a readable date counts
-as posted at the moment it was parsed: `formatPostingDate` stamps the crawl's
-own timestamp in the fully dated form, the one displayed shape that names an
-instant rather than a whole day. The stamp is taken once. Because the date is a
-source field, a card that is already stored keeps the date it was stored with,
-which is what stops an undated card from reading as changed on every crawl and
-being delivered again each pass. A supplied date is also kept out of the date
-watermark comparison: it names a minute, printed same-day cards resolve to the
-end of their day, and weighing the two together would read a card the crawl has
-just seen for the first time as history and abandon the rest of its page.
-
-Every fetched page is passed through one hard source-integrity evaluator before
-the crawler considers empty pagination, a repeated page, or the posting-date
-watermark. Page observations and typed failures carry the category's housing
-kind, so operational surfaces attribute a source change to the category it
-happened in. The evaluator applies deterministic reason precedence for a missing
-Regular Ads section, an empty first page, parse success below 100%, rejected
-identities, and first-page title completeness below 100%; percentage
-boundaries use integer multiplication. A missing posting date is not one of
-these rules: the crawler supplies a date for such a card rather than rejecting
-the page, so date completeness is reported as telemetry only. Later empty
-pages remain valid. The
-crawler performs this validation while its discoveries are still in memory, so
-an invalid page cannot write apartment or delivery state or invoke private or
-channel delivery. Startup preflight and source smoke use the same
-evaluator and report success only after validation. Source-integrity
-errors are recoverable external failures and therefore use bounded crawl
-backoff; readiness, alert, metric, and dedicated integrity-event projection is
-integrated with the operational surfaces separately.
-
-After every fetched page validates, the crawler publishes only sanitized page
-counts to the runtime boundary before persistence and delivery. This emits
-`source.integrity.checked`, restores the List.am health component, and resolves
-`list_am_source_integrity` even if a later Telegram operation fails. A typed
-failure emits `source.integrity.failed`, makes readiness immediately report
-`LIST_AM_SOURCE_INTEGRITY`, and fires the same edge-triggered alert path.
-The local metrics snapshot groups failures only by stable reason and retains
-application firing/resolution cursors so both edges survive between monitor
-runs.
-
-The compatible apartment payload schema version 4 carries a bounded
-`sourceIntegrity` aggregate keyed by housing kind: per kind, up to five
-non-negative first-page parsed counts, plus one optional canonical ISO timestamp
-for the latest successful commit. Each category paginates independently, so
-mixing their counts would compare unrelated series. Versions 1 and 2 are
-migrated in memory with an empty history and version 3's single flat series
-becomes the apartment series, preserving listing records and ordering in every
-case; malformed aggregates fail closed across crawling, preflight, recovery, and
-maintenance. After all fetched pages validate, the crawler appends each
-category's current first-page count to its own series, truncates oldest values
-beyond five, and persists that history and `lastSuccessfulAt` in the same
-transaction as apartment discovery. Failed observations cannot advance it. With
-at least three prior successes for that category, a first-page count is rejected
-only when it is strictly below half the prior median and at least five below
-it. Odd and even medians are
-compared with exact doubled-integer arithmetic, and count drop is the final
-hard-rule reason.
-
-## Failure handling
-
-- HTTP, List.am challenge, malformed apartment/private state, and private
-  Telegram API failures propagate to the monitoring loop and are logged as
-  structured JSON.
-- CBA responses are accepted only when all three required quotes, their amounts,
-  and rates are valid. Refresh failures retain the previous snapshot and retry
-  hourly. With no previous snapshot, foreign-price normalization fails before
-  apartment state is written.
-- Telegram HTTP 429 responses honor `retry_after` and are retried up to three
-  times. One product-rate token covers that logical apartment operation;
-  Telegram's requested retry delay remains authoritative and is neither capped
-  nor shortened by the private-delivery limiter.
-- Policy and inbound-rate rejections durably advance the global Telegram update
-  offset before any callback acknowledgement or user-facing response. Their
-  structured events contain only fixed reasons, access mode, and configured
-  rate; sender IDs, chat IDs, message text, and callback data stay inside the
-  operational Telegram request path and never become telemetry or health data.
-- Deletion telemetry contains only fixed workflow phase and recovery fields.
-  It never contains sender IDs, filters, or delivery classifications. A failed
-  completion reply cannot restore already deleted data.
-- Private and channel classifications are persisted before messages are sent.
-  Successful deliveries are acknowledged immediately. Shutdown aborts a
-  private product-rate wait without sending or acknowledging its apartment, so
-  it remains pending after restart. A restart cannot turn a rejected listing
-  into an unexpected backlog.
-- Channel sends fail independently and leave entries pending. Failed edits and
-  age-based reposts retain their prior acknowledged message metadata for a
-  later retry. Per-operation structured logs distinguish send, edit, and repost
-  operations and include the outcome, crawl identifier, duration, and
-  error without including the bot token.
-- Telegram `sendMessage` has no idempotency key. A process exit after Telegram
-  accepts a channel post but before local acknowledgement commits carries
-  an at-least-once duplicate risk.
-- Replayed Telegram callbacks that render an already-current menu are treated
-  as successful, covering the window between saving filter state and the update
-  offset.
-- SIGINT and SIGTERM abort Telegram polling and source work, then reap HTTP subprocesses before the application lease is released.
-- Startup preflight failures close the HTTP transport and release the singleton lease before
-  exiting. State compatibility is checked before external calls, so invalid
-  state cannot be overwritten by a later initialization path.
-
-## Testing boundaries
-
-Parser tests verify field normalization and Top Ads exclusion. Crawler
-integration tests exercise multi-page initial discovery, the posting-date
-watermark (including refreshed IDs and equal-minute listings), known-card
-updates, persistence, new and updated private-delivery retry, and
-filter-classification behavior. Telegram integration tests use a fake monotonic
-clock to cover inbound bursts, fractional refill, inactivity eviction, restart
-reset, bounded rejection responses, durable denial offsets, and the invariant
-that private actions cannot accelerate the singleton crawl or its failure
-backoff. They also verify the source-controlled profile limits and command list,
-the exact Telegram Bot API payloads, non-blocking startup synchronization, and
-hourly failure retry that stops after the first success.
-Filter tests cover optional/open ranges, regions, places, composed criteria, and
-AMD comparison of foreign source prices. Exchange-rate tests cover SOAP parsing,
-atomic validation, daily refresh, hourly failure backoff, restart reuse, and
-conversion audit fields. Telegram tests cover multi-user private activation,
-independent interactive filter configuration, access-mode authorization and
-suspension, aggregate identifier-free access reporting, Yerevan-first selection,
-Russian formatting and fallbacks, rate-limit retries, and channel/private
-runtime isolation. Crawler integration tests prove that one crawl maintains
-independent delivery classifications and acknowledgements for multiple users
-and rechecks live authorization before classification and delivery.
-Channel integration tests cover configuration validation and composition,
-initial classification/order, partial-send restart recovery, canonical-AMD
-hashtags, edits and retries, and missing-message replacement.
-Process integration tests start real child processes against one temporary
-persistent directory. They prove that a live second process fails before
-polling, an unclean exit is recoverable, and SIGTERM flushes delivery state,
-reaps HTTP subprocesses, releases the application lease, and permits a
-backlog-free restart. Deployment contract tests pin the one-replica,
-stop-before-start, bounded-restart, and 45-second grace settings.
-Artifact-isolation tests also verify the build-context denylist, immutable
-non-root container contract, bounded writable mounts, dropped capabilities,
-and no-new-privileges.
-Preflight integration tests exercise the complete ready path across state,
-Telegram, channel, source transport, List.am, and CBA boundaries; terminal credential
-and permission failures; unchanged incompatible state; the typed source
-challenge; loop exclusion; cleanup; and secret-free structured results.
-
-### Rust rewrite foundation
-
-The [Rust development guide](rust-development.md) maps the retained
-`rental-replay` prototype, shared Node behavior oracle, build tools and
-lifecycle checks to the production `rental-app` implementation in #44. The
-separately authorized Rust cutover was accepted on 2026-09-27; the Node
-application remains a rollback and regression baseline until #49 and #50.
-
-The experimental branch narrows Node's full-history private classification:
-SQLite stages unclassified listings, filtered listings matching the current
-filters, and notified listings with an update. Skipped and unchanged notified
-history stays durable without payload decoding per recipient. One crawl caches
-the stored listing inventory and at most eight filter match sets, clearing them
-with the delivery batches. An inventory-presence flag completes initial selection
-even when every stored listing already has a terminal decision. Routine source
-changes and durable pending work retain their existing path.
-
-`rental-replay` uses bundled SQLite, compact integer decisions and one bounded
-fair scheduler. Seed batches commit 8,192 rows with durable progress; classification
-and per-message acknowledgements remain atomic. Completed-write checkpoints stop
-further writes if readers block truncation; the 4 MiB retention threshold does not
-bound an active transaction. The covering `(posted,id,revision)` index, 512 KiB
-SQLite cache target and transaction-local payload map capped at 128 entries bound
-history processing without dropping decisions. Selection runs newest first while
-delivery remains oldest first.
-
-The [native service](native-service.md), [maintenance](native-maintenance.md) and
-[migration](native-migration.md) documents specify the replay prototype's
-supported boundaries. Production database and full bot/channel/source parity
-belong to the separate `rental-app` candidate described above.
+[The Rust lease](../experiments/rust-replay/src/production/lease.rs) is owned by
+one process for the persistent `DATA_DIRECTORY`. An existing live owner prevents
+another service or maintenance writer from starting. Stale socket recovery
+checks the owner before removing only the abandoned lease path. Systemd and
+Compose stop the previous container before starting another; SIGTERM cancels
+polling and source work, drains accepted acknowledgements, closes transport,
+and releases the lease within the supervised shutdown grace. A sent Telegram
+message whose local acknowledgement did not commit remains an at-least-once
+boundary after restart.
+
+### Deployment artifact and configuration boundary
+
+The [native producer](../scripts/native-release.py) stages an allowlist of
+committed Git objects into an isolated context: the Rust crate and lockfile,
+Dockerfile, pinned transport inputs and production Compose definitions. Local
+`.env`, `.data` (including cookies), dependency caches, Git metadata and logs
+cannot enter the release image. It records exact Cargo, source, executable,
+curl and transport hashes. The final image runs as UID/GID 1000 with a read-only
+root filesystem, dropped capabilities, `no-new-privileges`, no published ports,
+persistent `/app/.data`, and separate `/tmp` and `/sqlite-tmp` tmpfs mounts.
+The host injects its root-owned environment at container creation.
+
+[Configuration](../experiments/rust-replay/src/production/config.rs) validates
+runtime mode, access policy, filters, numeric limits, target paths and secrets
+before long-running work. `NODE_ENV` is the established public name for the
+Rust runtime mode. Production requires explicit absolute `DATA_DIRECTORY` and
+`CURL_IMPERSONATE_PATH`; managed state and cookie paths must be distinct regular
+children of the data directory without symlink redirection. The bot token is
+accepted from environment only, never a CLI argument or image build input.
+See [configuration](../README.md#configuration), [token
+rotation](token-rotation.md), and [startup preflight](startup-preflight.md).
+
+### Source, Telegram and delivery boundary
+
+[Runtime](../experiments/rust-replay/src/production/runtime.rs) acquires the
+lease and runs state, Telegram, curl and List.am preflight before allowing a
+crawl. Recoverable source failures leave private controls and the health
+endpoint running while preflight retries; incompatible state and terminal
+credentials fail closed. A single crawl serves private recipients and the
+optional channel. With neither active recipients nor a channel, it waits for
+activation without changing the normal crawl interval or failure backoff.
+
+[Transport](../experiments/rust-replay/src/production/transport.rs) invokes the
+pinned curl-impersonate executable without a shell, using Safari `safari2601`,
+HTTPS List.am pages, bounded output, two-second request spacing and a private
+cookie jar. Challenges and HTTP 429 apply source backoff rather than immediate
+page retries. [Source parsing](../experiments/rust-replay/src/production/source.rs)
+selects only Regular Ads, normalizes cards and posting dates, and checks every
+page's integrity before [crawl](../experiments/rust-replay/src/production/crawl.rs)
+can commit discoveries. Each housing category has its own page watermark;
+categories merge into a single date-ordered stream. A known card above the
+watermark cannot hide a newer card following it. USD, EUR and RUB prices are
+normalized to AMD using the persisted, atomically refreshed CBA snapshot while
+the source amount and currency remain in messages.
+
+[Bot controls](../experiments/rust-replay/src/production/bot.rs) long-poll
+Telegram and persist the update offset with user state before replay-sensitive
+responses. Only verified private senders can create user state; group commands
+are ignored. Public, owner and allowlist admission affect private users but
+never change the owner alert route or the independent channel. Users remain
+inactive until they choose initial delivery or new listings only. Filter
+changes persist immediately; widening a filter offers recent rejected history
+on the menu, and user deletion first persists an inactive marker, drains that
+recipient's work, then removes its private rows atomically.
+
+[Private delivery](../experiments/rust-replay/src/production/private.rs) and
+[channel delivery](../experiments/rust-replay/src/production/channel.rs) read
+indexed SQLite source revisions and durable work rows after a crawl commits.
+Private recipients take turns one message at a time with at most eight active
+classification or send operations. Rate and retry waits release worker
+capacity. Initial selections are limited to the latest
+`INITIAL_DELIVERY_LIMIT` matches, then sent oldest first. A listing is eligible
+for private or channel delivery only when List.am posted or changed it inside
+the 24-hour source activity window. Filtered listings re-enter only on eligible
+source activity or an explicit accepted private history offer; skipped history
+is never released automatically. The channel publishes apartments only,
+retains message IDs and content hashes for edit or repost, and is isolated from
+private failures. Telegram has no idempotency key for `sendMessage`, so a
+successful send followed by a crash before the local acknowledgement can
+produce a duplicate after restart.
+
+### SQLite state and recovery boundary
+
+[Storage](../experiments/rust-replay/src/production/storage.rs) owns the single
+`state.sqlite3` database. It checks application ID `0x41524d52`, schema and
+target binding, uses WAL, full synchronization and foreign keys, and refuses
+missing or incompatible state. `state:init` alone creates a first-installation
+database; schemas 1 through 5 upgrade transactionally to schema 6. Listing
+payloads, per-category crawl metadata, private and channel decisions and work,
+Telegram users and update offset, and exchange rates live in this database.
+Discovery and crawl metadata commit before delivery. Private send and channel
+publish acknowledgements commit only after Telegram accepts the operation;
+network waits never occur inside a SQLite transaction. The
+[schema contract](sqlite-schema.md) describes tables, migrations and indexes.
+
+[Recovery](../experiments/rust-replay/src/production/recovery.rs) creates and
+validates consistent SQLite snapshots on independent storage. Snapshot
+validation checks file hashes, database identity, schema, target binding,
+integrity, foreign keys, logical counts and update offset. Restore requires
+the singleton lease with the service stopped and stages the old live entries
+for rollback if installation fails. It cannot restore pre-SQLite manifest-v1
+state. The host creates a fresh validated snapshot before each replacement
+deployment and
+retains daily and weekly recovery points. The isolated
+`rental-restore-drill.service` restores a copy with networking and Telegram
+delivery disabled; it leaves the live service, data directory and container
+untouched. See [state recovery](state-recovery.md) and
+[release and rollback](release-and-rollback.md).
+
+### Health, failure and test boundary
+
+[Health](../experiments/rust-replay/src/production/health.rs) projects only
+sanitized component states and aggregate counts. `/live` proves the loop can
+answer; `/ready` requires successful preflight and a recent successful crawl
+when monitoring is active. Source challenges make readiness false immediately,
+while runtime challenge alerts wait for five unresolved crawls. The
+[health CLI](../experiments/rust-replay/src/production/health_cli.rs) probes
+the private endpoint from the container. Logs carry stable, redacted event
+names and bounded counts; the host monitor combines those with Docker, systemd,
+storage and timer state. Operators inspect them through `rentalctl` over SSH.
+See [health and readiness](health-readiness.md),
+[observability](observability.md), and [runtime incidents](runtime-incidents.md).
+
+The [Rust development guide](rust-development.md) gives the current local
+checks. Required CI builds and tests the production image with synthetic
+Telegram, List.am and CBA peers, a 500-recipient capacity workload, lifecycle
+and recovery checks, provenance verification and a blocking vulnerability
+scan. The independent [parity ledger](rust-parity.md) records the historical
+Node comparison and dated live Rust acceptance. Earlier `src/*.js` module
+walkthroughs are available through Git history as historical design evidence;
+they are not current runtime or operator instructions.

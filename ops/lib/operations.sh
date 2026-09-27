@@ -78,7 +78,7 @@ ops_compose() {
 }
 
 # Check the commands systemd has loaded, including drop-ins. A stale unit can
-# bypass ops/service and start a Rust image with the Node Compose user.
+# bypass ops/service and start a retained release without its Compose override.
 ops_verify_rust_systemd_runtime() {
   local service_path="$RENTAL_RELEASE_DIR/ops/service"
   local action arguments expected command remainder
@@ -174,11 +174,6 @@ ops_snapshot_container_path() {
   case $resolved_snapshot in
     "$resolved_root"/daily/*)
       printf '/app-backups/daily/%s\n' "${resolved_snapshot##*/}"
-      ;;
-    # A protected pre-cutover snapshot can still be named so that pointing the
-    # validator at one reports what it is rather than an unknown directory.
-    "$resolved_root"/protected/pre-sqlite-*)
-      printf '/app-backups/protected/%s\n' "${resolved_snapshot##*/}"
       ;;
     *)
       printf 'Snapshot is outside the supported backup directories\n' >&2

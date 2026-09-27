@@ -8,7 +8,7 @@ access-controlled platform mechanism.
 
 ## Endpoints
 
-- `GET /live` returns HTTP 200 only when the Node.js event loop can accept and
+- `GET /live` returns HTTP 200 only when the Rust service can accept and
   answer a new request. It contains the application version and process
   timestamps.
 - `GET /ready` and `GET /health` return HTTP 200 when work can be performed and
@@ -61,10 +61,10 @@ exists, readiness is false with `EXCHANGE_RATES_UNAVAILABLE`.
 The image and Compose definition run this liveness command every 30 seconds:
 
 ```sh
-node src/health-check.js --restart-unresponsive
+/usr/local/bin/rental-app health-check --restart-unresponsive
 ```
 
-The command runs outside the application event loop in the same container and
+The command runs as a separate process in the same container and
 gives the private `/live` endpoint three seconds to answer. That budget is
 deliberately shorter than Compose's five-second healthcheck timeout: a failed
 probe must be able to record the failure and exit before Docker kills the check
@@ -77,7 +77,7 @@ already report the container unhealthy through `retries: 2`, which makes the
 kill deliberately one probe behind the alert: the application must have been
 unable to answer for two full 30-second intervals — roughly 60 to 75 seconds
 including each probe's own budget — before anything is signalled. A single
-successful probe ends the run, so a transient event-loop stall recovers without
+successful probe ends the run, so a transient service stall recovers without
 a restart. The earliest a fresh container can reach three failures is its
 90-second probe, 30 seconds past the 60-second start period reserved for
 preflight.
@@ -89,13 +89,10 @@ is never written to the persistent data volume. A missing, unreadable, or
 malformed count is treated as no failures at all: a counter that cannot be
 trusted never becomes the reason production is killed.
 
-Termination targets the Node process that is executing `src/index.js` — the
-executable in `argv[0]` with the script as its first non-option argument. The
-container's minimal init is PID 1 and lists the same script among its own
-arguments (`/sbin/docker-init -- docker-entrypoint.sh node src/index.js`), and
-`/proc` yields it first; it is never the target, both because it fails that
-test and because a PID namespace's init cannot receive an unhandled signal
-raised inside the namespace. Killing the application makes init exit non-zero
+Termination targets the `rental-app serve` process with the same
+`DATA_DIRECTORY` as the probe. It checks the executable, command line, and
+environment through `/proc`; the container's minimal init is PID 1 and is
+never the target. Killing the application makes init exit non-zero
 and Docker's bounded `on-failure` policy restarts the container, which is
 visible as an increased `RestartCount` and, if it repeats, the
 `process_restart_loop` alert.
@@ -109,18 +106,16 @@ Inspect liveness from the deployment host. Only the supervised
 neither arms termination nor clears a run already counting towards it:
 
 ```sh
-docker exec rental-apartments-bot node src/health-check.js
+docker exec rental-apartments-bot /usr/local/bin/rental-app health-check
 docker inspect --format '{{json .State.Health}}' rental-apartments-bot
 ```
 
 Inspect readiness without publishing its port. The `--ready` flag reports the
-verdict as an exit status; the inline fetch also prints the `reasons` array that
-explains a failure:
+verdict as an exit status; `--json` prints the bounded `reasons` and
+`alertReasons` arrays that explain a failure:
 
 ```sh
-docker exec rental-apartments-bot node src/health-check.js --ready
-docker exec rental-apartments-bot node -e \
-  'fetch("http://127.0.0.1:8787/ready").then(async response => { console.log(await response.text()); process.exitCode = response.ok ? 0 : 1 })'
+docker exec rental-apartments-bot /usr/local/bin/rental-app health-check --ready --json
 ```
 
 Scheduled monitoring uses the `--ready` form. Passing neither flag probes
@@ -133,7 +128,7 @@ passed the application's alert grace policy. Host monitoring counts a failed
 probe only when this array is nonempty. A challenge inside its grace period
 still reports HTTP 503 and `LIST_AM_CHALLENGE` in `reasons`, while
 staleness, exhausted crawl failures, and startup failures remain alertable.
-`node src/health-check.js --ready --json` prints only status and these two
+`rental-app health-check --ready --json` prints only status and these two
 bounded code arrays, preserving a nonzero exit for an unready response. It
 distinguishes `READINESS_PROBE_TIMEOUT`, `READINESS_PROBE_FAILED`, and
 `READINESS_RESPONSE_INVALID` from an application-reported readiness failure.
@@ -148,7 +143,7 @@ Before rollout, verify the rendered Compose configuration contains no `ports`
 or host-network mode and retains the loopback host:
 
 ```sh
-docker compose --file compose.production.yaml config
+sudo /opt/rental-apartments/current/ops/service config --quiet
 docker inspect --format '{{json .NetworkSettings.Ports}}' \
   rental-apartments-bot
 ```

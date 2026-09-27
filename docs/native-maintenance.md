@@ -1,4 +1,8 @@
-# Offline native backup and restore
+# Archived offline native backup and restore exercise
+
+This describes an early prototype exercise. Its commands are historical and
+are not the production recovery procedure. Use [state recovery](state-recovery.md)
+for the maintained Rust service.
 
 Issue [#40](https://github.com/monkeysees/arm-rental/issues/40) adds `backup`,
 `validate` and `restore` to the experimental Rust executable on

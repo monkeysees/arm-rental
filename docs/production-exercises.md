@@ -1,7 +1,9 @@
 # Production recovery exercises
 
-This runbook gathers allowlisted evidence for the final production recovery
-checks. The repository contains no claim that these checks ran on a real VPS.
+This runbook gathers allowlisted evidence for the full production recovery
+exercise. Its disruptive phases have not run as a complete suite on the VPS.
+The isolated Rust restore drill ran successfully on 2026-09-27; see
+[state recovery](state-recovery.md#drill-rollback-and-escalation).
 The checked-in
 [`production-exercise-evidence.template.json`](production-exercise-evidence.template.json)
 is deliberately `pending`; an authorized operator creates a separate

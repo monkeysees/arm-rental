@@ -1,4 +1,8 @@
-# Resource baseline
+# Archived Node resource baseline
+
+This benchmark records a historical Node measurement. Its Node commands and
+scripts are not maintained after the Rust replacement. Use the [Rust
+development guide](rust-development.md) for current acceptance checks.
 
 This offline benchmark measures the Node application's parsing, private delivery,
 and SQLite resource use. It is independent of any language migration and uses

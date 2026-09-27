@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { execFileSync } from "node:child_process";
 import { readFile, writeFile } from "node:fs/promises";
 import { basename, dirname, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -123,6 +124,40 @@ export async function createReleaseMetadata({
     throw new Error("Dockerfile.native must pin the Rust toolchain image");
   }
 
+  if (imageReference && runtime === "rust") {
+    let bundledVerifier;
+    try {
+      bundledVerifier = execFileSync(
+        "tar",
+        [
+          "--extract",
+          "--to-stdout",
+          "--file",
+          operationsBundle,
+          "ops/lib/provenance.sh",
+        ],
+        { stdio: ["ignore", "pipe", "pipe"] },
+      );
+    } catch {
+      throw new Error(
+        "Rust operations bundle lacks the Cargo provenance verifier",
+      );
+    }
+    const sourceVerifier = await readFile(
+      resolve(rootDirectory, "ops/lib/provenance.sh"),
+    );
+    if (
+      !bundledVerifier.equals(sourceVerifier) ||
+      !sourceVerifier.includes(
+        Buffer.from("RENTAL_PROVENANCE_CONTRACT_V3=cargo-source-v1\n"),
+      )
+    ) {
+      throw new Error(
+        "Rust operations bundle has an unverified Cargo provenance contract",
+      );
+    }
+  }
+
   const common = {
     schemaVersion: 1,
     sourceRevision,
@@ -141,6 +176,14 @@ export async function createReleaseMetadata({
     deployableStateBackends: ["sqlite"],
     runtime,
     deployableRuntimes: ["node", "rust"],
+    ...(imageReference && runtime === "rust"
+      ? {
+          deployableProvenanceContracts: [
+            "legacy-package-lock-v2",
+            "cargo-source-v3",
+          ],
+        }
+      : {}),
     cutoverRollbackContract: "preserve-live-state-v1",
     ...(runtime === "rust"
       ? { rustVersion, cargoLockSha256: sha256(runtimeInput) }

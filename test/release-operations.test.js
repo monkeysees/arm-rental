@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
-import { readFile } from "node:fs/promises";
+import { createHash } from "node:crypto";
+import { chmod, readFile } from "node:fs/promises";
 import { promisify } from "node:util";
 import test from "node:test";
 
@@ -260,6 +261,7 @@ async function manualReleaseFixture(
     integrity = "ok",
     foreignKeyViolations = 0,
     updateOffset = 100_001,
+    historicalNodeRelease = false,
   },
 ) {
   const { mkdtemp, mkdir, writeFile, chmod, rm } =
@@ -270,6 +272,78 @@ async function manualReleaseFixture(
   t.after(() => rm(root, { recursive: true, force: true }));
   const bin = path.join(root, "bin");
   await mkdir(bin);
+  const targetRevision = "a".repeat(40);
+  const packageLock = '{"lockfileVersion":3}\n';
+  const packageLockSha256 = createHash("sha256")
+    .update(packageLock)
+    .digest("hex");
+  let targetRelease;
+  if (historicalNodeRelease) {
+    const bundle = path.join(root, "bundle");
+    const archiveRoot = path.join(root, "archive");
+    targetRelease = path.join(
+      root,
+      "releases",
+      `${targetRevision}-${"a".repeat(16)}`,
+    );
+    await mkdir(path.join(archiveRoot, "ops"), { recursive: true });
+    await mkdir(path.join(archiveRoot, "infra/systemd"), { recursive: true });
+    await mkdir(bundle);
+    await mkdir(targetRelease, { recursive: true });
+    await writeFile(path.join(archiveRoot, "ops/service"), "#!/bin/sh\n", {
+      mode: 0o755,
+    });
+    await writeFile(
+      path.join(archiveRoot, "infra/systemd/bot.service"),
+      "[Unit]\n",
+    );
+    await executeFile("tar", [
+      "--create",
+      `--file=${path.join(bundle, "operations.tar")}`,
+      "--directory",
+      archiveRoot,
+      "ops",
+      "infra",
+    ]);
+    const compose = "services: {bot: {}}\n";
+    await writeFile(path.join(bundle, "compose.production.yaml"), compose);
+    await writeFile(path.join(bundle, "package-lock.json"), packageLock);
+    const sha = (bytes) => createHash("sha256").update(bytes).digest("hex");
+    const metadata = {
+      schemaVersion: 2,
+      imageReference: completeArguments.image,
+      imageDigest: completeArguments.image.split("@")[1],
+      sourceRevision: targetRevision,
+      stateBackend: "sqlite",
+      minimumStateSchema: 1,
+      maximumStateSchema: 6,
+      packageLockSha256,
+      composeSha256: sha(compose),
+      operationsBundleSha256: sha(
+        await readFile(path.join(bundle, "operations.tar")),
+      ),
+    };
+    await writeFile(
+      path.join(bundle, "release-metadata.json"),
+      JSON.stringify(metadata),
+    );
+    for (const name of [
+      "release-metadata.json",
+      "compose.production.yaml",
+      "package-lock.json",
+    ]) {
+      await writeFile(
+        path.join(targetRelease, name),
+        await readFile(path.join(bundle, name)),
+      );
+    }
+    await executeFile("tar", [
+      "--extract",
+      `--file=${path.join(bundle, "operations.tar")}`,
+      "--directory",
+      targetRelease,
+    ]);
+  }
   const fixture = {
     candidate: completeArguments.image,
     previous: completeArguments["previous-image"],
@@ -286,6 +360,8 @@ async function manualReleaseFixture(
     integrity,
     foreignKeyViolations,
     updateOffset,
+    targetRevision,
+    packageLockSha256,
   };
   await writeFile(path.join(root, "fixture.json"), JSON.stringify(fixture));
   await writeFile(
@@ -301,9 +377,12 @@ function print(value) { process.stdout.write(JSON.stringify(value) + "\n"); }
 if (args[0] === "image") {
   const candidate = args.at(-1) === fixture.candidate;
   const runtime = candidate ? fixture.candidateRuntime : fixture.previousRuntime;
-  print({ "com.rental-apartments.state.backend": "sqlite", "com.rental-apartments.state.schema.minimum": "1", "com.rental-apartments.state.schema.maximum": String(candidate ? fixture.maximumSchema : 6), ...(runtime === undefined ? {} : { "com.rental-apartments.runtime": runtime }) });
+  const labels = { "org.opencontainers.image.revision": candidate ? fixture.targetRevision : "b".repeat(40), "com.rental-apartments.state.backend": "sqlite", "com.rental-apartments.state.schema.minimum": "1", "com.rental-apartments.state.schema.maximum": String(candidate ? fixture.maximumSchema : 6), ...(runtime === undefined ? {} : { "com.rental-apartments.runtime": runtime }), "org.opencontainers.image.package-lock.sha256": fixture.packageLockSha256 };
+  if (args.includes("{{json .Config.Labels}}")) print(labels);
+  else process.stdout.write(labels["org.opencontainers.image.package-lock.sha256"] + "\n");
 } else if (args[0] === "inspect") {
-  if (args.includes("{{.State.Running}}")) {
+  if (args.some((arg) => arg.includes("com.rental-apartments.runtime"))) process.stdout.write((fixture.candidateRuntime || "node") + "\n");
+  else if (args.includes("{{.State.Running}}")) {
     const calls = fs.readFileSync(root + "/calls.jsonl", "utf8").trim().split("\n").map(JSON.parse);
     if (fixture.missingContainerAfterCandidate && calls.some((call) => call.args.includes("up") && call.image === fixture.candidate)) {
       process.stderr.write("No such object: rental-apartments-bot\n");
@@ -327,7 +406,10 @@ if (args[0] === "image") {
 } else if (args[0] === "logs") {
   print({ event: "startup.preflight.completed", preflight: { status: "ready", checks: { telegram: "passed", channel: "passed" } } });
   print({ event: "crawl.succeeded", crawlId: "native-crawl", notified: 1, channelSent: 1, channelEdited: 0 });
-} else process.exit(90);
+} else if (args[0] === "pull" || args[0] === "rm") process.exit(0);
+else if (args[0] === "create") process.stdout.write("metadata-container\n");
+else if (args[0] === "cp") fs.copyFileSync(root + "/bundle/" + args[1].split("/").at(-1), args[2]);
+else process.exit(90);
 `,
   );
   await chmod(path.join(bin, "docker"), 0o755);
@@ -360,23 +442,57 @@ if (args[0] === "image") {
     "both",
     "--state-strategy",
     stateStrategy,
+    ...(targetRelease ? ["--target-release", targetRelease] : []),
     "--evidence-file",
     path.join(root, "evidence.json"),
   ];
+  const testRunner = path.join(root, "historical-runner.mjs");
+  if (targetRelease) {
+    await writeFile(
+      path.join(root, "contract.json"),
+      JSON.stringify({
+        ...completeArguments,
+        operation,
+        actor: "test:manual-release",
+        "state-strategy": stateStrategy,
+        "target-release": targetRelease,
+        "evidence-file": path.join(root, "evidence.json"),
+        dryRun: false,
+      }),
+    );
+    await writeFile(
+      testRunner,
+      `
+      import { readFile } from "node:fs/promises";
+      import { userInfo } from "node:os";
+      import { createReleaseContract, executeRelease } from ${JSON.stringify(new URL("../scripts/release-operations.js", import.meta.url).href)};
+      const raw = JSON.parse(await readFile(${JSON.stringify(path.join(root, "contract.json"))}, "utf8"));
+      const releasesRoot = ${JSON.stringify(path.join(root, "releases"))};
+      const trust = { root: releasesRoot, ancestors: [], rootOwnerAccount: userInfo().username, releaseOwnerUid: process.getuid() };
+      await executeRelease(createReleaseContract(raw, trust));
+    `,
+    );
+  }
   const run = () =>
-    executeFile(process.execPath, args, {
-      env: {
-        ...process.env,
-        PATH: `${bin}:${process.env.PATH}`,
-        FAKE_DOCKER_ROOT: root,
+    executeFile(
+      process.execPath,
+      targetRelease
+        ? ["--import", path.join(root, "clock.mjs"), testRunner]
+        : args,
+      {
+        env: {
+          ...process.env,
+          PATH: `${bin}:${process.env.PATH}`,
+          FAKE_DOCKER_ROOT: root,
+        },
       },
-    });
+    );
   const calls = async () =>
     (await readFile(path.join(root, "calls.jsonl"), "utf8"))
       .trim()
       .split("\n")
       .map(JSON.parse);
-  return { run, calls };
+  return { run, calls, root, targetRelease };
 }
 
 test("manual release uses Rust image commands and retains unlabeled Node rollback tooling", async (t) => {
@@ -437,6 +553,148 @@ test("manual rollback inspects live Rust state without a writer and runs retaine
     calls.some(
       ({ args }) =>
         args[0] === "exec" && args[2] === "node" && args[3] === "-e",
+    ),
+  );
+});
+
+test("snapshot-backed Rust-to-historical-Node rollback verifies retained release and uses Node tooling", async (t) => {
+  const fixture = await manualReleaseFixture(t, {
+    previousRuntime: "rust",
+    operation: "rollback",
+    stateStrategy: "restore",
+    historicalNodeRelease: true,
+  });
+  await fixture.run();
+  const calls = await fixture.calls();
+  const validation = calls.find(({ args }) => args.includes("backup:validate"));
+  const restoration = calls.find(({ args }) => args.includes("restore"));
+  const stop = calls.findIndex(({ args }) => args.includes("stop"));
+  assert.ok(calls.indexOf(validation) < stop);
+  assert.equal(validation.image, completeArguments.image);
+  assert.deepEqual(validation.args.slice(-5), [
+    "npm",
+    "run",
+    "backup:validate",
+    "--",
+    completeArguments.snapshot,
+  ]);
+  assert.equal(restoration.image, completeArguments.image);
+  assert.deepEqual(restoration.args.slice(-5), [
+    "npm",
+    "run",
+    "restore",
+    "--",
+    completeArguments.snapshot,
+  ]);
+  assert.ok(
+    validation.args.includes(
+      `${fixture.targetRelease}/compose.production.yaml`,
+    ),
+  );
+  const start = calls.find(
+    ({ args, image }) =>
+      args.includes("up") && image === completeArguments.image,
+  );
+  assert.ok(
+    start.args.includes(`${fixture.targetRelease}/compose.production.yaml`),
+  );
+  assert.ok(!start.args.some((arg) => arg.endsWith("ops/compose.native.yaml")));
+});
+
+test("malformed historical Node release fails before Rust is stopped", async (t) => {
+  const fixture = await manualReleaseFixture(t, {
+    previousRuntime: "rust",
+    operation: "rollback",
+    stateStrategy: "restore",
+    historicalNodeRelease: true,
+  });
+  const metadataPath = `${fixture.targetRelease}/release-metadata.json`;
+  await (await import("node:fs/promises")).writeFile(metadataPath, "{}\n");
+  await assert.rejects(fixture.run());
+  const calls = await fixture.calls();
+  assert.ok(!calls.some(({ args }) => args.includes("stop")));
+});
+
+test("historical Node rollback rejects a writable Compose before stopping Rust", async (t) => {
+  const fixture = await manualReleaseFixture(t, {
+    previousRuntime: "rust",
+    operation: "rollback",
+    stateStrategy: "restore",
+    historicalNodeRelease: true,
+  });
+  await chmod(`${fixture.targetRelease}/compose.production.yaml`, 0o664);
+  await assert.rejects(fixture.run());
+  const calls = await fixture.calls();
+  assert.ok(!calls.some(({ args }) => args.includes("stop")));
+});
+
+test("production CLI cannot name a release outside the canonical host root", () => {
+  assert.throws(
+    () =>
+      createReleaseContract({
+        ...completeArguments,
+        operation: "rollback",
+        "target-release": "/tmp/attacker/release",
+      }),
+    /trusted releases root/u,
+  );
+});
+
+test("production CLI cannot name a nested release under the canonical host root", () => {
+  assert.throws(
+    () =>
+      createReleaseContract({
+        ...completeArguments,
+        operation: "rollback",
+        "target-release":
+          "/var/lib/rental-apartments/releases/writable-parent/revision-digest",
+      }),
+    /direct child of the trusted releases root/u,
+  );
+});
+
+test("historical Node rollback refuses missing release proof and mismatched schema labels before stop", async (t) => {
+  for (const options of [
+    { historicalNodeRelease: false },
+    { historicalNodeRelease: true, maximumSchema: 7 },
+  ]) {
+    const fixture = await manualReleaseFixture(t, {
+      previousRuntime: "rust",
+      operation: "rollback",
+      stateStrategy: "restore",
+      ...options,
+    });
+    await assert.rejects(fixture.run());
+    const calls = await fixture.calls();
+    assert.ok(!calls.some(({ args }) => args.includes("stop")));
+  }
+});
+
+test("Node-to-Node snapshot rollback keeps the previous image on its own Compose", async (t) => {
+  const fixture = await manualReleaseFixture(t, {
+    candidateRuntime: "node",
+    previousRuntime: "node",
+    operation: "rollback",
+    stateStrategy: "restore",
+    historicalNodeRelease: true,
+  });
+  await fixture.run();
+  const calls = await fixture.calls();
+  const targetCompose = `${fixture.targetRelease}/compose.production.yaml`;
+  const previousCalls = calls.filter(
+    ({ args, image }) =>
+      image === completeArguments["previous-image"] &&
+      args[0] === "compose" &&
+      (args.includes("config") || args.includes("stop")),
+  );
+  assert.ok(previousCalls.length >= 2);
+  assert.ok(previousCalls.every(({ args }) => !args.includes(targetCompose)));
+  assert.ok(
+    calls.some(
+      ({ args, image }) =>
+        image === completeArguments.image &&
+        args.includes("up") &&
+        args.includes(targetCompose),
     ),
   );
 });

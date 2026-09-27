@@ -2,6 +2,8 @@
 
 # shellcheck source=ops/lib/runtime.sh
 source "$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)/runtime.sh"
+# shellcheck source=ops/lib/provenance.sh
+source "$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)/provenance.sh"
 
 # Digest discovery, release verification, and sanitized deployment state.
 # This library deliberately never sources the production environment file:
@@ -412,7 +414,7 @@ deployment_extract_release_bundle() {
   local revision=$2
   local output_directory=$3
   local metadata_tag="$repository:metadata-$revision"
-  local artifact container="" status=0
+  local artifact container="" status=0 schema
   install -d -m 0700 "$output_directory" || return
   docker pull "$metadata_tag" >/dev/null || return
   # Published metadata uses a scratch image with no default command. Supply an
@@ -420,8 +422,19 @@ deployment_extract_release_bundle() {
   container=$(
     docker create "$metadata_tag" /release/release-metadata.json
   ) || return
-  for artifact in \
-    release-metadata.json operations.tar compose.production.yaml package-lock.json; do
+  docker cp "$container:/release/release-metadata.json" \
+    "$output_directory/release-metadata.json" || status=1
+  if ((status == 0)); then
+    schema=$(jq -er '.schemaVersion | select(. == 2 or . == 3)' \
+      "$output_directory/release-metadata.json") || status=1
+  fi
+  local artifacts=(operations.tar compose.production.yaml)
+  if [[ ${schema:-} == 2 ]]; then
+    artifacts+=(package-lock.json)
+  elif [[ ${schema:-} == 3 ]]; then
+    artifacts+=(source-inputs.json transport-files.json)
+  fi
+  for artifact in "${artifacts[@]}"; do
     docker cp "$container:/release/$artifact" "$output_directory/$artifact" ||
       status=1
   done
@@ -448,9 +461,17 @@ deployment_set_release_permissions() {
 
 deployment_validate_operations_archive() {
   local archive=$1
-  local entry invalid_entry=0
-  tar --list --file "$archive" >/dev/null || return 65
+  local entry type invalid_entry=0 entries verbose
+  entries=$(tar --list --file "$archive") || return 65
+  verbose=$(tar --list --verbose --file "$archive") || return 65
+  [[ $(printf '%s\n' "$entries" | LC_ALL=C sort | uniq -d) == "" ]] || return 65
+  while IFS= read -r type; do
+    [[ $type == - || $type == d ]] || return 65
+  done < <(printf '%s\n' "$verbose" | cut -c1)
   while IFS= read -r entry; do
+    [[ $entry =~ ^[A-Za-z0-9_./-]+$ &&
+      $entry != *//* && $entry != ./* &&
+      $entry != */./* && $entry != */. ]] || invalid_entry=1
     case $entry in
       "" | /* | ../* | */../* | */..) invalid_entry=1 ;;
       # `git archive HEAD ops infra/systemd` includes the structural `infra/`
@@ -460,11 +481,63 @@ deployment_validate_operations_archive() {
         invalid_entry=1
         ;;
     esac
-  done < <(tar --list --file "$archive")
+  done <<< "$entries"
   if ((invalid_entry == 1)); then
     printf 'Operations bundle contains an unexpected path\n' >&2
     return 65
   fi
+}
+
+deployment_verify_existing_release_contents() {
+  local final=$1 bundle=$2 schema=$3 comparison artifact expected_top actual_top descendants file relative archived_mode installed_mode installed_owner symlinks
+  local expected=(compose.production.yaml release-metadata.json ops infra)
+  if [[ $schema == 2 ]]; then
+    expected+=(package-lock.json)
+  else
+    expected+=(source-inputs.json transport-files.json)
+  fi
+  expected_top=$(printf '%s\n' "${expected[@]}" | LC_ALL=C sort)
+  actual_top=$(find "$final" -mindepth 1 -maxdepth 1 -printf '%f\n' | LC_ALL=C sort) || return 65
+  [[ $actual_top == "$expected_top" ]] || return 65
+  symlinks=$(find "$final" -type l -print -quit) || return 65
+  [[ -z $symlinks ]] || return 65
+  descendants=$(find "$final" -print) || return 65
+  installed_owner=$(stat -c %u "$final") || return 65
+  while IFS= read -r file; do
+    [[ -f $file || -d $file ]] || return 65
+    installed_mode=$(stat -c %a "$file") || return 65
+    (( (8#$installed_mode & 0022) == 0 )) || return 65
+    [[ $(stat -c %u "$file") == "$installed_owner" ]] || return 65
+  done <<< "$descendants"
+  for artifact in "${expected[@]}"; do
+    [[ $artifact == ops || $artifact == infra ]] && continue
+    [[ -f $final/$artifact && ! -L $final/$artifact ]] || return 65
+    cmp -s -- "$bundle/$artifact" "$final/$artifact" || return 65
+  done
+  [[ -d $final/ops && -d $final/infra/systemd ]] || return 65
+  deployment_validate_operations_archive "$bundle/operations.tar" || return 65
+  comparison=$(mktemp -d) || return 65
+  if ! tar --extract --file "$bundle/operations.tar" \
+    --directory "$comparison" --no-same-owner ||
+    ! diff --recursive --brief "$comparison/ops" "$final/ops" >/dev/null ||
+    ! diff --recursive --brief "$comparison/infra" "$final/infra" >/dev/null; then
+    rm -rf -- "$comparison"
+    return 65
+  fi
+  while IFS= read -r file; do
+    relative=${file#"$comparison"/}
+    [[ -f $final/$relative && ! -L $final/$relative ]] || {
+      rm -rf -- "$comparison"
+      return 65
+    }
+    archived_mode=$(stat -c %a "$file") || return 65
+    installed_mode=$(stat -c %a "$final/$relative") || return 65
+    if (( (8#$archived_mode & 0700) != (8#$installed_mode & 0700) )); then
+      rm -rf -- "$comparison"
+      return 65
+    fi
+  done < <(find "$comparison/ops" "$comparison/infra" -type f -print)
+  rm -rf -- "$comparison"
 }
 
 deployment_fetch_release() {
@@ -472,18 +545,15 @@ deployment_fetch_release() {
   local revision=$2
   local metadata=$3
   local bundle_directory=$4
-  local digest release_name final temporary
+  local digest release_name final temporary artifact schema
   digest=$(deployment_digest_hex "$candidate")
   release_name="$revision-${digest:0:16}"
   final="$RENTAL_RELEASES_ROOT/$release_name"
+  deployment_verify_release "$bundle_directory" "$candidate" "$metadata" || return 65
+  schema=$(jq -r .schemaVersion "$metadata") || return 65
   if [[ -d $final && ! -L $final ]]; then
-    [[ -f $final/compose.production.yaml &&
-      -f $final/package-lock.json &&
-      -f $final/release-metadata.json &&
-      ! -L $final/release-metadata.json &&
-      -d $final/ops &&
-      -d $final/infra/systemd ]] || {
-      printf 'Existing release directory is incomplete\n' >&2
+    deployment_verify_existing_release_contents "$final" "$bundle_directory" "$schema" || {
+      printf 'Existing release directory differs from verified bundle\n' >&2
       return 65
     }
     deployment_set_release_permissions "$final" || return 65
@@ -493,22 +563,23 @@ deployment_fetch_release() {
 
   install -d -m 0750 "$RENTAL_RELEASES_ROOT" || return
   temporary=$(mktemp -d "$RENTAL_RELEASES_ROOT/.release.XXXXXX") || return
-  if ! deployment_verify_release "$bundle_directory" "$candidate" "$metadata"; then
-    deployment_discard_staging_release "$temporary"
-    return 65
-  fi
   install -m 0644 \
     "$bundle_directory/compose.production.yaml" \
     "$temporary/compose.production.yaml" || {
     deployment_discard_staging_release "$temporary"
     return 65
   }
-  install -m 0644 \
-    "$bundle_directory/package-lock.json" \
-    "$temporary/package-lock.json" || {
-    deployment_discard_staging_release "$temporary"
-    return 65
-  }
+  if [[ $schema == 2 ]]; then
+    local extra=(package-lock.json)
+  else
+    local extra=(source-inputs.json transport-files.json)
+  fi
+  for artifact in "${extra[@]}"; do
+    install -m 0644 "$bundle_directory/$artifact" "$temporary/$artifact" || {
+      deployment_discard_staging_release "$temporary"
+      return 65
+    }
+  done
   install -m 0644 \
     "$metadata" \
     "$temporary/release-metadata.json" || {
@@ -553,7 +624,7 @@ deployment_state_transition() {
   [[ -f $previous_metadata && ! -L $previous_metadata ]]
   [[ -f $candidate_metadata && ! -L $candidate_metadata ]]
   jq -e --arg image "$previous_image" '
-    .schemaVersion == 2 and
+    (.schemaVersion == 2 or .schemaVersion == 3) and
     .imageReference == $image and
     (.sourceRevision | test("^[0-9a-f]{40}$")) and
     .stateBackend == "sqlite" and
@@ -570,7 +641,7 @@ deployment_state_transition() {
     return 65
   }
   jq -e --arg image "$candidate_image" '
-    .schemaVersion == 2 and
+    (.schemaVersion == 2 or .schemaVersion == 3) and
     .imageReference == $image and
     .stateBackend == "sqlite" and
     (.minimumStateSchema | type) == "number" and
@@ -585,6 +656,35 @@ deployment_state_transition() {
     ), but a candidate must declare stateBackend sqlite with state schema 1 or higher"
     return 65
   }
+
+  # The only legacy exception is an explicit rollback to a retained Node
+  # release. Unattended discovery must never downgrade provenance.
+  if [[ $(jq -r .schemaVersion "$previous_metadata") == 3 &&
+    $(jq -r .schemaVersion "$candidate_metadata") == 2 ]]; then
+    deployment_verification_error 'unattended Cargo-to-package-lock provenance downgrade'
+    return 65
+  fi
+  if [[ $(jq -r .schemaVersion "$candidate_metadata") == 3 ]]; then
+    jq -e '
+      .deployableProvenanceContracts ==
+        ["legacy-package-lock-v2", "cargo-source-v3"]
+    ' "$previous_metadata" >/dev/null || {
+      deployment_verification_error 'current release cannot verify Cargo/source-input provenance'
+      return 65
+    }
+  fi
+  if jq -e '
+    .deployableProvenanceContracts ==
+      ["legacy-package-lock-v2", "cargo-source-v3"]
+  ' "$previous_metadata" >/dev/null; then
+    jq -e '
+      .deployableProvenanceContracts ==
+        ["legacy-package-lock-v2", "cargo-source-v3"]
+    ' "$candidate_metadata" >/dev/null || {
+      deployment_verification_error 'candidate removes the deployed Cargo provenance capability'
+      return 65
+    }
+  fi
 
   jq -e --slurpfile previous "$previous_metadata" '
     .minimumStateSchema <= $previous[0].minimumStateSchema and
@@ -625,10 +725,23 @@ deployment_verify_release() {
   local candidate=$2
   local metadata=$3
   local compose_digest package_digest operations_digest label_digest image_runtime metadata_runtime
+  if [[ $(jq -r '.schemaVersion // empty' "$metadata") == 3 ]]; then
+    provenance_verify_v3_release "$bundle_directory" "$candidate" "$metadata" || {
+      deployment_verification_error 'Cargo/source-input release contents or image labels do not match'
+      return 65
+    }
+    return 0
+  fi
   jq -e \
     --arg image "$candidate" \
     --arg revision "$DEPLOYMENT_SOURCE_REVISION" \
     '.schemaVersion == 2 and
+     (has("provenanceKind") | not) and
+     (has("sourceInputsSha256") | not) and
+     (has("transportClosureSha256") | not) and
+     ((has("deployableProvenanceContracts") | not) or
+       (.runtime == "rust" and .deployableProvenanceContracts ==
+         ["legacy-package-lock-v2", "cargo-source-v3"])) and
      .imageReference == $image and
      .imageDigest == ($image | split("@")[1]) and
      .sourceRevision == $revision and
@@ -704,6 +817,16 @@ deployment_verify_release() {
       "operations.tar digest $operations_digest does not match the metadata"
     return 65
   }
+  if jq -e 'has("deployableProvenanceContracts")' "$metadata" >/dev/null; then
+    deployment_validate_operations_archive "$bundle_directory/operations.tar" || return 65
+    local advertised_verifier
+    advertised_verifier=$(tar --extract --to-stdout \
+      --file "$bundle_directory/operations.tar" ops/lib/provenance.sh | sha256sum | awk '{print $1}') || return 65
+    [[ $advertised_verifier == "$(sha256sum "$(dirname -- "${BASH_SOURCE[0]}")/provenance.sh" | awk '{print $1}')" ]] || {
+      deployment_verification_error 'advertised Cargo verifier is absent or does not match this host contract'
+      return 65
+    }
+  fi
 }
 
 deployment_validate_compose() {

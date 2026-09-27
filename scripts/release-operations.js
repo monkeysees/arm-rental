@@ -2,7 +2,7 @@ import { execFile } from "node:child_process";
 import { access, mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { promisify } from "node:util";
-import { pathToFileURL } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
 import { assertRollbackStateCompatibility } from "../src/release-compatibility.js";
 import { SQLITE_APPLICATION_ID } from "../src/sqlite-schema.js";
@@ -15,6 +15,12 @@ const SNAPSHOT_PATH =
 const OPERATIONS = new Set(["validate", "deploy", "rollback"]);
 const DELIVERY_MODES = new Set(["private", "channel", "both"]);
 const STATE_STRATEGIES = new Set(["compatible", "restore"]);
+const PRODUCTION_RELEASE_TRUST = Object.freeze({
+  root: "/var/lib/rental-apartments/releases",
+  ancestors: ["/", "/var", "/var/lib", "/var/lib/rental-apartments"],
+  rootOwnerAccount: "rental-deploy",
+  releaseOwnerUid: 0,
+});
 const ARGUMENT_NAMES = new Set([
   "environment",
   "actor",
@@ -27,6 +33,7 @@ const ARGUMENT_NAMES = new Set([
   "state-strategy",
   "evidence-file",
   "compose-file",
+  "target-release",
 ]);
 
 function usage() {
@@ -37,7 +44,8 @@ function usage() {
     "    --image IMMUTABLE_REF --previous-image IMMUTABLE_REF \\",
     "    --snapshot /app-backups/daily/ID --poll-interval-ms MS \\",
     "    --observation-minutes MINUTES --delivery private|channel|both \\",
-    "    [--state-strategy compatible|restore] [--evidence-file PATH] [--dry-run]",
+    "    [--state-strategy compatible|restore] [--target-release ABSOLUTE_DIR]",
+    "    [--evidence-file PATH] [--dry-run]",
     "",
     "validate and --dry-run never invoke Docker.",
   ].join("\n");
@@ -98,7 +106,10 @@ function immutableReference(value, name) {
  * Validates every release input before a mutating Docker command can run.
  * The resulting contract is also the machine-readable dry-run output.
  */
-export function createReleaseContract(raw) {
+export function createReleaseContract(
+  raw,
+  releaseTrust = PRODUCTION_RELEASE_TRUST,
+) {
   if (!OPERATIONS.has(raw.operation)) {
     throw new Error("operation must be validate, deploy, or rollback");
   }
@@ -169,6 +180,20 @@ export function createReleaseContract(raw) {
     raw["compose-file"] || "compose.production.yaml",
   );
   const projectName = "rental-apartments";
+  const releasesRoot = releaseTrust.root;
+  if (raw["target-release"] && !path.isAbsolute(raw["target-release"])) {
+    throw new Error(
+      "--target-release must be an absolute verified release directory",
+    );
+  }
+  const targetRelease = raw["target-release"]
+    ? path.resolve(raw["target-release"])
+    : undefined;
+  if (targetRelease && path.dirname(targetRelease) !== releasesRoot) {
+    throw new Error(
+      "--target-release must be a direct child of the trusted releases root",
+    );
+  }
 
   return {
     schemaVersion: 1,
@@ -185,18 +210,29 @@ export function createReleaseContract(raw) {
     stateStrategy,
     composeFile,
     projectName,
+    targetRelease,
+    releasesRoot,
+    releaseTrust,
     evidenceFile,
     dryRun: raw.dryRun || raw.operation === "validate",
   };
 }
 
-function composeArguments(contract, runtime, ...arguments_) {
+function composeArguments(contract, runtime, image, ...arguments_) {
+  const composeFile =
+    runtime === "node" &&
+    contract.operation === "rollback" &&
+    contract.stateStrategy === "restore" &&
+    image === contract.image &&
+    contract.targetRelease
+      ? path.join(contract.targetRelease, "compose.production.yaml")
+      : contract.composeFile;
   return [
     "compose",
     "--project-name",
     contract.projectName,
     "--file",
-    contract.composeFile,
+    composeFile,
     ...(runtime === "rust"
       ? [
           "--file",
@@ -217,7 +253,11 @@ function commandPlan(contract) {
     `inspect immutable ${candidateAction} ${contract.image}`,
     `inspect retained previous artifact ${contract.previousImage}`,
     `validate singleton/stop-first Compose contract ${contract.composeFile}`,
-    `validate verified snapshot ${contract.snapshot} with ${contract.previousImage}`,
+    `validate verified snapshot ${contract.snapshot} with ${
+      contract.operation === "rollback" && contract.stateStrategy === "restore"
+        ? contract.image
+        : contract.previousImage
+    }`,
     "confirm exactly one expected container and persistent data volume",
     "stop old container and confirm it is not running",
     `start ${contract.image} without replacing the named data volume`,
@@ -253,7 +293,7 @@ function releaseEnvironment(contract, image) {
 async function inspectComposeContract(contract, runtime, image) {
   const { stdout } = await run(
     "docker",
-    composeArguments(contract, runtime, "config", "--format", "json"),
+    composeArguments(contract, runtime, image, "config", "--format", "json"),
     { env: releaseEnvironment(contract, image) },
   );
   const configuration = JSON.parse(stdout);
@@ -324,6 +364,7 @@ async function inspectImageStateCompatibility(image) {
     throw new Error(`Unsupported application runtime label: ${label}`);
   return {
     runtime,
+    sourceRevision: labels?.["org.opencontainers.image.revision"],
     stateBackend: labels?.["com.rental-apartments.state.backend"],
     minimumStateSchema: Number(
       labels?.["com.rental-apartments.state.schema.minimum"],
@@ -332,6 +373,93 @@ async function inspectImageStateCompatibility(image) {
       labels?.["com.rental-apartments.state.schema.maximum"],
     ),
   };
+}
+
+async function verifyHistoricalNodeRelease(contract, targetMetadata) {
+  if (!contract.targetRelease) {
+    throw new Error(
+      "--target-release is required for snapshot-backed rollback to a retained Node release",
+    );
+  }
+  if (
+    !/^[a-f0-9]{40}$/u.test(targetMetadata.sourceRevision || "") ||
+    !/^[a-z0-9][a-z0-9._/-]*@sha256:[a-f0-9]{64}$/u.test(contract.image) ||
+    targetMetadata.stateBackend !== "sqlite" ||
+    !Number.isSafeInteger(targetMetadata.minimumStateSchema) ||
+    !Number.isSafeInteger(targetMetadata.maximumStateSchema) ||
+    targetMetadata.minimumStateSchema < 1 ||
+    targetMetadata.maximumStateSchema < targetMetadata.minimumStateSchema
+  ) {
+    throw new Error(
+      "Historical Node rollback requires valid revision, digest, and SQLite schema labels",
+    );
+  }
+  const library = fileURLToPath(
+    new URL("../ops/lib/deployment.sh", import.meta.url),
+  );
+  await run("bash", [
+    "-c",
+    `set -Eeuo pipefail
+      image=$1
+      revision=$2
+      installed=$3
+      library=$4
+      releases_root=$5
+      minimum=$6
+      maximum=$7
+      deployment_account=$8
+      release_owner=$9
+      shift 9
+      RENTAL_OPS_STATE_DIR=/var/lib/rental-apartments-ops
+      digest=\${image##*@sha256:}
+      [[ \${installed##*/} == "$revision-\${digest:0:16}" ]]
+      [[ -d "$installed" && ! -L "$installed" ]]
+      [[ $(realpath --canonicalize-existing "$releases_root") == "$releases_root" ]]
+      [[ $(realpath --canonicalize-existing "$installed") == "$installed" ]]
+      [[ $(dirname "$installed") == "$releases_root" ]]
+      deployment_owner=$(id -u "$deployment_account")
+      [[ $(stat -c %u "$installed") == "$release_owner" ]]
+      for directory in "$@"; do
+        [[ -d "$directory" && ! -L "$directory" ]]
+        [[ $(realpath --canonicalize-existing "$directory") == "$directory" ]]
+        [[ $(stat -c %u "$directory") == 0 ]]
+        mode=$(stat -c %a "$directory")
+        (( (8#$mode & 0022) == 0 ))
+      done
+      [[ $(stat -c %u "$releases_root") == "$deployment_owner" ]]
+      for directory in "$releases_root" "$installed"; do
+        [[ -d "$directory" && ! -L "$directory" ]]
+        [[ $(realpath --canonicalize-existing "$directory") == "$directory" ]]
+        mode=$(stat -c %a "$directory")
+        (( (8#$mode & 0022) == 0 ))
+      done
+      bundle=$(mktemp -d)
+      trap 'rm -rf -- "$bundle"' EXIT
+      source "$library"
+      DEPLOYMENT_SOURCE_REVISION=$revision
+      repository=\${image%@sha256:*}
+      deployment_extract_release_bundle "$repository" "$revision" "$bundle"
+      metadata="$bundle/release-metadata.json"
+      jq -e --argjson minimum "$minimum" --argjson maximum "$maximum" '
+        (.schemaVersion == 2) and ((.runtime // "node") == "node") and
+        .stateBackend == "sqlite" and
+        .minimumStateSchema == $minimum and .maximumStateSchema == $maximum
+      ' "$metadata" >/dev/null
+      deployment_verify_release "$bundle" "$image" "$metadata"
+      deployment_verify_existing_release_contents "$installed" "$bundle" 2
+    `,
+    "historical-node-rollback",
+    contract.image,
+    targetMetadata.sourceRevision,
+    contract.targetRelease,
+    library,
+    contract.releasesRoot,
+    String(targetMetadata.minimumStateSchema),
+    String(targetMetadata.maximumStateSchema),
+    contract.releaseTrust.rootOwnerAccount,
+    String(contract.releaseTrust.releaseOwnerUid),
+    ...contract.releaseTrust.ancestors,
+  ]);
 }
 
 async function inspectLiveState(runtime) {
@@ -394,6 +522,7 @@ async function inspectStoppedNodeState(contract) {
     composeArguments(
       contract,
       "node",
+      contract.previousImage,
       "run",
       "--rm",
       "--no-deps",
@@ -426,6 +555,7 @@ async function inspectStoppedState(contract, runtime) {
     composeArguments(
       contract,
       runtime,
+      contract.previousImage,
       "run",
       "--rm",
       "--no-deps",
@@ -437,12 +567,17 @@ async function inspectStoppedState(contract, runtime) {
   return JSON.parse(stdout);
 }
 
-async function validateSnapshot(contract, runtime) {
+async function validateSnapshot(
+  contract,
+  runtime,
+  image = contract.previousImage,
+) {
   await run(
     "docker",
     composeArguments(
       contract,
       runtime,
+      image,
       "run",
       "--rm",
       "--no-deps",
@@ -451,14 +586,18 @@ async function validateSnapshot(contract, runtime) {
         ? ["backup:validate", "--snapshot", contract.snapshot]
         : ["npm", "run", "backup:validate", "--", contract.snapshot]),
     ),
-    { env: releaseEnvironment(contract, contract.previousImage) },
+    { env: releaseEnvironment(contract, image) },
   );
 }
 
 async function stopAndConfirm(contract, runtime) {
-  await run("docker", composeArguments(contract, runtime, "stop", "bot"), {
-    env: releaseEnvironment(contract, contract.previousImage),
-  });
+  await run(
+    "docker",
+    composeArguments(contract, runtime, contract.previousImage, "stop", "bot"),
+    {
+      env: releaseEnvironment(contract, contract.previousImage),
+    },
+  );
   const { stdout } = await run("docker", [
     "inspect",
     "--format",
@@ -476,6 +615,7 @@ async function startImage(contract, image, runtime) {
     composeArguments(
       contract,
       runtime,
+      image,
       "up",
       "--detach",
       "--force-recreate",
@@ -485,12 +625,17 @@ async function startImage(contract, image, runtime) {
   );
 }
 
-async function restoreSnapshot(contract, runtime) {
+async function restoreSnapshot(
+  contract,
+  runtime,
+  image = contract.previousImage,
+) {
   await run(
     "docker",
     composeArguments(
       contract,
       runtime,
+      image,
       "run",
       "--rm",
       "--no-deps",
@@ -499,7 +644,7 @@ async function restoreSnapshot(contract, runtime) {
         ? ["backup:restore", "--snapshot", contract.snapshot]
         : ["npm", "run", "restore", "--", contract.snapshot]),
     ),
-    { env: releaseEnvironment(contract, contract.previousImage) },
+    { env: releaseEnvironment(contract, image) },
   );
 }
 
@@ -680,9 +825,13 @@ async function confirmSingletonStopped(role) {
 }
 
 async function recoverPrevious(contract, runtime, previousMetadata) {
-  await run("docker", composeArguments(contract, runtime, "stop", "bot"), {
-    env: releaseEnvironment(contract, contract.image),
-  });
+  await run(
+    "docker",
+    composeArguments(contract, runtime, contract.image, "stop", "bot"),
+    {
+      env: releaseEnvironment(contract, contract.image),
+    },
+  );
   await confirmSingletonStopped("candidate");
   const preserveLiveState =
     contract.stateStrategy === "compatible" &&
@@ -710,7 +859,13 @@ async function recoverPrevious(contract, runtime, previousMetadata) {
     try {
       await run(
         "docker",
-        composeArguments(contract, previousMetadata.runtime, "stop", "bot"),
+        composeArguments(
+          contract,
+          previousMetadata.runtime,
+          contract.previousImage,
+          "stop",
+          "bot",
+        ),
         { env: releaseEnvironment(contract, contract.previousImage) },
       );
       await confirmSingletonStopped("previous image");
@@ -728,7 +883,7 @@ async function recoverPrevious(contract, runtime, previousMetadata) {
   return preserveLiveState;
 }
 
-async function executeRelease(contract) {
+export async function executeRelease(contract) {
   try {
     await access(contract.evidenceFile);
     throw new Error(
@@ -742,6 +897,13 @@ async function executeRelease(contract) {
     inspectImageStateCompatibility(contract.previousImage),
     readFile(contract.composeFile, "utf8"),
   ]);
+  if (
+    contract.operation === "rollback" &&
+    contract.stateStrategy === "restore" &&
+    targetMetadata.runtime === "node"
+  ) {
+    await verifyHistoricalNodeRelease(contract, targetMetadata);
+  }
   await inspectComposeContract(
     contract,
     previousMetadata.runtime,
@@ -752,7 +914,14 @@ async function executeRelease(contract) {
     targetMetadata.runtime,
     contract.image,
   );
-  await validateSnapshot(contract, previousMetadata.runtime);
+  if (
+    contract.operation === "rollback" &&
+    contract.stateStrategy === "restore"
+  ) {
+    await validateSnapshot(contract, targetMetadata.runtime, contract.image);
+  } else {
+    await validateSnapshot(contract, previousMetadata.runtime);
+  }
   const runtime = await inspectRuntime(contract);
   if (
     contract.operation === "rollback" &&
@@ -770,7 +939,7 @@ async function executeRelease(contract) {
     contract.operation === "rollback" &&
     contract.stateStrategy === "restore"
   ) {
-    await restoreSnapshot(contract, previousMetadata.runtime);
+    await restoreSnapshot(contract, targetMetadata.runtime, contract.image);
   }
 
   const startedAt = new Date().toISOString();

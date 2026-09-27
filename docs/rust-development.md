@@ -102,6 +102,12 @@ node experiments/production-image/check.js /tmp/production-native-check \
   arm-rental-production-native:local
 ```
 
+This command remains the schema-2 intermediate build: its package-lock input
+is required until the Cargo provenance verifier has been published and
+confirmed on the host. The later schema-3 Rust publisher removes that input
+and carries canonical source and transport manifests described in the
+[release runbook](release-and-rollback.md#cargo-provenance-transition-49).
+
 The check creates only synthetic state and an isolated backup directory. It
 executes initialization, validation, backup, restore, and maintenance inside the
 non-root, read-only image with networking disabled. It also starts the packaged service against synthetic Telegram, List.am and CBA HTTP peers on host loopback (`--network host` on Linux), probes readiness, checks delivery, stops cleanly and restarts without redelivery. The service uses the packaged curl executable; the report records its hash and version. No production endpoints or credentials are used. The checker then checks the exported

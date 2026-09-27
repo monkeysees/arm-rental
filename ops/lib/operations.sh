@@ -77,6 +77,29 @@ ops_compose() {
     "$@"
 }
 
+# Check the commands systemd has loaded, including drop-ins. A stale unit can
+# bypass ops/service and start a Rust image with the Node Compose user.
+ops_verify_rust_systemd_runtime() {
+  local service_path="$RENTAL_RELEASE_DIR/ops/service"
+  local action arguments expected command remainder
+  for action in ExecStart ExecReload ExecStop; do
+    if [[ $action == ExecStop ]]; then
+      arguments='stop --timeout 45 bot'
+    else
+      arguments='up --detach --wait --wait-timeout 240 bot'
+    fi
+    expected="{ path=$service_path ; argv[]=$service_path $arguments ; ignore_errors=no ; "
+    command=$(systemctl show "$RENTAL_APP_SERVICE" \
+      --property="$action" --value --no-pager) || return
+    remainder=${command#"$expected"}
+    if [[ $remainder == "$command" || $remainder == *'path='* || $remainder != *' }' ]]; then
+      printf 'Installed %s %s does not use runtime-aware ops/service\n' \
+        "$RENTAL_APP_SERVICE" "$action" >&2
+      return 65
+    fi
+  done
+}
+
 ops_wait_ready() {
   local attempt status
   for ((attempt = 1; attempt <= RENTAL_READY_ATTEMPTS; attempt += 1)); do

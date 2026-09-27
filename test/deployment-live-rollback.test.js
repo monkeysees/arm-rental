@@ -11,6 +11,57 @@ const root = new URL("..", import.meta.url);
 const previousImage = `ghcr.io/example/arm-rental@sha256:${"a".repeat(64)}`;
 const runningImageId = `sha256:${"b".repeat(64)}`;
 
+test("Rust deployment rejects a loaded legacy unit that bypasses the native override", async () => {
+  const script = String.raw`
+    set -Eeuo pipefail
+    SCENARIO=$1
+    RENTAL_RELEASE_DIR=/opt/rental-apartments/current
+    source ops/lib/operations.sh
+    systemctl() {
+      [[ $1 == show && $2 == rental-apartments.service ]] || return 91
+      local command args
+      if [[ $SCENARIO == legacy ||
+        ( $SCENARIO == legacy-reload && $3 == --property=ExecReload ) ||
+        ( $SCENARIO == legacy-stop && $3 == --property=ExecStop ) ]]; then
+        command=/usr/bin/docker
+        args="compose --project-name rental-apartments --project-directory /opt/rental-apartments/current --file /opt/rental-apartments/current/compose.production.yaml"
+        if [[ $3 == --property=ExecStop ]]; then args="$args stop --timeout 45 bot"
+        else args="$args up --detach --wait --wait-timeout 240 bot"; fi
+      else
+        command=/opt/rental-apartments/current/ops/service
+        if [[ $3 == --property=ExecStop ]]; then args='stop --timeout 45 bot'
+        else args='up --detach --wait --wait-timeout 240 bot'; fi
+      fi
+      printf '{ path=%s ; argv[]=%s %s ; ignore_errors=no ; start_time=[n/a] ; stop_time=[n/a] ; pid=0 ; code=(null) ; status=0/0 }\n' \
+        "$command" "$command" "$args"
+    }
+    ops_verify_rust_systemd_runtime
+  `;
+  for (const scenario of ["legacy", "legacy-reload", "legacy-stop"]) {
+    await assert.rejects(
+      executeFile("bash", ["-c", script, "unit-test", scenario], { cwd: root }),
+      (error) => error.code === 65 && error.stderr.includes("runtime-aware"),
+      scenario,
+    );
+  }
+  await executeFile("bash", ["-c", script, "unit-test", "wrapper"], {
+    cwd: root,
+  });
+  const deploy = await readFile(
+    new URL("../ops/deploy", import.meta.url),
+    "utf8",
+  );
+  assert.match(
+    deploy,
+    /if \[\[ \$candidate_runtime == rust \]\]; then\n\s+ops_set_step verify-installed-runtime-service\n\s+ops_verify_rust_systemd_runtime/u,
+  );
+  assert.ok(
+    deploy.indexOf("ops_verify_rust_systemd_runtime") <
+      deploy.indexOf("ops_stop_application"),
+    "the loaded unit must be checked before the prior service stops",
+  );
+});
+
 test("deploy re-pulls the recorded previous digest before stopping for backup", async (t) => {
   const directory = await mkdtemp(join(tmpdir(), "deploy-previous-image-"));
   t.after(() => rm(directory, { recursive: true, force: true }));

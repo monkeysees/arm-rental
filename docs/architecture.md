@@ -33,16 +33,22 @@ canonical AMD amount drives all price filtering and channel price-band hashtags.
 
 ## Production deployment model
 
-### Native candidate boundary
+The live service is Rust. Detailed `src/*.js` implementation descriptions in
+the later sections document the retained Node baseline and its active
+regression oracle; the corresponding Rust modules are under
+`experiments/rust-replay/src/production/`. Node release commands remain
+available for the retained rollback images.
 
-The Rust candidate has a separate `rental-app` executable under
+### Rust service and retained Node baseline
+
+The Rust service has a separate `rental-app` executable under
 `experiments/rust-replay/src/production/`; `rental-replay` retains the experimental
-fixture protocol. The candidate uses the production SQLite application ID and
+fixture protocol. The service uses the production SQLite application ID and
 schema 6, including transactional upgrades from supported older schemas. Its
 configuration catalog and Russian bot vocabulary preserve the frozen Node
 contract, with independent Node differential tests at CLI, service/local-peer
-and persisted-state boundaries. See [Rust parity](rust-parity.md) for evidence
-and unresolved acceptance requirements.
+and persisted-state boundaries. See [Rust parity](rust-parity.md) for local and
+live acceptance evidence and remaining limits.
 
 Source parsing, filters, crawl commits, Telegram control handling, private
 classification, channel publication, health and recovery are separate modules.
@@ -58,9 +64,9 @@ acknowledgement remains ambiguous and can produce a duplicate after restart.
 libraries, certificates and licenses. Host operations select native command
 arguments and `ops/compose.native.yaml` only for images explicitly labelled
 `com.rental-apartments.runtime=rust`. Existing published Node images retain
-their documented command contract for snapshot-backed rollback. The default
-production image and Compose file continue selecting Node; local candidate
-acceptance does not authorize publication or deployment.
+their documented command contract for rollback. The production publisher now
+selects the native image; the base Compose file retains Node defaults so each
+release's runtime-specific override can be selected by verified host operations.
 
 ### Installed service
 
@@ -90,11 +96,11 @@ the validated exchange-rate snapshot. Domain repositories expose bounded
 classification, re-admission, acknowledgement, user, and snapshot operations;
 the runtime routing adapter never stores a serialized former state document.
 Apartment discovery and crawl metadata commit together. User removal crosses
-Telegram and private-delivery tables in one transaction. Synchronous
-`DatabaseSync` transactions contain only local row operations and never span a
+Telegram and private-delivery tables in one transaction. Rust storage
+transactions contain only local row operations and never span an
 HTTP request, Telegram request, rate-limit wait, or retry delay.
 
-Production runs on pinned Node.js and checksum-verified curl-impersonate.
+Production runs on pinned Rust 1.94.0 and checksum-verified curl-impersonate.
 List.am requests use the fixed Safari `safari2601` network profile and private
 persisted HTTP cookies. Secrets are supplied outside the artifact; readiness
 represents validated Telegram, source, storage, and crawl operation.
@@ -204,8 +210,10 @@ top-level entry fails closed before the application starts.
 installation and the verified current release thereafter. Deployment shares
 the global operations lock, snapshots before mutation, verifies startup and a
 complete observation window, atomically advances runtime pointers, and
-restores the prior snapshot and digest on failure. Failed candidate digests are
-quarantined to prevent retry loops.
+recovers the prior digest on failure. A failed Rust candidate with a retained
+Node predecessor uses guarded compatible-live recovery so a predeploy snapshot
+does not erase new acknowledgements; other transitions restore the matching
+snapshot. Failed candidate digests are quarantined to prevent retry loops.
 
 The host deploys each candidate with the operations bundle of the release it is
 already running, so a candidate whose state backend that release cannot deploy
@@ -346,8 +354,9 @@ and reason codes let private alerting distinguish Telegram, List.am challenge,
 List.am, CBA, storage, and configuration remediation without exposing raw
 exceptions.
 
-The Docker and Compose healthcheck calls `src/health-check.js` from a separate
-process, which gives `/live` three seconds to answer — inside Compose's
+The native image healthcheck calls `rental-app health-check`; the retained Node
+image calls `src/health-check.js` from a separate process, which gives `/live`
+three seconds to answer — inside Compose's
 five-second check timeout, so a failing probe always survives long enough to
 record its own failure. Docker runs the command on every probe rather than only
 on the ones that change the reported status, so the command owns the recovery
@@ -367,32 +376,28 @@ documented in [`docs/health-readiness.md`](health-readiness.md).
 
 ### Reproducible runtime packaging
 
-Node.js 24.18.0 is the single supported runtime release. `package.json`,
-`.nvmrc`, GitHub Actions, and the production container use that exact patch
-version. CI installs the full locked dependency graph with `npm ci` before
-running linting, formatting, and tests. The production image performs a
-separate `npm ci --omit=dev`, so development-only tooling is not deployed.
+The Linux AMD64 production image builds `rental-app` with pinned Rust 1.94.0,
+locked Cargo dependencies, and checksum-verified curl-impersonate 2.2.2. Its
+scratch final stage carries the Rust executable, native transport and shared
+library closure, CA certificates and licenses, with no Node or package manager.
+OCI labels expose source, runtime, lock and supported SQLite schema identities.
 
-The Linux AMD64 production build uses the immutable official Node.js 24.18.0
-Bookworm Slim digest and curl-impersonate 2.2.2. Installation verifies the
-architecture-specific archive checksum. A scratch final stage receives only
-Node, curl-impersonate, their shared libraries, CA certificates, licenses,
-production dependencies, and application files. Debian identity and the package
-inventory for shipped libraries remain available to vulnerability scanners;
-shells, package managers, headers, and installation tools stay in the build
-stage. OCI labels expose runtime versions and the supported SQLite schema range.
+Node.js 24.18.0 remains pinned for the retained application, differential
+oracle and repository checks. CI still installs its locked dependency graph
+with `npm ci`; the current release metadata also carries a package-lock digest
+for the deployed host verifier. Historical Node images retain their own command
+and provenance contracts for rollback.
 
 ### Continuous integration and artifact provenance
 
 The two branch-protection boundaries are the stable `Required / quality` and
-`Required / production artifact` jobs. The first runs the complete repository
-checks, a separate 90%-line/80%-branch coverage gate, and a high-severity
-production dependency audit on the pinned Node runtime. The second builds the
-production image, exercises HTTP cookies, state initialization, backup,
-validation, restore, maintenance, health, startup, and shutdown under production
-container restrictions, and scans OS packages and application libraries. Local
-fixtures supply external responses; no production credentials or List.am access
-are needed.
+`Required / production artifact` jobs. The first runs Rust checks and the
+retained Node repository checks, 90%-line/80%-branch coverage gate and
+high-severity production dependency audit. The second builds the Node bridge
+and exact Rust production candidate, exercises the native image's service,
+maintenance and 500-recipient contracts under production container restrictions,
+and scans OS packages and application libraries. Local fixtures supply external
+responses; no production credentials or List.am access are needed.
 The required job keeps the validated image ephemeral; publication repeats
 build, validation, and scanning before publishing to GHCR.
 
@@ -414,14 +419,13 @@ temporary Compose copy with an empty temporary environment file. The committed
 production path remains unchanged, and the static gate does not require
 production secrets or directories.
 
-Build arguments bind the image to the full Git revision and SHA-256 digest of
-`package-lock.json`; the Dockerfile validates both and records them alongside
-the pinned Node and curl-impersonate versions as OCI labels. After required CI succeeds
-for a `main` push, the publication workflow rebuilds those same pinned inputs,
-repeats label validation and scanning, pushes an immutable GHCR image, and
-creates digest-bound release metadata. The immutable registry digest and its
-metadata object are the production deployment handoff; the host never rebuilds
-from source or downloads a transient Actions artifact.
+Build arguments bind the Rust image to the full Git revision, Cargo lock and
+current compatibility package-lock digests; the Dockerfile validates and labels
+them. After required CI succeeds for a `main` push, publication rebuilds the
+native image, repeats label validation and scanning, pushes an immutable GHCR
+image, and creates digest-bound release metadata. The immutable registry digest
+and its metadata object are the production deployment handoff; the host never
+rebuilds from source or downloads a transient Actions artifact.
 
 Release metadata and OCI labels also declare `stateBackend`,
 `minimumStateSchema`, and `maximumStateSchema`. `sqlite` with schema `1` or
@@ -472,7 +476,7 @@ SIGTERM and allows 45 seconds for shutdown. Unexpected failure is retried at
 five-second intervals with at most five attempts; this bounds restart loops
 while stale socket recovery permits a crash restart on the same volume.
 
-Node runs directly under a minimal init process. On SIGINT or SIGTERM the
+The retained Node service runs directly under a minimal init process. On SIGINT or SIGTERM the
 application aborts Telegram long polling, crawl and exchange-rate work, waits
 for their awaited state writes to finish, closes the HTTP transport, and only then releases
 the lease. Delivery acknowledgements remain the backlog boundary: an
@@ -483,14 +487,13 @@ unacknowledged send retains the documented at-least-once behavior.
 
 The container build context excludes local environment files, the complete
 `.data` tree (including HTTP cookies), dependency and coverage
-trees, Git metadata, logs, and common development caches. The Dockerfile copies
-only the locked package manifests and `src`, and its runtime command does not
+trees, Git metadata, logs, and common development caches. The native Dockerfile
+copies locked Cargo source and pinned transport inputs, and the runtime does not
 load a local environment file. Production configuration therefore enters at
-container creation rather than becoming an image layer. npm and Corepack are
-build-time tools only and are removed after installing the locked dependencies
-and curl-impersonate, leaving no package manager in the production filesystem.
+container creation rather than becoming an image layer. The retained Node
+Dockerfile and npm toolchain remain for historical releases and tests.
 
-The final process runs as the unprivileged `node` account. Compose drops all
+The final Rust process runs as UID/GID 1000 through the native Compose override. Compose drops all
 capabilities, enables `no-new-privileges`, makes the root filesystem read-only,
 and publishes no ports. `/app/.data` is persistent; `/tmp` and `/sqlite-tmp`
 are separate 128 MiB tmpfs mounts with `nosuid,nodev,noexec`. SQLite scratch
@@ -687,7 +690,8 @@ rejection, singleton contention, and intact snapshot restore.
 
 CI also checks the production Docker, Compose, release, configuration, and
 documentation contracts without credentials or network access. Hosted gates
-build and scan the exact image and exercise its pinned Node and curl-impersonate binaries.
+build and scan the exact Rust image and exercise its native and curl-impersonate
+binaries.
 The documentation consistency gate derives maintained Markdown and valid local
 path targets from the Git index while also requiring each target to exist in
 the worktree. A directory qualifies only when it contains a tracked descendant,
@@ -772,7 +776,8 @@ SQLite, HTTP cookies, leases, and unrelated paths are outside its deletion scope
 
 ### Release and rollback boundary
 
-`scripts/release-operations.js` is the non-interactive release contract. Before
+The retained manual `scripts/release-operations.js` runner is a non-interactive
+release contract. Before
 any Docker mutation it requires two immutable image IDs/digests, a named human
 operator, a published and validated recovery point, an explicit private/channel
 expectation, and an observation window no shorter than one configured crawl
@@ -788,12 +793,13 @@ ready. Success additionally requires a ready preflight record, Telegram and
 expected channel checks, a successful crawl, and final readiness after the full
 observation window.
 
-A failed candidate is stopped before the verified snapshot is restored and the
-previous artifact is restarted, so source/rate changes made during an
-ultimately failed preflight are reverted with the matching state. Rollback either uses
-a reviewed backward-compatible schema or restores the snapshot before the old
-artifact starts. Production recovery exercises verify this snapshot-backed
-stop-first rollback without introducing a second deployment environment. The
+A failed Rust candidate with a retained Node predecessor is stopped and
+checked before Node restarts against schema-compatible live SQLite state. This
+preserves acknowledgements made after the predeploy snapshot; the first live
+attempt exercised this guarded recovery. Other transitions restore the matching
+validated snapshot before starting the previous artifact. Production recovery
+exercises also verify snapshot-backed stop-first rollback without introducing
+a second deployment environment. The
 independent backup volume is externally provisioned and mounted separately from
 application data. Release and rollback procedures, evidence
 receipts, and escalation are in
@@ -1390,8 +1396,9 @@ challenge; loop exclusion; cleanup; and secret-free structured results.
 
 The [Rust development guide](rust-development.md) maps the retained
 `rental-replay` prototype, shared Node behavior oracle, build tools and
-lifecycle checks to the separate `rental-app` implementation in #44. Node
-remains the production runtime until a separately authorized cutover.
+lifecycle checks to the production `rental-app` implementation in #44. The
+separately authorized Rust cutover was accepted on 2026-09-27; the Node
+application remains a rollback and regression baseline until #49 and #50.
 
 The experimental branch narrows Node's full-history private classification:
 SQLite stages unclassified listings, filtered listings matching the current

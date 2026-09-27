@@ -233,6 +233,7 @@ DEPLOYMENT_CANDIDATE_ENV="$DEPLOYMENT_TEMPORARY_DIR/candidate-image.env"
 deployment_write_image_environment \
   "$DEPLOYMENT_CANDIDATE_ENV" "$DEPLOYMENT_CANDIDATE"
 deployment_validate_compose "$DEPLOYMENT_RELEASE" "$DEPLOYMENT_CANDIDATE_ENV"
+candidate_runtime=$(ops_runtime "$DEPLOYMENT_CANDIDATE")
 if [[ $DEPLOYMENT_FIRST_INSTALL == false ]]; then
   DEPLOYMENT_PREVIOUS_ENV="$DEPLOYMENT_TEMPORARY_DIR/previous-image.env"
   deployment_write_image_environment \
@@ -244,11 +245,14 @@ if [[ $DEPLOYMENT_FIRST_INSTALL == false ]]; then
   deployment_state_transition \
     "$previous_metadata" "$metadata" \
     "$DEPLOYMENT_PREVIOUS" "$DEPLOYMENT_CANDIDATE" >/dev/null
-  candidate_runtime=$(ops_runtime "$DEPLOYMENT_CANDIDATE")
   previous_runtime=$(ops_runtime "$DEPLOYMENT_PREVIOUS")
   if [[ $candidate_runtime == rust && $previous_runtime == node ]]; then
     DEPLOYMENT_LIVE_ROLLBACK_REQUIRED=1
   fi
+fi
+if [[ $candidate_runtime == rust ]]; then
+  ops_set_step verify-installed-runtime-service
+  ops_verify_rust_systemd_runtime
 fi
 
 poll_interval_ms=$(deployment_read_optional_setting POLL_INTERVAL_MS)

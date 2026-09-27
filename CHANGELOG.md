@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Accept the live Rust cutover with preserved SQLite decisions, seven observed private deliveries and a retained Node rollback point.
+
+- Reject stale installed systemd units before stopping Node for a Rust deployment, following the first live attempt's guarded rollback.
+
 - Record runner scheduling diagnostics alongside the required native capacity gate.
 
 - Exercise the deployment recovery helper in an isolated Compose project and verify Node continuity after Rust rejection and acknowledgement.

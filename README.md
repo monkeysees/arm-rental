@@ -413,11 +413,11 @@ to Compose.
 `compose.production.yaml` defines the stable singleton topology and retains
 Node defaults for historical rollback. Host operations add
 `ops/compose.native.yaml` when the immutable image declares the Rust runtime.
-Render both files when checking the Rust deployment shape:
+On the host, validate the active release's selected Compose files without
+rendering the secret environment:
 
 ```sh
-docker compose --file compose.production.yaml \
-  --file ops/compose.native.yaml config
+sudo /opt/rental-apartments/current/ops/service config --quiet
 ```
 
 Use the [release and rollback runbook](docs/release-and-rollback.md) for host
@@ -451,8 +451,7 @@ component codes, access, and rollout checks.
 Confirm these platform-enforced settings before rollout:
 
 ```sh
-docker compose --file compose.production.yaml \
-  --file ops/compose.native.yaml config
+sudo /opt/rental-apartments/current/ops/service config --quiet
 docker inspect --format \
   'user={{.Config.User}} readonly={{.HostConfig.ReadonlyRootfs}} ports={{json .NetworkSettings.Ports}}' \
   rental-apartments-bot

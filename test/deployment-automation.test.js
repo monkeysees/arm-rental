@@ -162,6 +162,31 @@ test("deployment accepts the exact operations archive and rejects broader infra"
       error.code === 65 &&
       error.stderr.includes("Operations bundle contains an unexpected path"),
   );
+  await mkdir(join(payload, "ops"));
+  await writeFile(join(payload, "ops", "service"), "#!/bin/sh\n");
+  const aliasArchive = join(temporaryDirectory, "alias.tar");
+  await executeFile("tar", [
+    "--create",
+    `--file=${aliasArchive}`,
+    "--transform=s@ops/service@ops//service@",
+    "--directory",
+    payload,
+    "ops",
+  ]);
+  await assert.rejects(
+    executeFile(
+      "bash",
+      [
+        "-c",
+        script,
+        "deployment-operations-archive-test",
+        temporaryDirectory,
+        aliasArchive,
+      ],
+      { cwd: new URL("..", import.meta.url) },
+    ),
+    (error) => error.code === 65,
+  );
 });
 
 test("published releases expose current rentalctl to the operator group without write access", async (t) => {
@@ -180,7 +205,7 @@ test("published releases expose current rentalctl to the operator group without 
   await Promise.all([
     writeFile(join(bundle, "compose.production.yaml"), "services: {}\n"),
     writeFile(join(bundle, "package-lock.json"), "{}\n"),
-    writeFile(metadata, "{}\n"),
+    writeFile(metadata, '{"schemaVersion":2}\n'),
     writeFile(join(archiveRoot, "ops", "rentalctl"), "#!/bin/sh\n", {
       mode: 0o755,
     }),

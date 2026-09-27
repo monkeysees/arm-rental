@@ -55,6 +55,64 @@ A runtime change holds that pointer for operator promotion; a failed quality
 gate, provenance check, scan, candidate push, or metadata push cannot change
 host discovery.
 
+### Cargo provenance transition (#49)
+
+The intermediate Rust release still publishes schema-2 metadata with
+`package-lock.json` and its image label, so the deployed predecessor can verify
+it. Its metadata advertises
+`deployableProvenanceContracts: ["legacy-package-lock-v2", "cargo-source-v3"]`
+only when the archived host verifier matches the source being published. The
+host verifier accepts both contracts after that intermediate release is
+deployed; publication of a Cargo-only release remains a later step. A published
+pointer or marker alone does not prove the host has deployed the verifier.
+
+Schema-3 metadata is the separate `cargo-source-v1` Rust contract. It requires
+an exact Rust runtime, clean source, source revision, immutable image digest,
+Cargo lock, Rust executable, curl executable, transport closure, SQLite schema
+range, production Compose, and operations archive. The image labels and
+`components.json` must agree with the metadata, and the host hashes the actual
+files extracted from the image. Schema 3 has no package-lock field, artifact,
+or label; unknown and mixed provenance claims fail. Historical schema-2 Node
+releases may omit the runtime label and retain their package-lock verification.
+
+The schema-3 metadata bundle contains `source-inputs.json` and
+`transport-files.json`. Each is one newline-terminated `jq --compact-output
+--sort-keys` JSON object with `files`, `kind`, and `schemaVersion: 1`; `files`
+is a sorted, unique list of safe relative `path` and lowercase SHA-256 pairs.
+The source manifest covers `Dockerfile.native`, Cargo.toml/lock, every regular
+file copied from `experiments/rust-replay/src/` (including JSON and SQL), the
+pinned curl installer/version, native assembly/license scripts, base Compose,
+and `ops/compose.native.yaml`. The image carries a source tar with exactly
+those regular-file members; the host checks every member byte without
+extracting paths onto the host. The publisher must compare this path set and
+its bytes against the exact Git revision and Docker build inputs. Operations
+source and the native Compose override are also bound by the separately
+hashed `operations.tar`; base Compose is separately hashed in metadata.
+
+The transport manifest covers curl, CA certificates, nsswitch, and every
+library in the image's `libraries.txt`, including its `/lib64/ld-linux-*`
+loader. The host requires the declared path set and hashes each extracted
+file. The image build and required CI must independently resolve the actual
+ELF dependency closure; the host's manifest check does not rediscover an
+undeclared library. The host also re-verifies a cached release directory,
+including its artifact set and executable modes, before using it.
+
+An unattended schema-3-to-schema-2 provenance downgrade is refused before
+the service stops. A retained historical schema-2 Node release remains an
+explicit, snapshot-backed operator rollback target. For that path,
+`scripts/release-operations.js rollback --state-strategy restore` requires
+`--target-release /var/lib/rental-apartments/releases/<revision>-<digest-prefix>`;
+it retrieves the published bundle, verifies the image and installed release,
+then validates and restores the selected snapshot with that Node image's own
+commands and Compose file before starting Node. The release must be under the
+canonical `/var/lib/rental-apartments/releases` directory owned by the
+`rental-deploy` account, directly under root-owned trusted ancestors. The
+target must be an immediate child of that directory. This is the host-bootstrap
+ownership contract. The retained release and its files must be root-owned, with no group- or
+world-writable path. The snapshot must predate any
+schema the old image cannot read, and restoring it can replay work accepted
+after the snapshot.
+
 ### First upgrade to the HTTP transport
 
 The preceding release's deployer requires `SYS_ADMIN` in candidate Compose.
@@ -470,6 +528,12 @@ commands. Explicit `node` labels and retained images without a runtime label use
 their existing Node commands; an unknown label fails before the running service
 is stopped. Candidate and retained images are evaluated independently, so a
 rollback across runtimes keeps using the retained image's own recovery tools.
+For a snapshot-backed rollback from Rust to historical Node, supply the
+verified installed Node release with `--target-release`. The runner checks its
+published schema-2 package-lock bundle and image labels before stopping Rust,
+uses that release's base Compose, and runs Node backup validation and restore
+against the selected snapshot. Its `--state-strategy compatible` path continues
+to inspect live state and does not restore a snapshot.
 
 For a Rust container, the compatible-rollback check runs
 `rental-app state:inspect`. This command reads the installed SQLite identity,

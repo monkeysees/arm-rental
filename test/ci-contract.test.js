@@ -5,6 +5,7 @@ import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
+import { fileURLToPath } from "node:url";
 
 import { createReleaseMetadata } from "../scripts/create-release-metadata.js";
 import { SQLITE_SCHEMA_VERSION } from "../src/sqlite-schema.js";
@@ -192,7 +193,13 @@ test("native release metadata records the Rust inputs and preserves the host pac
   const temporaryDirectory = await mkdtemp(join(tmpdir(), "native-metadata-"));
   t.after(() => rm(temporaryDirectory, { recursive: true, force: true }));
   const operationsPath = join(temporaryDirectory, "operations.tar");
-  await writeFile(operationsPath, "native operations");
+  execFileSync("tar", [
+    "--create",
+    `--file=${operationsPath}`,
+    "--directory",
+    fileURLToPath(new URL("..", import.meta.url)),
+    "ops/lib/provenance.sh",
+  ]);
   const metadata = await createReleaseMetadata({
     sourceRevision: "c".repeat(40),
     runtime: "rust",
@@ -217,6 +224,20 @@ test("native release metadata records the Rust inputs and preserves the host pac
   assert.equal(metadata.nodeVersion, undefined);
   assert.deepEqual(metadata.deployableRuntimes, ["node", "rust"]);
   assert.equal(metadata.cutoverRollbackContract, "preserve-live-state-v1");
+  assert.deepEqual(metadata.deployableProvenanceContracts, [
+    "legacy-package-lock-v2",
+    "cargo-source-v3",
+  ]);
+  await writeFile(operationsPath, "unverified operations");
+  await assert.rejects(
+    createReleaseMetadata({
+      sourceRevision: "c".repeat(40),
+      runtime: "rust",
+      imageReference: `ghcr.io/example/arm-rental@sha256:${"e".repeat(64)}`,
+      operationsBundle: operationsPath,
+    }),
+    /lacks the Cargo provenance verifier/u,
+  );
   await assert.rejects(
     createReleaseMetadata({
       sourceRevision: "c".repeat(40),

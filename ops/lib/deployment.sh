@@ -621,6 +621,7 @@ deployment_state_transition() {
   local candidate_metadata=$2
   local previous_image=$3
   local candidate_image=$4
+  local metadata
   [[ -f $previous_metadata && ! -L $previous_metadata ]]
   [[ -f $candidate_metadata && ! -L $candidate_metadata ]]
   jq -e --arg image "$previous_image" '
@@ -663,6 +664,27 @@ deployment_state_transition() {
     $(jq -r .schemaVersion "$candidate_metadata") == 2 ]]; then
     deployment_verification_error 'unattended Cargo-to-package-lock provenance downgrade'
     return 65
+  fi
+  # A Rust-only release may follow the transitional Node/Rust verifier. Once
+  # deployed, unattended discovery cannot reintroduce Node runtime support.
+  for metadata in "$previous_metadata" "$candidate_metadata"; do
+    jq -e '
+      .schemaVersion != 3 or
+      (.runtime == "rust" and
+       (.deployableRuntimes == ["node", "rust"] or
+        .deployableRuntimes == ["rust"]))
+    ' "$metadata" >/dev/null || {
+      deployment_verification_error 'Cargo runtime capability is missing or unsupported'
+      return 65
+    }
+  done
+  if [[ $(jq -r .schemaVersion "$previous_metadata") == 3 &&
+    $(jq -c .deployableRuntimes "$previous_metadata") == '["rust"]' ]]; then
+    jq -e '.schemaVersion != 3 or .deployableRuntimes == ["rust"]' \
+      "$candidate_metadata" >/dev/null || {
+      deployment_verification_error 'candidate reintroduces retired Node runtime capability'
+      return 65
+    }
   fi
   if [[ $(jq -r .schemaVersion "$candidate_metadata") == 3 ]]; then
     jq -e '

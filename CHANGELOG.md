@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Accept the live Cargo-source Rust release with validated schema-3 provenance and preserved SQLite decisions; retain the incompatible pre-SQLite Node recovery pair pending retirement approval.
+
 - Build new Rust releases from exact Git Cargo/source inputs without package-lock provenance, and hold the first schema-3 promotion for verified host acceptance.
 
 - Add an intermediate Rust release verifier for Cargo/source-input provenance while retaining package-lock publication and verified historical Node snapshot rollback.

@@ -43,12 +43,13 @@ limit or Telegram's retry delay releases its slot. Pending listing IDs stay in
 SQLite and payloads are loaded for the next send. This trades peak throughput for bounded memory and fair progress as the recipient
 population grows.
 
-The [Rust development guide](docs/rust-development.md) describes the standalone
-`rental-app` candidate, native maintenance commands, image build and independent
+The [Rust development guide](docs/rust-development.md) describes the production
+`rental-app` service, native maintenance commands, image build and independent
 acceptance checks for the [complete Rust rewrite](https://github.com/monkeysees/arm-rental/issues/44).
 The [parity ledger](docs/rust-parity.md) records the frozen Node baseline and
-verification status. Production remains on Node pending acceptance and a
-separately authorized cutover.
+verification status. The Rust cutover was accepted on 2026-09-27; the Node
+application and npm tooling remain for development, regression comparison and
+retained-image rollback until their separate retirement work is complete.
 
 Private delivery makes one promise about time: a user is only ever sent
 apartments List.am posted or changed within the last 24 hours. Everything the
@@ -76,14 +77,14 @@ A batch that carries history — the answer to a start, a restart, or an accepte
 filter release — is preceded by a message naming how many apartments follow. A
 routine crawl delivering what it has just discovered sends the apartment alone.
 
-## Requirements
+## Retained Node development requirements
 
 - Node.js 24.18.0 (use `.nvmrc` locally)
 - Linux with the pinned curl-impersonate executable (installed below)
 - A Telegram bot token and the numeric Telegram user ID of its owner. The owner
   receives server alerts and is always authorized for private controls.
 
-## Set up
+## Run the retained Node service locally
 
 ```sh
 npm install
@@ -349,23 +350,25 @@ npm run check:production-contract
 
 ## Production image
 
-The production image pins Node.js 24.18.0 and checksum-verified
-curl-impersonate 2.2.2. Application dependencies are installed with
-`npm ci --omit=dev`; the host needs a Linux AMD64 OCI runtime.
-The final image contains only runtime components, certificates, licenses, and
-scanner metadata. It has no shell or package manager; operational commands
-invoke `node` directly. See [runtime image measurements and verification](docs/runtime-image.md).
+Production runs the Rust `rental-app` image built with pinned Rust 1.94.0 and
+checksum-verified curl-impersonate 2.2.2 on Linux AMD64. Its final image
+contains the native executable, required shared libraries, certificates and
+licenses, with no Node, shell or package manager. The release still records a
+`package-lock.json` digest so the current host verifier can check it; [Cargo
+provenance](https://github.com/monkeysees/arm-rental/issues/49) will remove that
+release-time Node input after a compatible transition. See [Rust image build and
+acceptance](docs/rust-development.md#production-candidate-image).
 
 Build and inspect the deployment versions:
 
 ```sh
-docker build --platform linux/amd64 --target production \
+docker build --file Dockerfile.native --platform linux/amd64 --target production \
   --build-arg SOURCE_REVISION="$(git rev-parse HEAD)" \
+  --build-arg CARGO_LOCK_SHA256="$(sha256sum experiments/rust-replay/Cargo.lock | cut -d ' ' -f 1)" \
   --build-arg PACKAGE_LOCK_SHA256="$(sha256sum package-lock.json | cut -d ' ' -f 1)" \
   --tag rental-apartments-bot:local .
 docker image inspect --format '{{json .Config.Labels}}' \
   rental-apartments-bot:local
-docker run --rm --entrypoint node rental-apartments-bot:local --version
 docker run --rm \
   --entrypoint /usr/local/bin/curl-impersonate \
   rental-apartments-bot:local --version
@@ -382,7 +385,7 @@ Startup creates or verifies the data tree, proves it is writable, restricts
 directories to mode `0700`, and requires the SQLite database to be a safe
 regular mode-`0600` file before Telegram polling or crawling starts. The
 database is never created by startup; a first installation creates it once with
-`npm run state:init`, which refuses to run over an existing one.
+`rental-app state:init`, which refuses to run over an existing one.
 
 Before either long-running loop starts, preflight validates the installed
 database identity/schema/pragmas/target and domain invariants, proves
@@ -395,31 +398,36 @@ Recoverable source failures keep Telegram controls available while preflight
 retries every minute (or after a longer valid `Retry-After`). Only
 `status: "ready"` permits crawling; source retries do not exhaust supervisor restarts.
 
-List.am challenges report the non-ready `source_challenge` status. Stop the
-service before running `npm run source:smoke`, which acquires its singleton
-lease and validates both source categories. See
+List.am challenges report the non-ready `source_challenge` status. The retained
+Node `npm run source:smoke` helper requires the service to be stopped before it
+acquires the singleton lease. See
 [source operations](docs/source-operations.md) and
 [startup preflight remediation](docs/startup-preflight.md).
 
 Local environment files, `.data` (including HTTP cookies),
 dependencies, coverage, Git metadata, logs, and development caches are excluded
-from the container build context. The image runs as the unprivileged `node`
-account and does not read `.env` at runtime; `.env.production` is consumed only
-by Compose on the deployment host.
+from the container build context. The Rust image runs as UID/GID 1000 and does
+not read `.env` at runtime; the host supplies its root-owned environment file
+to Compose.
 
-`compose.production.yaml` is the supported singleton supervisor definition. Set
-`RENTAL_APARTMENTS_IMAGE` to an immutable image reference, place the required
-configuration in a host-only `.env.production`, then start it with:
+`compose.production.yaml` defines the stable singleton topology and retains
+Node defaults for historical rollback. Host operations add
+`ops/compose.native.yaml` when the immutable image declares the Rust runtime.
+Render both files when checking the Rust deployment shape:
 
 ```sh
-chmod 0600 .env.production
-docker compose --file compose.production.yaml up --detach
+docker compose --file compose.production.yaml \
+  --file ops/compose.native.yaml config
 ```
 
-Keep `.env.production` outside source control, image build contexts, backups
-that lack equivalent access controls, and deployment output. Supply
+Use the [release and rollback runbook](docs/release-and-rollback.md) for host
+deployment; it owns the operations lock, snapshot and service handoff.
+
+Keep the host-only `/etc/rental-apartments/env` outside source control, image
+build contexts, backups that lack equivalent access controls, and deployment
+output. Supply
 `TELEGRAM_BOT_TOKEN` through the deployment platform's secret entry mechanism;
-the host-only file is the dedicated-host fallback. Never put the token in a
+the root-owned mode-`0600` file is the dedicated-host fallback. Never put the token in a
 command argument, image `ENV` instruction, Compose YAML value, support ticket,
 or diagnostic command. Structured application logging defensively redacts
 Telegram token shapes, Telegram Bot API URLs, and authorization-like values,
@@ -431,7 +439,7 @@ enables `no-new-privileges`. Durable `/app/.data` holds application state;
 `SQLITE_TMPDIR` directs SQLite scratch files to `/sqlite-tmp`; its database
 and WAL remain in `/app/.data`. The service publishes no ports.
 
-The loopback-only health service exposes `/live` for process/event-loop
+The loopback-only health service exposes `/live` for process
 liveness and `/ready` (also `/health`) for startup and crawl readiness. The
 container healthcheck terminates an unresponsive container after three
 consecutive failed liveness probes so the bounded restart policy can recover
@@ -443,7 +451,8 @@ component codes, access, and rollout checks.
 Confirm these platform-enforced settings before rollout:
 
 ```sh
-docker compose --file compose.production.yaml config
+docker compose --file compose.production.yaml \
+  --file ops/compose.native.yaml config
 docker inspect --format \
   'user={{.Config.User}} readonly={{.HostConfig.ReadonlyRootfs}} ports={{json .NetworkSettings.Ports}}' \
   rental-apartments-bot
@@ -452,12 +461,9 @@ docker inspect --format '{{json .HostConfig.Tmpfs}}' rental-apartments-bot
 
 The fixed container name prevents scaling, and updates and rollbacks stop the
 old process before starting its replacement. Unexpected failures restart at
-most five times. Planned stops send SIGTERM and allow 45 seconds for polling,
-state writes, and active HTTP subprocesses to finish cleanup:
-
-```sh
-docker compose --file compose.production.yaml stop
-```
+most five times. The installed systemd unit selects the release's runtime-aware
+service wrapper; planned stops send SIGTERM and allow 45 seconds for polling,
+state writes, and active HTTP subprocesses to finish cleanup.
 
 If startup reports `ERR_SINGLETON_LOCKED`, do not remove lock files while the
 reported process is alive. A socket left by an unclean exit is detected and

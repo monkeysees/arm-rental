@@ -22,9 +22,9 @@ they cannot falsely report that a requested mutation completed.
 
 `publish-production.yml` runs only after a successful `Required CI` push to
 `main`. It checks out that workflow's exact commit and selects one image with
-`PRODUCTION_RUNTIME`. The setting is `rust` for the held candidate; the updated
-Node bridge was published first. Host deployment of that bridge must be
-confirmed before Rust promotion. Each path verifies the image's runtime,
+`PRODUCTION_RUNTIME`. The setting is `rust` for the accepted production release;
+the updated Node bridge was published first and verified on the host before
+the initial Rust promotion. Each path verifies the image's runtime,
 source and lockfile identities, packaged service and HTTP closure, then runs
 the blocking Trivy scan before pushing.
 GitHub Actions concurrency serializes publication and does not cancel an
@@ -123,8 +123,8 @@ On 2026-09-26, the host accepted Node bridge
 `sha256:d43d07fea3e961d7ec6d966e0ca1e28b387925314b57a8eccc7553a289163a82`.
 Its successful receipt completed at `22:35:06Z`, with validated snapshot
 `daily/2026-09-26T22-28-50-466Z`. The normal deploy launcher then succeeded and
-the unattended timer resumed. This records Node bridge acceptance; Rust still
-requires explicit promotion and its own live evidence.
+the unattended timer resumed. This records the prerequisite Node bridge
+acceptance; the later Rust cutover has its own live evidence below.
 
 For a host still running the older deployer, pause its unattended timer until
 the first updated bridge rollout is accepted. The earlier #47 update failed
@@ -182,6 +182,75 @@ snapshot and retained Node image remain available for explicit restore, which
 can replay work accepted after the snapshot. Other runtime transitions retain
 snapshot rollback.
 
+### First live Rust attempt and recovery (2026-09-27)
+
+The operator explicitly promoted source revision
+`a3b20894ca82785bb80110373a6aef31b427c5f1` at image digest
+`sha256:d7a453d84daa3935cdd4825f6684a25bc98f7506c85d79ba00668509426b223d`.
+The host validated predeploy snapshot `daily/2026-09-27T17-45-07-234Z` and
+observed Rust readiness, source integrity and successful crawls through the
+six-minute deployment window. Final `systemctl start rental-apartments.service`
+then failed because the installed unit still used the old direct Compose
+invocation and its Node-only `user: node` setting. The candidate was rejected;
+this attempt was **not** a Rust production acceptance.
+
+Guarded `compatible-live` rollback completed at `17:51:45Z` and restored the
+healthy Node bridge at digest
+`sha256:d43d07fea3e961d7ec6d966e0ca1e28b387925314b57a8eccc7553a289163a82`.
+The failed receipt is `20260927T175145Z-failed-d7a453d84daa3935.json`. The
+installed SQLite identity, schema, source binding, update offset `930892921`,
+and the fixed 39,358-row acknowledged-delivery cohort remained unchanged. The
+rollback retained live state instead of restoring the older snapshot, so it did
+not discard acknowledgements made after that snapshot. No new live listings
+were observed during the attempted rollout; this is state-continuity evidence,
+not a live-message delivery result.
+
+Before retry, the operator backed up the old unit to
+`/var/lib/rental-apartments-ops/unit-backups/rental-apartments.service.pre-rust-20260927T175638Z`
+and installed the approved bridge unit, whose full-file SHA-256 is
+`b9744b143cd10bb102dd5c79e2bad5af6ff193af43a1c30017be9861f5c61d34`.
+The loaded start, reload and stop commands use the stable release launcher,
+there are no drop-ins, and the Node service remained healthy after daemon
+reload. Verify this effective unit and the backup mount before a Rust candidate
+can stop the previous service; repository unit files alone do not prove the
+host has the compatible unit installed.
+Follow-up source commit `0b4d68221b7bcde30fb378fc6998fdcab9f497f2`
+adds a pre-stop check for this effective unit. It was not part of the promoted
+`a3b20894ca82785bb80110373a6aef31b427c5f1` image or its operations bundle;
+the operator verified the installed unit separately before retry.
+
+### Accepted Rust deployment and continuity (2026-09-27)
+
+The normal deployment timer retried the same immutable Rust candidate after
+the approved unit repair. Receipt
+`20260927T180637Z-success-d7a453d84daa3935.json` completed at `18:06:37Z`
+for source `a3b20894ca82785bb80110373a6aef31b427c5f1` and image
+`ghcr.io/monkeysees/arm-rental@sha256:d7a453d84daa3935cdd4825f6684a25bc98f7506c85d79ba00668509426b223d`.
+The host validated snapshot `daily/2026-09-27T18-00-19-960Z` on its independent
+backup volume before starting Rust on the existing SQLite volume. The receipt
+reports success with rollback not attempted; the running container and current
+image pointer match the immutable digest. The loaded runtime-aware service unit
+succeeded, readiness is healthy with no firing alerts, and the 18:10 deployment
+poll was a successful no-op. The backup mount and timers remain healthy.
+
+Independent read-only host review confirmed the same database identity
+`46960c40-1fef-4de1-aaa0-745699ed87e0`, schema 6, source/channel binding
+and Telegram offset `930892921`. All 716,231 decision rows in the retry
+snapshot remain unchanged in live Rust state. Two acknowledgements from the
+first-attempt cohort had their `decidedAt` refreshed by the recovered Node
+service at `17:59:38Z`, before the retry snapshot; they were not lost or
+replayed. Later Rust crawls with matching source-integrity records naturally
+sent six and one private notifications, respectively, and committed seven new
+status-0 acknowledgements. The previous Node digest and matching recovery
+snapshot remain retained for rollback.
+
+This acceptance proves the observed host readiness, crawl, durable delivery
+continuity and supported guarded recovery from the failed first attempt. The
+recipients' Telegram inboxes were not inspected externally, and no deliberate
+rollback of the healthy Rust service was performed. The current Rust release
+still carries package-lock provenance for the host verifier; Cargo-only release
+provenance and Node retirement are separate work in #49 and #50.
+
 ## Host prerequisites and safe checks
 
 The host requires Docker Engine, Compose v2, Git, jq, a mounted independent
@@ -215,6 +284,8 @@ Use these safe checks without rendering secrets:
 sudo stat --format='mode=%a owner=%U:%G' /etc/rental-apartments/env
 sudo findmnt --mountpoint /mnt/rental-apartments-backups
 sudo systemctl status rental-deploy.timer rental-deploy.service
+sudo systemctl show rental-apartments.service \
+  --property=FragmentPath,DropInPaths,ExecStart,ExecReload,ExecStop
 sudo rentalctl timers
 sudo rentalctl status
 sudo jq '{candidateImage,previousImage,sourceRevision,snapshot,rollback}' \
@@ -225,6 +296,10 @@ Expected output reports mode `600`, the mounted backup filesystem, an active
 timer, an immutable current image, and sanitized receipts. Stop and escalate
 if the secret file is a symlink, the mount is absent, the current image file
 contains a tag, multiple containers exist, or the timer repeatedly fails.
+Before a runtime change, require the loaded application unit's start, reload
+and stop commands to call `/opt/rental-apartments/current/ops/service`, with no
+unreviewed drop-ins. A stale direct Compose unit can pass repository and release
+checks but fail after the candidate's observation window.
 
 ## Deployment sequence
 
@@ -304,7 +379,7 @@ rewrite an unsupported database. Candidate acceptance must show a
 `source.integrity.checked` record and `crawl.succeeded` record with the same
 crawl ID.
 
-The current Node application and native candidate accept SQLite schemas 1–6
+The retained Node bridge and deployed Rust application accept SQLite schemas 1–6
 and write schema 6. The upgrade to
 schema 4 replaces private delivery rows transactionally, then reclaims free
 pages with a retryable one-time VACUUM before startup continues. Allow temporary

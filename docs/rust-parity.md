@@ -17,9 +17,9 @@ the retained replay implementation does not establish production parity.
   are defined by `src/config-catalog.js`, `src/config.js` and `.env.example` at
   the frozen revision. No live credentials or configuration values are recorded.
 
-The source branch identity is not evidence of the image currently running on a
-host. Live state, deployment and messages are outside local implementation
-acceptance. The deployed image identity has not been inspected.
+The frozen source branch identity does not identify the image now running on
+the host. The separately accepted live deployment is recorded below with its
+own image digest and receipt; local implementation evidence remains distinct.
 
 The experimental branch changes three Node modules relative to `main`:
 `crawler.js`, `sqlite-private-deliveries-repository.js` and
@@ -81,6 +81,39 @@ failures still require resolution before capacity acceptance.
 
 ## Verification record
 
+### Live production cutover (2026-09-27)
+
+Independent host review accepted Rust source revision
+`a3b20894ca82785bb80110373a6aef31b427c5f1` running as
+`ghcr.io/monkeysees/arm-rental@sha256:d7a453d84daa3935cdd4825f6684a25bc98f7506c85d79ba00668509426b223d`.
+The accepted deployment receipt is
+`20260927T180637Z-success-d7a453d84daa3935.json`, completed at `18:06:37Z`;
+its validated predeploy snapshot is `daily/2026-09-27T18-00-19-960Z`. The
+container, current pointer and runtime-aware systemd unit agree on the Rust
+release. The service is healthy and ready with zero firing alerts; the backup
+mount and timers are healthy, including a successful 18:10 no-op deploy poll.
+
+Rust opened the existing SQLite identity
+`46960c40-1fef-4de1-aaa0-745699ed87e0` at schema 6 without changing its
+source/channel binding or Telegram offset `930892921`. All 716,231 decision
+rows in the retry snapshot remain unchanged. Two older acknowledgements were
+refreshed by the recovered Node service before that snapshot, explaining their
+timestamp difference from the first-attempt baseline. Two later Rust crawls
+with matching source-integrity records naturally sent six and one private
+notifications and durably acknowledged all seven; no prior acknowledged work
+was replayed in the observed state.
+
+The first live attempt passed Rust observation but failed at final systemd
+start because the installed unit still used Node-only direct Compose. Guarded
+`compatible-live` rollback restored healthy Node without replacing live SQLite
+state; the approved unit was then installed before the successful retry. The
+retained Node image and matching snapshot remain rollback options. No external
+recipient inbox was inspected, and no deliberate rollback of the healthy Rust
+service was performed. The current release still needs package-lock provenance
+for host verification; Cargo-only provenance and Node retirement remain #49
+and #50 work. See [release and rollback](release-and-rollback.md) for receipts
+and the effective-unit preflight.
+
 The implementation lives under `experiments/rust-replay/src/production/`, with a
 separate `rental-app` binary. The historical `rental-replay` binary and independent
 Node oracle remain separate. The user confirmed service/local-peer, native
@@ -116,8 +149,9 @@ the fairness bound with at most eight active delivery requests. After a forced
 kill, restart delivered the remaining 3,000 listings after 1,000 acknowledged
 listings; drained and returning phases sent nothing. The digest of all
 3,277,500 historical decisions was unchanged. This does not remove Telegram's
-acceptance-before-local-acknowledgement ambiguity. ARM execution,
-whole-machine memory fit and production cutover remain unverified.
+acceptance-before-local-acknowledgement ambiguity. ARM execution and
+whole-machine memory fit remain unverified; the separate live production
+cutover evidence appears above.
 
 The fixed artifact identities are:
 

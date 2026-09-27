@@ -25,7 +25,7 @@ they cannot falsely report that a requested mutation completed.
 `PRODUCTION_RUNTIME`. The setting is `rust` for the accepted production release;
 the updated Node bridge was published first and verified on the host before
 the initial Rust promotion. Each path verifies the image's runtime,
-source and lockfile identities, packaged service and HTTP closure, then runs
+source and provenance identities, packaged service and HTTP closure, then runs
 the blocking Trivy scan before pushing.
 GitHub Actions concurrency serializes publication and does not cancel an
 in-progress publisher.
@@ -40,8 +40,9 @@ publishes a metadata image tagged `metadata-<full-git-revision>`. Its
   (`deployableStateBackends`);
 - the tested live-state rollback capability
   (`cutoverRollbackContract: preserve-live-state-v1`);
-- the `package-lock.json` digest;
-- the Rust toolchain and Cargo lock digest for a Rust candidate;
+- the `package-lock.json` digest for historical schema-2 releases;
+- the Rust toolchain, Cargo lock, source-input, executable, and transport
+  digests for schema-3 Rust releases;
 - the production Compose digest; and
 - a deterministic archive digest for `ops/` and `infra/systemd/`.
 
@@ -57,14 +58,23 @@ host discovery.
 
 ### Cargo provenance transition (#49)
 
-The intermediate Rust release still publishes schema-2 metadata with
+The intermediate Rust release publishes schema-2 metadata with
 `package-lock.json` and its image label, so the deployed predecessor can verify
 it. Its metadata advertises
 `deployableProvenanceContracts: ["legacy-package-lock-v2", "cargo-source-v3"]`
 only when the archived host verifier matches the source being published. The
 host verifier accepts both contracts after that intermediate release is
-deployed; publication of a Cargo-only release remains a later step. A published
-pointer or marker alone does not prove the host has deployed the verifier.
+deployed. The schema-3 publisher requires the committed, sanitized
+`docs/evidence/issue49-stage1-receipt.json` operator acceptance record before
+its first registry push. That record binds the stage-1 source revision, exact
+image digest, successful deployment receipt name/hash/time, validated snapshot,
+and observed live host image. The publisher compares it with the pulled current
+image and its fully verified metadata and archived verifier capability. It also
+checks that the candidate covers the current SQLite schema range before the
+first push. This
+record is an operator attestation of direct host evidence, not a cryptographic
+remote attestation. A published pointer or marker alone does not prove that the
+host has deployed the verifier.
 
 Schema-3 metadata is the separate `cargo-source-v1` Rust contract. It requires
 an exact Rust runtime, clean source, source revision, immutable image digest,
@@ -79,7 +89,9 @@ The schema-3 metadata bundle contains `source-inputs.json` and
 `transport-files.json`. Each is one newline-terminated `jq --compact-output
 --sort-keys` JSON object with `files`, `kind`, and `schemaVersion: 1`; `files`
 is a sorted, unique list of safe relative `path` and lowercase SHA-256 pairs.
-The source manifest covers `Dockerfile.native`, Cargo.toml/lock, every regular
+The Python producer stages only exact committed Git objects into its Docker
+context and requires the requested revision to equal checked-out HEAD. The
+source manifest covers `Dockerfile.native`, Cargo.toml/lock, every regular
 file copied from `experiments/rust-replay/src/` (including JSON and SQL), the
 pinned curl installer/version, native assembly/license scripts, base Compose,
 and `ops/compose.native.yaml`. The image carries a source tar with exactly
@@ -87,15 +99,26 @@ those regular-file members; the host checks every member byte without
 extracting paths onto the host. The publisher must compare this path set and
 its bytes against the exact Git revision and Docker build inputs. Operations
 source and the native Compose override are also bound by the separately
-hashed `operations.tar`; base Compose is separately hashed in metadata.
+hashed `operations.tar`, which the producer compares byte-for-byte with a Git
+archive for the same revision; base Compose is separately hashed in metadata.
 
 The transport manifest covers curl, CA certificates, nsswitch, and every
 library in the image's `libraries.txt`, including its `/lib64/ld-linux-*`
 loader. The host requires the declared path set and hashes each extracted
-file. The image build and required CI must independently resolve the actual
-ELF dependency closure; the host's manifest check does not rediscover an
-undeclared library. The host also re-verifies a cached release directory,
-including its artifact set and executable modes, before using it.
+file. The producer independently resolves both executables' ELF dependencies
+inside the payload, then re-extracts every declared file from the final image
+and compares the OCI labels, components file, and manifests before scan and
+push. The host's manifest check does not rediscover an undeclared library. The
+host also re-verifies a cached release directory, including its artifact set
+and executable modes, before using it.
+
+The initial schema-2-to-schema-3 release stays behind the `production` pointer
+even though both images run Rust/SQLite. Promotion requires an operator to
+report the deployed intermediate revision and immutable digest; the workflow
+re-verifies both exact images and metadata bundles before moving the pointer.
+Later schema-3-to-schema-3 publication verifies the exact current release and
+can advance normally. A missing, mismatched, or unknown contract fails before
+pointer mutation.
 
 An unattended schema-3-to-schema-2 provenance downgrade is refused before
 the service stops. A retained historical schema-2 Node release remains an

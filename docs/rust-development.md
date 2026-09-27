@@ -94,18 +94,22 @@ Node, shell, package manager, or compiler. The default Dockerfile and production
 Compose file continue selecting the Node runtime.
 
 ```bash
-docker build -f Dockerfile.native -t arm-rental-production-native:local \
-  --build-arg SOURCE_REVISION="$(git rev-parse HEAD)" \
-  --build-arg CARGO_LOCK_SHA256="$(sha256sum experiments/rust-replay/Cargo.lock | cut -d ' ' -f 1)" \
-  --build-arg PACKAGE_LOCK_SHA256="$(sha256sum package-lock.json | cut -d ' ' -f 1)" .
-node experiments/production-image/check.js /tmp/production-native-check \
-  arm-rental-production-native:local
+python3 scripts/native-release.py build \
+  --source-revision "$(git rev-parse HEAD)" \
+  --work-dir /tmp/arm-rental-native-release \
+  --image-tag arm-rental-production-native:local
+python3 experiments/native-acceptance/run.py \
+  --image arm-rental-production-native:local \
+  --output /tmp/production-native-check \
+  --expected-revision "$(git rev-parse HEAD)" --require-clean-source
 ```
 
-This command remains the schema-2 intermediate build: its package-lock input
-is required until the Cargo provenance verifier has been published and
-confirmed on the host. The later schema-3 Rust publisher removes that input
-and carries canonical source and transport manifests described in the
+Use a new empty work directory. The producer reads the exact checked-out Git
+revision into a restricted build context, then builds a payload and finalizes
+the same bytes with Cargo, executable, source, and transport labels. Dirty or
+untracked working files cannot enter the image; `source.dirty=false` describes
+those committed build inputs. The Rust path uses no npm or package-lock input.
+Its canonical manifests and metadata contract are described in the
 [release runbook](release-and-rollback.md#cargo-provenance-transition-49).
 
 The check creates only synthetic state and an isolated backup directory. It
@@ -130,9 +134,9 @@ node experiments/production-image/build.js /tmp/production-native-build \
   --tag arm-rental-production-native:local
 ```
 
-The image retains the release bundle’s `package-lock.sha256` label for the host
-operations verifier; it identifies the repository’s release tooling lockfile,
-not an installed Node runtime. Rust dependencies have their own Cargo lock hash.
+The prebuilt assembler below is a separate development shortcut. Its legacy
+package-lock label does not satisfy schema-3 Cargo release provenance and its
+output must not be published as a new Rust release.
 
 The prebuilt assembler supports Linux AMD64 and checks the curl executable's
 pinned checksum, gathers locked crate and pinned toolchain notices, and resolves

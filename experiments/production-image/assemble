@@ -34,7 +34,9 @@ while IFS= read -r package; do
 done <"$root/usr/local/share/native-image/debian-packages.txt"
 cp "$libraries" "$root/usr/local/share/native-image/libraries.txt"
 cp -a /licenses "$root/usr/local/share/licenses"
-cp /components.json "$root/usr/local/share/native-image/components.json"
+if [[ -f /components.json ]]; then
+  cp /components.json "$root/usr/local/share/native-image/components.json"
+fi
 chown 1000:1000 "$root/app/.data"
 chown 1000:1000 "$root/app-backups"
 chmod 0700 "$root/app/.data"

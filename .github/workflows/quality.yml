@@ -99,13 +99,13 @@ jobs:
         env:
           SOURCE_REVISION: ${{ github.sha }}
         run: |
-          docker build -f Dockerfile.native --platform linux/amd64 \
-            --build-arg SOURCE_REVISION="$SOURCE_REVISION" \
-            --build-arg SOURCE_DIRTY=false \
-            --build-arg CARGO_LOCK_SHA256="$(sha256sum experiments/rust-replay/Cargo.lock | cut -d ' ' -f 1)" \
-            --build-arg PACKAGE_LOCK_SHA256="$(sha256sum package-lock.json | cut -d ' ' -f 1)" \
-            --tag rental-apartments-native:ci .
-          node experiments/production-image/check.js "$RUNNER_TEMP/native-image-check" rental-apartments-native:ci
+          python3 scripts/native-release.py build \
+            --source-revision "$SOURCE_REVISION" \
+            --work-dir "$RUNNER_TEMP/native-release" \
+            --image-tag rental-apartments-native:ci
+
+      - name: Verify Cargo producer, metadata, and transition gates
+        run: PYTHONDONTWRITEBYTECODE=1 python3 test/native-release-producer.test.py
 
       - name: Verify native production parity without Node
         env:
@@ -116,6 +116,13 @@ jobs:
             --output "$RUNNER_TEMP/native-acceptance" \
             --expected-revision "$SOURCE_REVISION" \
             --require-clean-source
+
+      - name: Exercise production-shaped Cargo deployment and historical Node rollback
+        run: |
+          PYTHONDONTWRITEBYTECODE=1 python3 experiments/native-cutover/run.py \
+            --node-image rental-apartments-bot:ci \
+            --native-image rental-apartments-native:ci \
+            --output "$RUNNER_TEMP/cargo-cutover"
 
       - name: Verify native 500-recipient capacity without Node
         env:

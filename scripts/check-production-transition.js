@@ -13,6 +13,50 @@ export function classifyProductionTransition({ current, candidate }) {
   if (!candidate?.stateBackend) {
     throw new Error("candidate metadata must declare a state backend");
   }
+  if (candidate.schemaVersion === 3) {
+    if (
+      candidate.provenanceKind !== "cargo-source-v1" ||
+      candidate.runtime !== "rust" ||
+      candidate.packageLockSha256 !== undefined
+    ) {
+      throw new Error("candidate Cargo provenance is missing or mixed");
+    }
+    if (!current || ![2, 3].includes(current.schemaVersion)) {
+      throw new Error("Cargo publication requires a verified current release");
+    }
+    if (current.schemaVersion === 2) {
+      if (
+        current.runtime !== "rust" ||
+        current.stateBackend !== "sqlite" ||
+        current.cutoverRollbackContract !== "preserve-live-state-v1" ||
+        JSON.stringify(current.deployableProvenanceContracts) !==
+          JSON.stringify(["legacy-package-lock-v2", "cargo-source-v3"])
+      ) {
+        throw new Error("current release lacks Cargo verifier capability");
+      }
+      return {
+        allowed: true,
+        cutover: true,
+        reason:
+          "Cargo provenance replaces the deployed legacy contract; hold the pointer for host-confirmed promotion",
+      };
+    }
+    if (current.provenanceKind !== "cargo-source-v1") {
+      throw new Error("current Cargo provenance is unknown");
+    }
+  } else if (
+    candidate.provenanceKind !== undefined ||
+    (candidate.schemaVersion !== undefined && candidate.schemaVersion !== 2)
+  ) {
+    throw new Error("candidate provenance contract is unknown or mixed");
+  }
+  if (current?.schemaVersion === 3 && candidate.schemaVersion !== 3) {
+    return {
+      allowed: false,
+      cutover: true,
+      reason: "Cargo-to-package-lock provenance downgrade is refused",
+    };
+  }
   // Releases predating the Rust candidate had no runtime field and ran Node.
   const candidateRuntime = candidate.runtime ?? "node";
   if (!["node", "rust"].includes(candidateRuntime)) {

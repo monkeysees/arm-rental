@@ -18,7 +18,7 @@ managed volume or remote-mounted filesystem whose loss is independent of the
 application volume and host.
 
 Snapshots contain a standalone mode-`0600` database produced by
-Node's SQLite backup API, the defensive sentinels, a manifest-v3,
+Rust's SQLite backup API, the defensive sentinels, a manifest-v3,
 SHA-256 hashes, identity/schema/target/count summaries, the Telegram update
 offset. The backup and restore commands emit stable
 `backup.*`, `restore.*`, and `storage.low_disk` events for later alert routing.
@@ -35,7 +35,7 @@ left untouched by restore; use the default-dry-run `ops/browser-cleanup`
 procedure in [state maintenance](state-maintenance.md#http-session-storage-and-former-profiles).
 New snapshots use manifest-v3 and contain no browser artifacts.
 
-Schemas 1 through 4 remain supported. Validation reads the archived schema
+Schemas 1 through 5 remain supported. Validation reads the archived schema
 version from a writable staged copy, then upgrades and validates that copy;
 the archived version must still match the manifest. Logical counts, target
 identity, and update offset must match after migration. The snapshot database
@@ -48,7 +48,7 @@ starts. Validating an older snapshot with the candidate does not make the
 candidate's upgraded live database readable by the older image. Retain the old
 snapshot and immutable image together through candidate acceptance.
 
-### The stranded pre-SQLite recovery point
+### Retired pre-SQLite recovery point
 
 A snapshot taken before the SQLite cutover carries a manifest-v1 body naming
 the five JSON state files and no `state.sqlite3` beside them. **No release in
@@ -61,29 +61,22 @@ Backup predates the SQLite cutover and cannot be restored by this release
 ```
 
 Nothing can create such a snapshot any more, and no command will migrate JSON
-state into the database. A host may still carry one protected snapshot and the
-bridge image pinned beside it in the deployment retention index, left from the
-cutover. Retention keeps both until the entry is released.
+state into the database. On 2026-09-27, after the current Rust image passed an
+isolated restore of its SQLite recovery point, the operator released the sole
+protected pre-SQLite entry. Its JSON snapshot and pinned Node image are gone;
+the production retention index now contains only Rust releases.
 
 ### Releasing the stranded rollback point
 
-Releasing the entry clears it from the retention index, deletes the snapshot it
-named, and lets image cleanup retire the bridge image. **This is destructive and
-irreversible: the snapshot it deletes is the only copy of the pre-migration
-state.** Do it only as a deliberate decision to give that state up.
-
-```sh
-sudo /opt/rental-apartments/current/ops/unprotect-migration-rollback \
-  'Named Human' \
-  "$(sudo jq -r '.protectedReleases[0].candidateImage' \
-    /var/lib/rental-apartments-ops/deployment-retention.json)"
-```
-
-Naming the protected image is required: clearing the entry unread would destroy
-the record of which release the retained image belonged to. It edits state only
-and never stops the application. Expected evidence includes
-`migration-unprotection.started` and `migration-unprotection.completed`. There
-is no counterpart operation: nothing can take a new protected rollback point.
+This historical operation was destructive and irreversible: the snapshot was
+the only copy of pre-migration JSON state. The operator named the exact image
+`ghcr.io/monkeysees/arm-rental@sha256:6ab96bd5cee7ca06dd772a4fb815b45ee610359f5a2649c753157e1f37398711`
+to `ops/unprotect-migration-rollback`. The operation emitted
+`migration-unprotection.completed`, removed only its registered snapshot
+`protected/pre-sqlite-2026-08-19T07-32-32-202Z`, and never stopped the live
+Rust service. Retention-aware cleanup then removed that Node image and its
+matching metadata image. The index has no protected entry; there is no
+counterpart operation to create one.
 
 ## Automated daily backup
 
@@ -217,9 +210,8 @@ that starts `rental-apartments.service` before stopping it. Use the exact
 current image and the installed `ops/lib/runtime.sh` dispatcher to select its
 recovery commands. The current Rust image runs `backup:validate --snapshot
 <container-snapshot-path>` and then `backup:restore --snapshot
-<container-snapshot-path>` through its `/usr/local/bin/rental-app` entrypoint;
-a retained historical Node image uses its own `node src/recovery-cli.js`
-commands and matching release bundle. Keep the backup mount read-only
+<container-snapshot-path>` through its `/usr/local/bin/rental-app` entrypoint.
+Keep the backup mount read-only
 throughout: validation stages the snapshot's database inside `DATA_DIRECTORY`
 rather than opening it in place, so no step writes to a recovery point. Do not
 run either command against the live service or outside the shared lock. If

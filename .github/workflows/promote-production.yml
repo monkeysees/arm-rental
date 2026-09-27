@@ -1,7 +1,7 @@
 name: Promote production
 
-# A state-backend or runtime cutover is a pointer move the publisher will not
-# make on its own. The bridge release that knows how to perform the cutover has to
+# A capability cutover is a pointer move the publisher will not make on its own.
+# The bridge release that knows how to perform the cutover has to
 # be running on the host before the pointer advances, and publishing that
 # bridge is not the same as the host having taken it. Only an operator reading
 # the host can tell the difference, so they confirm it here.
@@ -59,11 +59,7 @@ jobs:
           IMAGE_REFERENCE="$(docker image inspect --format '{{index .RepoDigests 0}}' "$IMAGE_REPOSITORY:revision-$REVISION")"
           CANDIDATE_REVISION="$(docker image inspect --format '{{ index .Config.Labels "org.opencontainers.image.revision" }}' "$IMAGE_REPOSITORY:revision-$REVISION")"
           CANDIDATE_RUNTIME="$(docker image inspect --format '{{ index .Config.Labels "com.rental-apartments.runtime" }}' "$IMAGE_REPOSITORY:revision-$REVISION")"
-          case "$CANDIDATE_RUNTIME" in
-            ''|'<no value>'|node) CANDIDATE_RUNTIME=node ;;
-            rust) ;;
-            *) printf 'Unsupported candidate runtime.\n' >&2; exit 1 ;;
-          esac
+          test "$CANDIDATE_RUNTIME" = rust
           test "$CANDIDATE_REVISION" = "$REVISION"
 
           mkdir -p release current
@@ -76,11 +72,7 @@ jobs:
           CURRENT_REVISION="$(docker image inspect --format '{{ index .Config.Labels "org.opencontainers.image.revision" }}' "$IMAGE_REPOSITORY:production")"
           CURRENT_REFERENCE="$(docker image inspect --format '{{index .RepoDigests 0}}' "$IMAGE_REPOSITORY:production")"
           CURRENT_RUNTIME="$(docker image inspect --format '{{ index .Config.Labels "com.rental-apartments.runtime" }}' "$IMAGE_REPOSITORY:production")"
-          case "$CURRENT_RUNTIME" in
-            ''|'<no value>'|node) CURRENT_RUNTIME=node ;;
-            rust) ;;
-            *) printf 'Unsupported current production runtime.\n' >&2; exit 1 ;;
-          esac
+          test "$CURRENT_RUNTIME" = rust
           [[ "$CURRENT_REVISION" =~ ^[0-9a-f]{40}$ ]]
           docker pull --quiet "$IMAGE_REPOSITORY:metadata-$CURRENT_REVISION" >/dev/null
           CURRENT_CONTAINER="$(docker create "$IMAGE_REPOSITORY:metadata-$CURRENT_REVISION" /release/release-metadata.json)"
@@ -89,24 +81,17 @@ jobs:
 
           # Both metadata objects must name the exact pulled image and runtime.
           jq -e --arg revision "$REVISION" --arg image "$IMAGE_REFERENCE" --arg runtime "$CANDIDATE_RUNTIME" \
-            '.sourceRevision == $revision and .imageReference == $image and (.runtime // "node") == $runtime' \
+            '.sourceRevision == $revision and .imageReference == $image and .runtime == $runtime and .schemaVersion == 3' \
             release/release-metadata.json >/dev/null
           # The current bridge contract must belong to the image production names.
           jq -e --arg revision "$CURRENT_REVISION" --arg image "$CURRENT_REFERENCE" --arg runtime "$CURRENT_RUNTIME" \
-            '.sourceRevision == $revision and .imageReference == $image and (.runtime // "node") == $runtime' \
+            '.sourceRevision == $revision and .imageReference == $image and .runtime == $runtime and .schemaVersion == 3' \
             current/release-metadata.json >/dev/null
 
           printf 'image_repository=%s\n' "$IMAGE_REPOSITORY" >> "$GITHUB_OUTPUT"
           printf 'image_reference=%s\n' "$IMAGE_REFERENCE" >> "$GITHUB_OUTPUT"
           printf 'current_revision=%s\n' "$CURRENT_REVISION" >> "$GITHUB_OUTPUT"
           printf 'current_reference=%s\n' "$CURRENT_REFERENCE" >> "$GITHUB_OUTPUT"
-          printf 'candidate_schema=%s\n' "$(jq -r .schemaVersion release/release-metadata.json)" >> "$GITHUB_OUTPUT"
-
-      - name: Use production Node.js for a historical schema-2 promotion
-        if: steps.resolve.outputs.candidate_schema == '2'
-        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
-        with:
-          node-version-file: .nvmrc
 
       # The operator reports what the host is running. If that disagrees with
       # the pointer, the host has not converged and the bridge they checked is
@@ -129,28 +114,13 @@ jobs:
           IMAGE_REFERENCE: ${{ steps.resolve.outputs.image_reference }}
           CURRENT_REFERENCE: ${{ steps.resolve.outputs.current_reference }}
         run: |
-          CANDIDATE_SCHEMA="$(jq -r '.schemaVersion' release/release-metadata.json)"
-          case "$CANDIDATE_SCHEMA" in
-            2|3) ;;
-            *) printf 'Unsupported candidate provenance schema.\n' >&2; exit 1 ;;
-          esac
-          if [ "$CANDIDATE_SCHEMA" = 3 ]; then
-            python3 scripts/native-release.py verify \
-              --image-reference "$IMAGE_REFERENCE" --bundle release
-            python3 scripts/native-release.py gate \
-              --current-image "$CURRENT_REFERENCE" \
-              --current-bundle current \
-              --receipt-record docs/evidence/issue49-stage1-receipt.json \
-              --candidate-metadata release/release-metadata.json
-            exit 0
-          fi
-          if [ "$(jq -r '.runtime // "node"' release/release-metadata.json)" = rust ]; then
-            jq -e '.cutoverRollbackContract == "preserve-live-state-v1"' \
-              current/release-metadata.json >/dev/null
-          fi
-          node scripts/check-production-transition.js \
-            release/release-metadata.json \
-            current/release-metadata.json
+          python3 scripts/native-release.py verify \
+            --image-reference "$IMAGE_REFERENCE" --bundle release
+          python3 scripts/native-release.py gate \
+            --current-image "$CURRENT_REFERENCE" \
+            --current-bundle current \
+            --retirement-receipt-record docs/evidence/issue50-bridge-receipt.json \
+            --candidate-metadata release/release-metadata.json
 
       - name: Advance production discovery pointer
         env:

@@ -7,6 +7,7 @@ import json
 from pathlib import Path
 
 from common import Harness
+from contract import run_contract
 from lifecycle import run_lifecycle
 from service import run_service
 
@@ -55,6 +56,7 @@ def main() -> None:
         if args.require_clean_source and harness.source_dirty != "false":
             raise AssertionError("packaged image does not claim clean source inputs")
         lifecycle = run_lifecycle(harness, FIXTURES)
+        contract = run_contract(harness, FIXTURES)
         service = run_service(harness, FIXTURES)
         report = {
             "type": "rust-production-native-acceptance",
@@ -68,10 +70,15 @@ def main() -> None:
             "cargoLockSha256": harness.cargo_lock_sha256,
             "fixtureSha256": fixture_hashes,
             "lifecycle": lifecycle,
+            "contract": contract,
             "service": service,
-            "remainingParityGaps": [
-                "The 500-recipient capacity, fairness, and interrupted suffix gate remains issue #47.",
-                "This native gate samples private controls and source failures; the retained Node differential suite covers the broader branch matrix until issue #50.",
+            "complementaryChecks": [
+                "test/native-delivery-boundaries.test.py",
+                "test/native-crawl-boundaries.test.py",
+                "test/native-process-failures.test.py",
+                "test/native-lifecycle-boundaries.test.py",
+                "experiments/native-capacity/run.py",
+                "experiments/native-cutover/rust_rollback.py",
             ],
         }
     if verify_fixtures() != fixture_hashes:

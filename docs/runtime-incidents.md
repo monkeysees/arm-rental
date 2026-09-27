@@ -16,10 +16,9 @@ crawl so the incident remains diagnosable.
 docker inspect --format \
   'running={{.State.Running}} health={{if .State.Health}}{{.State.Health.Status}}{{end}} restarts={{.RestartCount}} image={{.Config.Image}}' \
   rental-apartments-bot
-docker exec rental-apartments-bot node -e \
-  'fetch("http://127.0.0.1:8787/ready").then(async r => { console.log(await r.text()); process.exitCode=r.ok?0:1 })'
-docker compose --file compose.production.yaml logs --since 20m bot |
-  jq -Rr 'fromjson? | select(.event == "source.integrity.checked" or .event == "source.integrity.failed" or .event == "crawl.succeeded" or .event == "crawl.failed" or .event == "retry.scheduled" or .event == "list_am.challenge") | [.timestamp,.event,.reason,.component,.code,.crawlId,.challengeSource,.httpStatus] | @tsv'
+docker exec rental-apartments-bot /usr/local/bin/rental-app health-check --ready --json
+rentalctl logs --since 20m --event source.integrity.failed
+rentalctl logs --since 20m --event crawl.succeeded
 ```
 
 Expected healthy output is a running container, ready HTTP response, and a
@@ -49,7 +48,7 @@ reading Telegram state.
   resolution, and then a correlated `crawl.succeeded` when delivery completes.
 - `exchange_rates`: retain a usable snapshot while checking CBA access. Never
   hand-edit rates. Absence of any usable snapshot blocks currency conversion.
-- `storage`: run `npm run storage:check` and follow the
+- `storage`: run `sudo systemctl start rental-storage-check.service` and follow the
   [capacity runbook](state-maintenance.md#low-disk-and-state-growth-response).
 - A responsive process with a transient upstream error should recover through
   bounded retry. A dead/unresponsive process should be restarted by the
@@ -74,10 +73,9 @@ record. Never print the token, container environment, state contents, owner ID,
 channel ID, or Telegram response bodies.
 
 ```sh
-docker exec rental-apartments-bot node -e \
-  'fetch("http://127.0.0.1:8787/ready").then(async r => { console.log(await r.text()); process.exitCode=r.ok?0:1 })'
-docker compose --file compose.production.yaml logs --since 20m bot |
-  jq -Rr 'fromjson? | select(.event == "runtime.operation.failed" or .event == "channel.operation.failed" or .event == "telegram.channel.operation.completed" or .event == "retry.scheduled") | [.timestamp,.event,.component,.code,.operation,.outcome] | @tsv'
+docker exec rental-apartments-bot /usr/local/bin/rental-app health-check --ready --json
+rentalctl logs --since 20m --event runtime.operation.failed
+rentalctl logs --since 20m --event channel.operation.failed
 ```
 
 Expected healthy preflight has `telegram: passed` and either `channel: passed`
@@ -112,7 +110,7 @@ recovery process uses its data directory. A live `.singleton.sock` is a
 kernel-owned lease, not a stale file.
 
 ```sh
-docker compose --file compose.production.yaml stop bot
+sudo systemctl stop rental-apartments.service
 docker inspect --format '{{.State.Running}}' rental-apartments-bot
 docker ps --filter volume=rental-apartments-data \
   --format 'container={{.ID}} name={{.Names}} status={{.Status}}'
@@ -123,8 +121,9 @@ application automatically recovers a refused stale socket on its next
 acquisition. Try one normal start and require ready preflight:
 
 ```sh
-docker compose --file compose.production.yaml up --detach bot
-docker compose --file compose.production.yaml logs --tail 100 bot
+sudo systemctl start rental-apartments.service
+rentalctl logs --since 20m --event startup.preflight.completed
+rentalctl status
 ```
 
 Do not manually unlink a live lease or remove application state. Escalate when

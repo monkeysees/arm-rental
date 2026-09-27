@@ -36,14 +36,15 @@ Required access and inputs:
 - a reviewed server type, Hetzner location, numeric Ubuntu LTS image ID, and
   backup-volume size.
 
-On the operator machine, install Node through `nvm`, the GitHub and Hetzner
-CLIs, and the local validation tools. On macOS with Homebrew:
+On a Linux operator machine that runs `scripts/check`, install Rust 1.94.0 with
+Cargo, rustfmt and Clippy, Python 3.11 or newer, Git, Docker, Bash, jq, GNU
+tar, coreutils, ShellCheck and `systemd-analyze`. The production build also
+uses its pinned Rust container. Install the GitHub and Hetzner CLIs on either
+Linux or macOS. On macOS with Homebrew:
 
 ```sh
 cd /path/to/arm-rental
-nvm install
-nvm use
-brew install gh hcloud jq shellcheck
+brew install python git docker bash jq gnu-tar coreutils gh hcloud shellcheck
 gh auth status
 hcloud context list
 ```
@@ -51,12 +52,11 @@ hcloud context list
 Authenticate `hcloud` interactively if no intended context is active. Do not
 place a Hetzner token in shell history or the repository.
 
-The operator machine does not need to reproduce
-`npm run check:production-contract` when it is macOS. That aggregate command
-requires Linux `systemd-analyze`; Required CI runs the complete gate on Linux.
+The macOS operator machine need not reproduce `scripts/check`: its systemd
+contract needs Linux. Required CI runs the complete gate on Linux.
 
-Expected result: `node --version` is `v24.18.0`, GitHub authentication selects
-the intended account, and `hcloud` selects the intended project.
+Expected result: Python reports version 3.11 or newer, GitHub authentication
+selects the intended account, and `hcloud` selects the intended project.
 
 Stop and resolve any account, repository, or cloud-project ambiguity before
 continuing.
@@ -70,13 +70,17 @@ cd /path/to/arm-rental
 git status --short
 git fetch origin
 git log --oneline origin/main..HEAD
-npm ci
-npm run check
-npm run test:coverage
 ```
 
-Expected result: the worktree is clean, every intended commit is reviewed, all
-tests pass, and coverage remains above the configured floors.
+On Linux, run the complete local gate:
+
+```sh
+scripts/check
+```
+
+Expected result: the worktree is clean, every intended commit is reviewed,
+and the Rust, Python and production-contract checks pass on Linux. On macOS,
+require the same successful hosted Required CI result before publication.
 
 Merge through a reviewed pull request, or push `main` if direct pushes are the
 approved repository policy:

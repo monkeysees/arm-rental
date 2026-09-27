@@ -1,0 +1,24 @@
+{
+  "schemaVersion": 1,
+  "sourceRevision": "cee50575e31f08f2e70e9b4d275e236ba9e05df7",
+  "imageReference": "ghcr.io/monkeysees/arm-rental@sha256:c98d61e1ba3aa523bd7b1feaf5a84c5324a77fb43d82bcec7c62d896ac7abebb",
+  "host": {
+    "sourceRevision": "cee50575e31f08f2e70e9b4d275e236ba9e05df7",
+    "imageReference": "ghcr.io/monkeysees/arm-rental@sha256:c98d61e1ba3aa523bd7b1feaf5a84c5324a77fb43d82bcec7c62d896ac7abebb",
+    "observedAt": "2026-09-27T21:45:12Z"
+  },
+  "receipt": {
+    "name": "20260927T214134Z-success-c98d61e1ba3aa523.json",
+    "sha256": "8bde75930e1a3e3a1470df099224e2cd7d75612911e3639ad9d98b0d3bf44ba6",
+    "outcome": "success",
+    "completedAt": "2026-09-27T21:41:34Z",
+    "snapshot": "daily/2026-09-27T21-35-17-704Z",
+    "sourceRevision": "cee50575e31f08f2e70e9b4d275e236ba9e05df7",
+    "candidateImage": "ghcr.io/monkeysees/arm-rental@sha256:c98d61e1ba3aa523bd7b1feaf5a84c5324a77fb43d82bcec7c62d896ac7abebb"
+  },
+  "acceptedAt": "2026-09-27T21:46:16Z",
+  "archivedVerifierSha256": {
+    "deployment.sh": "77bb915f0b4e0ff7c2010662cdd6c7cb7f3cd606927aa08418ad323bf8fa2983",
+    "provenance.sh": "d30632281290ebdca17c922ad63e03a4254a9019a800fa6aeebc036f3550de0c"
+  }
+}

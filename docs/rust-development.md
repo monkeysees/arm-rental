@@ -1,333 +1,135 @@
-# Rust rewrite development
+# Rust development
 
-[#44](https://github.com/monkeysees/arm-rental/issues/44) tracks the complete Rust
-rewrite with feature parity and regression acceptance. The production Node
-application, README, architecture, state schema and operational runbooks define
-the baseline. `rental-app` is the production-schema Rust candidate; its modules
-live under `experiments/rust-replay/src/production/`. The separate `rental-replay`
-executable retains the synthetic experiment contract. Production remains on the
-Node image until the candidate passes acceptance and a separate cutover is
-approved. See [the parity ledger](rust-parity.md) for coverage and remaining gaps.
+`rental-app` is the production service. Its modules live under
+[`experiments/rust-replay/src/production/`](../experiments/rust-replay/src/production/),
+and its CLI is
+[`experiments/rust-replay/src/bin/rental-app.rs`](../experiments/rust-replay/src/bin/rental-app.rs).
+The crate path retains its experimental name as part of the exact Git-object
+release producer contract; it is the maintained Rust application. The older
+`rental-replay` binary and Node comparison reports are historical test
+provenance, not deployment entrypoints.
 
-Whole-machine validation and further language-selection measurements are no
-longer required. Historical decision reports and acceptance runs were removed
-from the working tree; they remain available at commit
-`ccacd4d515c34f43cb1d9a8aa8447f43899e2011` and through the closed issues. Their
-results do not establish full-app parity or passing capacity at 50 MB/75 MB.
-Do not use a historical success label as acceptance of new code.
+## Local checks and service
 
-## Retained contracts and tools
+Use Rust 1.94.0 with Cargo, Python 3.11 or newer, Git, Docker, Bash, jq, GNU
+tar, coreutils, ShellCheck and Linux `systemd-analyze`. The pinned Rust build image is
+[`Dockerfile.build`](../experiments/rust-replay/Dockerfile.build). From the
+repository root on Linux, run the same local checks as Required CI:
 
-| Location                                                                                       | Purpose                                                                                                                                                            |
-| ---------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `src/`, `test/`, production documentation                                                      | Current Node behavior and regression baseline.                                                                                                                     |
-| `experiments/node-replay/`                                                                     | Shared fixture exporter, independent behavior oracle, capacity/fairness contract and Node/native coordinators. See the [replay contract](node-replay-baseline.md). |
-| `experiments/rust-replay/`                                                                     | Rust source, pinned build image, Cargo lockfile, and integration tests.                                                                                            |
-| `experiments/go-replay/`                                                                       | Existing independent implementation used by cross-runtime regression/tooling checks; not a second rewrite target.                                                  |
-| `experiments/native-service/`                                                                  | Local peer and packaged transport/cookie/health/shutdown acceptance.                                                                                               |
-| `experiments/native-maintenance/`, `experiments/native-migration/`                             | Native maintenance and migration failure-injection acceptance.                                                                                                     |
-| `experiments/native-image/`                                                                    | Minimal closure assembly, license inventory, packaging checks and optional size tools.                                                                             |
-| `experiments/service-replay/`, `experiments/native-limits/`, `experiments/runtime-comparison/` | Reusable resource-accounting/report validation tools. Running fresh measurements is optional work, not a prerequisite for the rewrite decision.                    |
-| `test/fixtures/replay-reports/`                                                                | Only frozen report inputs required by existing regression tests; not current performance evidence.                                                                 |
-
-Keep the shared oracle independent of Rust output. Extend parity coverage to real
-application behavior rather than narrowing production behavior to synthetic
-fixtures. The current replay contract declares 500 recipients and supports four
-for diagnostics; do not infer larger-population acceptance from old ticket text.
-
-## Build and regression checks
-
-Use Node from `.nvmrc`, the repository npm lockfile, and Rust 1.94.0 from the
-pinned Dockerfile. Run from the repository root on Linux with Docker:
-
-```bash
-npm ci
-docker build -t arm-rental-rust-replay-build \
-  -f experiments/rust-replay/Dockerfile.build .
-mkdir -p /tmp/arm-rental-node-24.18
-docker run --rm -v /tmp/arm-rental-node-24.18:/out \
-  node:24.18.0-bookworm-slim cp /usr/local/bin/node /out/node
-docker run --rm -v "$PWD:/repo" \
-  -v /tmp/arm-rental-node-24.18/node:/usr/local/bin/node:ro \
-  -v /tmp/arm-rental-rust-cargo:/usr/local/cargo/registry \
-  arm-rental-rust-replay-build \
-  sh -c 'cargo fetch --locked && cargo fmt --check && cargo check --locked && cargo test --locked && cargo clippy --locked --all-targets -- -D warnings && cargo build --locked --release'
-RENTAL_APP_BINARY="$PWD/experiments/rust-replay/target/release/rental-app" \
-  npm run test:coverage
-npm run lint
-npm run format:check
-npm run check:production-contract
+```sh
+scripts/check
 ```
 
-The first build downloads dependencies; subsequent runs can use Cargo's offline
-mode with the populated registry. Native differential tests require
-`RENTAL_APP_BINARY`; without it, ordinary Node-only development skips those
-files. Required CI always builds the binary and sets that variable. ARM builds require a target C toolchain for
-bundled SQLite and matching curl/native libraries. Current image assembly is
-AMD64-specific; an AMD64 run is not ARM execution evidence.
+The entrypoint runs Cargo formatting, checking, Clippy and tests, Python
+standard-library tests, and the production contract. Required CI also builds,
+scans and exercises the complete production image. It uses only synthetic
+Telegram, List.am and CBA peers; no production credential or state is needed.
 
-For a virtual-clock behavior/recovery check, use a fresh result path:
+To run the service locally, install the pinned curl-impersonate executable,
+copy `.env.example` to a private `.env`, and set a bot token and owner ID. Load
+that file into the shell, initialize a database only on first installation,
+and serve:
 
-```bash
-docker run --rm --network none --cpus 1 --memory 512m --memory-swap 512m \
-  -v "$PWD:/app:ro" \
-  -v "$PWD/experiments/rust-replay/target/release/rental-replay:/replay:ro" \
-  -w /app node:24.18.0-bookworm-slim \
-  node experiments/node-replay/run.js --runtime rust --rust-binary /replay \
-  --users 500 --mode virtual > /tmp/rust-replay-result.json
-node experiments/node-replay/verify.js /tmp/rust-replay-result.json
+```sh
+sudo scripts/install-curl-impersonate /usr/local
+cp .env.example .env
+set -a
+. ./.env
+set +a
+cargo run --locked --manifest-path experiments/rust-replay/Cargo.toml \
+  --bin rental-app -- state:init
+cargo run --locked --manifest-path experiments/rust-replay/Cargo.toml \
+  --bin rental-app -- serve
 ```
 
-Virtual time checks behavior, not throughput. The native worker's exercise stage
-exits 23 at its designated durable interruption boundary; the coordinator resumes
-in a fresh process and checks the acknowledged prefix/pending suffix. The
-external-acceptance/local-acknowledgement ambiguity remains; no exactly-once
-Telegram delivery claim follows from this test.
+On later starts, omit `state:init`. The Rust configuration still uses the
+public `NODE_ENV` variable name for `development`, `test` and `production`.
+The first command creating state refuses an existing database; serving refuses
+an absent or incompatible one. Supported schemas 1–5 upgrade transactionally
+to schema 6. See [state recovery](state-recovery.md) before any restore.
 
-## Production candidate image
+## Production image and provenance
 
-`Dockerfile.native` builds `rental-app` from the locked Rust source using the
-pinned Rust 1.94.0 image. Its scratch runtime contains the executable, verified
-curl-impersonate, their resolved library closure, certificates, resolver/account
-configuration, and redistribution notices. It runs as UID/GID 1000 and ships no
-Node, shell, package manager, or compiler. The default Dockerfile and production
-Compose file continue selecting the Node runtime.
+Build a schema-3 candidate from the exact checked-out Git revision into a new
+empty work directory:
 
-```bash
+```sh
+release_work="$(mktemp -d /tmp/arm-rental-native-release.XXXXXX)"
 python3 scripts/native-release.py build \
   --source-revision "$(git rev-parse HEAD)" \
-  --work-dir /tmp/arm-rental-native-release \
+  --work-dir "$release_work" \
   --image-tag arm-rental-production-native:local
+```
+
+The producer extracts an allowlist of committed Git objects rather than
+reading arbitrary working-tree files. Dirty or untracked bytes cannot enter
+the build context; `source.dirty=false` describes the committed inputs, not the
+entire checkout. It builds the payload with locked Cargo dependencies and
+finalizes a scratch image containing `rental-app`, checksum-verified
+curl-impersonate, the required shared-library closure, CA certificates and
+licenses. The final image runs as UID/GID 1000 with no Node, npm, shell,
+package manager or compiler. Its Cargo lock, source-input, executable, curl
+and transport hashes are carried in labels and `components.json`. Metadata
+binds those hashes to the immutable registry digest, source and transport
+manifests, Compose, and the exact Git operations archive. See the
+[release runbook](release-and-rollback.md#cargo-provenance-transition-49).
+
+Inspect the local image without starting the application:
+
+```sh
+docker image inspect --format '{{json .Config.Labels}}' \
+  arm-rental-production-native:local
+docker run --rm --entrypoint /usr/local/bin/curl-impersonate \
+  arm-rental-production-native:local --version
+```
+
+## Packaged acceptance
+
+Use new absolute output directories. The native lifecycle acceptance runner
+starts the packaged service with synthetic local Telegram, List.am and CBA
+peers, checks source and delivery behavior, validates the sealed runtime,
+backs up and restores isolated SQLite state, and verifies shutdown/restart:
+
+```sh
+acceptance_parent="$(mktemp -d /tmp/arm-rental-native-acceptance.XXXXXX)"
 python3 experiments/native-acceptance/run.py \
   --image arm-rental-production-native:local \
-  --output /tmp/production-native-check \
+  --output "$acceptance_parent/report" \
   --expected-revision "$(git rev-parse HEAD)" --require-clean-source
 ```
 
-Use a new empty work directory. The producer reads the exact checked-out Git
-revision into a restricted build context, then builds a payload and finalizes
-the same bytes with Cargo, executable, source, and transport labels. Dirty or
-untracked working files cannot enter the image; `source.dirty=false` describes
-those committed build inputs. The Rust path uses no npm or package-lock input.
-Its canonical manifests and metadata contract are described in the
-[release runbook](release-and-rollback.md#cargo-provenance-transition-49).
+The 500-recipient capacity gate is separate and should run without another
+build or benchmark competing for resources:
 
-The check creates only synthetic state and an isolated backup directory. It
-executes initialization, validation, backup, restore, and maintenance inside the
-non-root, read-only image with networking disabled. It also starts the packaged service against synthetic Telegram, List.am and CBA HTTP peers on host loopback (`--network host` on Linux), probes readiness, checks delivery, stops cleanly and restarts without redelivery. The service uses the packaged curl executable; the report records its hash and version. No production endpoints or credentials are used. The checker then checks the exported
-runtime closure and records the image and binary identities. It is lifecycle
-acceptance, not a claim of 500-recipient throughput.
-
-For a machine with limited build space, build the executable once with the
-pinned development image and reuse its artifact and the existing verified
-transport image. This avoids a second Cargo target directory in Docker layers:
-
-```bash
-docker run --rm -v "$PWD:/repo" \
-  -v /tmp/arm-rental-rust-cargo:/usr/local/cargo/registry \
-  -w /repo/experiments/rust-replay arm-rental-rust-replay-build \
-  cargo build --locked --release --bin rental-app
-node experiments/production-image/build.js /tmp/production-native-build \
-  --binary "$PWD/experiments/rust-replay/target/release/rental-app" \
-  --registry /tmp/arm-rental-rust-cargo \
-  --transport-image arm-rental-transport:local \
-  --tag arm-rental-production-native:local
-```
-
-The prebuilt assembler below is a separate development shortcut. Its legacy
-package-lock label does not satisfy schema-3 Cargo release provenance and its
-output must not be published as a new Rust release.
-
-The prebuilt assembler supports Linux AMD64 and checks the curl executable's
-pinned checksum, gathers locked crate and pinned toolchain notices, and resolves
-the closure inside the final filesystem. Its `build.json` records the supplied
-binary hash; it does not claim that an arbitrary supplied binary was built from
-the current source. Fetch all locked crates before collecting notices.
-
-Native maintenance commands replace the corresponding Node entrypoints when a
-native image is explicitly selected:
-
-| Node entrypoint                          | Native command                               |
-| ---------------------------------------- | -------------------------------------------- |
-| `node src/index.js`                      | `serve`                                      |
-| `node src/state-init-cli.js`             | `state:init --data-directory /app/.data`     |
-| SQLite validation                        | `state:validate --data-directory /app/.data` |
-| Read-only installed-schema inspection    | `state:inspect --data-directory /app/.data`  |
-| `node src/recovery-cli.js backup`        | `backup:create`                              |
-| `node src/recovery-cli.js validate PATH` | `backup:validate --snapshot PATH`            |
-| `node src/recovery-cli.js restore PATH`  | `backup:restore --snapshot PATH`             |
-| `node src/maintenance-cli.js report`     | `maintenance:report`                         |
-| `node src/recovery-cli.js disk-check`    | `storage:check`                              |
-| `node src/browser-cleanup-cli.js`        | `browser:cleanup [--dry-run                  | --apply | --backup-report]` |
-| Readiness document for host acceptance   | `health-check --ready --document`            |
-
-Configuration still uses the documented environment variables and fixed
-production SQLite identity. Every serving/maintenance writer uses the singleton
-lease. Initialization refuses existing state; serving refuses absent state.
-Supported schemas 1–5 migrate transactionally to schema 6. Backups remain
-compatible with Node manifests, and validation upgrades a staged copy rather
-than writing into a recovery point. Restoration needs enough free disk for
-temporary restore and rollback copies.
-
-`ops/compose.native.yaml` is an explicit candidate
-override for the production Compose shape. Host operations select it only when
-the chosen immutable image declares `com.rental-apartments.runtime=rust`; older
-published images without that label retain their Node command contract. The
-override travels in the checksummed operations bundle. Selecting a native image
-in the host release record still requires separate cutover authorization.
-
-## Complete service acceptance
-
-Run the production-schema workload against the immutable candidate image:
-
-```bash
-node experiments/production-acceptance/run.js \
-  --image arm-rental-production-native:local \
-  --output /tmp/production-acceptance-500 --users 500 --phases all
-```
-
-The output path must be new. The runner records the immutable image and extracted
-binary hashes, seeds 3,281,500 decisions using the independent Node oracle, and
-checks real List.am/CBA/Telegram peers, exact messages, retry pacing, fair
-progress, interruption and restart. Native commands run inside the read-only
-image as UID 1000; peers use host loopback and only synthetic state is mounted.
-The fixed 500-recipient workload is sequential: do not run builds or other
-benchmarks alongside it. Allow free disk for the database, WAL, exported binary
-and reports.
-
-Source pacing is reported separately under the explicitly approved full-service
-boundary. Catch-up delivery still uses the original 1.1 tolerance; routine
-crawls retain the full-wall 60-second limit. The report also preserves the
-original full-wall oracle diagnostic. A failure remains a failure in the
-corresponding field. `--binary PATH` supports local diagnosis, and `--users 4`
-is diagnostic only. Raw outputs remain outside the repository; the concise
-[parity record](rust-parity.md) identifies the accepted build and limitations.
-
-## Node-free production parity
-
-The packaged Rust candidate also has a standalone acceptance runner. It uses
-Python's standard library to control the shell-free image, synthetic SQLite
-volumes, and local Telegram, List.am, and CBA peers; the acceptance process does
-not start Node or contact production services. Run it against a freshly built
-candidate with a new absolute output directory:
-
-```bash
-python3 experiments/native-acceptance/run.py \
-  --image arm-rental-production-native:local \
-  --output /tmp/arm-rental-native-acceptance
-```
-
-The runner verifies frozen fixture hashes before and after execution and records
-the image ID, extracted binary hash, checks, and fixture identities in
-`report.json`. Fixture provenance and scenario coverage are documented in
-[`experiments/native-acceptance/README.md`](../experiments/native-acceptance/README.md).
-Required CI runs this gate alongside the existing Node differential and image
-checks. The separate 500-recipient workload is also a Node-free required gate:
-
-```bash
+```sh
+capacity_parent="$(mktemp -d /tmp/arm-rental-native-capacity.XXXXXX)"
 python3 experiments/native-capacity/run.py \
   --image arm-rental-production-native:local \
-  --output /tmp/arm-rental-native-capacity-500
+  --output "$capacity_parent/report" \
+  --users 500 \
+  --expected-revision "$(git rev-parse HEAD)" --require-clean-source
 ```
 
-The capacity runner seeds 3,281,500 historical decisions in a disposable
-production SQLite volume and exercises the eight contract phases plus a
-separate 24-hour boundary against local List.am, CBA and Telegram peers. It checks every recipient's ordered delivery
-and durable decisions, the fixed historical digest before and after service,
-eight-operation concurrency, retry counts, the acknowledged prefix and pending
-suffix after a forced kill, the 24-hour activity edge, and the unchanged 1.1
-catch-up tolerance. The report records full-wall diagnostics and separately
-measured source pacing. A fresh
-output directory and sequential run are required; `--users 4` is a diagnostic
-only and cannot satisfy the 500-recipient gate. Fixture provenance and report
-fields are in [`experiments/native-capacity/README.md`](../experiments/native-capacity/README.md).
+The capacity runner seeds 3,281,500 decisions, including 3,277,500 immutable historical rows, in disposable SQLite
+state and checks ordering, durable acknowledgements, bounded concurrency,
+retry behavior, interruption/restart and the 24-hour source activity edge.
+`--users 4` is diagnostic only. Both runners record image, binary and fixture
+identities in their reports and neither contacts production. Their fixture
+contracts are documented in [native acceptance](../experiments/native-acceptance/README.md)
+and [native capacity](../experiments/native-capacity/README.md).
 
-## Replay experiment image
+## Operator commands
 
-Build the production image only as a source of checksum-verified curl and its
-licenses; the assembler copies no Node runtime into the Rust image. Fetch all
-locked Rust crates so license collection needs no archived build directory.
-Use fresh output directories and keep an image under test on a stable tag.
+The packaged CLI exposes `serve`, `state:init`, `state:validate`,
+`state:inspect`, `backup:create`, `backup:validate --snapshot DIR`,
+`backup:restore --snapshot DIR`, `maintenance:report`, `storage:check`,
+`source:smoke`, `browser:cleanup`, and `health-check --ready`. Run backup,
+restore and source smoke through the reviewed host operations wrapper with the
+service stopped where the singleton lease requires it. The current host
+procedures are in [operational runbooks](operational-runbooks.md),
+[source operations](source-operations.md), and [health and readiness](health-readiness.md).
 
-```bash
-docker build --target production -t arm-rental-transport:local \
-  --build-arg SOURCE_REVISION="$(git rev-parse HEAD)" \
-  --build-arg PACKAGE_LOCK_SHA256="$(sha256sum package-lock.json | cut -d ' ' -f 1)" .
-mkdir -p /tmp/arm-rental-rust-notices
-for notice in COPYRIGHT LICENSE-APACHE LICENSE-MIT; do
-  curl --fail --location --proto '=https' --tlsv1.2 \
-    "https://raw.githubusercontent.com/rust-lang/rust/1.94.0/$notice" \
-    -o "/tmp/arm-rental-rust-notices/Rust-$notice"
-done
-node experiments/native-image/build.js /tmp/native-image-build \
-  --binary "$PWD/experiments/rust-replay/target/release/rental-replay" \
-  --registry /tmp/arm-rental-rust-cargo \
-  --toolchain-licenses /tmp/arm-rental-rust-notices \
-  --transport-image arm-rental-transport:local \
-  --tag arm-rental-native-minimal:local
-```
-
-The build script checks Rust notices and curl bytes against pinned hashes and
-copies notices from the locked crate sources. It assembles and resolves the
-actual executable/library closure inside the image, retaining certificates,
-resolver/account configuration and licenses. Bundled SQLite lives in the Rust
-executable. No Node, npm, shell, package manager or compiler is shipped.
-The image is non-root with a read-only root and explicitly writable state during
-acceptance. No historical benchmark file is needed to build or inspect it.
-
-## Lifecycle acceptance and supported state
-
-The [service contract](native-service.md), [maintenance contract](native-maintenance.md)
-and [migration contract](native-migration.md) describe current limitations and
-operator commands. Maintenance is offline and supports only the designated
-interrupted replay state, not arbitrary production SQLite databases. Preserve
-source state and use a new destination on retry; never resume an incomplete copy.
-
-With the image above, future acceptance commands are:
-
-```bash
-node experiments/native-service/check.js /tmp/native-service-check \
-  arm-rental-native-minimal:local
-node experiments/native-maintenance/check.js /tmp/native-maintenance-check \
-  "$PWD/experiments/rust-replay/target/release/rental-replay" \
-  arm-rental-native-minimal:local
-```
-
-Migration tests need a genuine supported version-0 executable. Its exact source
-is retained in Git; rebuild it into a separate ordinary temporary directory:
-
-```bash
-mkdir -p /tmp/native-v0-source
-git archive d75fa00a8d277f5a572a239667b1dc8b17d90263 experiments/rust-replay \
-  | tar -x -C /tmp/native-v0-source
-docker run --rm -w /repo/experiments/rust-replay \
-  -v /tmp/native-v0-source:/repo \
-  -v /tmp/arm-rental-rust-cargo:/usr/local/cargo/registry \
-  arm-rental-rust-replay-build cargo build --locked --release
-node experiments/native-migration/check.js /tmp/native-migration-check \
-  "$PWD/experiments/rust-replay/target/release/rental-replay" \
-  /tmp/native-v0-source/experiments/rust-replay/target/release/rental-replay \
-  arm-rental-native-minimal:local
-```
-
-These tools generate their own isolated fixtures, state and reports. They check
-failure paths, independent output verification and recovery. They do not contact
-production Telegram or mount production state. No previous acceptance report is
-an input. Backup/migration can require multiple database-sized copies and WAL or
-journal files; allow free disk space and retain failed output until investigated.
-
-## Optional resource tooling
-
-The service-only runner now requires `--native-baseline /absolute/baseline.json`
-containing the candidate's `binarySha256` and `sourceHashes` map. Generate those
-from the current executable/source using the exported helpers in
-`experiments/service-replay/common.js`; the runner verifies them against the
-image and source before work starts. A historical comparison run is not a default
-input. The opt-in live service replay regression requires both
-`SERVICE_REPLAY_HOLDER` and `SERVICE_REPLAY_BASELINE`.
-
-The exact-limit harness and its auditor/report generator remain available for
-future investigations. They record cache ownership, kernel page rounding, swap,
-CPU and external coordinator costs separately and preserve genuine capacity
-failures. They are not part of ordinary unit-test execution. Resource requirements
-for the complete Rust app must not be inferred from smaller prototype results.
+The frozen Node differential oracle, prototype image assemblers and older
+resource experiments are retained only as dated design evidence in Git history
+and the [parity ledger](rust-parity.md). They are not current build, release or
+recovery instructions.

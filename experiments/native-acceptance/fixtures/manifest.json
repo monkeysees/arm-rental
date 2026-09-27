@@ -1,5 +1,6 @@
 {
   "sha256": {
+    "contract-expected.json": "1605eca73aa3c0fb54526eb26348a9df099b6ddd1c2d0d5941eb2dd564873c34",
     "expected.json": "2aa7302e241d73814d4dc5b4b8043edc2d1f1f2dcdf205cd108846712a5ec230",
     "schema-v1-populated.sql": "50a541ca710257cf4b9d8f28bb9faecac7cb8195663e17b0e9a77e7b85719196",
     "schema-v2-populated.sql": "a5cf9ab901abc18e7a347d4f30f19ed3b44550b3d0f2918d2b777e2e057fb667",

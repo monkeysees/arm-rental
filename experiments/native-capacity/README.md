@@ -17,8 +17,8 @@ label. `--users 4` exercises the protocol quickly but marks its report
 
 ## Frozen expectations
 
-`contract.json` is a frozen copy of the independent, hand-reviewed
-`experiments/node-replay/contract.json` used by the existing Node coordinator.
+`contract.json` is a frozen copy of the independent, hand-reviewed contract
+used by the retired Node coordinator; the active gate reads this local copy.
 `expected.json` pins the 3,281,500 seeded decisions, the SHA-256 digest of the
 3,277,500 immutable historical rows (excluding the eight deliberately updated
 listing IDs), exact catch-up and interruption counts, and a separate 24-hour

@@ -26,7 +26,7 @@ DEPLOYMENT_CANDIDATE_MAY_RUN=0
 
 deployment_recover_candidate() {
   if ((DEPLOYMENT_LIVE_ROLLBACK_REQUIRED == 1)); then
-    deployment_recover_node_from_live_state \
+    deployment_recover_previous_live_state \
       "$DEPLOYMENT_RELEASE" "$DEPLOYMENT_CANDIDATE_ENV" \
       "$DEPLOYMENT_PREVIOUS_RELEASE" "$DEPLOYMENT_PREVIOUS_ENV" \
       "$DEPLOYMENT_PREVIOUS_RELEASE/release-metadata.json" \
@@ -246,7 +246,7 @@ if [[ $DEPLOYMENT_FIRST_INSTALL == false ]]; then
     "$previous_metadata" "$metadata" \
     "$DEPLOYMENT_PREVIOUS" "$DEPLOYMENT_CANDIDATE" >/dev/null
   previous_runtime=$(ops_runtime "$DEPLOYMENT_PREVIOUS")
-  if [[ $candidate_runtime == rust && $previous_runtime == node ]]; then
+  if [[ $candidate_runtime == rust && $previous_runtime == rust ]]; then
     DEPLOYMENT_LIVE_ROLLBACK_REQUIRED=1
   fi
 fi

@@ -425,21 +425,8 @@ init_command() {
 }
 
 runtime_readiness_document() {
-  local runtime
-  runtime=$(ops_runtime "$RENTAL_CONTAINER_NAME") || return
-  if [[ "$runtime" == rust ]]; then
-    docker exec "$RENTAL_CONTAINER_NAME" /usr/local/bin/rental-app health-check --ready --document 2>/dev/null
-    return
-  fi
-  docker exec "$RENTAL_CONTAINER_NAME" node --input-type=module --eval '
-    const { getHealthEndpointConfig } = await import("./src/environment-config.js");
-    const { host, port } = getHealthEndpointConfig();
-    const urlHost = host.includes(":") ? `[${host}]` : host;
-    const response = await fetch(`http://${urlHost}:${port}/ready`, {
-      signal: AbortSignal.timeout(3000),
-    });
-    process.stdout.write(await response.text());
-  ' 2>/dev/null
+  ops_runtime "$RENTAL_CONTAINER_NAME" >/dev/null || return
+  docker exec "$RENTAL_CONTAINER_NAME" /usr/local/bin/rental-app health-check --ready --document 2>/dev/null
 }
 
 runtime_acceptance_command() {

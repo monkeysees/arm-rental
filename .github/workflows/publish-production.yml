@@ -26,46 +26,13 @@ jobs:
       github.event.workflow_run.event == 'push'
     runs-on: ubuntu-latest
     timeout-minutes: 40
-    # Rust publication holds the discovery pointer until bridge deployment is confirmed.
-    env:
-      PRODUCTION_RUNTIME: rust
-
     steps:
       - name: Check out the exact successful revision
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ github.event.workflow_run.head_sha }}
 
-      - name: Use production Node.js
-        if: env.PRODUCTION_RUNTIME == 'node'
-        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
-        with:
-          node-version-file: .nvmrc
-          cache: npm
-
-      - name: Validate publication runtime
-        run: |
-          case "$PRODUCTION_RUNTIME" in
-            node|rust) ;;
-            *) printf 'Unsupported publication runtime.\n' >&2; exit 1 ;;
-          esac
-
-      - name: Build Node bridge from the successful source revision
-        if: env.PRODUCTION_RUNTIME == 'node'
-        env:
-          SOURCE_REVISION: ${{ github.event.workflow_run.head_sha }}
-        run: |
-          PACKAGE_LOCK_SHA256="$(sha256sum package-lock.json | cut -d ' ' -f 1)"
-          docker build \
-            --platform linux/amd64 \
-            --target production \
-            --build-arg SOURCE_REVISION="$SOURCE_REVISION" \
-            --build-arg PACKAGE_LOCK_SHA256="$PACKAGE_LOCK_SHA256" \
-            --tag rental-apartments:publication \
-            .
-
       - name: Build native candidate from the successful source revision
-        if: env.PRODUCTION_RUNTIME == 'rust'
         env:
           SOURCE_REVISION: ${{ github.event.workflow_run.head_sha }}
         run: |
@@ -74,30 +41,7 @@ jobs:
             --work-dir "$RUNNER_TEMP/native-release" \
             --image-tag rental-apartments:publication
 
-      - name: Verify Node runtime and OCI provenance
-        if: env.PRODUCTION_RUNTIME == 'node'
-        env:
-          SOURCE_REVISION: ${{ github.event.workflow_run.head_sha }}
-        run: |
-          PACKAGE_LOCK_SHA256="$(sha256sum package-lock.json | cut -d ' ' -f 1)"
-          MAXIMUM_STATE_SCHEMA="$(node --input-type=module -e 'import { SQLITE_SCHEMA_VERSION } from "./src/sqlite-schema.js"; console.log(SQLITE_SCHEMA_VERSION)')"
-          IMAGE=rental-apartments:publication
-          test "$(docker image inspect --format '{{ index .Config.Labels "org.opencontainers.image.revision" }}' "$IMAGE")" = "$SOURCE_REVISION"
-          RUNTIME="$(docker image inspect --format '{{ index .Config.Labels "com.rental-apartments.runtime" }}' "$IMAGE")"
-          case "$RUNTIME" in
-            ''|'<no value>'|node) ;;
-            *) printf 'Node publication built an unexpected runtime.\n' >&2; exit 1 ;;
-          esac
-          test "$(docker image inspect --format '{{ index .Config.Labels "org.opencontainers.image.node.version" }}' "$IMAGE")" = 24.18.0
-          test "$(docker image inspect --format '{{ index .Config.Labels "org.opencontainers.image.curl-impersonate.version" }}' "$IMAGE")" = 2.2.2
-          test "$(docker image inspect --format '{{ index .Config.Labels "org.opencontainers.image.package-lock.sha256" }}' "$IMAGE")" = "$PACKAGE_LOCK_SHA256"
-          test "$(docker image inspect --format '{{ index .Config.Labels "com.rental-apartments.state.backend" }}' "$IMAGE")" = sqlite
-          test "$(docker image inspect --format '{{ index .Config.Labels "com.rental-apartments.state.schema.minimum" }}' "$IMAGE")" = 1
-          test "$(docker image inspect --format '{{ index .Config.Labels "com.rental-apartments.state.schema.maximum" }}' "$IMAGE")" = "$MAXIMUM_STATE_SCHEMA"
-          test "$(docker run --rm --entrypoint node "$IMAGE" --version)" = v24.18.0
-
       - name: Verify native runtime and OCI provenance
-        if: env.PRODUCTION_RUNTIME == 'rust'
         env:
           SOURCE_REVISION: ${{ github.event.workflow_run.head_sha }}
         run: |
@@ -105,14 +49,7 @@ jobs:
           test "$(jq -r .imageId "$RUNNER_TEMP/native-release/build-summary.json")" = \
             "$(docker image inspect --format '{{.Id}}' rental-apartments:publication)"
 
-      - name: Exercise the exact Node image and HTTP closure
-        if: env.PRODUCTION_RUNTIME == 'node'
-        run: |
-          docker run --rm --entrypoint /usr/local/bin/curl-impersonate rental-apartments:publication --version | grep -F 'curl 8.21.0-IMPERSONATE'
-          scripts/smoke-production-runtime-image rental-apartments:publication
-
       - name: Exercise the exact native image and HTTP closure
-        if: env.PRODUCTION_RUNTIME == 'rust'
         env:
           SOURCE_REVISION: ${{ github.event.workflow_run.head_sha }}
         run: |
@@ -141,8 +78,7 @@ jobs:
           GHCR_TOKEN: ${{ github.token }}
         run: printf '%s' "$GHCR_TOKEN" | docker login ghcr.io --username "${{ github.actor }}" --password-stdin
 
-      - name: Verify the deployed Cargo-capable bridge before any registry push
-        if: env.PRODUCTION_RUNTIME == 'rust'
+      - name: Verify the deployed Rust-only verifier bridge before any registry push
         run: |
           IMAGE_REPOSITORY="ghcr.io/${GITHUB_REPOSITORY,,}"
           mkdir -p preflight
@@ -157,7 +93,7 @@ jobs:
           python3 scripts/native-release.py gate \
             --current-image "$CURRENT_REFERENCE" \
             --current-bundle preflight \
-            --receipt-record docs/evidence/issue49-stage1-receipt.json \
+            --retirement-receipt-record docs/evidence/issue50-bridge-receipt.json \
             --candidate-summary "$RUNNER_TEMP/native-release/build-summary.json"
 
       - name: Push immutable candidate and capture scanned digest
@@ -167,10 +103,8 @@ jobs:
         run: |
           IMAGE_REPOSITORY="ghcr.io/${GITHUB_REPOSITORY,,}"
           REVISION_TAG="$IMAGE_REPOSITORY:revision-$SOURCE_REVISION"
-          if [ "$PRODUCTION_RUNTIME" = rust ]; then
-            test "$(docker image inspect --format '{{.Id}}' rental-apartments:publication)" = \
-              "$(jq -r .imageId "$RUNNER_TEMP/native-release/build-summary.json")"
-          fi
+          test "$(docker image inspect --format '{{.Id}}' rental-apartments:publication)" = \
+            "$(jq -r .imageId "$RUNNER_TEMP/native-release/build-summary.json")"
           docker tag rental-apartments:publication "$REVISION_TAG"
           docker push "$REVISION_TAG"
           IMAGE_REFERENCE="$(docker image inspect --format '{{index .RepoDigests 0}}' "$REVISION_TAG")"
@@ -181,47 +115,7 @@ jobs:
           printf 'image_repository=%s\n' "$IMAGE_REPOSITORY" >> "$GITHUB_OUTPUT"
           printf 'image_reference=%s\n' "$IMAGE_REFERENCE" >> "$GITHUB_OUTPUT"
 
-      - name: Publish digest-bound release metadata
-        if: env.PRODUCTION_RUNTIME == 'node'
-        env:
-          SOURCE_REVISION: ${{ github.event.workflow_run.head_sha }}
-          IMAGE_REPOSITORY: ${{ steps.candidate.outputs.image_repository }}
-          IMAGE_REFERENCE: ${{ steps.candidate.outputs.image_reference }}
-        run: |
-          mkdir -p release metadata-image/release
-          git archive --format=tar HEAD ops infra/systemd > release/operations.tar
-          node scripts/create-release-metadata.js \
-            --source-revision "$SOURCE_REVISION" \
-            --runtime "$PRODUCTION_RUNTIME" \
-            --image-reference "$IMAGE_REFERENCE" \
-            --operations-bundle release/operations.tar \
-            --output release/release-metadata.json
-          cp \
-            release/release-metadata.json \
-            release/operations.tar \
-            compose.production.yaml \
-            package-lock.json \
-            metadata-image/release/
-          printf '%s\n' \
-            'FROM scratch' \
-            'COPY release/ /release/' \
-            > metadata-image/Dockerfile
-          METADATA_TAG="$IMAGE_REPOSITORY:metadata-$SOURCE_REVISION"
-          docker build --tag "$METADATA_TAG" metadata-image
-          docker push "$METADATA_TAG"
-          # The scratch image intentionally has no default command. Docker still
-          # requires one to create the stopped container used only for `docker cp`.
-          METADATA_CONTAINER="$(docker create "$METADATA_TAG" /release/release-metadata.json)"
-          trap 'docker rm "$METADATA_CONTAINER" >/dev/null' EXIT
-          mkdir release/published
-          docker cp "$METADATA_CONTAINER:/release/." release/published/
-          cmp release/release-metadata.json release/published/release-metadata.json
-          cmp release/operations.tar release/published/operations.tar
-          cmp compose.production.yaml release/published/compose.production.yaml
-          cmp package-lock.json release/published/package-lock.json
-
       - name: Publish Cargo/source-input release metadata
-        if: env.PRODUCTION_RUNTIME == 'rust'
         env:
           SOURCE_REVISION: ${{ github.event.workflow_run.head_sha }}
           IMAGE_REPOSITORY: ${{ steps.candidate.outputs.image_repository }}
@@ -257,40 +151,7 @@ jobs:
       # deploy becomes undeployable the instant the pointer moves, and the
       # host retries it every five minutes until someone intervenes.
       # Classify backend and runtime transitions before the pointer is touched.
-      - name: Classify the state transition against production
-        if: env.PRODUCTION_RUNTIME == 'node'
-        id: node_transition
-        env:
-          IMAGE_REPOSITORY: ${{ steps.candidate.outputs.image_repository }}
-        run: |
-          # Absent current metadata means "no pointer exists yet", which is
-          # what the classifier reads as an unguarded first publish. Only a
-          # registry that answers with a missing manifest may produce it: a
-          # denied, throttled, or unreachable registry must not be able to
-          # retire the guard.
-          PULL_LOG="$(mktemp)"
-          if docker pull --quiet "$IMAGE_REPOSITORY:production" >/dev/null 2>"$PULL_LOG"; then
-            CURRENT_REVISION="$(docker image inspect --format '{{ index .Config.Labels "org.opencontainers.image.revision" }}' "$IMAGE_REPOSITORY:production")"
-            docker pull --quiet "$IMAGE_REPOSITORY:metadata-$CURRENT_REVISION" >/dev/null
-            CURRENT_CONTAINER="$(docker create "$IMAGE_REPOSITORY:metadata-$CURRENT_REVISION" /release/release-metadata.json)"
-            trap 'docker rm "$CURRENT_CONTAINER" >/dev/null' EXIT
-            mkdir -p current
-            docker cp "$CURRENT_CONTAINER:/release/release-metadata.json" current/release-metadata.json
-          elif grep -qiE 'manifest unknown|manifest for .* not found|not found: manifest' "$PULL_LOG"; then
-            printf 'No production pointer exists yet; this is the first publication.\n'
-          else
-            cat "$PULL_LOG" >&2
-            printf 'Could not read the release production runs, so the state '
-            printf 'transition cannot be classified. Refusing to advance the '
-            printf 'production pointer.\n' >&2
-            exit 1
-          fi
-          node scripts/check-production-transition.js \
-            release/release-metadata.json \
-            current/release-metadata.json
-
       - name: Reverify Cargo transition against the current production pointer
-        if: env.PRODUCTION_RUNTIME == 'rust'
         id: transition
         env:
           IMAGE_REPOSITORY: ${{ steps.candidate.outputs.image_repository }}
@@ -310,19 +171,15 @@ jobs:
           python3 scripts/native-release.py gate \
             --current-image "$CURRENT_REFERENCE" \
             --current-bundle current \
-            --receipt-record docs/evidence/issue49-stage1-receipt.json \
+            --retirement-receipt-record docs/evidence/issue50-bridge-receipt.json \
             --candidate-metadata release/published/release-metadata.json
 
       # This is intentionally last: the host sees a new digest only after the
       # candidate, its exact metadata, and every earlier quality gate exist.
-      # A state-backend or runtime cutover is deliberately excluded. Publishing the
-      # bridge release is not the same as the host having deployed it, and
-      # only the host knows which, so promote-production advances the
-      # pointer once an operator has confirmed it.
+      # The first Rust-only capability release is held until the bridge receipt
+      # proves the compatible verifier is already deployed on the host.
       - name: Advance production discovery pointer
-        if: >-
-          (env.PRODUCTION_RUNTIME == 'rust' && steps.transition.outputs.cutover == 'false') ||
-          (env.PRODUCTION_RUNTIME == 'node' && steps.node_transition.outputs.cutover != 'true')
+        if: steps.transition.outputs.cutover == 'false'
         env:
           IMAGE_REPOSITORY: ${{ steps.candidate.outputs.image_repository }}
           IMAGE_REFERENCE: ${{ steps.candidate.outputs.image_reference }}
@@ -332,12 +189,10 @@ jobs:
           test "$(docker image inspect --format '{{index .RepoDigests 0}}' "$IMAGE_REPOSITORY:production")" = "$IMAGE_REFERENCE"
 
       - name: Report the held cutover
-        if: >-
-          (env.PRODUCTION_RUNTIME == 'rust' && steps.transition.outputs.cutover == 'true') ||
-          (env.PRODUCTION_RUNTIME == 'node' && steps.node_transition.outputs.cutover == 'true')
+        if: steps.transition.outputs.cutover == 'true'
         env:
           IMAGE_REFERENCE: ${{ steps.candidate.outputs.image_reference }}
         run: |
           printf 'Published %s without advancing the production pointer.\n' "$IMAGE_REFERENCE"
-          printf 'This release changes the state backend or runtime. Confirm the bridge '
+          printf 'This release contracts runtime capability to Rust. Confirm the bridge '
           printf 'release is deployed on the host, then run promote-production.\n'

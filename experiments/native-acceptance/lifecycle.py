@@ -299,6 +299,80 @@ def run_lifecycle(harness: Harness, fixtures_dir: Path) -> dict:
     assert _state(harness, interrupted)["apartmentIds"] == expected["apartmentIds"]
     checks.append("migration-transaction-rollback-and-retry")
 
+    # A legacy timestamp outside the exact millisecond domain must reject the
+    # entire upgrade, including schema ledger writes and retained decisions.
+    noncanonical = harness.new_volume()
+    _seed(harness, noncanonical, fixtures_dir / "schema-v1-populated.sql")
+    with harness.host_access(noncanonical) as root:
+        with sqlite3.connect(root / "state.sqlite3") as connection:
+            connection.execute(
+                "UPDATE private_delivery_decisions SET decided_at=? WHERE item_id='100001'",
+                ("2026-01-01T00:00:00Z",),
+            )
+    invalid_rows = _all_rows(harness, noncanonical)
+    _expect_failure(harness.run_app(["state:validate"], data_volume=noncanonical, check=False))
+    assert _all_rows(harness, noncanonical) == invalid_rows
+    with harness.host_access(noncanonical) as root:
+        with sqlite3.connect(root / "state.sqlite3") as connection:
+            assert connection.execute("PRAGMA user_version").fetchone()[0] == 1
+    checks.append("noncanonical-decision-upgrade-rejected-atomically")
+
+    # Freeze JavaScript Date.parse's full signed-year millisecond range; it is
+    # wider than Python datetime and previously exposed a migration mismatch.
+    for label, stamp, millis in [
+        ("expanded-positive", "+275760-09-13T00:00:00.000Z", 8640000000000000),
+        ("expanded-negative", "-000001-12-31T23:59:59.999Z", -62167219200001),
+    ]:
+        expanded = harness.new_volume()
+        _seed(harness, expanded, fixtures_dir / "schema-v1-populated.sql")
+        with harness.host_access(expanded) as root:
+            with sqlite3.connect(root / "state.sqlite3") as connection:
+                connection.execute(
+                    "UPDATE private_delivery_decisions SET decided_at=? WHERE item_id='100001'",
+                    (stamp,),
+                )
+        assert _json(harness.run_app(["state:validate"], data_volume=expanded))["database"]["userVersion"] == 6
+        decisions = _state(harness, expanded)["decisions"]
+        assert next(row for row in decisions if row["itemId"] == "100001")["decidedAt"] == millis
+        assert _state(harness, expanded)["updateOffset"] == 42
+        checks.append(f"{label}-decision-upgrade-exact-millisecond")
+
+    # Force installation to fail after the archive has passed validation. A
+    # blocked nested sentinel target must leave the prior live files in place.
+    restore_data = harness.new_volume()
+    restore_backup = harness.new_volume()
+    restore_env = {"TELEGRAM_STATE_FILE": DATA_PATH + "/nested/telegram.json"}
+    initialized_restore = _json(harness.run_app(
+        ["state:init"], data_volume=restore_data, backup_volume=restore_backup,
+        env=restore_env,
+    ))
+    with harness.host_access(restore_data) as root:
+        (root / "apartments.json").write_text("snapshot sentinel", encoding="utf-8")
+        (root / "apartments.json").chmod(0o600)
+        (root / "nested").mkdir(mode=0o700)
+        (root / "nested/telegram.json").write_text("snapshot telegram", encoding="utf-8")
+        (root / "nested/telegram.json").chmod(0o600)
+    recovery_point = _json(harness.run_app(
+        ["backup:create"], data_volume=restore_data, backup_volume=restore_backup,
+        env=restore_env,
+    ))["snapshot"]
+    with harness.host_access(restore_data) as root:
+        (root / "apartments.json").write_text("live sentinel", encoding="utf-8")
+        (root / "nested/telegram.json").unlink()
+        (root / "nested").rmdir()
+        (root / "nested").write_text("blocked nested target", encoding="utf-8")
+    _expect_failure(harness.run_app(
+        ["backup:restore", "--snapshot", recovery_point], data_volume=restore_data,
+        backup_volume=restore_backup, env=restore_env, check=False,
+    ))
+    with harness.host_access(restore_data) as root:
+        assert (root / "apartments.json").read_text(encoding="utf-8") == "live sentinel"
+        assert (root / "nested").read_text(encoding="utf-8") == "blocked nested target"
+    assert _json(harness.run_app(
+        ["state:validate"], data_volume=restore_data, env=restore_env,
+    )) == initialized_restore
+    checks.append("restore-install-failure-preserves-live-files")
+
     return {
         "checks": checks,
         "imageId": harness.image_id,

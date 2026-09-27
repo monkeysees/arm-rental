@@ -4,25 +4,25 @@ This page is the single operational index. Procedures live with the component
 they operate; links below are canonical and should be updated instead of copied
 into another handbook.
 
-| Incident or change                                       | Canonical runbook                                                                                |
-| -------------------------------------------------------- | ------------------------------------------------------------------------------------------------ |
-| Fresh production launch                                  | [Deploy production from scratch](deployment-from-scratch.md)                                     |
-| Deploy and rollback                                      | [Release and rollback](release-and-rollback.md)                                                  |
-| Launch approval                                          | [Launch approval](deployment-from-scratch.md#phase-10-approve-launch)                            |
-| Rotate Telegram token                                    | [Telegram token rotation](token-rotation.md)                                                     |
-| Validate List.am source access or investigate challenges | [List.am source operations](source-operations.md)                                                |
-| Restore persistent state                                 | [Persistent-state restore](state-recovery.md#restore-procedure)                                  |
-| Held state-backend cutover                               | [State backend transitions](release-and-rollback.md#state-backend-transitions)                   |
-| Stranded pre-SQLite rollback point                       | [Releasing the stranded rollback point](state-recovery.md#releasing-the-stranded-rollback-point) |
-| Malformed, incompatible, or target-mismatched state      | [Incompatible-state recovery](startup-preflight.md#incompatible-state)                           |
-| Stale crawling                                           | [Stale-crawl response](runtime-incidents.md#stale-crawling)                                      |
-| Telegram private or channel failure                      | [Telegram delivery response](runtime-incidents.md#telegram-private-or-channel-delivery-failure)  |
-| Stale singleton lock or lease                            | [Stale-lock response](runtime-incidents.md#stale-singleton-lease)                                |
-| Low disk or growing state                                | [Capacity response](state-maintenance.md#low-disk-and-state-growth-response)                     |
-| Retired Chromium profile                                 | [Guarded browser cleanup](state-maintenance.md#http-session-storage-and-former-profiles)         |
-| Failed or overdue scheduled operation                    | [Systemd operations](#systemd-operations)                                                        |
-| Current status, logs, timers, and local alerts           | [Production observability](observability.md)                                                     |
-| Production recovery acceptance exercises                 | [Production recovery exercises](production-exercises.md)                                         |
+| Incident or change                                       | Canonical runbook                                                                               |
+| -------------------------------------------------------- | ----------------------------------------------------------------------------------------------- |
+| Fresh production launch                                  | [Deploy production from scratch](deployment-from-scratch.md)                                    |
+| Deploy and rollback                                      | [Release and rollback](release-and-rollback.md)                                                 |
+| Launch approval                                          | [Launch approval](deployment-from-scratch.md#phase-10-approve-launch)                           |
+| Rotate Telegram token                                    | [Telegram token rotation](token-rotation.md)                                                    |
+| Validate List.am source access or investigate challenges | [List.am source operations](source-operations.md)                                               |
+| Restore persistent state                                 | [Persistent-state restore](state-recovery.md#restore-procedure)                                 |
+| Historical state-backend cutover                         | [State backend transition record](release-and-rollback.md#state-backend-transitions)            |
+| Retired pre-SQLite rollback point                        | [Retirement record](state-recovery.md#releasing-the-stranded-rollback-point)                    |
+| Malformed, incompatible, or target-mismatched state      | [Incompatible-state recovery](startup-preflight.md#incompatible-state)                          |
+| Stale crawling                                           | [Stale-crawl response](runtime-incidents.md#stale-crawling)                                     |
+| Telegram private or channel failure                      | [Telegram delivery response](runtime-incidents.md#telegram-private-or-channel-delivery-failure) |
+| Stale singleton lock or lease                            | [Stale-lock response](runtime-incidents.md#stale-singleton-lease)                               |
+| Low disk or growing state                                | [Capacity response](state-maintenance.md#low-disk-and-state-growth-response)                    |
+| Retired Chromium profile                                 | [Guarded browser cleanup](state-maintenance.md#http-session-storage-and-former-profiles)        |
+| Failed or overdue scheduled operation                    | [Systemd operations](#systemd-operations)                                                       |
+| Current status, logs, timers, and local alerts           | [Production observability](observability.md)                                                    |
+| Production recovery acceptance exercises                 | [Production recovery exercises](production-exercises.md)                                        |
 
 Every linked runbook records prerequisites, checks that do not make the
 incident worse, exact commands, expected output, recovery/rollback, and
@@ -59,7 +59,7 @@ terminal success are both monitor failures. Monitoring, the storage check, and
 the unattended deployment poll record a successful skip instead when another
 operation owns the lock; their next timer invocation retries the work. An
 explicit operator deployment request retains contention status `75` rather
-than claiming success. Do not invoke the underlying Node maintenance/recovery
+than claiming success. Do not invoke the underlying application maintenance/recovery
 commands directly: doing so bypasses the shared lock and the application
 restart trap.
 

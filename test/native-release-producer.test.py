@@ -129,7 +129,7 @@ class NativeReleaseProducerTest(unittest.TestCase):
         self.assert_preflight_rejected(result, marker)
 
     def test_build_stages_committed_bytes_even_when_worktree_is_dirty(self) -> None:
-        source = self.repository / "experiments/rust-replay/src/main.rs"
+        source = self.repository / "experiments/rust-replay/src/lib.rs"
         source.write_bytes(source.read_bytes() + b"\n// uncommitted fixture edit\n")
         untracked = self.repository / "package-lock.json"
         untracked.write_text('{"synthetic":true}\n')
@@ -137,8 +137,8 @@ class NativeReleaseProducerTest(unittest.TestCase):
         result = self.build(env=environment)
         self.assertNotEqual(result.returncode, 0, result.stdout)
         self.assertTrue(marker.exists(), "valid committed source should reach Docker")
-        staged = self.work / "context/experiments/rust-replay/src/main.rs"
-        committed = run("git", "show", "HEAD:experiments/rust-replay/src/main.rs", cwd=self.repository)
+        staged = self.work / "context/experiments/rust-replay/src/lib.rs"
+        committed = run("git", "show", "HEAD:experiments/rust-replay/src/lib.rs", cwd=self.repository)
         self.assertEqual(staged.read_bytes(), committed.stdout.encode())
         self.assertNotEqual(staged.read_bytes(), source.read_bytes())
         self.assertFalse((self.work / "context/package-lock.json").exists())
@@ -254,11 +254,12 @@ class NativeReleaseProducerTest(unittest.TestCase):
         return archive
 
     def exercise_v2_gate(self, candidate_summary: Path, environment: dict[str, str]) -> None:
+        """A retained v2 Rust image can roll back manually, but cannot publish Rust-only."""
         image_id = "sha256:" + "d" * 64
         reference = f"fixture.local/arm-rental@{image_id}"
         bundle = self.root / "current-v2"
         bundle.mkdir()
-        shutil.copy2(PROJECT / "package-lock.json", bundle / "package-lock.json")
+        (bundle / "package-lock.json").write_text('{"lockfileVersion":3}\n')
         shutil.copy2(self.repository / "compose.production.yaml", bundle / "compose.production.yaml")
         shutil.copy2(self.operations_archive(), bundle / "operations.tar")
         metadata = {
@@ -277,74 +278,22 @@ class NativeReleaseProducerTest(unittest.TestCase):
             "composeSha256": sha256(bundle / "compose.production.yaml"),
             "operationsBundleSha256": sha256(bundle / "operations.tar"),
         }
-        metadata_path = bundle / "release-metadata.json"
-        metadata_path.write_text(json.dumps(metadata) + "\n")
+        (bundle / "release-metadata.json").write_text(json.dumps(metadata) + "\n")
         environment.update({
             "GATE_IMAGE_ID": image_id,
             "GATE_IMAGE_REF": reference,
             "GATE_REVISION": self.revision,
             "GATE_PACKAGE_SHA": metadata["packageLockSha256"],
         })
-        environment.pop("GITHUB_OUTPUT", None)
-        receipt_record = self.root / "accepted-stage-one.json"
-        receipt = {
-            "schemaVersion": 1,
-            "sourceRevision": self.revision,
-            "imageReference": reference,
-            "host": {
-                "sourceRevision": self.revision,
-                "imageReference": reference,
-                "observedAt": "2026-09-27T19:01:00Z",
-            },
-            "receipt": {
-                "name": f"20260927T190000Z-success-{'d' * 16}.json",
-                "sha256": "c" * 64,
-                "outcome": "success",
-                "completedAt": "2026-09-27T19:00:00Z",
-                "snapshot": "daily/2026-09-27T18-59-00Z",
-                "sourceRevision": self.revision,
-                "candidateImage": reference,
-            },
-            "acceptedAt": "2026-09-27T19:02:00Z",
-        }
-
-        def gate() -> subprocess.CompletedProcess[str]:
-            return self.producer(
-                "gate", "--current-image", reference,
-                "--current-bundle", bundle, "--receipt-record", receipt_record,
-                "--candidate-summary", candidate_summary,
-                env=environment,
-            )
-
-        receipt_record.write_text(json.dumps(receipt) + "\n")
-        accepted = gate()
-        self.assertEqual(accepted.returncode, 0, accepted.stderr)
-        self.assertEqual(accepted.stdout.strip(), "cutover=true")
-
-        metadata_path.write_text(json.dumps({**metadata, "maximumStateSchema": 7}) + "\n")
-        incompatible = gate()
-        self.assertNotEqual(incompatible.returncode, 0, "candidate lost the current SQLite schema range")
-        self.assertIn("does not support the previous SQLite schema range", incompatible.stderr)
-        metadata_path.write_text(json.dumps(metadata) + "\n")
-
-        receipt_record.unlink()
-        self.assertNotEqual(gate().returncode, 0, "missing host receipt was accepted")
-        receipt_record.write_text(json.dumps(receipt) + "\n")
-        mismatched = json.loads(receipt_record.read_text())
-        mismatched["host"]["imageReference"] = "fixture.local/arm-rental@sha256:" + "e" * 64
-        receipt_record.write_text(json.dumps(mismatched) + "\n")
-        self.assertNotEqual(gate().returncode, 0, "mismatched host observation was accepted")
-        receipt_record.write_text(json.dumps(receipt) + "\n")
-        failed = json.loads(receipt_record.read_text())
-        failed["receipt"]["outcome"] = "failed"
-        receipt_record.write_text(json.dumps(failed) + "\n")
-        self.assertNotEqual(gate().returncode, 0, "failed deployment receipt was accepted")
-        receipt_record.write_text(json.dumps(receipt) + "\n")
-
-        metadata_path.write_text(json.dumps({**metadata, "schemaVersion": 4}) + "\n")
-        self.assertNotEqual(gate().returncode, 0, "unknown current provenance was accepted")
-        metadata_path.write_text(json.dumps({**metadata, "deployableProvenanceContracts": ["legacy-package-lock-v2"]}) + "\n")
-        self.assertNotEqual(gate().returncode, 0, "downgraded current capability was accepted")
+        rejected = self.producer(
+            "gate", "--current-image", reference,
+            "--current-bundle", bundle,
+            "--retirement-receipt-record", self.root / "absent-bridge-receipt.json",
+            "--candidate-summary", candidate_summary,
+            env=environment,
+        )
+        self.assertNotEqual(rejected.returncode, 0, "v2 host cannot verify Rust-only metadata")
+        self.assertIn("requires the deployed Cargo verifier bridge", rejected.stderr)
 
     def test_real_docker_build_metadata_and_verify_bind_exact_payload(self) -> None:
         if not shutil.which("docker"):
@@ -358,7 +307,7 @@ class NativeReleaseProducerTest(unittest.TestCase):
         # Neither an untracked Node lockfile nor a dirty Rust source file may
         # enter the Git-object build context.
         (self.repository / "package-lock.json").write_text('{"synthetic":true}\n')
-        dirty_source = self.repository / "experiments/rust-replay/src/main.rs"
+        dirty_source = self.repository / "experiments/rust-replay/src/lib.rs"
         dirty_source.write_bytes(dirty_source.read_bytes() + b"\n// worktree only\n")
         node_free_environment, node_marker = self.no_node_environment()
         built = self.build(env=node_free_environment)
@@ -372,8 +321,8 @@ class NativeReleaseProducerTest(unittest.TestCase):
         self.assertEqual([entry["path"] for entry in source_manifest["files"]], sorted(self.source_paths))
         self.assertFalse((self.work / "context/package-lock.json").exists())
         self.assertEqual(
-            (self.work / "context/experiments/rust-replay/src/main.rs").read_bytes(),
-            run("git", "show", "HEAD:experiments/rust-replay/src/main.rs", cwd=self.repository).stdout.encode(),
+            (self.work / "context/experiments/rust-replay/src/lib.rs").read_bytes(),
+            run("git", "show", "HEAD:experiments/rust-replay/src/lib.rs", cwd=self.repository).stdout.encode(),
         )
         with tarfile.open(self.work / "source-inputs.tar") as archive:
             self.assertEqual(archive.getnames(), sorted(self.source_paths))
@@ -429,14 +378,48 @@ class NativeReleaseProducerTest(unittest.TestCase):
         self.exercise_v2_gate(self.work / "build-summary.json", environment)
         v3_gate = self.producer(
             "gate", "--current-image", reference, "--current-bundle", bundle,
-            "--receipt-record", self.root / "absent-stage-one-receipt.json",
+            "--retirement-receipt-record", self.root / "absent-bridge-receipt.json",
             "--candidate-summary", self.work / "build-summary.json", env=environment,
         )
         self.assertEqual(v3_gate.returncode, 0, v3_gate.stderr[-5000:])
         self.assertEqual(v3_gate.stdout.strip(), "cutover=false")
         metadata = json.loads((bundle / "release-metadata.json").read_text())
         self.assertEqual(metadata["imageReference"], reference)
+        self.assertEqual(metadata["deployableRuntimes"], ["rust"])
         self.assertNotIn("packageLockSha256", metadata)
+
+        # Exercise the first capability contraction with real image inspection,
+        # archived host verifier bytes, and the same release verification path.
+        transitional = self.root / "transitional-current"
+        shutil.copytree(bundle, transitional)
+        transitional_metadata = {**metadata, "deployableRuntimes": ["node", "rust"]}
+        (transitional / "release-metadata.json").write_text(json.dumps(transitional_metadata) + "\n")
+        with tarfile.open(archive) as operations:
+            helper_hashes = {
+                name: hashlib.sha256(operations.extractfile(f"ops/lib/{name}").read()).hexdigest()
+                for name in ("deployment.sh", "provenance.sh")
+            }
+        accepted_bridge = self.root / "accepted-bridge.json"
+        accepted_bridge.write_text(json.dumps({
+            "schemaVersion": 1, "sourceRevision": self.revision,
+            "imageReference": reference,
+            "host": {"sourceRevision": self.revision, "imageReference": reference,
+                     "observedAt": "2026-09-27T21:03:00Z"},
+            "receipt": {"name": f"20260927T210000Z-success-{image_id.split(':')[1][:16]}.json",
+                        "sha256": "c" * 64, "outcome": "success",
+                        "completedAt": "2026-09-27T21:00:00Z",
+                        "snapshot": "daily/2026-09-27T20-59-00Z",
+                        "sourceRevision": self.revision, "candidateImage": reference},
+            "acceptedAt": "2026-09-27T21:04:00Z",
+            "archivedVerifierSha256": helper_hashes,
+        }) + "\n")
+        held = self.producer(
+            "gate", "--current-image", reference, "--current-bundle", transitional,
+            "--retirement-receipt-record", accepted_bridge,
+            "--candidate-summary", self.work / "build-summary.json", env=environment,
+        )
+        self.assertEqual(held.returncode, 0, held.stderr[-5000:])
+        self.assertEqual(held.stdout.strip(), "cutover=true")
         self.assertEqual((bundle / "operations.tar").read_bytes(), archive.read_bytes())
         self.assertEqual((bundle / "source-inputs.json").read_bytes(), original_source_manifest)
         self.assertEqual((bundle / "transport-files.json").read_bytes(), original_transport)

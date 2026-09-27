@@ -35,25 +35,25 @@ network, and data volume. Stop the service before probing; the command takes
 the same singleton lease and refuses concurrent operation.
 
 ```sh
-docker compose --file compose.production.yaml stop bot
+sudo systemctl stop rental-apartments.service
 docker inspect --format '{{.State.Running}}' rental-apartments-bot
-docker compose --file compose.production.yaml run --rm --no-deps bot \
-  node src/list-am-smoke.js
+sudo /opt/rental-apartments/current/ops/service run --rm --no-deps bot \
+  source:smoke
 ```
 
-Locally, use `npm run source:smoke` with the bot stopped. The check validates
+Locally, use `rental-app source:smoke` with the bot stopped. The check validates
 page one of both categories with the production parser and integrity rules,
 reports aggregate counts, and exits nonzero on failure. It does not modify
 listing or delivery state or create a verification record. After a passing
 check, start the service and require ready preflight and a successful crawl:
 
 ```sh
-docker compose --file compose.production.yaml up --detach bot
+sudo systemctl start rental-apartments.service
 rentalctl logs --since 20m --event crawl.succeeded
 rentalctl status
 ```
 
-Expected recovery is `List.am HTTP smoke test passed`, ready preflight, and a
+Expected recovery is `source.smoke.passed`, ready preflight, and a
 subsequent `crawl.succeeded` event. Escalate if the service cannot be proven
 stopped, the deployed executable differs from its pinned release, or smoke
 continues failing after the reported cooldown.
@@ -85,9 +85,9 @@ changing its identity or request rate.
 
 ## Retiring old profile data
 
-The native release does not open or maintain the legacy `.data/chrome-profile`
-directory. Keep existing profile data only while retaining a rollback release
-that needs it; after that window, remove that explicitly identified directory
-under the stopped-service lease. Do not delete unrelated data or active state.
+The Rust service does not open or maintain the legacy `.data/chrome-profile`
+directory. The Node rollback image has been retired; if this profile remains,
+remove only that explicitly identified directory under the stopped-service
+lease. Do not delete unrelated data or active state.
 The one-time host operations transition is documented in
 [release and rollback](release-and-rollback.md).

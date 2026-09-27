@@ -1,4 +1,9 @@
-# Production runtime image
+# Archived Node production runtime image
+
+This is historical evidence for the retired Node release. Its build commands
+and source paths are not current instructions. Use the [Rust development
+guide](rust-development.md) for the maintained image and the [release
+runbook](release-and-rollback.md) for production operations.
 
 The `production` target assembles a shell-free `scratch` image. A separate build
 stage retains the digest-pinned Node 24.18.0 Debian image, npm, the snapshot-pinned

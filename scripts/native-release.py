@@ -374,7 +374,7 @@ def metadata(revision: str, work_dir: Path, image_reference: str, operations: Pa
         "minimumStateSchema": 1,
         "maximumStateSchema": summary["maximumStateSchema"],
         "deployableStateBackends": ["sqlite"],
-        "deployableRuntimes": ["node", "rust"],
+        "deployableRuntimes": ["rust"],
         "deployableProvenanceContracts": ["legacy-package-lock-v2", "cargo-source-v3"],
         "cutoverRollbackContract": "preserve-live-state-v1",
         "rustVersion": summary["rustVersion"],
@@ -411,7 +411,7 @@ def transition(current: dict, current_image: str, current_bundle: Path,
             "stateBackend": "sqlite",
             "minimumStateSchema": 1,
             "maximumStateSchema": summary["maximumStateSchema"],
-            "deployableRuntimes": ["node", "rust"],
+            "deployableRuntimes": ["rust"],
             "deployableProvenanceContracts": ["legacy-package-lock-v2", "cargo-source-v3"],
         }
     else:
@@ -434,11 +434,72 @@ def transition(current: dict, current_image: str, current_bundle: Path,
              current_image, candidate["imageReference"])
 
 
-def gate(current_image: str, current_bundle: Path, receipt_record: Path,
+def archived_bridge_helpers(archive: Path) -> dict[str, bytes]:
+    helpers: dict[str, bytes] = {}
+    with tarfile.open(archive, "r:") as bundle:
+        for name in ("ops/lib/deployment.sh", "ops/lib/provenance.sh"):
+            members = [member for member in bundle.getmembers() if member.name == name]
+            require(len(members) == 1 and members[0].isfile(), f"bridge operations archive lacks {name}")
+            stream = bundle.extractfile(members[0])
+            require(stream is not None, f"bridge operations archive cannot read {name}")
+            helpers[name.rsplit("/", 1)[-1]] = stream.read()
+    return helpers
+
+
+def require_retirement_bridge(current: dict, current_image: str, current_bundle: Path,
+                              receipt_record: Path) -> None:
+    require(receipt_record.is_file() and not receipt_record.is_symlink(),
+            "accepted Rust-only bridge host receipt is missing")
+    record = json.loads(receipt_record.read_bytes())
+    require(isinstance(record, dict) and set(record) == {"schemaVersion", "sourceRevision", "imageReference", "host", "receipt",
+                            "acceptedAt", "archivedVerifierSha256"},
+            "Rust-only bridge host receipt has an unknown shape")
+    require(record["schemaVersion"] == 1 and record["sourceRevision"] == current["sourceRevision"]
+            and record["imageReference"] == current_image,
+            "accepted Rust-only bridge does not match production pointer")
+    host, receipt = record["host"], record["receipt"]
+    require(isinstance(host, dict) and set(host) == {"sourceRevision", "imageReference", "observedAt"}
+            and host["sourceRevision"] == current["sourceRevision"]
+            and host["imageReference"] == current_image,
+            "observed Rust-only bridge differs from production pointer")
+    require(isinstance(receipt, dict) and set(receipt) == {"name", "sha256", "outcome", "completedAt", "snapshot",
+                             "sourceRevision", "candidateImage"}
+            and receipt["outcome"] == "success"
+            and receipt["sourceRevision"] == current["sourceRevision"]
+            and receipt["candidateImage"] == current_image
+            and isinstance(receipt["sha256"], str) and bool(HASH.fullmatch(receipt["sha256"]))
+            and isinstance(receipt["snapshot"], str) and bool(SNAPSHOT_NAME.fullmatch(receipt["snapshot"]))
+            and isinstance(receipt["name"], str)
+            and receipt["name"].endswith(f"-success-{current_image.split('@sha256:')[1][:16]}.json")
+            and bool(re.fullmatch(r"[0-9]{8}T[0-9]{6}Z-success-[0-9a-f]{16}\.json", receipt["name"])),
+            "Rust-only bridge receipt is not a matching successful validated deployment")
+    times = []
+    for timestamp in (receipt["completedAt"], host["observedAt"], record["acceptedAt"]):
+        require(isinstance(timestamp, str) and bool(re.fullmatch(
+            r"[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(?:\.[0-9]+)?Z", timestamp)),
+            "Rust-only bridge acceptance timestamp is invalid")
+        try:
+            times.append(datetime.fromisoformat(timestamp.replace("Z", "+00:00")))
+        except ValueError as error:
+            raise ReleaseError("Rust-only bridge acceptance timestamp is not a real UTC time") from error
+    require(times == sorted(times), "Rust-only bridge acceptance predates deployment")
+    helpers = archived_bridge_helpers(current_bundle / "operations.tar")
+    hashes = record["archivedVerifierSha256"]
+    require(isinstance(hashes, dict) and set(hashes) == set(helpers)
+            and all(isinstance(hashes[name], str) and HASH.fullmatch(hashes[name])
+                    and hashes[name] == digest(content) for name, content in helpers.items()),
+            "accepted Rust-only verifier hashes differ from production operations")
+    require(b'.deployableRuntimes == ["rust"]' in helpers["provenance.sh"]
+            and b"candidate reintroduces retired Node runtime capability" in helpers["deployment.sh"],
+            "production operations lack the reviewed Rust-only verifier bridge")
+
+
+def gate(current_image: str, current_bundle: Path, retirement_receipt_record: Path,
          candidate_summary: Path | None, candidate_metadata: Path | None) -> bool:
-    """Return whether the v2-to-v3 pointer must be held for promotion."""
-    verify(current_image, current_bundle)
+    """Hold a provenance or runtime-capability transition for explicit promotion."""
     current = json.loads((current_bundle / "release-metadata.json").read_bytes())
+    require(current.get("schemaVersion") == 3, "Rust-only release requires the deployed Cargo verifier bridge")
+    verify(current_image, current_bundle)
     inspected = image_inspect(current_image)
     require(current_image in inspected.get("RepoDigests", []), "current pointer is not an exact pulled digest")
     require(current.get("imageReference") == current_image, "current metadata differs from production pointer")
@@ -446,43 +507,15 @@ def gate(current_image: str, current_bundle: Path, receipt_record: Path,
     require(labels.get("org.opencontainers.image.revision") == current.get("sourceRevision"), "current image revision differs from metadata")
     require(labels.get("com.rental-apartments.runtime") == "rust" and current.get("runtime") == "rust", "current release is not exact Rust")
     transition(current, current_image, current_bundle, candidate_summary, candidate_metadata)
-    if current.get("schemaVersion") == 3:
-        require(current.get("provenanceKind") == "cargo-source-v1", "current Cargo contract is unknown")
-        return False
-    require(current.get("schemaVersion") == 2, "current release has an unknown provenance contract")
-    require(current.get("deployableProvenanceContracts") == ["legacy-package-lock-v2", "cargo-source-v3"],
-            "current host release does not advertise verified Cargo capability")
-    require(receipt_record.is_file() and not receipt_record.is_symlink(), "accepted stage-one host receipt is missing")
-    record = json.loads(receipt_record.read_bytes())
-    require(set(record) == {"schemaVersion", "sourceRevision", "imageReference", "host", "receipt", "acceptedAt"},
-            "accepted host receipt has an unknown shape")
-    require(record["schemaVersion"] == 1 and record["sourceRevision"] == current["sourceRevision"]
-            and record["imageReference"] == current_image, "accepted host receipt does not match production pointer")
-    host = record["host"]
-    receipt = record["receipt"]
-    require(set(host) == {"sourceRevision", "imageReference", "observedAt"} and
-            host["sourceRevision"] == current["sourceRevision"] and host["imageReference"] == current_image,
-            "observed host release does not match production pointer")
-    require(set(receipt) == {"name", "sha256", "outcome", "completedAt", "snapshot", "sourceRevision", "candidateImage"},
-            "host receipt projection has an unknown shape")
-    require(receipt["outcome"] == "success" and receipt["sourceRevision"] == current["sourceRevision"]
-            and receipt["candidateImage"] == current_image
-            and isinstance(receipt["sha256"], str) and bool(HASH.fullmatch(receipt["sha256"]))
-            and isinstance(receipt["snapshot"], str) and bool(SNAPSHOT_NAME.fullmatch(receipt["snapshot"]))
-            and isinstance(receipt["name"], str)
-            and receipt["name"].endswith(f"-success-{current_image.split('@sha256:')[1][:16]}.json")
-            and bool(re.fullmatch(r"[0-9]{8}T[0-9]{6}Z-success-[0-9a-f]{16}\.json", receipt["name"])),
-            "host receipt is not a matching successful validated deployment")
-    times = []
-    for timestamp in (receipt["completedAt"], host["observedAt"], record["acceptedAt"]):
-        require(isinstance(timestamp, str) and bool(re.fullmatch(r"[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(?:\.[0-9]+)?Z", timestamp)),
-                "host acceptance timestamp is invalid")
-        try:
-            times.append(datetime.fromisoformat(timestamp.replace("Z", "+00:00")))
-        except ValueError as error:
-            raise ReleaseError("host acceptance timestamp is not a real UTC time") from error
-    require(times == sorted(times), "host acceptance predates successful deployment")
-    return True
+    candidate = json.loads(candidate_metadata.read_bytes()) if candidate_metadata else None
+    candidate_runtimes = candidate.get("deployableRuntimes") if candidate else ["rust"]
+    require(candidate_runtimes == ["rust"], "new Rust releases must advertise only the Rust runtime")
+    require(current.get("provenanceKind") == "cargo-source-v1", "current Cargo contract is unknown")
+    if current.get("deployableRuntimes") == ["node", "rust"]:
+        require_retirement_bridge(current, current_image, current_bundle, retirement_receipt_record)
+        return True
+    require(current.get("deployableRuntimes") == ["rust"], "current runtime capability is unknown")
+    return False
 
 
 def main() -> None:
@@ -504,7 +537,7 @@ def main() -> None:
     gate_parser = commands.add_parser("gate")
     gate_parser.add_argument("--current-image", required=True)
     gate_parser.add_argument("--current-bundle", type=Path, required=True)
-    gate_parser.add_argument("--receipt-record", type=Path, required=True)
+    gate_parser.add_argument("--retirement-receipt-record", type=Path, required=True)
     candidate_contract = gate_parser.add_mutually_exclusive_group(required=True)
     candidate_contract.add_argument("--candidate-summary", type=Path)
     candidate_contract.add_argument("--candidate-metadata", type=Path)
@@ -518,13 +551,14 @@ def main() -> None:
         elif arguments.command == "verify":
             verify(arguments.image_reference, arguments.bundle)
         else:
-            held = gate(arguments.current_image, arguments.current_bundle, arguments.receipt_record,
+            held = gate(arguments.current_image, arguments.current_bundle,
+                        arguments.retirement_receipt_record,
                         arguments.candidate_summary, arguments.candidate_metadata)
             print(f"cutover={'true' if held else 'false'}")
             if "GITHUB_OUTPUT" in os.environ:
                 with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as output:
                     output.write(f"cutover={'true' if held else 'false'}\n")
-    except (ReleaseError, OSError, KeyError, ValueError, json.JSONDecodeError) as error:
+    except (ReleaseError, OSError, KeyError, TypeError, ValueError, json.JSONDecodeError, tarfile.TarError) as error:
         parser.exit(1, f"native release: {error}\n")
 
 

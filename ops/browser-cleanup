@@ -27,25 +27,8 @@ expected=$(docker image inspect --format '{{.Id}}' "$image")
 active=$(docker inspect --format '{{.Image}}' "$RENTAL_CONTAINER_NAME")
 [[ -n $expected && $expected == "$active" ]]
 # Inspect the running artifact, not the host checkout or an unstarted image.
-if [[ "$(ops_runtime "$image")" == rust ]]; then
-  docker exec "$RENTAL_CONTAINER_NAME" /usr/local/bin/rental-app --version
-else
-docker exec "$RENTAL_CONTAINER_NAME" node --input-type=module -e '
-  import fs from "node:fs";
-  import path from "node:path";
-  for (const file of ["/app/src/list-am-http.js", "/app/src/browser-cleanup-cli.js"]) {
-    if (!fs.statSync(file).isFile()) process.exit(65);
-  }
-  const p = JSON.parse(fs.readFileSync("/app/package.json", "utf8"));
-  if (Object.keys(p.dependencies || {}).some(n => /puppeteer|playwright|chromium/i.test(n))) process.exit(65);
-  const directories = [...(process.env.PATH || "").split(":"), "/usr/lib/chromium", "/opt/google/chrome"];
-  for (const directory of directories) {
-    for (const binary of ["chromium", "chromium-browser", "google-chrome", "chrome"]) {
-      if (fs.existsSync(path.join(directory, binary))) process.exit(65);
-    }
-  }
-'
-fi
+ops_runtime "$image" >/dev/null
+docker exec "$RENTAL_CONTAINER_NAME" /usr/local/bin/rental-app --version
 ops_set_step validate-browser-free-snapshot
 snapshot=$(ops_latest_snapshot)
 ops_validate_snapshot "$snapshot"

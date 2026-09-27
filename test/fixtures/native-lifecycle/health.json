@@ -1,0 +1,2801 @@
+{
+  "sourceRevision": "790ecdb66593d0bff685bc2c537cbe3e7f88735e",
+  "oracle": "Node 24.18.0 HealthMonitor; expected values captured before retirement, independently compared to Rust",
+  "sourceSha256": {
+    "src/health.js": "aa9053fd2560d308ca81be2ee5a66adf324f43b1022a4f088a88b576ddf7288c",
+    "test/rust-production-health.test.js": "0e3977268eea23b0d63a7ff748b05e08f8540bd985f410008364792facdbdb32"
+  },
+  "cases": [
+    {
+      "input": {
+        "op": "health",
+        "version": "1.0.0",
+        "startedMs": 1790424000000,
+        "events": [
+          {
+            "method": "setConfigurationValid"
+          },
+          {
+            "method": "setPreflight",
+            "args": [
+              {
+                "ready": true,
+                "checks": {
+                  "configuration": "passed",
+                  "state": "passed",
+                  "telegram": "passed",
+                  "source_transport": "passed",
+                  "list_am": "passed",
+                  "exchange_rates": "passed",
+                  "channel": "skipped"
+                }
+              }
+            ]
+          },
+          {
+            "method": "setMonitoringState",
+            "args": [
+              {
+                "active": true,
+                "channelConfigured": false
+              }
+            ]
+          },
+          {
+            "method": "recordExchangeRateSnapshot",
+            "args": [
+              {
+                "fetchedAt": "2026-09-26T12:00:00.000Z"
+              }
+            ]
+          },
+          {
+            "method": "recordCrawlSuccess"
+          },
+          {
+            "method": "recordCrawlFailure",
+            "args": [
+              "list_am_challenge"
+            ],
+            "at": 1790424001000
+          },
+          {
+            "method": "recordCrawlFailure",
+            "args": [
+              "list_am_challenge"
+            ],
+            "at": 1790424002000
+          },
+          {
+            "method": "recordCrawlFailure",
+            "args": [
+              "list_am_challenge"
+            ],
+            "at": 1790424003000
+          },
+          {
+            "method": "recordCrawlFailure",
+            "args": [
+              "list_am_challenge"
+            ],
+            "at": 1790424004000
+          },
+          {
+            "method": "recordCrawlFailure",
+            "args": [
+              "list_am_challenge"
+            ],
+            "at": 1790424005000
+          },
+          {
+            "method": "recordSourceIntegritySuccess"
+          },
+          {
+            "method": "recordCrawlSuccess"
+          },
+          {
+            "method": "recordComponentSuccess",
+            "args": [
+              "telegram"
+            ],
+            "at": 1790424600000
+          },
+          {
+            "method": "setMonitoringState",
+            "args": [
+              {
+                "active": false,
+                "channelConfigured": false
+              }
+            ]
+          },
+          {
+            "method": "recordComponentSuccess",
+            "args": [
+              "cba"
+            ],
+            "at": 1790596800001
+          }
+        ]
+      },
+      "expected": {
+        "observations": [
+          {
+            "status": "not_ready",
+            "ready": false,
+            "timestamp": "2026-09-26T12:00:00.000Z",
+            "startedAt": "2026-09-26T12:00:00.000Z",
+            "version": "1.0.0",
+            "preflight": {
+              "status": "pending",
+              "completedAt": null
+            },
+            "monitoring": {
+              "required": false,
+              "active": false,
+              "channelConfigured": false,
+              "requiredSince": null,
+              "lastSuccessAt": null,
+              "lastFailureAt": null,
+              "consecutiveFailures": 0
+            },
+            "exchangeRates": {
+              "required": false,
+              "fetchedAt": null
+            },
+            "privateAccess": {
+              "accessMode": "public",
+              "persistedUserCount": 0,
+              "authorizedUserCount": 0,
+              "suspendedUserCount": 0,
+              "activeUserCount": 0
+            },
+            "components": {
+              "configuration": {
+                "status": "ok",
+                "updatedAt": "2026-09-26T12:00:00.000Z"
+              },
+              "storage": {
+                "status": "unknown",
+                "updatedAt": null
+              },
+              "telegram": {
+                "status": "unknown",
+                "updatedAt": null
+              },
+              "list_am": {
+                "status": "unknown",
+                "updatedAt": null
+              },
+              "cba": {
+                "status": "unknown",
+                "updatedAt": null
+              }
+            },
+            "reasons": [
+              "PREFLIGHT_INCOMPLETE"
+            ],
+            "alertReasons": [
+              "PREFLIGHT_INCOMPLETE"
+            ],
+            "warnings": []
+          },
+          {
+            "status": "ready",
+            "ready": true,
+            "timestamp": "2026-09-26T12:00:00.000Z",
+            "startedAt": "2026-09-26T12:00:00.000Z",
+            "version": "1.0.0",
+            "preflight": {
+              "status": "ready",
+              "completedAt": "2026-09-26T12:00:00.000Z"
+            },
+            "monitoring": {
+              "required": false,
+              "active": false,
+              "channelConfigured": false,
+              "requiredSince": null,
+              "lastSuccessAt": null,
+              "lastFailureAt": null,
+              "consecutiveFailures": 0
+            },
+            "exchangeRates": {
+              "required": false,
+              "fetchedAt": null
+            },
+            "privateAccess": {
+              "accessMode": "public",
+              "persistedUserCount": 0,
+              "authorizedUserCount": 0,
+              "suspendedUserCount": 0,
+              "activeUserCount": 0
+            },
+            "components": {
+              "configuration": {
+                "status": "ok",
+                "updatedAt": "2026-09-26T12:00:00.000Z"
+              },
+              "storage": {
+                "status": "ok",
+                "updatedAt": "2026-09-26T12:00:00.000Z"
+              },
+              "telegram": {
+                "status": "ok",
+                "updatedAt": "2026-09-26T12:00:00.000Z"
+              },
+              "list_am": {
+                "status": "ok",
+                "updatedAt": "2026-09-26T12:00:00.000Z"
+              },
+              "cba": {
+                "status": "ok",
+                "updatedAt": "2026-09-26T12:00:00.000Z"
+              }
+            },
+            "reasons": [],
+            "alertReasons": [],
+            "warnings": []
+          },
+          {
+            "status": "not_ready",
+            "ready": false,
+            "timestamp": "2026-09-26T12:00:00.000Z",
+            "startedAt": "2026-09-26T12:00:00.000Z",
+            "version": "1.0.0",
+            "preflight": {
+              "status": "ready",
+              "completedAt": "2026-09-26T12:00:00.000Z"
+            },
+            "monitoring": {
+              "required": true,
+              "active": true,
+              "channelConfigured": false,
+              "requiredSince": "2026-09-26T12:00:00.000Z",
+              "lastSuccessAt": null,
+              "lastFailureAt": null,
+              "consecutiveFailures": 0
+            },
+            "exchangeRates": {
+              "required": true,
+              "fetchedAt": null
+            },
+            "privateAccess": {
+              "accessMode": "public",
+              "persistedUserCount": 0,
+              "authorizedUserCount": 0,
+              "suspendedUserCount": 0,
+              "activeUserCount": 0
+            },
+            "components": {
+              "configuration": {
+                "status": "ok",
+                "updatedAt": "2026-09-26T12:00:00.000Z"
+              },
+              "storage": {
+                "status": "ok",
+                "updatedAt": "2026-09-26T12:00:00.000Z"
+              },
+              "telegram": {
+                "status": "ok",
+                "updatedAt": "2026-09-26T12:00:00.000Z"
+              },
+              "list_am": {
+                "status": "ok",
+                "updatedAt": "2026-09-26T12:00:00.000Z"
+              },
+              "cba": {
+                "status": "failed",
+                "updatedAt": "2026-09-26T12:00:00.000Z",
+                "code": "ERR_EXCHANGE_RATES_UNAVAILABLE"
+              }
+            },
+            "reasons": [
+              "CRAWL_NEVER_SUCCEEDED",
+              "EXCHANGE_RATES_UNAVAILABLE"
+            ],
+            "alertReasons": [
+              "CRAWL_NEVER_SUCCEEDED",
+              "EXCHANGE_RATES_UNAVAILABLE"
+            ],
+            "warnings": []
+          },
+          {
+            "status": "not_ready",
+            "ready": false,
+            "timestamp": "2026-09-26T12:00:00.000Z",
+            "startedAt": "2026-09-26T12:00:00.000Z",
+            "version": "1.0.0",
+            "preflight": {
+              "status": "ready",
+              "completedAt": "2026-09-26T12:00:00.000Z"
+            },
+            "monitoring": {
+              "required": true,
+              "active": true,
+              "channelConfigured": false,
+              "requiredSince": "2026-09-26T12:00:00.000Z",
+              "lastSuccessAt": null,
+              "lastFailureAt": null,
+              "consecutiveFailures": 0
+            },
+            "exchangeRates": {
+              "required": true,
+              "fetchedAt": "2026-09-26T12:00:00.000Z"
+            },
+            "privateAccess": {
+              "accessMode": "public",
+              "persistedUserCount": 0,
+              "authorizedUserCount": 0,
+              "suspendedUserCount": 0,
+              "activeUserCount": 0
+            },
+            "components": {
+              "configuration": {
+                "status": "ok",
+                "updatedAt": "2026-09-26T12:00:00.000Z"
+              },
+              "storage": {
+                "status": "ok",
+                "updatedAt": "2026-09-26T12:00:00.000Z"
+              },
+              "telegram": {
+                "status": "ok",
+                "updatedAt": "2026-09-26T12:00:00.000Z"
+              },
+              "list_am": {
+                "status": "ok",
+                "updatedAt": "2026-09-26T12:00:00.000Z"
+              },
+              "cba": {
+                "status": "ok",
+                "updatedAt": "2026-09-26T12:00:00.000Z"
+              }
+            },
+            "reasons": [
+              "CRAWL_NEVER_SUCCEEDED"
+            ],
+            "alertReasons": [
+              "CRAWL_NEVER_SUCCEEDED"
+            ],
+            "warnings": []
+          },
+          {
+            "status": "ready",
+            "ready": true,
+            "timestamp": "2026-09-26T12:00:00.000Z",
+            "startedAt": "2026-09-26T12:00:00.000Z",
+            "version": "1.0.0",
+            "preflight": {
+              "status": "ready",
+              "completedAt": "2026-09-26T12:00:00.000Z"
+            },
+            "monitoring": {
+              "required": true,
+              "active": true,
+              "channelConfigured": false,
+              "requiredSince": "2026-09-26T12:00:00.000Z",
+              "lastSuccessAt": "2026-09-26T12:00:00.000Z",
+              "lastFailureAt": null,
+              "consecutiveFailures": 0
+            },
+            "exchangeRates": {
+              "required": true,
+              "fetchedAt": "2026-09-26T12:00:00.000Z"
+            },
+            "privateAccess": {
+              "accessMode": "public",
+              "persistedUserCount": 0,
+              "authorizedUserCount": 0,
+              "suspendedUserCount": 0,
+              "activeUserCount": 0
+            },
+            "components": {
+              "configuration": {
+                "status": "ok",
+                "updatedAt": "2026-09-26T12:00:00.000Z"
+              },
+              "storage": {
+                "status": "ok",
+                "updatedAt": "2026-09-26T12:00:00.000Z"
+              },
+              "telegram": {
+                "status": "ok",
+                "updatedAt": "2026-09-26T12:00:00.000Z"
+              },
+              "list_am": {
+                "status": "ok",
+                "updatedAt": "2026-09-26T12:00:00.000Z"
+              },
+              "cba": {
+                "status": "ok",
+                "updatedAt": "2026-09-26T12:00:00.000Z"
+              }
+            },
+            "reasons": [],
+            "alertReasons": [],
+            "warnings": []
+          },
+          {
+            "status": "not_ready",
+            "ready": false,
+            "timestamp": "2026-09-26T12:00:01.000Z",
+            "startedAt": "2026-09-26T12:00:00.000Z",
+            "version": "1.0.0",
+            "preflight": {
+              "status": "ready",
+              "completedAt": "2026-09-26T12:00:00.000Z"
+            },
+            "monitoring": {
+              "required": true,
+              "active": true,
+              "channelConfigured": false,
+              "requiredSince": "2026-09-26T12:00:00.000Z",
+              "lastSuccessAt": "2026-09-26T12:00:00.000Z",
+              "lastFailureAt": "2026-09-26T12:00:01.000Z",
+              "consecutiveFailures": 1
+            },
+            "exchangeRates": {
+              "required": true,
+              "fetchedAt": "2026-09-26T12:00:00.000Z"
+            },
+            "privateAccess": {
+              "accessMode": "public",
+              "persistedUserCount": 0,
+              "authorizedUserCount": 0,
+              "suspendedUserCount": 0,
+              "activeUserCount": 0
+            },
+            "components": {
+              "configuration": {
+                "status": "ok",
+                "updatedAt": "2026-09-26T12:00:00.000Z"
+              },
+              "storage": {
+                "status": "ok",
+                "updatedAt": "2026-09-26T12:00:00.000Z"
+              },
+              "telegram": {
+                "status": "ok",
+                "updatedAt": "2026-09-26T12:00:00.000Z"
+              },
+              "list_am": {
+                "status": "challenge",
+                "updatedAt": "2026-09-26T12:00:01.000Z",
+                "code": "ERR_LIST_AM_CHALLENGE"
+              },
+              "cba": {
+                "status": "ok",
+                "updatedAt": "2026-09-26T12:00:00.000Z"
+              }
+            },
+            "reasons": [
+              "LIST_AM_CHALLENGE"
+            ],
+            "alertReasons": [],
+            "warnings": []
+          },
+          {
+            "status": "not_ready",
+            "ready": false,
+            "timestamp": "2026-09-26T12:00:02.000Z",
+            "startedAt": "2026-09-26T12:00:00.000Z",
+            "version": "1.0.0",
+            "preflight": {
+              "status": "ready",
+              "completedAt": "2026-09-26T12:00:00.000Z"
+            },
+            "monitoring": {
+              "required": true,
+              "active": true,
+              "channelConfigured": false,
+              "requiredSince": "2026-09-26T12:00:00.000Z",
+              "lastSuccessAt": "2026-09-26T12:00:00.000Z",
+              "lastFailureAt": "2026-09-26T12:00:02.000Z",
+              "consecutiveFailures": 2
+            },
+            "exchangeRates": {
+              "required": true,
+              "fetchedAt": "2026-09-26T12:00:00.000Z"
+            },
+            "privateAccess": {
+              "accessMode": "public",
+              "persistedUserCount": 0,
+              "authorizedUserCount": 0,
+              "suspendedUserCount": 0,
+              "activeUserCount": 0
+            },
+            "components": {
+              "configuration": {
+                "status": "ok",
+                "updatedAt": "2026-09-26T12:00:00.000Z"
+              },
+              "storage": {
+                "status": "ok",
+                "updatedAt": "2026-09-26T12:00:00.000Z"
+              },
+              "telegram": {
+                "status": "ok",
+                "updatedAt": "2026-09-26T12:00:00.000Z"
+              },
+              "list_am": {
+                "status": "challenge",
+                "updatedAt": "2026-09-26T12:00:02.000Z",
+                "code": "ERR_LIST_AM_CHALLENGE"
+              },
+              "cba": {
+                "status": "ok",
+                "updatedAt": "2026-09-26T12:00:00.000Z"
+              }
+            },
+            "reasons": [
+              "LIST_AM_CHALLENGE"
+            ],
+            "alertReasons": [],
+            "warnings": []
+          },
+          {
+            "status": "not_ready",
+            "ready": false,
+            "timestamp": "2026-09-26T12:00:03.000Z",
+            "startedAt": "2026-09-26T12:00:00.000Z",
+            "version": "1.0.0",
+            "preflight": {
+              "status": "ready",
+              "completedAt": "2026-09-26T12:00:00.000Z"
+            },
+            "monitoring": {
+              "required": true,
+              "active": true,
+              "channelConfigured": false,
+              "requiredSince": "2026-09-26T12:00:00.000Z",
+              "lastSuccessAt": "2026-09-26T12:00:00.000Z",
+              "lastFailureAt": "2026-09-26T12:00:03.000Z",
+              "consecutiveFailures": 3
+            },
+            "exchangeRates": {
+              "required": true,
+              "fetchedAt": "2026-09-26T12:00:00.000Z"
+            },
+            "privateAccess": {
+              "accessMode": "public",
+              "persistedUserCount": 0,
+              "authorizedUserCount": 0,
+              "suspendedUserCount": 0,
+              "activeUserCount": 0
+            },
+            "components": {
+              "configuration": {
+                "status": "ok",
+                "updatedAt": "2026-09-26T12:00:00.000Z"
+              },
+              "storage": {
+                "status": "ok",
+                "updatedAt": "2026-09-26T12:00:00.000Z"
+              },
+              "telegram": {
+                "status": "ok",
+                "updatedAt": "2026-09-26T12:00:00.000Z"
+              },
+              "list_am": {
+                "status": "challenge",
+                "updatedAt": "2026-09-26T12:00:03.000Z",
+                "code": "ERR_LIST_AM_CHALLENGE"
+              },
+              "cba": {
+                "status": "ok",
+                "updatedAt": "2026-09-26T12:00:00.000Z"
+              }
+            },
+            "reasons": [
+              "LIST_AM_CHALLENGE"
+            ],
+            "alertReasons": [],
+            "warnings": []
+          },
+          {
+            "status": "not_ready",
+            "ready": false,
+            "timestamp": "2026-09-26T12:00:04.000Z",
+            "startedAt": "2026-09-26T12:00:00.000Z",
+            "version": "1.0.0",
+            "preflight": {
+              "status": "ready",
+              "completedAt": "2026-09-26T12:00:00.000Z"
+            },
+            "monitoring": {
+              "required": true,
+              "active": true,
+              "channelConfigured": false,
+              "requiredSince": "2026-09-26T12:00:00.000Z",
+              "lastSuccessAt": "2026-09-26T12:00:00.000Z",
+              "lastFailureAt": "2026-09-26T12:00:04.000Z",
+              "consecutiveFailures": 4
+            },
+            "exchangeRates": {
+              "required": true,
+              "fetchedAt": "2026-09-26T12:00:00.000Z"
+            },
+            "privateAccess": {
+              "accessMode": "public",
+              "persistedUserCount": 0,
+              "authorizedUserCount": 0,
+              "suspendedUserCount": 0,
+              "activeUserCount": 0
+            },
+            "components": {
+              "configuration": {
+                "status": "ok",
+                "updatedAt": "2026-09-26T12:00:00.000Z"
+              },
+              "storage": {
+                "status": "ok",
+                "updatedAt": "2026-09-26T12:00:00.000Z"
+              },
+              "telegram": {
+                "status": "ok",
+                "updatedAt": "2026-09-26T12:00:00.000Z"
+              },
+              "list_am": {
+                "status": "challenge",
+                "updatedAt": "2026-09-26T12:00:04.000Z",
+                "code": "ERR_LIST_AM_CHALLENGE"
+              },
+              "cba": {
+                "status": "ok",
+                "updatedAt": "2026-09-26T12:00:00.000Z"
+              }
+            },
+            "reasons": [
+              "LIST_AM_CHALLENGE"
+            ],
+            "alertReasons": [],
+            "warnings": []
+          },
+          {
+            "status": "not_ready",
+            "ready": false,
+            "timestamp": "2026-09-26T12:00:05.000Z",
+            "startedAt": "2026-09-26T12:00:00.000Z",
+            "version": "1.0.0",
+            "preflight": {
+              "status": "ready",
+              "completedAt": "2026-09-26T12:00:00.000Z"
+            },
+            "monitoring": {
+              "required": true,
+              "active": true,
+              "channelConfigured": false,
+              "requiredSince": "2026-09-26T12:00:00.000Z",
+              "lastSuccessAt": "2026-09-26T12:00:00.000Z",
+              "lastFailureAt": "2026-09-26T12:00:05.000Z",
+              "consecutiveFailures": 5
+            },
+            "exchangeRates": {
+              "required": true,
+              "fetchedAt": "2026-09-26T12:00:00.000Z"
+            },
+            "privateAccess": {
+              "accessMode": "public",
+              "persistedUserCount": 0,
+              "authorizedUserCount": 0,
+              "suspendedUserCount": 0,
+              "activeUserCount": 0
+            },
+            "components": {
+              "configuration": {
+                "status": "ok",
+                "updatedAt": "2026-09-26T12:00:00.000Z"
+              },
+              "storage": {
+                "status": "ok",
+                "updatedAt": "2026-09-26T12:00:00.000Z"
+              },
+              "telegram": {
+                "status": "ok",
+                "updatedAt": "2026-09-26T12:00:00.000Z"
+              },
+              "list_am": {
+                "status": "challenge",
+                "updatedAt": "2026-09-26T12:00:05.000Z",
+                "code": "ERR_LIST_AM_CHALLENGE"
+              },
+              "cba": {
+                "status": "ok",
+                "updatedAt": "2026-09-26T12:00:00.000Z"
+              }
+            },
+            "reasons": [
+              "LIST_AM_CHALLENGE",
+              "CRAWL_FAILURE_THRESHOLD"
+            ],
+            "alertReasons": [
+              "LIST_AM_CHALLENGE",
+              "CRAWL_FAILURE_THRESHOLD"
+            ],
+            "warnings": []
+          },
+          {
+            "status": "not_ready",
+            "ready": false,
+            "timestamp": "2026-09-26T12:00:05.000Z",
+            "startedAt": "2026-09-26T12:00:00.000Z",
+            "version": "1.0.0",
+            "preflight": {
+              "status": "ready",
+              "completedAt": "2026-09-26T12:00:00.000Z"
+            },
+            "monitoring": {
+              "required": true,
+              "active": true,
+              "channelConfigured": false,
+              "requiredSince": "2026-09-26T12:00:00.000Z",
+              "lastSuccessAt": "2026-09-26T12:00:00.000Z",
+              "lastFailureAt": "2026-09-26T12:00:05.000Z",
+              "consecutiveFailures": 5
+            },
+            "exchangeRates": {
+              "required": true,
+              "fetchedAt": "2026-09-26T12:00:00.000Z"
+            },
+            "privateAccess": {
+              "accessMode": "public",
+              "persistedUserCount": 0,
+              "authorizedUserCount": 0,
+              "suspendedUserCount": 0,
+              "activeUserCount": 0
+            },
+            "components": {
+              "configuration": {
+                "status": "ok",
+                "updatedAt": "2026-09-26T12:00:00.000Z"
+              },
+              "storage": {
+                "status": "ok",
+                "updatedAt": "2026-09-26T12:00:00.000Z"
+              },
+              "telegram": {
+                "status": "ok",
+                "updatedAt": "2026-09-26T12:00:00.000Z"
+              },
+              "list_am": {
+                "status": "ok",
+                "updatedAt": "2026-09-26T12:00:05.000Z"
+              },
+              "cba": {
+                "status": "ok",
+                "updatedAt": "2026-09-26T12:00:00.000Z"
+              }
+            },
+            "reasons": [
+              "CRAWL_FAILURE_THRESHOLD"
+            ],
+            "alertReasons": [
+              "CRAWL_FAILURE_THRESHOLD"
+            ],
+            "warnings": []
+          },
+          {
+            "status": "ready",
+            "ready": true,
+            "timestamp": "2026-09-26T12:00:05.000Z",
+            "startedAt": "2026-09-26T12:00:00.000Z",
+            "version": "1.0.0",
+            "preflight": {
+              "status": "ready",
+              "completedAt": "2026-09-26T12:00:00.000Z"
+            },
+            "monitoring": {
+              "required": true,
+              "active": true,
+              "channelConfigured": false,
+              "requiredSince": "2026-09-26T12:00:00.000Z",
+              "lastSuccessAt": "2026-09-26T12:00:05.000Z",
+              "lastFailureAt": "2026-09-26T12:00:05.000Z",
+              "consecutiveFailures": 0
+            },
+            "exchangeRates": {
+              "required": true,
+              "fetchedAt": "2026-09-26T12:00:00.000Z"
+            },
+            "privateAccess": {
+              "accessMode": "public",
+              "persistedUserCount": 0,
+              "authorizedUserCount": 0,
+              "suspendedUserCount": 0,
+              "activeUserCount": 0
+            },
+            "components": {
+              "configuration": {
+                "status": "ok",
+                "updatedAt": "2026-09-26T12:00:00.000Z"
+              },
+              "storage": {
+                "status": "ok",
+                "updatedAt": "2026-09-26T12:00:00.000Z"
+              },
+              "telegram": {
+                "status": "ok",
+                "updatedAt": "2026-09-26T12:00:00.000Z"
+              },
+              "list_am": {
+                "status": "ok",
+                "updatedAt": "2026-09-26T12:00:05.000Z"
+              },
+              "cba": {
+                "status": "ok",
+                "updatedAt": "2026-09-26T12:00:00.000Z"
+              }
+            },
+            "reasons": [],
+            "alertReasons": [],
+            "warnings": []
+          },
+          {
+            "status": "ready",
+            "ready": true,
+            "timestamp": "2026-09-26T12:10:00.000Z",
+            "startedAt": "2026-09-26T12:00:00.000Z",
+            "version": "1.0.0",
+            "preflight": {
+              "status": "ready",
+              "completedAt": "2026-09-26T12:00:00.000Z"
+            },
+            "monitoring": {
+              "required": true,
+              "active": true,
+              "channelConfigured": false,
+              "requiredSince": "2026-09-26T12:00:00.000Z",
+              "lastSuccessAt": "2026-09-26T12:00:05.000Z",
+              "lastFailureAt": "2026-09-26T12:00:05.000Z",
+              "consecutiveFailures": 0
+            },
+            "exchangeRates": {
+              "required": true,
+              "fetchedAt": "2026-09-26T12:00:00.000Z"
+            },
+            "privateAccess": {
+              "accessMode": "public",
+              "persistedUserCount": 0,
+              "authorizedUserCount": 0,
+              "suspendedUserCount": 0,
+              "activeUserCount": 0
+            },
+            "components": {
+              "configuration": {
+                "status": "ok",
+                "updatedAt": "2026-09-26T12:00:00.000Z"
+              },
+              "storage": {
+                "status": "ok",
+                "updatedAt": "2026-09-26T12:00:00.000Z"
+              },
+              "telegram": {
+                "status": "ok",
+                "updatedAt": "2026-09-26T12:10:00.000Z"
+              },
+              "list_am": {
+                "status": "ok",
+                "updatedAt": "2026-09-26T12:00:05.000Z"
+              },
+              "cba": {
+                "status": "ok",
+                "updatedAt": "2026-09-26T12:00:00.000Z"
+              }
+            },
+            "reasons": [],
+            "alertReasons": [],
+            "warnings": []
+          },
+          {
+            "status": "ready",
+            "ready": true,
+            "timestamp": "2026-09-26T12:10:00.000Z",
+            "startedAt": "2026-09-26T12:00:00.000Z",
+            "version": "1.0.0",
+            "preflight": {
+              "status": "ready",
+              "completedAt": "2026-09-26T12:00:00.000Z"
+            },
+            "monitoring": {
+              "required": false,
+              "active": false,
+              "channelConfigured": false,
+              "requiredSince": null,
+              "lastSuccessAt": null,
+              "lastFailureAt": null,
+              "consecutiveFailures": 0
+            },
+            "exchangeRates": {
+              "required": false,
+              "fetchedAt": "2026-09-26T12:00:00.000Z"
+            },
+            "privateAccess": {
+              "accessMode": "public",
+              "persistedUserCount": 0,
+              "authorizedUserCount": 0,
+              "suspendedUserCount": 0,
+              "activeUserCount": 0
+            },
+            "components": {
+              "configuration": {
+                "status": "ok",
+                "updatedAt": "2026-09-26T12:00:00.000Z"
+              },
+              "storage": {
+                "status": "ok",
+                "updatedAt": "2026-09-26T12:00:00.000Z"
+              },
+              "telegram": {
+                "status": "ok",
+                "updatedAt": "2026-09-26T12:10:00.000Z"
+              },
+              "list_am": {
+                "status": "ok",
+                "updatedAt": "2026-09-26T12:00:05.000Z"
+              },
+              "cba": {
+                "status": "ok",
+                "updatedAt": "2026-09-26T12:00:00.000Z"
+              }
+            },
+            "reasons": [],
+            "alertReasons": [],
+            "warnings": []
+          },
+          {
+            "status": "ready",
+            "ready": true,
+            "timestamp": "2026-09-28T12:00:00.001Z",
+            "startedAt": "2026-09-26T12:00:00.000Z",
+            "version": "1.0.0",
+            "preflight": {
+              "status": "ready",
+              "completedAt": "2026-09-26T12:00:00.000Z"
+            },
+            "monitoring": {
+              "required": false,
+              "active": false,
+              "channelConfigured": false,
+              "requiredSince": null,
+              "lastSuccessAt": null,
+              "lastFailureAt": null,
+              "consecutiveFailures": 0
+            },
+            "exchangeRates": {
+              "required": false,
+              "fetchedAt": "2026-09-26T12:00:00.000Z"
+            },
+            "privateAccess": {
+              "accessMode": "public",
+              "persistedUserCount": 0,
+              "authorizedUserCount": 0,
+              "suspendedUserCount": 0,
+              "activeUserCount": 0
+            },
+            "components": {
+              "configuration": {
+                "status": "ok",
+                "updatedAt": "2026-09-26T12:00:00.000Z"
+              },
+              "storage": {
+                "status": "ok",
+                "updatedAt": "2026-09-26T12:00:00.000Z"
+              },
+              "telegram": {
+                "status": "ok",
+                "updatedAt": "2026-09-26T12:10:00.000Z"
+              },
+              "list_am": {
+                "status": "ok",
+                "updatedAt": "2026-09-26T12:00:05.000Z"
+              },
+              "cba": {
+                "status": "warning",
+                "updatedAt": "2026-09-28T12:00:00.001Z",
+                "code": "WARN_EXCHANGE_RATES_STALE"
+              }
+            },
+            "reasons": [],
+            "alertReasons": [],
+            "warnings": [
+              "EXCHANGE_RATES_STALE"
+            ]
+          }
+        ],
+        "alerts": [
+          {
+            "name": "readiness_failure",
+            "status": "firing",
+            "reasons": [
+              "CRAWL_NEVER_SUCCEEDED",
+              "EXCHANGE_RATES_UNAVAILABLE"
+            ]
+          },
+          {
+            "name": "readiness_failure",
+            "status": "resolved",
+            "reasons": []
+          },
+          {
+            "name": "five_consecutive_crawl_failures",
+            "status": "firing",
+            "consecutiveFailures": 5
+          },
+          {
+            "name": "list_am_challenge",
+            "status": "firing",
+            "reason": "LIST_AM_CHALLENGE",
+            "consecutiveCrawls": 5
+          },
+          {
+            "name": "readiness_failure",
+            "status": "firing",
+            "reasons": [
+              "LIST_AM_CHALLENGE",
+              "CRAWL_FAILURE_THRESHOLD"
+            ]
+          },
+          {
+            "name": "list_am_challenge",
+            "status": "resolved",
+            "reason": "LIST_AM_CHALLENGE"
+          },
+          {
+            "name": "five_consecutive_crawl_failures",
+            "status": "resolved"
+          },
+          {
+            "name": "readiness_failure",
+            "status": "resolved",
+            "reasons": []
+          },
+          {
+            "name": "stale_exchange_rates",
+            "status": "firing",
+            "fetchedAt": "2026-09-26T12:00:00.000Z"
+          }
+        ],
+        "liveness": {
+          "status": "live",
+          "timestamp": "2026-09-28T12:00:00.001Z",
+          "startedAt": "2026-09-26T12:00:00.000Z",
+          "version": "1.0.0"
+        }
+      }
+    },
+    {
+      "input": {
+        "op": "health",
+        "version": "1.0.0",
+        "startedMs": 1790424000000,
+        "events": [
+          {
+            "method": "setConfigurationFailure",
+            "args": [
+              "secret token:do-not-expose"
+            ]
+          },
+          {
+            "method": "setPreflight",
+            "args": [
+              {
+                "status": "source_challenge",
+                "checks": {
+                  "configuration": "passed",
+                  "state": "passed",
+                  "telegram": "passed",
+                  "source_transport": "passed",
+                  "list_am": "source_challenge",
+                  "exchange_rates": "not_run"
+                },
+                "failure": {
+                  "component": "list_am",
+                  "code": "ERR_LIST_AM_CHALLENGE",
+                  "message": "secret"
+                }
+              }
+            ]
+          },
+          {
+            "method": "setPrivateAccessState",
+            "args": [
+              {
+                "accessMode": "allowlist",
+                "persistedUserCount": 3,
+                "authorizedUserCount": 2,
+                "suspendedUserCount": 1,
+                "activeUserCount": 1,
+                "userIds": [
+                  "secret"
+                ],
+                "allowlist": [
+                  123
+                ]
+              }
+            ]
+          },
+          {
+            "method": "setPreflight",
+            "args": [
+              {
+                "status": "failed",
+                "failure": {
+                  "component": "list_am",
+                  "code": "ERR_LIST_AM_SOURCE_INTEGRITY"
+                }
+              }
+            ]
+          },
+          {
+            "method": "setPreflight",
+            "args": [
+              {
+                "ready": true,
+                "checks": {
+                  "configuration": "passed",
+                  "state": "passed",
+                  "telegram": "passed",
+                  "source_transport": "passed",
+                  "list_am": "passed",
+                  "exchange_rates": "passed",
+                  "channel": "skipped"
+                }
+              }
+            ]
+          },
+          {
+            "method": "recordSourceIntegritySuccess"
+          },
+          {
+            "method": "recordComponentFailure",
+            "args": [
+              "telegram",
+              "ERR_TELEGRAM_CREDENTIALS"
+            ]
+          },
+          {
+            "method": "recordComponentFailure",
+            "args": [
+              "telegram",
+              "ERR_TELEGRAM_CHANNEL_PERMISSIONS"
+            ]
+          },
+          {
+            "method": "recordComponentSuccess",
+            "args": [
+              "telegram"
+            ]
+          },
+          {
+            "method": "recordExchangeRateFailure",
+            "args": [
+              {
+                "fetchedAt": "2026-09-26T12:00:00.000Z"
+              }
+            ]
+          },
+          {
+            "method": "recordExchangeRateFailure",
+            "args": [
+              {}
+            ]
+          },
+          {
+            "method": "recordComponentFailure",
+            "args": [
+              "storage",
+              "bad-code secret",
+              {
+                "warning": true
+              }
+            ]
+          },
+          {
+            "method": "setPrivateAccessState",
+            "args": [
+              {
+                "accessMode": "bad",
+                "persistedUserCount": -1,
+                "authorizedUserCount": 0.5,
+                "suspendedUserCount": 9007199254740992,
+                "activeUserCount": 2
+              }
+            ]
+          }
+        ]
+      },
+      "expected": {
+        "observations": [
+          {
+            "status": "not_ready",
+            "ready": false,
+            "timestamp": "2026-09-26T12:00:00.000Z",
+            "startedAt": "2026-09-26T12:00:00.000Z",
+            "version": "1.0.0",
+            "preflight": {
+              "status": "failed",
+              "completedAt": "2026-09-26T12:00:00.000Z"
+            },
+            "monitoring": {
+              "required": false,
+              "active": false,
+              "channelConfigured": false,
+              "requiredSince": null,
+              "lastSuccessAt": null,
+              "lastFailureAt": null,
+              "consecutiveFailures": 0
+            },
+            "exchangeRates": {
+              "required": false,
+              "fetchedAt": null
+            },
+            "privateAccess": {
+              "accessMode": "public",
+              "persistedUserCount": 0,
+              "authorizedUserCount": 0,
+              "suspendedUserCount": 0,
+              "activeUserCount": 0
+            },
+            "components": {
+              "configuration": {
+                "status": "failed",
+                "updatedAt": "2026-09-26T12:00:00.000Z",
+                "code": "ERR_CONFIGURATION"
+              },
+              "storage": {
+                "status": "unknown",
+                "updatedAt": null
+              },
+              "telegram": {
+                "status": "unknown",
+                "updatedAt": null
+              },
+              "list_am": {
+                "status": "unknown",
+                "updatedAt": null
+              },
+              "cba": {
+                "status": "unknown",
+                "updatedAt": null
+              }
+            },
+            "reasons": [
+              "PREFLIGHT_FAILED"
+            ],
+            "alertReasons": [
+              "PREFLIGHT_FAILED"
+            ],
+            "warnings": []
+          },
+          {
+            "status": "not_ready",
+            "ready": false,
+            "timestamp": "2026-09-26T12:00:00.000Z",
+            "startedAt": "2026-09-26T12:00:00.000Z",
+            "version": "1.0.0",
+            "preflight": {
+              "status": "source_challenge",
+              "completedAt": "2026-09-26T12:00:00.000Z"
+            },
+            "monitoring": {
+              "required": false,
+              "active": false,
+              "channelConfigured": false,
+              "requiredSince": null,
+              "lastSuccessAt": null,
+              "lastFailureAt": null,
+              "consecutiveFailures": 0
+            },
+            "exchangeRates": {
+              "required": false,
+              "fetchedAt": null
+            },
+            "privateAccess": {
+              "accessMode": "public",
+              "persistedUserCount": 0,
+              "authorizedUserCount": 0,
+              "suspendedUserCount": 0,
+              "activeUserCount": 0
+            },
+            "components": {
+              "configuration": {
+                "status": "ok",
+                "updatedAt": "2026-09-26T12:00:00.000Z"
+              },
+              "storage": {
+                "status": "ok",
+                "updatedAt": "2026-09-26T12:00:00.000Z"
+              },
+              "telegram": {
+                "status": "ok",
+                "updatedAt": "2026-09-26T12:00:00.000Z"
+              },
+              "list_am": {
+                "status": "challenge",
+                "updatedAt": "2026-09-26T12:00:00.000Z",
+                "code": "ERR_LIST_AM_CHALLENGE"
+              },
+              "cba": {
+                "status": "unknown",
+                "updatedAt": null
+              }
+            },
+            "reasons": [
+              "PREFLIGHT_FAILED",
+              "LIST_AM_CHALLENGE"
+            ],
+            "alertReasons": [
+              "PREFLIGHT_FAILED",
+              "LIST_AM_CHALLENGE"
+            ],
+            "warnings": []
+          },
+          {
+            "status": "not_ready",
+            "ready": false,
+            "timestamp": "2026-09-26T12:00:00.000Z",
+            "startedAt": "2026-09-26T12:00:00.000Z",
+            "version": "1.0.0",
+            "preflight": {
+              "status": "source_challenge",
+              "completedAt": "2026-09-26T12:00:00.000Z"
+            },
+            "monitoring": {
+              "required": false,
+              "active": false,
+              "channelConfigured": false,
+              "requiredSince": null,
+              "lastSuccessAt": null,
+              "lastFailureAt": null,
+              "consecutiveFailures": 0
+            },
+            "exchangeRates": {
+              "required": false,
+              "fetchedAt": null
+            },
+            "privateAccess": {
+              "accessMode": "allowlist",
+              "persistedUserCount": 3,
+              "authorizedUserCount": 2,
+              "suspendedUserCount": 1,
+              "activeUserCount": 1
+            },
+            "components": {
+              "configuration": {
+                "status": "ok",
+                "updatedAt": "2026-09-26T12:00:00.000Z"
+              },
+              "storage": {
+                "status": "ok",
+                "updatedAt": "2026-09-26T12:00:00.000Z"
+              },
+              "telegram": {
+                "status": "ok",
+                "updatedAt": "2026-09-26T12:00:00.000Z"
+              },
+              "list_am": {
+                "status": "challenge",
+                "updatedAt": "2026-09-26T12:00:00.000Z",
+                "code": "ERR_LIST_AM_CHALLENGE"
+              },
+              "cba": {
+                "status": "unknown",
+                "updatedAt": null
+              }
+            },
+            "reasons": [
+              "PREFLIGHT_FAILED",
+              "LIST_AM_CHALLENGE"
+            ],
+            "alertReasons": [
+              "PREFLIGHT_FAILED",
+              "LIST_AM_CHALLENGE"
+            ],
+            "warnings": []
+          },
+          {
+            "status": "not_ready",
+            "ready": false,
+            "timestamp": "2026-09-26T12:00:00.000Z",
+            "startedAt": "2026-09-26T12:00:00.000Z",
+            "version": "1.0.0",
+            "preflight": {
+              "status": "failed",
+              "completedAt": "2026-09-26T12:00:00.000Z"
+            },
+            "monitoring": {
+              "required": false,
+              "active": false,
+              "channelConfigured": false,
+              "requiredSince": null,
+              "lastSuccessAt": null,
+              "lastFailureAt": null,
+              "consecutiveFailures": 0
+            },
+            "exchangeRates": {
+              "required": false,
+              "fetchedAt": null
+            },
+            "privateAccess": {
+              "accessMode": "allowlist",
+              "persistedUserCount": 3,
+              "authorizedUserCount": 2,
+              "suspendedUserCount": 1,
+              "activeUserCount": 1
+            },
+            "components": {
+              "configuration": {
+                "status": "ok",
+                "updatedAt": "2026-09-26T12:00:00.000Z"
+              },
+              "storage": {
+                "status": "ok",
+                "updatedAt": "2026-09-26T12:00:00.000Z"
+              },
+              "telegram": {
+                "status": "ok",
+                "updatedAt": "2026-09-26T12:00:00.000Z"
+              },
+              "list_am": {
+                "status": "failed",
+                "updatedAt": "2026-09-26T12:00:00.000Z",
+                "code": "ERR_LIST_AM_SOURCE_INTEGRITY"
+              },
+              "cba": {
+                "status": "unknown",
+                "updatedAt": null
+              }
+            },
+            "reasons": [
+              "PREFLIGHT_FAILED",
+              "LIST_AM_SOURCE_INTEGRITY"
+            ],
+            "alertReasons": [
+              "PREFLIGHT_FAILED",
+              "LIST_AM_SOURCE_INTEGRITY"
+            ],
+            "warnings": []
+          },
+          {
+            "status": "ready",
+            "ready": true,
+            "timestamp": "2026-09-26T12:00:00.000Z",
+            "startedAt": "2026-09-26T12:00:00.000Z",
+            "version": "1.0.0",
+            "preflight": {
+              "status": "ready",
+              "completedAt": "2026-09-26T12:00:00.000Z"
+            },
+            "monitoring": {
+              "required": false,
+              "active": false,
+              "channelConfigured": false,
+              "requiredSince": null,
+              "lastSuccessAt": null,
+              "lastFailureAt": null,
+              "consecutiveFailures": 0
+            },
+            "exchangeRates": {
+              "required": false,
+              "fetchedAt": null
+            },
+            "privateAccess": {
+              "accessMode": "allowlist",
+              "persistedUserCount": 3,
+              "authorizedUserCount": 2,
+              "suspendedUserCount": 1,
+              "activeUserCount": 1
+            },
+            "components": {
+              "configuration": {
+                "status": "ok",
+                "updatedAt": "2026-09-26T12:00:00.000Z"
+              },
+              "storage": {
+                "status": "ok",
+                "updatedAt": "2026-09-26T12:00:00.000Z"
+              },
+              "telegram": {
+                "status": "ok",
+                "updatedAt": "2026-09-26T12:00:00.000Z"
+              },
+              "list_am": {
+                "status": "ok",
+                "updatedAt": "2026-09-26T12:00:00.000Z"
+              },
+              "cba": {
+                "status": "ok",
+                "updatedAt": "2026-09-26T12:00:00.000Z"
+              }
+            },
+            "reasons": [],
+            "alertReasons": [],
+            "warnings": []
+          },
+          {
+            "status": "ready",
+            "ready": true,
+            "timestamp": "2026-09-26T12:00:00.000Z",
+            "startedAt": "2026-09-26T12:00:00.000Z",
+            "version": "1.0.0",
+            "preflight": {
+              "status": "ready",
+              "completedAt": "2026-09-26T12:00:00.000Z"
+            },
+            "monitoring": {
+              "required": false,
+              "active": false,
+              "channelConfigured": false,
+              "requiredSince": null,
+              "lastSuccessAt": null,
+              "lastFailureAt": null,
+              "consecutiveFailures": 0
+            },
+            "exchangeRates": {
+              "required": false,
+              "fetchedAt": null
+            },
+            "privateAccess": {
+              "accessMode": "allowlist",
+              "persistedUserCount": 3,
+              "authorizedUserCount": 2,
+              "suspendedUserCount": 1,
+              "activeUserCount": 1
+            },
+            "components": {
+              "configuration": {
+                "status": "ok",
+                "updatedAt": "2026-09-26T12:00:00.000Z"
+              },
+              "storage": {
+                "status": "ok",
+                "updatedAt": "2026-09-26T12:00:00.000Z"
+              },
+              "telegram": {
+                "status": "ok",
+                "updatedAt": "2026-09-26T12:00:00.000Z"
+              },
+              "list_am": {
+                "status": "ok",
+                "updatedAt": "2026-09-26T12:00:00.000Z"
+              },
+              "cba": {
+                "status": "ok",
+                "updatedAt": "2026-09-26T12:00:00.000Z"
+              }
+            },
+            "reasons": [],
+            "alertReasons": [],
+            "warnings": []
+          },
+          {
+            "status": "ready",
+            "ready": true,
+            "timestamp": "2026-09-26T12:00:00.000Z",
+            "startedAt": "2026-09-26T12:00:00.000Z",
+            "version": "1.0.0",
+            "preflight": {
+              "status": "ready",
+              "completedAt": "2026-09-26T12:00:00.000Z"
+            },
+            "monitoring": {
+              "required": false,
+              "active": false,
+              "channelConfigured": false,
+              "requiredSince": null,
+              "lastSuccessAt": null,
+              "lastFailureAt": null,
+              "consecutiveFailures": 0
+            },
+            "exchangeRates": {
+              "required": false,
+              "fetchedAt": null
+            },
+            "privateAccess": {
+              "accessMode": "allowlist",
+              "persistedUserCount": 3,
+              "authorizedUserCount": 2,
+              "suspendedUserCount": 1,
+              "activeUserCount": 1
+            },
+            "components": {
+              "configuration": {
+                "status": "ok",
+                "updatedAt": "2026-09-26T12:00:00.000Z"
+              },
+              "storage": {
+                "status": "ok",
+                "updatedAt": "2026-09-26T12:00:00.000Z"
+              },
+              "telegram": {
+                "status": "failed",
+                "updatedAt": "2026-09-26T12:00:00.000Z",
+                "code": "ERR_TELEGRAM_CREDENTIALS"
+              },
+              "list_am": {
+                "status": "ok",
+                "updatedAt": "2026-09-26T12:00:00.000Z"
+              },
+              "cba": {
+                "status": "ok",
+                "updatedAt": "2026-09-26T12:00:00.000Z"
+              }
+            },
+            "reasons": [],
+            "alertReasons": [],
+            "warnings": []
+          },
+          {
+            "status": "ready",
+            "ready": true,
+            "timestamp": "2026-09-26T12:00:00.000Z",
+            "startedAt": "2026-09-26T12:00:00.000Z",
+            "version": "1.0.0",
+            "preflight": {
+              "status": "ready",
+              "completedAt": "2026-09-26T12:00:00.000Z"
+            },
+            "monitoring": {
+              "required": false,
+              "active": false,
+              "channelConfigured": false,
+              "requiredSince": null,
+              "lastSuccessAt": null,
+              "lastFailureAt": null,
+              "consecutiveFailures": 0
+            },
+            "exchangeRates": {
+              "required": false,
+              "fetchedAt": null
+            },
+            "privateAccess": {
+              "accessMode": "allowlist",
+              "persistedUserCount": 3,
+              "authorizedUserCount": 2,
+              "suspendedUserCount": 1,
+              "activeUserCount": 1
+            },
+            "components": {
+              "configuration": {
+                "status": "ok",
+                "updatedAt": "2026-09-26T12:00:00.000Z"
+              },
+              "storage": {
+                "status": "ok",
+                "updatedAt": "2026-09-26T12:00:00.000Z"
+              },
+              "telegram": {
+                "status": "failed",
+                "updatedAt": "2026-09-26T12:00:00.000Z",
+                "code": "ERR_TELEGRAM_CHANNEL_PERMISSIONS"
+              },
+              "list_am": {
+                "status": "ok",
+                "updatedAt": "2026-09-26T12:00:00.000Z"
+              },
+              "cba": {
+                "status": "ok",
+                "updatedAt": "2026-09-26T12:00:00.000Z"
+              }
+            },
+            "reasons": [],
+            "alertReasons": [],
+            "warnings": []
+          },
+          {
+            "status": "ready",
+            "ready": true,
+            "timestamp": "2026-09-26T12:00:00.000Z",
+            "startedAt": "2026-09-26T12:00:00.000Z",
+            "version": "1.0.0",
+            "preflight": {
+              "status": "ready",
+              "completedAt": "2026-09-26T12:00:00.000Z"
+            },
+            "monitoring": {
+              "required": false,
+              "active": false,
+              "channelConfigured": false,
+              "requiredSince": null,
+              "lastSuccessAt": null,
+              "lastFailureAt": null,
+              "consecutiveFailures": 0
+            },
+            "exchangeRates": {
+              "required": false,
+              "fetchedAt": null
+            },
+            "privateAccess": {
+              "accessMode": "allowlist",
+              "persistedUserCount": 3,
+              "authorizedUserCount": 2,
+              "suspendedUserCount": 1,
+              "activeUserCount": 1
+            },
+            "components": {
+              "configuration": {
+                "status": "ok",
+                "updatedAt": "2026-09-26T12:00:00.000Z"
+              },
+              "storage": {
+                "status": "ok",
+                "updatedAt": "2026-09-26T12:00:00.000Z"
+              },
+              "telegram": {
+                "status": "ok",
+                "updatedAt": "2026-09-26T12:00:00.000Z"
+              },
+              "list_am": {
+                "status": "ok",
+                "updatedAt": "2026-09-26T12:00:00.000Z"
+              },
+              "cba": {
+                "status": "ok",
+                "updatedAt": "2026-09-26T12:00:00.000Z"
+              }
+            },
+            "reasons": [],
+            "alertReasons": [],
+            "warnings": []
+          },
+          {
+            "status": "ready",
+            "ready": true,
+            "timestamp": "2026-09-26T12:00:00.000Z",
+            "startedAt": "2026-09-26T12:00:00.000Z",
+            "version": "1.0.0",
+            "preflight": {
+              "status": "ready",
+              "completedAt": "2026-09-26T12:00:00.000Z"
+            },
+            "monitoring": {
+              "required": false,
+              "active": false,
+              "channelConfigured": false,
+              "requiredSince": null,
+              "lastSuccessAt": null,
+              "lastFailureAt": null,
+              "consecutiveFailures": 0
+            },
+            "exchangeRates": {
+              "required": false,
+              "fetchedAt": "2026-09-26T12:00:00.000Z"
+            },
+            "privateAccess": {
+              "accessMode": "allowlist",
+              "persistedUserCount": 3,
+              "authorizedUserCount": 2,
+              "suspendedUserCount": 1,
+              "activeUserCount": 1
+            },
+            "components": {
+              "configuration": {
+                "status": "ok",
+                "updatedAt": "2026-09-26T12:00:00.000Z"
+              },
+              "storage": {
+                "status": "ok",
+                "updatedAt": "2026-09-26T12:00:00.000Z"
+              },
+              "telegram": {
+                "status": "ok",
+                "updatedAt": "2026-09-26T12:00:00.000Z"
+              },
+              "list_am": {
+                "status": "ok",
+                "updatedAt": "2026-09-26T12:00:00.000Z"
+              },
+              "cba": {
+                "status": "warning",
+                "updatedAt": "2026-09-26T12:00:00.000Z",
+                "code": "ERR_CBA_REFRESH"
+              }
+            },
+            "reasons": [],
+            "alertReasons": [],
+            "warnings": []
+          },
+          {
+            "status": "ready",
+            "ready": true,
+            "timestamp": "2026-09-26T12:00:00.000Z",
+            "startedAt": "2026-09-26T12:00:00.000Z",
+            "version": "1.0.0",
+            "preflight": {
+              "status": "ready",
+              "completedAt": "2026-09-26T12:00:00.000Z"
+            },
+            "monitoring": {
+              "required": false,
+              "active": false,
+              "channelConfigured": false,
+              "requiredSince": null,
+              "lastSuccessAt": null,
+              "lastFailureAt": null,
+              "consecutiveFailures": 0
+            },
+            "exchangeRates": {
+              "required": false,
+              "fetchedAt": null
+            },
+            "privateAccess": {
+              "accessMode": "allowlist",
+              "persistedUserCount": 3,
+              "authorizedUserCount": 2,
+              "suspendedUserCount": 1,
+              "activeUserCount": 1
+            },
+            "components": {
+              "configuration": {
+                "status": "ok",
+                "updatedAt": "2026-09-26T12:00:00.000Z"
+              },
+              "storage": {
+                "status": "ok",
+                "updatedAt": "2026-09-26T12:00:00.000Z"
+              },
+              "telegram": {
+                "status": "ok",
+                "updatedAt": "2026-09-26T12:00:00.000Z"
+              },
+              "list_am": {
+                "status": "ok",
+                "updatedAt": "2026-09-26T12:00:00.000Z"
+              },
+              "cba": {
+                "status": "failed",
+                "updatedAt": "2026-09-26T12:00:00.000Z",
+                "code": "ERR_EXCHANGE_RATES_UNAVAILABLE"
+              }
+            },
+            "reasons": [],
+            "alertReasons": [],
+            "warnings": []
+          },
+          {
+            "status": "ready",
+            "ready": true,
+            "timestamp": "2026-09-26T12:00:00.000Z",
+            "startedAt": "2026-09-26T12:00:00.000Z",
+            "version": "1.0.0",
+            "preflight": {
+              "status": "ready",
+              "completedAt": "2026-09-26T12:00:00.000Z"
+            },
+            "monitoring": {
+              "required": false,
+              "active": false,
+              "channelConfigured": false,
+              "requiredSince": null,
+              "lastSuccessAt": null,
+              "lastFailureAt": null,
+              "consecutiveFailures": 0
+            },
+            "exchangeRates": {
+              "required": false,
+              "fetchedAt": null
+            },
+            "privateAccess": {
+              "accessMode": "allowlist",
+              "persistedUserCount": 3,
+              "authorizedUserCount": 2,
+              "suspendedUserCount": 1,
+              "activeUserCount": 1
+            },
+            "components": {
+              "configuration": {
+                "status": "ok",
+                "updatedAt": "2026-09-26T12:00:00.000Z"
+              },
+              "storage": {
+                "status": "warning",
+                "updatedAt": "2026-09-26T12:00:00.000Z",
+                "code": "ERR_STORAGE"
+              },
+              "telegram": {
+                "status": "ok",
+                "updatedAt": "2026-09-26T12:00:00.000Z"
+              },
+              "list_am": {
+                "status": "ok",
+                "updatedAt": "2026-09-26T12:00:00.000Z"
+              },
+              "cba": {
+                "status": "failed",
+                "updatedAt": "2026-09-26T12:00:00.000Z",
+                "code": "ERR_EXCHANGE_RATES_UNAVAILABLE"
+              }
+            },
+            "reasons": [],
+            "alertReasons": [],
+            "warnings": []
+          },
+          {
+            "status": "ready",
+            "ready": true,
+            "timestamp": "2026-09-26T12:00:00.000Z",
+            "startedAt": "2026-09-26T12:00:00.000Z",
+            "version": "1.0.0",
+            "preflight": {
+              "status": "ready",
+              "completedAt": "2026-09-26T12:00:00.000Z"
+            },
+            "monitoring": {
+              "required": false,
+              "active": false,
+              "channelConfigured": false,
+              "requiredSince": null,
+              "lastSuccessAt": null,
+              "lastFailureAt": null,
+              "consecutiveFailures": 0
+            },
+            "exchangeRates": {
+              "required": false,
+              "fetchedAt": null
+            },
+            "privateAccess": {
+              "accessMode": "public",
+              "persistedUserCount": 0,
+              "authorizedUserCount": 0,
+              "suspendedUserCount": 0,
+              "activeUserCount": 2
+            },
+            "components": {
+              "configuration": {
+                "status": "ok",
+                "updatedAt": "2026-09-26T12:00:00.000Z"
+              },
+              "storage": {
+                "status": "warning",
+                "updatedAt": "2026-09-26T12:00:00.000Z",
+                "code": "ERR_STORAGE"
+              },
+              "telegram": {
+                "status": "ok",
+                "updatedAt": "2026-09-26T12:00:00.000Z"
+              },
+              "list_am": {
+                "status": "ok",
+                "updatedAt": "2026-09-26T12:00:00.000Z"
+              },
+              "cba": {
+                "status": "failed",
+                "updatedAt": "2026-09-26T12:00:00.000Z",
+                "code": "ERR_EXCHANGE_RATES_UNAVAILABLE"
+              }
+            },
+            "reasons": [],
+            "alertReasons": [],
+            "warnings": []
+          }
+        ],
+        "alerts": [
+          {
+            "name": "readiness_failure",
+            "status": "firing",
+            "reason": "PREFLIGHT_FAILED"
+          },
+          {
+            "name": "list_am_challenge",
+            "status": "firing",
+            "reason": "LIST_AM_CHALLENGE"
+          },
+          {
+            "name": "list_am_source_integrity",
+            "status": "firing",
+            "reason": "LIST_AM_SOURCE_INTEGRITY"
+          },
+          {
+            "name": "list_am_source_integrity",
+            "status": "resolved",
+            "reason": "LIST_AM_SOURCE_INTEGRITY"
+          },
+          {
+            "name": "readiness_failure",
+            "status": "resolved",
+            "reasons": []
+          },
+          {
+            "name": "list_am_challenge",
+            "status": "resolved",
+            "reason": "LIST_AM_CHALLENGE"
+          },
+          {
+            "name": "invalid_telegram_credentials",
+            "status": "firing"
+          },
+          {
+            "name": "invalid_telegram_channel_permissions",
+            "status": "firing"
+          },
+          {
+            "name": "invalid_telegram_credentials",
+            "status": "resolved"
+          },
+          {
+            "name": "invalid_telegram_channel_permissions",
+            "status": "resolved"
+          }
+        ],
+        "liveness": {
+          "status": "live",
+          "timestamp": "2026-09-26T12:00:00.000Z",
+          "startedAt": "2026-09-26T12:00:00.000Z",
+          "version": "1.0.0"
+        }
+      }
+    },
+    {
+      "input": {
+        "op": "health",
+        "version": "1.0.0",
+        "startedMs": 1790424000000,
+        "events": [
+          {
+            "method": "setPreflight",
+            "args": [
+              {
+                "ready": true
+              }
+            ]
+          },
+          {
+            "method": "setMonitoringState",
+            "args": [
+              {
+                "active": false,
+                "channelConfigured": true
+              }
+            ]
+          },
+          {
+            "method": "recordExchangeRateSnapshot",
+            "args": [
+              {
+                "fetchedAt": "2026-09-26T12:00:00.000Z"
+              }
+            ]
+          },
+          {
+            "method": "recordCrawlSuccess"
+          },
+          {
+            "method": "readiness",
+            "at": 1790424599999
+          },
+          {
+            "method": "readiness",
+            "at": 1790424600000
+          },
+          {
+            "method": "recordCrawlSuccess"
+          },
+          {
+            "method": "readiness",
+            "at": 1790596800000
+          },
+          {
+            "method": "readiness",
+            "at": 1790596800001
+          },
+          {
+            "method": "recordExchangeRateSnapshot",
+            "args": [
+              {
+                "fetchedAt": "2026-09-28T12:00:00.001Z"
+              }
+            ]
+          },
+          {
+            "method": "recordCrawlSuccess"
+          }
+        ]
+      },
+      "expected": {
+        "observations": [
+          {
+            "status": "ready",
+            "ready": true,
+            "timestamp": "2026-09-26T12:00:00.000Z",
+            "startedAt": "2026-09-26T12:00:00.000Z",
+            "version": "1.0.0",
+            "preflight": {
+              "status": "ready",
+              "completedAt": "2026-09-26T12:00:00.000Z"
+            },
+            "monitoring": {
+              "required": false,
+              "active": false,
+              "channelConfigured": false,
+              "requiredSince": null,
+              "lastSuccessAt": null,
+              "lastFailureAt": null,
+              "consecutiveFailures": 0
+            },
+            "exchangeRates": {
+              "required": false,
+              "fetchedAt": null
+            },
+            "privateAccess": {
+              "accessMode": "public",
+              "persistedUserCount": 0,
+              "authorizedUserCount": 0,
+              "suspendedUserCount": 0,
+              "activeUserCount": 0
+            },
+            "components": {
+              "configuration": {
+                "status": "unknown",
+                "updatedAt": null
+              },
+              "storage": {
+                "status": "unknown",
+                "updatedAt": null
+              },
+              "telegram": {
+                "status": "unknown",
+                "updatedAt": null
+              },
+              "list_am": {
+                "status": "unknown",
+                "updatedAt": null
+              },
+              "cba": {
+                "status": "unknown",
+                "updatedAt": null
+              }
+            },
+            "reasons": [],
+            "alertReasons": [],
+            "warnings": []
+          },
+          {
+            "status": "not_ready",
+            "ready": false,
+            "timestamp": "2026-09-26T12:00:00.000Z",
+            "startedAt": "2026-09-26T12:00:00.000Z",
+            "version": "1.0.0",
+            "preflight": {
+              "status": "ready",
+              "completedAt": "2026-09-26T12:00:00.000Z"
+            },
+            "monitoring": {
+              "required": true,
+              "active": false,
+              "channelConfigured": true,
+              "requiredSince": "2026-09-26T12:00:00.000Z",
+              "lastSuccessAt": null,
+              "lastFailureAt": null,
+              "consecutiveFailures": 0
+            },
+            "exchangeRates": {
+              "required": true,
+              "fetchedAt": null
+            },
+            "privateAccess": {
+              "accessMode": "public",
+              "persistedUserCount": 0,
+              "authorizedUserCount": 0,
+              "suspendedUserCount": 0,
+              "activeUserCount": 0
+            },
+            "components": {
+              "configuration": {
+                "status": "unknown",
+                "updatedAt": null
+              },
+              "storage": {
+                "status": "unknown",
+                "updatedAt": null
+              },
+              "telegram": {
+                "status": "unknown",
+                "updatedAt": null
+              },
+              "list_am": {
+                "status": "unknown",
+                "updatedAt": null
+              },
+              "cba": {
+                "status": "failed",
+                "updatedAt": null,
+                "code": "ERR_EXCHANGE_RATES_UNAVAILABLE"
+              }
+            },
+            "reasons": [
+              "CRAWL_NEVER_SUCCEEDED",
+              "EXCHANGE_RATES_UNAVAILABLE"
+            ],
+            "alertReasons": [
+              "CRAWL_NEVER_SUCCEEDED",
+              "EXCHANGE_RATES_UNAVAILABLE"
+            ],
+            "warnings": []
+          },
+          {
+            "status": "not_ready",
+            "ready": false,
+            "timestamp": "2026-09-26T12:00:00.000Z",
+            "startedAt": "2026-09-26T12:00:00.000Z",
+            "version": "1.0.0",
+            "preflight": {
+              "status": "ready",
+              "completedAt": "2026-09-26T12:00:00.000Z"
+            },
+            "monitoring": {
+              "required": true,
+              "active": false,
+              "channelConfigured": true,
+              "requiredSince": "2026-09-26T12:00:00.000Z",
+              "lastSuccessAt": null,
+              "lastFailureAt": null,
+              "consecutiveFailures": 0
+            },
+            "exchangeRates": {
+              "required": true,
+              "fetchedAt": "2026-09-26T12:00:00.000Z"
+            },
+            "privateAccess": {
+              "accessMode": "public",
+              "persistedUserCount": 0,
+              "authorizedUserCount": 0,
+              "suspendedUserCount": 0,
+              "activeUserCount": 0
+            },
+            "components": {
+              "configuration": {
+                "status": "unknown",
+                "updatedAt": null
+              },
+              "storage": {
+                "status": "unknown",
+                "updatedAt": null
+              },
+              "telegram": {
+                "status": "unknown",
+                "updatedAt": null
+              },
+              "list_am": {
+                "status": "unknown",
+                "updatedAt": null
+              },
+              "cba": {
+                "status": "ok",
+                "updatedAt": "2026-09-26T12:00:00.000Z"
+              }
+            },
+            "reasons": [
+              "CRAWL_NEVER_SUCCEEDED"
+            ],
+            "alertReasons": [
+              "CRAWL_NEVER_SUCCEEDED"
+            ],
+            "warnings": []
+          },
+          {
+            "status": "ready",
+            "ready": true,
+            "timestamp": "2026-09-26T12:00:00.000Z",
+            "startedAt": "2026-09-26T12:00:00.000Z",
+            "version": "1.0.0",
+            "preflight": {
+              "status": "ready",
+              "completedAt": "2026-09-26T12:00:00.000Z"
+            },
+            "monitoring": {
+              "required": true,
+              "active": false,
+              "channelConfigured": true,
+              "requiredSince": "2026-09-26T12:00:00.000Z",
+              "lastSuccessAt": "2026-09-26T12:00:00.000Z",
+              "lastFailureAt": null,
+              "consecutiveFailures": 0
+            },
+            "exchangeRates": {
+              "required": true,
+              "fetchedAt": "2026-09-26T12:00:00.000Z"
+            },
+            "privateAccess": {
+              "accessMode": "public",
+              "persistedUserCount": 0,
+              "authorizedUserCount": 0,
+              "suspendedUserCount": 0,
+              "activeUserCount": 0
+            },
+            "components": {
+              "configuration": {
+                "status": "unknown",
+                "updatedAt": null
+              },
+              "storage": {
+                "status": "unknown",
+                "updatedAt": null
+              },
+              "telegram": {
+                "status": "unknown",
+                "updatedAt": null
+              },
+              "list_am": {
+                "status": "ok",
+                "updatedAt": "2026-09-26T12:00:00.000Z"
+              },
+              "cba": {
+                "status": "ok",
+                "updatedAt": "2026-09-26T12:00:00.000Z"
+              }
+            },
+            "reasons": [],
+            "alertReasons": [],
+            "warnings": []
+          },
+          {
+            "status": "ready",
+            "ready": true,
+            "timestamp": "2026-09-26T12:09:59.999Z",
+            "startedAt": "2026-09-26T12:00:00.000Z",
+            "version": "1.0.0",
+            "preflight": {
+              "status": "ready",
+              "completedAt": "2026-09-26T12:00:00.000Z"
+            },
+            "monitoring": {
+              "required": true,
+              "active": false,
+              "channelConfigured": true,
+              "requiredSince": "2026-09-26T12:00:00.000Z",
+              "lastSuccessAt": "2026-09-26T12:00:00.000Z",
+              "lastFailureAt": null,
+              "consecutiveFailures": 0
+            },
+            "exchangeRates": {
+              "required": true,
+              "fetchedAt": "2026-09-26T12:00:00.000Z"
+            },
+            "privateAccess": {
+              "accessMode": "public",
+              "persistedUserCount": 0,
+              "authorizedUserCount": 0,
+              "suspendedUserCount": 0,
+              "activeUserCount": 0
+            },
+            "components": {
+              "configuration": {
+                "status": "unknown",
+                "updatedAt": null
+              },
+              "storage": {
+                "status": "unknown",
+                "updatedAt": null
+              },
+              "telegram": {
+                "status": "unknown",
+                "updatedAt": null
+              },
+              "list_am": {
+                "status": "ok",
+                "updatedAt": "2026-09-26T12:00:00.000Z"
+              },
+              "cba": {
+                "status": "ok",
+                "updatedAt": "2026-09-26T12:00:00.000Z"
+              }
+            },
+            "reasons": [],
+            "alertReasons": [],
+            "warnings": []
+          },
+          {
+            "status": "not_ready",
+            "ready": false,
+            "timestamp": "2026-09-26T12:10:00.000Z",
+            "startedAt": "2026-09-26T12:00:00.000Z",
+            "version": "1.0.0",
+            "preflight": {
+              "status": "ready",
+              "completedAt": "2026-09-26T12:00:00.000Z"
+            },
+            "monitoring": {
+              "required": true,
+              "active": false,
+              "channelConfigured": true,
+              "requiredSince": "2026-09-26T12:00:00.000Z",
+              "lastSuccessAt": "2026-09-26T12:00:00.000Z",
+              "lastFailureAt": null,
+              "consecutiveFailures": 0
+            },
+            "exchangeRates": {
+              "required": true,
+              "fetchedAt": "2026-09-26T12:00:00.000Z"
+            },
+            "privateAccess": {
+              "accessMode": "public",
+              "persistedUserCount": 0,
+              "authorizedUserCount": 0,
+              "suspendedUserCount": 0,
+              "activeUserCount": 0
+            },
+            "components": {
+              "configuration": {
+                "status": "unknown",
+                "updatedAt": null
+              },
+              "storage": {
+                "status": "unknown",
+                "updatedAt": null
+              },
+              "telegram": {
+                "status": "unknown",
+                "updatedAt": null
+              },
+              "list_am": {
+                "status": "ok",
+                "updatedAt": "2026-09-26T12:00:00.000Z"
+              },
+              "cba": {
+                "status": "ok",
+                "updatedAt": "2026-09-26T12:00:00.000Z"
+              }
+            },
+            "reasons": [
+              "CRAWL_STALE"
+            ],
+            "alertReasons": [
+              "CRAWL_STALE"
+            ],
+            "warnings": []
+          },
+          {
+            "status": "ready",
+            "ready": true,
+            "timestamp": "2026-09-26T12:10:00.000Z",
+            "startedAt": "2026-09-26T12:00:00.000Z",
+            "version": "1.0.0",
+            "preflight": {
+              "status": "ready",
+              "completedAt": "2026-09-26T12:00:00.000Z"
+            },
+            "monitoring": {
+              "required": true,
+              "active": false,
+              "channelConfigured": true,
+              "requiredSince": "2026-09-26T12:00:00.000Z",
+              "lastSuccessAt": "2026-09-26T12:10:00.000Z",
+              "lastFailureAt": null,
+              "consecutiveFailures": 0
+            },
+            "exchangeRates": {
+              "required": true,
+              "fetchedAt": "2026-09-26T12:00:00.000Z"
+            },
+            "privateAccess": {
+              "accessMode": "public",
+              "persistedUserCount": 0,
+              "authorizedUserCount": 0,
+              "suspendedUserCount": 0,
+              "activeUserCount": 0
+            },
+            "components": {
+              "configuration": {
+                "status": "unknown",
+                "updatedAt": null
+              },
+              "storage": {
+                "status": "unknown",
+                "updatedAt": null
+              },
+              "telegram": {
+                "status": "unknown",
+                "updatedAt": null
+              },
+              "list_am": {
+                "status": "ok",
+                "updatedAt": "2026-09-26T12:10:00.000Z"
+              },
+              "cba": {
+                "status": "ok",
+                "updatedAt": "2026-09-26T12:00:00.000Z"
+              }
+            },
+            "reasons": [],
+            "alertReasons": [],
+            "warnings": []
+          },
+          {
+            "status": "not_ready",
+            "ready": false,
+            "timestamp": "2026-09-28T12:00:00.000Z",
+            "startedAt": "2026-09-26T12:00:00.000Z",
+            "version": "1.0.0",
+            "preflight": {
+              "status": "ready",
+              "completedAt": "2026-09-26T12:00:00.000Z"
+            },
+            "monitoring": {
+              "required": true,
+              "active": false,
+              "channelConfigured": true,
+              "requiredSince": "2026-09-26T12:00:00.000Z",
+              "lastSuccessAt": "2026-09-26T12:10:00.000Z",
+              "lastFailureAt": null,
+              "consecutiveFailures": 0
+            },
+            "exchangeRates": {
+              "required": true,
+              "fetchedAt": "2026-09-26T12:00:00.000Z"
+            },
+            "privateAccess": {
+              "accessMode": "public",
+              "persistedUserCount": 0,
+              "authorizedUserCount": 0,
+              "suspendedUserCount": 0,
+              "activeUserCount": 0
+            },
+            "components": {
+              "configuration": {
+                "status": "unknown",
+                "updatedAt": null
+              },
+              "storage": {
+                "status": "unknown",
+                "updatedAt": null
+              },
+              "telegram": {
+                "status": "unknown",
+                "updatedAt": null
+              },
+              "list_am": {
+                "status": "ok",
+                "updatedAt": "2026-09-26T12:10:00.000Z"
+              },
+              "cba": {
+                "status": "ok",
+                "updatedAt": "2026-09-26T12:00:00.000Z"
+              }
+            },
+            "reasons": [
+              "CRAWL_STALE"
+            ],
+            "alertReasons": [
+              "CRAWL_STALE"
+            ],
+            "warnings": []
+          },
+          {
+            "status": "not_ready",
+            "ready": false,
+            "timestamp": "2026-09-28T12:00:00.001Z",
+            "startedAt": "2026-09-26T12:00:00.000Z",
+            "version": "1.0.0",
+            "preflight": {
+              "status": "ready",
+              "completedAt": "2026-09-26T12:00:00.000Z"
+            },
+            "monitoring": {
+              "required": true,
+              "active": false,
+              "channelConfigured": true,
+              "requiredSince": "2026-09-26T12:00:00.000Z",
+              "lastSuccessAt": "2026-09-26T12:10:00.000Z",
+              "lastFailureAt": null,
+              "consecutiveFailures": 0
+            },
+            "exchangeRates": {
+              "required": true,
+              "fetchedAt": "2026-09-26T12:00:00.000Z"
+            },
+            "privateAccess": {
+              "accessMode": "public",
+              "persistedUserCount": 0,
+              "authorizedUserCount": 0,
+              "suspendedUserCount": 0,
+              "activeUserCount": 0
+            },
+            "components": {
+              "configuration": {
+                "status": "unknown",
+                "updatedAt": null
+              },
+              "storage": {
+                "status": "unknown",
+                "updatedAt": null
+              },
+              "telegram": {
+                "status": "unknown",
+                "updatedAt": null
+              },
+              "list_am": {
+                "status": "ok",
+                "updatedAt": "2026-09-26T12:10:00.000Z"
+              },
+              "cba": {
+                "status": "warning",
+                "updatedAt": "2026-09-26T12:00:00.000Z",
+                "code": "WARN_EXCHANGE_RATES_STALE"
+              }
+            },
+            "reasons": [
+              "CRAWL_STALE"
+            ],
+            "alertReasons": [
+              "CRAWL_STALE"
+            ],
+            "warnings": [
+              "EXCHANGE_RATES_STALE"
+            ]
+          },
+          {
+            "status": "not_ready",
+            "ready": false,
+            "timestamp": "2026-09-28T12:00:00.001Z",
+            "startedAt": "2026-09-26T12:00:00.000Z",
+            "version": "1.0.0",
+            "preflight": {
+              "status": "ready",
+              "completedAt": "2026-09-26T12:00:00.000Z"
+            },
+            "monitoring": {
+              "required": true,
+              "active": false,
+              "channelConfigured": true,
+              "requiredSince": "2026-09-26T12:00:00.000Z",
+              "lastSuccessAt": "2026-09-26T12:10:00.000Z",
+              "lastFailureAt": null,
+              "consecutiveFailures": 0
+            },
+            "exchangeRates": {
+              "required": true,
+              "fetchedAt": "2026-09-28T12:00:00.001Z"
+            },
+            "privateAccess": {
+              "accessMode": "public",
+              "persistedUserCount": 0,
+              "authorizedUserCount": 0,
+              "suspendedUserCount": 0,
+              "activeUserCount": 0
+            },
+            "components": {
+              "configuration": {
+                "status": "unknown",
+                "updatedAt": null
+              },
+              "storage": {
+                "status": "unknown",
+                "updatedAt": null
+              },
+              "telegram": {
+                "status": "unknown",
+                "updatedAt": null
+              },
+              "list_am": {
+                "status": "ok",
+                "updatedAt": "2026-09-26T12:10:00.000Z"
+              },
+              "cba": {
+                "status": "ok",
+                "updatedAt": "2026-09-28T12:00:00.001Z"
+              }
+            },
+            "reasons": [
+              "CRAWL_STALE"
+            ],
+            "alertReasons": [
+              "CRAWL_STALE"
+            ],
+            "warnings": []
+          },
+          {
+            "status": "ready",
+            "ready": true,
+            "timestamp": "2026-09-28T12:00:00.001Z",
+            "startedAt": "2026-09-26T12:00:00.000Z",
+            "version": "1.0.0",
+            "preflight": {
+              "status": "ready",
+              "completedAt": "2026-09-26T12:00:00.000Z"
+            },
+            "monitoring": {
+              "required": true,
+              "active": false,
+              "channelConfigured": true,
+              "requiredSince": "2026-09-26T12:00:00.000Z",
+              "lastSuccessAt": "2026-09-28T12:00:00.001Z",
+              "lastFailureAt": null,
+              "consecutiveFailures": 0
+            },
+            "exchangeRates": {
+              "required": true,
+              "fetchedAt": "2026-09-28T12:00:00.001Z"
+            },
+            "privateAccess": {
+              "accessMode": "public",
+              "persistedUserCount": 0,
+              "authorizedUserCount": 0,
+              "suspendedUserCount": 0,
+              "activeUserCount": 0
+            },
+            "components": {
+              "configuration": {
+                "status": "unknown",
+                "updatedAt": null
+              },
+              "storage": {
+                "status": "unknown",
+                "updatedAt": null
+              },
+              "telegram": {
+                "status": "unknown",
+                "updatedAt": null
+              },
+              "list_am": {
+                "status": "ok",
+                "updatedAt": "2026-09-28T12:00:00.001Z"
+              },
+              "cba": {
+                "status": "ok",
+                "updatedAt": "2026-09-28T12:00:00.001Z"
+              }
+            },
+            "reasons": [],
+            "alertReasons": [],
+            "warnings": []
+          }
+        ],
+        "alerts": [
+          {
+            "name": "readiness_failure",
+            "status": "firing",
+            "reasons": [
+              "CRAWL_NEVER_SUCCEEDED",
+              "EXCHANGE_RATES_UNAVAILABLE"
+            ]
+          },
+          {
+            "name": "readiness_failure",
+            "status": "resolved",
+            "reasons": []
+          },
+          {
+            "name": "readiness_failure",
+            "status": "firing",
+            "reasons": [
+              "CRAWL_STALE"
+            ]
+          },
+          {
+            "name": "readiness_failure",
+            "status": "resolved",
+            "reasons": []
+          },
+          {
+            "name": "readiness_failure",
+            "status": "firing",
+            "reasons": [
+              "CRAWL_STALE"
+            ]
+          },
+          {
+            "name": "stale_exchange_rates",
+            "status": "firing",
+            "fetchedAt": "2026-09-26T12:00:00.000Z"
+          },
+          {
+            "name": "stale_exchange_rates",
+            "status": "resolved",
+            "fetchedAt": "2026-09-28T12:00:00.001Z"
+          },
+          {
+            "name": "readiness_failure",
+            "status": "resolved",
+            "reasons": []
+          }
+        ],
+        "liveness": {
+          "status": "live",
+          "timestamp": "2026-09-28T12:00:00.001Z",
+          "startedAt": "2026-09-26T12:00:00.000Z",
+          "version": "1.0.0"
+        }
+      }
+    }
+  ]
+}

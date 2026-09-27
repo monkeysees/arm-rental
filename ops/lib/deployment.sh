@@ -312,7 +312,7 @@ deployment_retain_previous_image() {
   repo_digests=$(docker image inspect --format '{{json .RepoDigests}}' "$previous_image") || return
   jq -e --arg image "$previous_image" 'index($image) != null' \
     <<<"$repo_digests" >/dev/null || return 65
-  declared_runtime=$(jq -er '.runtime // "node" | select(. == "node" or . == "rust")' "$previous_metadata") || return
+  declared_runtime=$(jq -er '.runtime | select(. == "rust")' "$previous_metadata") || return
   image_runtime=$(ops_runtime "$previous_image") || return
   [[ $image_runtime == "$declared_runtime" ]] || {
     printf 'Recorded previous image runtime does not match its release\n' >&2
@@ -320,9 +320,9 @@ deployment_retain_previous_image() {
   }
 }
 
-# A failed Rust candidate may have acknowledged work after the predeploy
-# snapshot. Restore the previous image, but retain the live SQLite state.
-deployment_recover_node_from_live_state() {
+# A failed candidate may have acknowledged work after the predeploy snapshot.
+# Restore the previous Rust image only if it accepts the live SQLite schema.
+deployment_recover_previous_live_state() {
   local candidate_release=$1 candidate_env=$2 previous_release=$3
   local previous_env=$4 previous_metadata=$5 previous_image=$6
   local live_state previous_labels
@@ -354,7 +354,7 @@ deployment_recover_node_from_live_state() {
   if ops_start_application; then
     return 0
   fi
-  # A failed systemd start can leave a running, unready Node container.
+  # A failed systemd start can leave a running, unready container.
   ops_stop_application || true
   deployment_compose "$previous_release" "$previous_env" stop bot || true
   deployment_confirm_application_stopped || return
@@ -658,8 +658,8 @@ deployment_state_transition() {
     return 65
   }
 
-  # The only legacy exception is an explicit rollback to a retained Node
-  # release. Unattended discovery must never downgrade provenance.
+  # A retained schema-2 Rust release is only a verified manual rollback target.
+  # Unattended discovery must never downgrade provenance.
   if [[ $(jq -r .schemaVersion "$previous_metadata") == 3 &&
     $(jq -r .schemaVersion "$candidate_metadata") == 2 ]]; then
     deployment_verification_error 'unattended Cargo-to-package-lock provenance downgrade'
@@ -768,7 +768,7 @@ deployment_verify_release() {
      .imageDigest == ($image | split("@")[1]) and
      .sourceRevision == $revision and
      .stateBackend == "sqlite" and
-     ((.runtime // "node") == "node" or .runtime == "rust") and
+     .runtime == "rust" and
      (.minimumStateSchema | type) == "number" and
      (.maximumStateSchema | type) == "number" and
      .minimumStateSchema >= 1 and
@@ -787,7 +787,7 @@ deployment_verify_release() {
     return 65
   }
   image_runtime=$(ops_runtime "$candidate") || return
-  metadata_runtime=$(jq -r '.runtime // "node"' "$metadata") || return
+  metadata_runtime=$(jq -r '.runtime' "$metadata") || return
   if [[ "$image_runtime" != "$metadata_runtime" ]]; then
     deployment_verification_error \
       "candidate image runtime $image_runtime does not match metadata runtime $metadata_runtime"
@@ -844,10 +844,16 @@ deployment_verify_release() {
     local advertised_verifier
     advertised_verifier=$(tar --extract --to-stdout \
       --file "$bundle_directory/operations.tar" ops/lib/provenance.sh | sha256sum | awk '{print $1}') || return 65
-    [[ $advertised_verifier == "$(sha256sum "$(dirname -- "${BASH_SOURCE[0]}")/provenance.sh" | awk '{print $1}')" ]] || {
-      deployment_verification_error 'advertised Cargo verifier is absent or does not match this host contract'
-      return 65
-    }
+    if [[ $advertised_verifier != "$(sha256sum "$(dirname -- "${BASH_SOURCE[0]}")/provenance.sh" | awk '{print $1}')" ]]; then
+      # The retained stage-one Rust bridge is the sole older Cargo-capable v2
+      # release. Its exact archive and image remain a verified rollback input.
+      [[ $advertised_verifier == e284842cb85729987336dd8c6274d4a04ed5e161cdd9fbfc054c59e53d83102a &&
+        $DEPLOYMENT_SOURCE_REVISION == 9c95f8f3efb161f507cc26c33312a64dcfa3c6e0 &&
+        $candidate == ghcr.io/monkeysees/arm-rental@sha256:6d2808e1fee2f85c6cca7c7447b01e92b136c242d4b529784a82fafc7e163ad7 ]] || {
+        deployment_verification_error 'advertised Cargo verifier is absent or not an approved retained Rust contract'
+        return 65
+      }
+    fi
   fi
 }
 
@@ -1058,9 +1064,10 @@ deployment_update_retention_index() {
   local temporary
   temporary=$(mktemp "$RENTAL_OPS_STATE_DIR/.retention.XXXXXX")
   if [[ -f $target ]]; then
-    jq --slurpfile release "$evidence_file" '
+    if ! jq -e --slurpfile release "$evidence_file" '
+      select((.protectedReleases // []) == []) |
       .schemaVersion = 2 |
-      .protectedReleases = (.protectedReleases // []) |
+      .protectedReleases = [] |
       .retainedReleases = (
         reduce ([$release[0]] + (.retainedReleases // []))[] as $item
           ([];
@@ -1070,7 +1077,11 @@ deployment_update_retention_index() {
            end)
         | .[0:3]
       )
-    ' "$target" >"$temporary"
+    ' "$target" >"$temporary"; then
+      rm -- "$temporary"
+      printf 'Retired protected releases remain in the deployment index\n' >&2
+      return 65
+    fi
   else
     jq --null-input --slurpfile release "$evidence_file" \
       '{
@@ -1083,41 +1094,4 @@ deployment_update_retention_index() {
   fi
   chmod 0600 "$temporary"
   mv -f "$temporary" "$target"
-}
-
-# Releases the protected pre-SQLite rollback point and prints the snapshot it
-# released. Nothing can take a new one: this release reads state only from
-# SQLite, so a protected snapshot and the bridge image pinned beside it are
-# retired evidence, and this is the only way to stop retention pinning them.
-# The caller must name the image it believes is protected: clearing the entry
-# unread would discard the record of what was retired.
-deployment_unprotect_migration_release() {
-  local expected_image=$1
-  local target="$RENTAL_DEPLOYMENT_RETENTION_FILE"
-  local temporary snapshot
-  [[ -f $target && ! -L $target ]]
-  snapshot=$(jq -er --arg image "$expected_image" '
-    select(
-      (.protectedReleases | length) == 1 and
-      .protectedReleases[0].candidateImage == $image
-    ) |
-    .protectedReleases[0].protectedSnapshot
-  ' "$target") || {
-    printf 'No single protected rollback point is registered for %s\n' \
-      "$expected_image" >&2
-    return 65
-  }
-  [[ $snapshot == "$RENTAL_BACKUP_ROOT"/protected/pre-sqlite-* ]] || {
-    printf 'Protected snapshot is outside the protected backup directory\n' >&2
-    return 65
-  }
-  temporary=$(mktemp "$RENTAL_OPS_STATE_DIR/.retention.XXXXXX")
-  if ! jq '.schemaVersion = 2 | .protectedReleases = []' \
-    "$target" >"$temporary"; then
-    rm -- "$temporary"
-    return 65
-  fi
-  chmod 0600 "$temporary"
-  mv -f "$temporary" "$target"
-  printf '%s\n' "$snapshot"
 }

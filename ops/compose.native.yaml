@@ -1,4 +1,4 @@
-# Explicit candidate override; compose.production.yaml remains the Node default.
+# Retained Rust releases require this override with their historical base Compose.
 services:
   bot:
     user: "1000:1000"

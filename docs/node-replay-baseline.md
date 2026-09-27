@@ -1,4 +1,8 @@
-# Node replay contract
+# Archived Node replay contract
+
+This records the frozen comparison used during the Rust rewrite. Its Node
+commands and experiment paths are historical and are not part of the maintained
+checks. Use the [Rust development guide](rust-development.md) for current tests.
 
 The shared replay establishes a private-delivery regression contract for the
 Rust rewrite in [#44](https://github.com/monkeysees/arm-rental/issues/44).
@@ -43,7 +47,7 @@ are the applicable checks.
 
 ## Frozen workload and independent oracle
 
-[`contract.json`](../experiments/node-replay/contract.json) is the versioned
+[`contract.json`](https://github.com/monkeysees/arm-rental/blob/790ecdb66593d0bff685bc2c537cbe3e7f88735e/experiments/node-replay/contract.json) is the archived versioned
 language-independent contract. The exported `manifest.json` includes concrete
 listing IDs, HTML filenames, recipient profiles, seed decisions, phase actions,
 exact expected delivery arrays, and expected classification maps. Go and Rust

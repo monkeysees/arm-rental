@@ -1,7 +1,14 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { execFileSync } from "node:child_process";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import {
+  chmod,
+  mkdir,
+  mkdtemp,
+  readFile,
+  rm,
+  writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -36,6 +43,8 @@ test("required CI gates quality and an ephemeral production candidate", async ()
   assert.match(workflow, /run: npm run check/u);
   assert.match(workflow, /run: npm run test:coverage/u);
   assert.match(workflow, /npm audit --omit=dev --audit-level=high/u);
+  assert.match(workflow, /python3 test\/native-release-producer\.test\.py/u);
+  assert.match(workflow, /python3 experiments\/native-cutover\/run\.py/u);
   assert.match(workflow, /vuln-type: os,library/u);
   assert.match(workflow, /severity: HIGH,CRITICAL/u);
   assert.match(workflow, /ignore-unfixed: true/u);
@@ -261,7 +270,7 @@ test("production publication advances discovery only after scan, push, and metad
     "name: Publish digest-bound release metadata",
   );
   const preflight = workflow.indexOf(
-    "name: Refuse an unbridged Rust publication before any registry push",
+    "name: Verify the deployed Cargo-capable bridge before any registry push",
   );
   const production = workflow.indexOf(
     "name: Advance production discovery pointer",
@@ -284,16 +293,13 @@ test("production publication advances discovery only after scan, push, and metad
   assert.match(workflow, /if: env\.PRODUCTION_RUNTIME == 'rust'/u);
   assert.match(workflow, /image-ref: rental-apartments:publication/u);
   assert.match(workflow, /--target production/u);
-  assert.match(workflow, /docker build -f Dockerfile\.native/u);
+  assert.match(workflow, /python3 scripts\/native-release\.py build/u);
   assert.match(workflow, /--runtime "\$PRODUCTION_RUNTIME"/u);
-  assert.match(workflow, /com\.rental-apartments\.cargo-lock\.sha256/u);
   assert.match(
     workflow,
-    /scripts\/check-production-transition\.js preflight\/candidate\.json preflight\/current\.json/u,
+    /python3 scripts\/native-release\.py gate[\s\S]*--current-bundle preflight/u,
   );
-  assert.match(workflow, /com\.rental-apartments\.state\.backend/u);
-  assert.match(workflow, /com\.rental-apartments\.state\.schema\.minimum/u);
-  assert.match(workflow, /com\.rental-apartments\.state\.schema\.maximum/u);
+  assert.match(workflow, /docs\/evidence\/issue49-stage1-receipt\.json/u);
   assert.match(workflow, /docker push "\$METADATA_TAG"/u);
   assert.match(
     workflow,
@@ -304,6 +310,8 @@ test("production publication advances discovery only after scan, push, and metad
     "operations.tar",
     "compose.production.yaml",
     "package-lock.json",
+    "source-inputs.json",
+    "transport-files.json",
   ]) {
     assert.match(
       workflow,
@@ -326,7 +334,7 @@ test("production publication advances discovery only after scan, push, and metad
   assert.match(workflow, /scripts\/check-production-transition\.js/u);
   assert.match(
     workflow,
-    /if: steps\.transition\.outputs\.cutover != 'true'/u,
+    /steps\.transition\.outputs\.cutover == 'false'/u,
     "a cutover must not advance the pointer automatically",
   );
   // Absent current metadata reads as an unguarded first publish, so only a
@@ -339,6 +347,91 @@ test("production publication advances discovery only after scan, push, and metad
   );
 });
 
+test("native assembly retains the legacy prebuilt components file", async () => {
+  const [assembly, prebuilt] = await Promise.all([
+    readProjectFile("experiments/production-image/assemble"),
+    readProjectFile("experiments/production-image/Dockerfile.prebuilt"),
+  ]);
+  assert.match(prebuilt, /COPY components\.json \/components\.json/u);
+  assert.match(assembly, /if \[\[ -f \/components\.json \]\]; then/u);
+  assert.match(
+    assembly,
+    /cp \/components\.json "\$root\/usr\/local\/share\/native-image\/components\.json"/u,
+  );
+});
+
+test("Cargo metadata publication assembles the complete image payload", async (t) => {
+  const directory = await mkdtemp(join(tmpdir(), "cargo-metadata-image-"));
+  t.after(() => rm(directory, { recursive: true, force: true }));
+  const bin = join(directory, "bin");
+  await mkdir(bin);
+  await writeFile(join(directory, "compose.production.yaml"), "base compose\n");
+  const workflow = await readProjectFile(
+    ".github/workflows/publish-production.yml",
+  );
+  const step = workflow
+    .split("      - name: Publish Cargo/source-input release metadata\n")[1]
+    ?.split("\n      - name:")[0];
+  const script = step?.split("        run: |\n")[1]?.replace(/^ {10}/gmu, "");
+  assert.ok(script);
+  const fixtures = {
+    git: `#!/usr/bin/env bash\nprintf 'operations archive\\n'`,
+    python3: `#!/usr/bin/env bash
+set -eu
+if [[ $2 == verify ]]; then exit 0; fi
+[[ $2 == metadata ]]
+while (($#)); do
+  if [[ $1 == --output-dir ]]; then output=$2; break; fi
+  shift
+done
+mkdir -p "$output"
+cp release/operations.tar "$output/operations.tar"
+cp compose.production.yaml "$output/compose.production.yaml"
+for artifact in release-metadata.json source-inputs.json transport-files.json; do
+  printf '%s\\n' "$artifact" > "$output/$artifact"
+done`,
+    docker: `#!/usr/bin/env bash
+set -eu
+case "$1" in
+  build|push|rm) ;;
+  create) printf 'metadata-container\\n' ;;
+  cp) cp -R metadata-image/release/. "$3" ;;
+  *) exit 9 ;;
+esac`,
+  };
+  for (const [name, source] of Object.entries(fixtures)) {
+    const file = join(bin, name);
+    await writeFile(file, source);
+    await chmod(file, 0o755);
+  }
+  execFileSync(
+    "/bin/bash",
+    ["--noprofile", "--norc", "-e", "-o", "pipefail", "-c", script],
+    {
+      cwd: directory,
+      env: {
+        PATH: `${bin}:${process.env.PATH}`,
+        SOURCE_REVISION: "a".repeat(40),
+        IMAGE_REPOSITORY: "ghcr.io/example/arm-rental",
+        IMAGE_REFERENCE: `ghcr.io/example/arm-rental@sha256:${"b".repeat(64)}`,
+      },
+      stdio: "pipe",
+    },
+  );
+  for (const artifact of [
+    "release-metadata.json",
+    "operations.tar",
+    "compose.production.yaml",
+    "source-inputs.json",
+    "transport-files.json",
+  ]) {
+    assert.deepEqual(
+      await readFile(join(directory, "release/published", artifact)),
+      await readFile(join(directory, "release/bundle", artifact)),
+    );
+  }
+});
+
 test("a state backend cutover reaches production only by confirmed promotion", async () => {
   const workflow = await readProjectFile(
     ".github/workflows/promote-production.yml",
@@ -346,6 +439,7 @@ test("a state backend cutover reaches production only by confirmed promotion", a
 
   assert.match(workflow, /workflow_dispatch/u);
   assert.match(workflow, /deployed_bridge_revision/u);
+  assert.match(workflow, /deployed_bridge_digest/u);
   assert.match(workflow, /group: production-publication/u);
   assert.match(workflow, /cancel-in-progress: false/u);
   assert.match(workflow, /scripts\/check-production-transition\.js/u);
@@ -425,8 +519,8 @@ test("promotion binds both metadata objects to their pulled images", async (t) =
           esac ;;
         cp*)
           case "$2" in
-            candidate-container:*) cp "$CANDIDATE_METADATA" "$3" ;;
-            current-container:*) cp "$CURRENT_METADATA" "$3" ;;
+            candidate-container:*) cp "$CANDIDATE_METADATA" "$3/release-metadata.json" ;;
+            current-container:*) cp "$CURRENT_METADATA" "$3/release-metadata.json" ;;
             *) return 99 ;;
           esac ;;
         rm*) ;;
@@ -608,6 +702,67 @@ test("the publisher refuses a candidate the running release cannot deploy", asyn
   assert.equal(firstRustPublish.cutover, true);
 });
 
+test("Cargo provenance transition is held and cannot downgrade or mix claims", async () => {
+  const { classifyProductionTransition } =
+    await import("../scripts/check-production-transition.js");
+  const current = {
+    schemaVersion: 2,
+    runtime: "rust",
+    stateBackend: "sqlite",
+    cutoverRollbackContract: "preserve-live-state-v1",
+    deployableProvenanceContracts: [
+      "legacy-package-lock-v2",
+      "cargo-source-v3",
+    ],
+  };
+  const cargo = {
+    schemaVersion: 3,
+    provenanceKind: "cargo-source-v1",
+    runtime: "rust",
+    stateBackend: "sqlite",
+  };
+  const held = classifyProductionTransition({ current, candidate: cargo });
+  assert.equal(held.allowed, true);
+  assert.equal(held.cutover, true);
+  for (const previous of [
+    { ...current, deployableProvenanceContracts: undefined },
+    { ...current, runtime: "node" },
+    { ...current, cutoverRollbackContract: undefined },
+  ]) {
+    assert.throws(
+      () =>
+        classifyProductionTransition({ current: previous, candidate: cargo }),
+      /Cargo verifier capability/u,
+    );
+  }
+  for (const candidate of [
+    { ...cargo, runtime: undefined },
+    { ...cargo, provenanceKind: "unknown" },
+    { ...cargo, packageLockSha256: "f".repeat(64) },
+  ]) {
+    assert.throws(
+      () => classifyProductionTransition({ current, candidate }),
+      /Cargo provenance is missing or mixed/u,
+    );
+  }
+  const currentCargo = {
+    ...cargo,
+    cutoverRollbackContract: "preserve-live-state-v1",
+  };
+  const ordinary = classifyProductionTransition({
+    current: currentCargo,
+    candidate: cargo,
+  });
+  assert.equal(ordinary.allowed, true);
+  assert.equal(ordinary.cutover, false);
+  const downgrade = classifyProductionTransition({
+    current: currentCargo,
+    candidate: { schemaVersion: 2, runtime: "rust", stateBackend: "sqlite" },
+  });
+  assert.equal(downgrade.allowed, false);
+  assert.match(downgrade.reason, /downgrade/u);
+});
+
 test("declared deployable backends are the ones this release's verifier accepts", async (t) => {
   const temporaryDirectory = await mkdtemp(
     join(tmpdir(), "deployable-backends-"),
@@ -659,37 +814,20 @@ test("publication accepts the current SQLite image schema and rejects a mismatch
     ?.split("\n      - name:")[0];
   const script = step?.split("        run: |\n")[1]?.replace(/^ {10}/gmu, "");
   assert.ok(script, "publication must verify image provenance before pushing");
-  const docker = `
-    docker() {
-      case "$*" in
-        *org.opencontainers.image.revision*) printf '%s\\n' "$SOURCE_REVISION" ;;
-        *com.rental-apartments.runtime*) printf '%s\\n' rust ;;
-        *com.rental-apartments.source.dirty*) printf '%s\\n' false ;;
-        *org.opencontainers.image.package-lock.sha256*) sha256sum package-lock.json | cut -d ' ' -f 1 ;;
-        *com.rental-apartments.cargo-lock.sha256*) sha256sum experiments/rust-replay/Cargo.lock | cut -d ' ' -f 1 ;;
-        *com.rental-apartments.state.backend*) printf '%s\\n' sqlite ;;
-        *com.rental-apartments.state.schema.minimum*) printf '%s\\n' 1 ;;
-        *com.rental-apartments.state.schema.maximum*) printf '%s\\n' "$TEST_SCHEMA_MAXIMUM" ;;
-        *) return 99 ;;
-      esac
-    }
-  `;
-  const verify = (maximum) =>
-    execFileSync(
-      "/bin/bash",
-      ["--noprofile", "--norc", "-eu", "-c", `${docker}\n${script}`],
-      {
-        cwd: new URL("..", import.meta.url),
-        env: {
-          PATH: process.env.PATH,
-          SOURCE_REVISION: "a".repeat(40),
-          TEST_SCHEMA_MAXIMUM: String(maximum),
-        },
-        stdio: "pipe",
-      },
-    );
-  assert.doesNotThrow(() => verify(SQLITE_SCHEMA_VERSION));
-  assert.throws(() => verify(SQLITE_SCHEMA_VERSION - 1));
+  assert.match(script, /build-summary\.json/u);
+  assert.doesNotMatch(script, /package-lock|\bnode\b/iu);
+  const producer = await readProjectFile("scripts/native-release.py");
+  assert.match(producer, /for v in version\\\+1\\\.\\\.=/u);
+  assert.match(producer, /image schema label is inconsistent/u);
+  const nativeDockerfile = await readProjectFile("Dockerfile.native");
+  assert.match(
+    nativeDockerfile,
+    new RegExp(
+      `com\\.rental-apartments\\.state\\.schema\\.maximum="${SQLITE_SCHEMA_VERSION}"`,
+      "u",
+    ),
+  );
+  assert.doesNotMatch(nativeDockerfile, /package-lock|PACKAGE_LOCK/u);
 });
 
 test("Node bridge publication rejects a Rust image before registry mutation", async () => {

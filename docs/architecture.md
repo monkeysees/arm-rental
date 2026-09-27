@@ -184,12 +184,14 @@ validation cannot accidentally depend on host environment-file omissions.
 
 ### Unattended publication and deployment
 
-GitHub Actions serializes production publication and advances the mutable GHCR
+GitHub Actions serializes production publication and may advance the mutable GHCR
 `production` tag only after the scanned image, immutable metadata, and
-provenance objects exist. The scratch-based release image carries the metadata,
-Compose definition, package lock, and hash-bound operations archive without a
-runtime entry point. Publication supplies an inert create-time command so it
-can copy every release input back from a stopped container and compare the
+provenance objects exist. The scratch-based schema-3 Rust release image carries
+metadata, Compose, canonical source and transport manifests, and the hash-bound
+operations archive without a runtime entry point. Schema-2 release images,
+including the accepted 2026-09-27 Rust intermediate, carry the package lock instead
+of those manifests. Publication supplies an inert create-time command so it can
+copy every release input back from a stopped container and compare the
 bytes before advancing discovery. The VPS obtains these inputs with the
 read-only GHCR credential, so private Git repository access is not part of the
 host credential boundary. The tag is discovery-only: the VPS validates
@@ -380,13 +382,24 @@ The Linux AMD64 production image builds `rental-app` with pinned Rust 1.94.0,
 locked Cargo dependencies, and checksum-verified curl-impersonate 2.2.2. Its
 scratch final stage carries the Rust executable, native transport and shared
 library closure, CA certificates and licenses, with no Node or package manager.
-OCI labels expose source, runtime, lock and supported SQLite schema identities.
+`scripts/native-release.py` builds schema-3 images from exact Git objects at the
+checked-out revision in a restricted context. It records canonical Cargo lock,
+source-input, executable, curl, and transport-closure digests in the image
+labels and components file. `source.dirty=false` describes those committed build
+inputs, not unrelated working-tree files. The producer uses Python 3.11 or
+newer, Git, and Docker; metadata and host verification also require Bash, jq,
+GNU tar, and GNU coreutils (including `sha256sum`).
 
 Node.js 24.18.0 remains pinned for the retained application, differential
 oracle and repository checks. CI still installs its locked dependency graph
-with `npm ci`; the current release metadata also carries a package-lock digest
-for the deployed host verifier. Historical Node images retain their own command
-and provenance contracts for rollback.
+with `npm ci`. On 2026-09-27, the host accepted a schema-2 Rust intermediate at
+source `9c95f8f3efb161f507cc26c33312a64dcfa3c6e0`. Its metadata retained
+the legacy package-lock digest and its host verifier supported both schema-2
+and schema-3 contracts. The schema-3 Rust release removes that provenance
+input; the [release runbook](release-and-rollback.md#cargo-provenance-transition-49)
+records its separate publication and live acceptance evidence.
+Historical Node images retain their own command and provenance contracts for
+rollback.
 
 ### Continuous integration and artifact provenance
 
@@ -419,11 +432,13 @@ temporary Compose copy with an empty temporary environment file. The committed
 production path remains unchanged, and the static gate does not require
 production secrets or directories.
 
-Build arguments bind the Rust image to the full Git revision, Cargo lock and
-current compatibility package-lock digests; the Dockerfile validates and labels
-them. After required CI succeeds for a `main` push, publication rebuilds the
-native image, repeats label validation and scanning, pushes an immutable GHCR
-image, and creates digest-bound release metadata. The immutable registry digest
+The native producer stages only declared source files from the exact Git
+revision, builds the Rust payload, independently checks its ELF library closure,
+and finalizes labels from the observed Cargo, source, binary, and transport
+hashes. After required CI succeeds for a `main` push, publication repeats the
+build, validation, and scan, pushes an immutable GHCR image, and creates
+schema-3 metadata binding its registry digest to source and transport manifests,
+Compose, and the exact Git operations archive. The immutable registry digest
 and its metadata object are the production deployment handoff; the host never
 rebuilds from source or downloads a transient Actions artifact.
 
@@ -485,11 +500,12 @@ unacknowledged send retains the documented at-least-once behavior.
 
 ### Deployment artifact isolation
 
-The container build context excludes local environment files, the complete
-`.data` tree (including HTTP cookies), dependency and coverage
-trees, Git metadata, logs, and common development caches. The native Dockerfile
-copies locked Cargo source and pinned transport inputs, and the runtime does not
-load a local environment file. Production configuration therefore enters at
+The native producer constructs a context from an allowlist of committed Git
+objects: the Rust source and lockfile, native Dockerfile, pinned transport and
+assembly scripts, and production Compose definitions. Local environment files,
+the complete `.data` tree (including HTTP cookies), dependency and coverage
+trees, Git metadata, logs, and development caches cannot enter it. The runtime
+does not load a local environment file; production configuration enters at
 container creation rather than becoming an image layer. The retained Node
 Dockerfile and npm toolchain remain for historical releases and tests.
 

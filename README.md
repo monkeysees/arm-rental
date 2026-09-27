@@ -353,26 +353,39 @@ npm run check:production-contract
 Production runs the Rust `rental-app` image built with pinned Rust 1.94.0 and
 checksum-verified curl-impersonate 2.2.2 on Linux AMD64. Its final image
 contains the native executable, required shared libraries, certificates and
-licenses, with no Node, shell or package manager. The release still records a
-`package-lock.json` digest so the current host verifier can check it; [Cargo
-provenance](https://github.com/monkeysees/arm-rental/issues/49) will remove that
-release-time Node input after a compatible transition. See [Rust image build and
-acceptance](docs/rust-development.md#production-candidate-image).
+licenses, with no Node, shell or package manager. The accepted 2026-09-27
+[schema-2 Rust intermediate](docs/evidence/issue49-stage1-receipt.json) at
+source `9c95f8f3efb161f507cc26c33312a64dcfa3c6e0` carried legacy
+package-lock provenance and a verifier for both schema-2 and schema-3 releases.
+The schema-3 Rust release contract uses Cargo and source-input provenance with
+no package-lock input. See [Rust image build
+and acceptance](docs/rust-development.md#production-candidate-image) and the
+[release runbook](docs/release-and-rollback.md#cargo-provenance-transition-49)
+for subsequent live acceptance evidence.
 
-Build and inspect the deployment versions:
+Build and inspect a schema-3 candidate from the exact checked-out Git revision
+using a new empty work directory:
 
 ```sh
-docker build --file Dockerfile.native --platform linux/amd64 --target production \
-  --build-arg SOURCE_REVISION="$(git rev-parse HEAD)" \
-  --build-arg CARGO_LOCK_SHA256="$(sha256sum experiments/rust-replay/Cargo.lock | cut -d ' ' -f 1)" \
-  --build-arg PACKAGE_LOCK_SHA256="$(sha256sum package-lock.json | cut -d ' ' -f 1)" \
-  --tag rental-apartments-bot:local .
+release_work="$(mktemp -d /tmp/arm-rental-native-release.XXXXXX)"
+python3 scripts/native-release.py build \
+  --source-revision "$(git rev-parse HEAD)" \
+  --work-dir "$release_work" \
+  --image-tag rental-apartments-bot:local
 docker image inspect --format '{{json .Config.Labels}}' \
   rental-apartments-bot:local
 docker run --rm \
   --entrypoint /usr/local/bin/curl-impersonate \
   rental-apartments-bot:local --version
 ```
+
+The producer needs Python 3.11 or newer, Git, and Docker. Release metadata and
+host verification also use Bash, jq, GNU tar, and GNU coreutils (including
+`sha256sum`). The publisher binds the scanned immutable image to canonical
+source and transport manifests, Compose, and an exact Git operations archive.
+The host verifies the schema-3 bundle before deployment. Node and npm remain
+for development and regression checks while their separate retirement work
+continues.
 
 Mount `/app/.data` on durable storage and supply the production environment.
 The image contains the HTTP executable and needs no runtime downloads.
@@ -404,10 +417,11 @@ acquires the singleton lease. See
 [source operations](docs/source-operations.md) and
 [startup preflight remediation](docs/startup-preflight.md).
 
-Local environment files, `.data` (including HTTP cookies),
-dependencies, coverage, Git metadata, logs, and development caches are excluded
-from the container build context. The Rust image runs as UID/GID 1000 and does
-not read `.env` at runtime; the host supplies its root-owned environment file
+The producer stages only committed build inputs into the Rust container
+context. Local environment files, `.data` (including HTTP cookies),
+dependencies, coverage, Git metadata, logs, and development caches cannot enter
+that context. The Rust image runs as UID/GID 1000 and does not read `.env` at
+runtime; the host supplies its root-owned environment file
 to Compose.
 
 `compose.production.yaml` defines the stable singleton topology and retains

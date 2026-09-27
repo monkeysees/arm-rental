@@ -32,14 +32,21 @@ test("development, CI, and production use the same pinned Node release", async (
 });
 
 test("production packaging verifies the pinned HTTP binary and removes build tools", async () => {
-  const [workflow, publishWorkflow, dockerfile, installer, versions] =
-    await Promise.all([
-      readProjectFile(".github/workflows/quality.yml"),
-      readProjectFile(".github/workflows/publish-production.yml"),
-      readProjectFile("Dockerfile"),
-      readProjectFile("scripts/install-curl-impersonate"),
-      readProjectFile("scripts/curl-impersonate-version"),
-    ]);
+  const [
+    workflow,
+    publishWorkflow,
+    dockerfile,
+    nativeDockerfile,
+    installer,
+    versions,
+  ] = await Promise.all([
+    readProjectFile(".github/workflows/quality.yml"),
+    readProjectFile(".github/workflows/publish-production.yml"),
+    readProjectFile("Dockerfile"),
+    readProjectFile("Dockerfile.native"),
+    readProjectFile("scripts/install-curl-impersonate"),
+    readProjectFile("scripts/curl-impersonate-version"),
+  ]);
   assert.match(dockerfile, /ARG CURL_IMPERSONATE_VERSION=2\.2\.2/u);
   assert.match(dockerfile, /RUN npm ci --omit=dev\b/u);
   assert.doesNotMatch(dockerfile, /chromium|puppeteer|SYS_ADMIN/iu);
@@ -51,5 +58,16 @@ test("production packaging verifies the pinned HTTP binary and removes build too
   assert.match(versions, /CURL_IMPERSONATE_ARM64_SHA256=[a-f0-9]{64}/u);
   assert.match(workflow, /curl 8\.21\.0-IMPERSONATE/u);
   assert.match(publishWorkflow, /curl 8\.21\.0-IMPERSONATE/u);
-  assert.match(publishWorkflow, /experiments\/production-image\/check\.js/u);
+  assert.match(nativeDockerfile, /FROM scratch AS payload/u);
+  assert.match(nativeDockerfile, /FROM \$\{PAYLOAD_IMAGE\} AS production/u);
+  assert.doesNotMatch(nativeDockerfile, /package-lock|npm/iu);
+  assert.match(workflow, /python3 scripts\/native-release\.py build/u);
+  assert.match(workflow, /python3 experiments\/native-acceptance\/run\.py/u);
+  assert.match(workflow, /python3 experiments\/native-cutover\/run\.py/u);
+  assert.match(publishWorkflow, /python3 scripts\/native-release\.py build/u);
+  assert.match(
+    publishWorkflow,
+    /python3 experiments\/native-acceptance\/run\.py/u,
+  );
+  assert.match(publishWorkflow, /--require-clean-source/u);
 });

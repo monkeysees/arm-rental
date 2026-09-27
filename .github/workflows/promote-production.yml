@@ -16,6 +16,10 @@ on:
         description: Revision currently deployed on the host, from `rentalctl status`
         required: true
         type: string
+      deployed_bridge_digest:
+        description: Immutable image reference currently deployed on the host
+        required: true
+        type: string
 
 permissions:
   contents: read
@@ -35,11 +39,6 @@ jobs:
     steps:
       - name: Check out the promotion tooling
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-
-      - name: Use production Node.js
-        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
-        with:
-          node-version-file: .nvmrc
 
       - name: Authenticate to GHCR
         env:
@@ -70,7 +69,7 @@ jobs:
           mkdir -p release current
           docker pull --quiet "$IMAGE_REPOSITORY:metadata-$REVISION" >/dev/null
           CANDIDATE_CONTAINER="$(docker create "$IMAGE_REPOSITORY:metadata-$REVISION" /release/release-metadata.json)"
-          docker cp "$CANDIDATE_CONTAINER:/release/release-metadata.json" release/release-metadata.json
+          docker cp "$CANDIDATE_CONTAINER:/release/." release/
           docker rm "$CANDIDATE_CONTAINER" >/dev/null
 
           docker pull --quiet "$IMAGE_REPOSITORY:production" >/dev/null
@@ -85,7 +84,7 @@ jobs:
           [[ "$CURRENT_REVISION" =~ ^[0-9a-f]{40}$ ]]
           docker pull --quiet "$IMAGE_REPOSITORY:metadata-$CURRENT_REVISION" >/dev/null
           CURRENT_CONTAINER="$(docker create "$IMAGE_REPOSITORY:metadata-$CURRENT_REVISION" /release/release-metadata.json)"
-          docker cp "$CURRENT_CONTAINER:/release/release-metadata.json" current/release-metadata.json
+          docker cp "$CURRENT_CONTAINER:/release/." current/
           docker rm "$CURRENT_CONTAINER" >/dev/null
 
           # Both metadata objects must name the exact pulled image and runtime.
@@ -100,6 +99,14 @@ jobs:
           printf 'image_repository=%s\n' "$IMAGE_REPOSITORY" >> "$GITHUB_OUTPUT"
           printf 'image_reference=%s\n' "$IMAGE_REFERENCE" >> "$GITHUB_OUTPUT"
           printf 'current_revision=%s\n' "$CURRENT_REVISION" >> "$GITHUB_OUTPUT"
+          printf 'current_reference=%s\n' "$CURRENT_REFERENCE" >> "$GITHUB_OUTPUT"
+          printf 'candidate_schema=%s\n' "$(jq -r .schemaVersion release/release-metadata.json)" >> "$GITHUB_OUTPUT"
+
+      - name: Use production Node.js for a historical schema-2 promotion
+        if: steps.resolve.outputs.candidate_schema == '2'
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .nvmrc
 
       # The operator reports what the host is running. If that disagrees with
       # the pointer, the host has not converged and the bridge they checked is
@@ -107,16 +114,36 @@ jobs:
       - name: Require the confirmed bridge to be the release production runs
         env:
           CONFIRMED: ${{ inputs.deployed_bridge_revision }}
+          CONFIRMED_DIGEST: ${{ inputs.deployed_bridge_digest }}
           CURRENT_REVISION: ${{ steps.resolve.outputs.current_revision }}
+          CURRENT_REFERENCE: ${{ steps.resolve.outputs.current_reference }}
         run: |
-          if [ "$CONFIRMED" != "$CURRENT_REVISION" ]; then
-            printf 'Host was reported at %s but production points at %s.\n' "$CONFIRMED" "$CURRENT_REVISION" >&2
+          if [ "$CONFIRMED" != "$CURRENT_REVISION" ] || [ "$CONFIRMED_DIGEST" != "$CURRENT_REFERENCE" ]; then
+            printf 'Host-reported revision or digest differs from the production pointer.\n' >&2
             printf 'Let the host converge on the bridge release before promoting.\n' >&2
             exit 1
           fi
 
       - name: Confirm the running release can deploy the candidate
+        env:
+          IMAGE_REFERENCE: ${{ steps.resolve.outputs.image_reference }}
+          CURRENT_REFERENCE: ${{ steps.resolve.outputs.current_reference }}
         run: |
+          CANDIDATE_SCHEMA="$(jq -r '.schemaVersion' release/release-metadata.json)"
+          case "$CANDIDATE_SCHEMA" in
+            2|3) ;;
+            *) printf 'Unsupported candidate provenance schema.\n' >&2; exit 1 ;;
+          esac
+          if [ "$CANDIDATE_SCHEMA" = 3 ]; then
+            python3 scripts/native-release.py verify \
+              --image-reference "$IMAGE_REFERENCE" --bundle release
+            python3 scripts/native-release.py gate \
+              --current-image "$CURRENT_REFERENCE" \
+              --current-bundle current \
+              --receipt-record docs/evidence/issue49-stage1-receipt.json \
+              --candidate-metadata release/release-metadata.json
+            exit 0
+          fi
           if [ "$(jq -r '.runtime // "node"' release/release-metadata.json)" = rust ]; then
             jq -e '.cutoverRollbackContract == "preserve-live-state-v1"' \
               current/release-metadata.json >/dev/null
@@ -129,7 +156,10 @@ jobs:
         env:
           IMAGE_REPOSITORY: ${{ steps.resolve.outputs.image_repository }}
           IMAGE_REFERENCE: ${{ steps.resolve.outputs.image_reference }}
+          CURRENT_REFERENCE: ${{ steps.resolve.outputs.current_reference }}
         run: |
+          docker pull --quiet "$IMAGE_REPOSITORY:production" >/dev/null
+          test "$(docker image inspect --format '{{index .RepoDigests 0}}' "$IMAGE_REPOSITORY:production")" = "$CURRENT_REFERENCE"
           docker tag "$IMAGE_REFERENCE" "$IMAGE_REPOSITORY:production"
           docker push "$IMAGE_REPOSITORY:production"
           test "$(docker image inspect --format '{{index .RepoDigests 0}}' "$IMAGE_REPOSITORY:production")" = "$IMAGE_REFERENCE"

@@ -99,13 +99,10 @@ jobs:
         env:
           SOURCE_REVISION: ${{ github.sha }}
         run: |
-          docker build -f Dockerfile.native --platform linux/amd64 \
-            --build-arg SOURCE_REVISION="$SOURCE_REVISION" \
-            --build-arg SOURCE_DIRTY=false \
-            --build-arg CARGO_LOCK_SHA256="$(sha256sum experiments/rust-replay/Cargo.lock | cut -d ' ' -f 1)" \
-            --build-arg PACKAGE_LOCK_SHA256="$(sha256sum package-lock.json | cut -d ' ' -f 1)" \
-            --tag rental-apartments-native:ci .
-          node experiments/production-image/check.js "$RUNNER_TEMP/native-image-check" rental-apartments-native:ci
+          python3 scripts/native-release.py build \
+            --source-revision "$SOURCE_REVISION" \
+            --work-dir "$RUNNER_TEMP/native-release" \
+            --image-tag rental-apartments-native:ci
 
       - name: Verify native production parity without Node
         env:
@@ -194,6 +191,16 @@ jobs:
             awk 'BEGIN {min_idle = 100} NR > 3 && NF >= 17 {count++; if ($1 > runnable) runnable = $1; if ($2 > blocked) blocked = $2; if ($16 > iowait) iowait = $16; if ($17 > steal) steal = $17; if ($15 < min_idle) min_idle = $15} END {if (count > 0) printf "CAPACITY_RUNNER_VMSTAT samples=%d max_runnable=%d max_blocked=%d max_iowait_pct=%d max_steal_pct=%d min_idle_pct=%d\n", count, runnable, blocked, iowait, steal, min_idle}' "$telemetry_file" || true
           fi
           exit "$gate_status"
+
+      - name: Verify Cargo producer, metadata, and transition gates
+        run: PYTHONDONTWRITEBYTECODE=1 python3 test/native-release-producer.test.py
+
+      - name: Exercise production-shaped Cargo deployment and historical Node rollback
+        run: |
+          PYTHONDONTWRITEBYTECODE=1 python3 experiments/native-cutover/run.py \
+            --node-image rental-apartments-bot:ci \
+            --native-image rental-apartments-native:ci \
+            --output "$RUNNER_TEMP/cargo-cutover"
 
       - name: Scan OS and application dependencies
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # 0.36.0

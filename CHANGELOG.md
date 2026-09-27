@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Build new Rust releases from exact Git Cargo/source inputs without package-lock provenance, and hold the first schema-3 promotion for verified host acceptance.
+
 - Add an intermediate Rust release verifier for Cargo/source-input provenance while retaining package-lock publication and verified historical Node snapshot rollback.
 
 - Accept the live Rust cutover with preserved SQLite decisions, seven observed private deliveries and a retained Node rollback point.

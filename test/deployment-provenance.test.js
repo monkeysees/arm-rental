@@ -288,6 +288,15 @@ test("Cargo/source-input release verifies exact native payload without package-l
   assert.equal(f.metadata.packageLockSha256, undefined);
 });
 
+test("Cargo verifier accepts the future Rust-only runtime capability", async (t) => {
+  const f = await fixture(t);
+  await writeFile(
+    f.metadataPath,
+    JSON.stringify({ ...f.metadata, deployableRuntimes: ["rust"] }),
+  );
+  await assert.doesNotReject(f.verify());
+});
+
 test("legacy Rust release advertises Cargo capability only with its archived verifier", async (t) => {
   const f = await fixture(t);
   const lock = '{"lockfileVersion":3}\n';
@@ -344,7 +353,10 @@ test("Cargo/source-input release rejects mixed, missing, and mismatched provenan
     { curlImpersonateVersion: "0.0.0" },
     { sourceDirty: true },
     { deployableStateBackends: ["json"] },
-    { deployableRuntimes: ["rust"] },
+    { deployableRuntimes: ["node"] },
+    { deployableRuntimes: ["rust", "node"] },
+    { deployableRuntimes: ["rust", "unknown"] },
+    { deployableRuntimes: [] },
     { cutoverRollbackContract: "unknown" },
     { cargoLockSha256: "f".repeat(64) },
     { sourceInputsSha256: "f".repeat(64) },
@@ -552,6 +564,40 @@ test("host transition accepts a deployed v2 verifier bridge and refuses provenan
     ).stdout.trim(),
     "sqlite-to-sqlite",
   );
+  const rustOnlyPath = join(f.root, "rust-only.json");
+  await writeFile(
+    rustOnlyPath,
+    JSON.stringify({ ...f.metadata, deployableRuntimes: ["rust"] }),
+  );
+  assert.equal(
+    (
+      await transition(f.metadataPath, rustOnlyPath, image, image)
+    ).stdout.trim(),
+    "sqlite-to-sqlite",
+  );
+  await assert.rejects(
+    transition(rustOnlyPath, f.metadataPath, image, image),
+    (error) =>
+      error.code === 65 &&
+      /reintroduces retired Node runtime capability/u.test(error.stderr),
+  );
+  for (const runtimes of [
+    [],
+    ["node"],
+    ["rust", "node"],
+    ["rust", "unknown"],
+  ]) {
+    await writeFile(
+      rustOnlyPath,
+      JSON.stringify({ ...f.metadata, deployableRuntimes: runtimes }),
+    );
+    await assert.rejects(
+      transition(f.metadataPath, rustOnlyPath, image, image),
+      (error) =>
+        error.code === 65 &&
+        /runtime capability is missing or unsupported/u.test(error.stderr),
+    );
+  }
   delete legacy.deployableProvenanceContracts;
   await writeFile(legacyPath, JSON.stringify(legacy));
   await assert.rejects(

@@ -411,6 +411,7 @@ def transition(current: dict, current_image: str, current_bundle: Path,
             "stateBackend": "sqlite",
             "minimumStateSchema": 1,
             "maximumStateSchema": summary["maximumStateSchema"],
+            "deployableRuntimes": ["node", "rust"],
             "deployableProvenanceContracts": ["legacy-package-lock-v2", "cargo-source-v3"],
         }
     else:

@@ -323,14 +323,49 @@ service at `17:59:38Z`, before the retry snapshot; they were not lost or
 replayed. Later Rust crawls with matching source-integrity records naturally
 sent six and one private notifications, respectively, and committed seven new
 status-0 acknowledgements. The previous Node digest and matching recovery
-snapshot remain retained for rollback.
+snapshot were retained for rollback at the time of this first Rust deployment.
 
 This acceptance proves the observed host readiness, crawl, durable delivery
 continuity and supported guarded recovery from the failed first attempt. The
 recipients' Telegram inboxes were not inspected externally, and no deliberate
-rollback of the healthy Rust service was performed. The current Rust release
-still carries package-lock provenance for the host verifier; Cargo-only release
-provenance and Node retirement are separate work in #49 and #50.
+rollback of the healthy Rust service was performed. This first Rust release
+carried package-lock provenance for its host verifier; the later Cargo
+provenance deployment is recorded below. Node retirement remains #50 work.
+
+### Accepted Cargo provenance deployment (2026-09-27)
+
+After the intermediate schema-2 verifier was accepted on the host, main
+Required CI [36346630538](https://github.com/monkeysees/arm-rental/actions/runs/36346630538)
+and publication [36347296675](https://github.com/monkeysees/arm-rental/actions/runs/36347296675)
+passed for source `790ecdb66593d0bff685bc2c537cbe3e7f88735e`. Publication
+held the discovery pointer until explicit promotion
+[36347593011](https://github.com/monkeysees/arm-rental/actions/runs/36347593011).
+The promoted image is
+`ghcr.io/monkeysees/arm-rental@sha256:17ad1b354820181a3a2092d999a9e6cc53474f1516b8b01af1f0da2d9de96e33`;
+its metadata image digest is
+`sha256:fe264a5e112a928cf415a319e8936dcbd35ea3f796d992641658d3803428a721`.
+
+The unattended host deployment completed at `20:26:29Z` with success receipt
+`20260927T202629Z-success-17ad1b354820181a.json` (SHA-256
+`b0d33ab1c18138e23f8b7f66d0603c4205efb670784bfe629e24e7a472a7f49c`).
+It validated snapshot `daily/2026-09-27T20-20-12-399Z` using the version-3
+manifest, then started the candidate on the same SQLite database identity
+`46960c40-1fef-4de1-aaa0-745699ed87e0`, schema 6. Readiness, source
+integrity, crawls, and the deployment and backup timers were healthy. The
+Telegram update offset remained `930892924`.
+
+Independent read-only review found all 717,431 predeployment decision keys in
+live state, with no missing keys, status changes, or new keys. Two existing
+status-0 rows had `decidedAt` refreshed at `20:21:55–56Z`, matching a natural
+crawl that reported `updatedCount: 1` and `notifiedCount: 2`. This is durable
+state and application-log evidence; recipients' external Telegram inboxes were
+not inspected. No deliberate rollback of the healthy release was performed.
+The installed release uses schema-3 `cargo-source-v1` provenance, with no
+package-lock metadata field, artifact, or image label. Retention contains this
+release and two prior Rust digests (`6d2808e1…` and `98ecade8…`). A separate
+protected pre-SQLite Node image and JSON snapshot remain pinned pending the
+retirement decision in #50. That pair cannot recover the current SQLite state;
+the ordinary SQLite-era Node rollback image has rotated out of retention.
 
 ## Host prerequisites and safe checks
 

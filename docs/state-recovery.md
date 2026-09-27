@@ -172,6 +172,22 @@ Expected validation reports the application ID, schema and database IDs,
 target bindings, per-domain logical counts, Telegram `updateOffset`, and hash success. Select the newest valid recovery point from before the incident.
 Do not edit a snapshot or restore from a `.snapshot-*.tmp` directory.
 
+Do not open an archived `state.sqlite3` in place with SQLite's `mode=ro` alone.
+On 2026-09-27, a read-only audit of a WAL-mode snapshot created an unlisted
+`state.sqlite3-shm` and empty `state.sqlite3-wal`; the restore drill correctly
+rejected the extra files even though every file named in the manifest still
+matched its SHA-256. Prefer the packaged `backup:validate` command for snapshot
+checks. For a query of a validated, checkpointed standalone database, use an
+immutable read-only SQLite URI (`mode=ro&immutable=1`); for WAL-aware queries,
+copy the snapshot to a disposable directory and open only that copy. Validation
+checks the complete file set as well as each hash. Preserve a failed snapshot
+and its logs for diagnosis; never change its manifest or original files to
+make validation pass. Removing proven inspection-created sidecars requires a
+documented repair under the operations lock: preserve those sidecars and their
+stat/hash evidence, exclude open SQLite handles, verify every original file against
+the manifest, remove only the identified additions, then verify the complete
+file set and rerun the unmodified restore drill.
+
 An image whose declared schema range does not include the snapshot must not
 start against it. There is no supported path back to a release that predates
 the SQLite cutover: the snapshot such a release would need cannot be read, and
@@ -198,8 +214,12 @@ Production restore is a break-glass procedure, distinct from the nondestructive
 drill. Open an incident, disable the deploy timer, acquire
 `/var/lib/rental-apartments-ops/operations.lock`, and install a shell exit trap
 that starts `rental-apartments.service` before stopping it. Use the exact
-current image to run `node src/recovery-cli.js validate <snapshot>` and then
-`node src/recovery-cli.js restore <snapshot>`. Keep the backup mount read-only
+current image and the installed `ops/lib/runtime.sh` dispatcher to select its
+recovery commands. The current Rust image runs `backup:validate --snapshot
+<container-snapshot-path>` and then `backup:restore --snapshot
+<container-snapshot-path>` through its `/usr/local/bin/rental-app` entrypoint;
+a retained historical Node image uses its own `node src/recovery-cli.js`
+commands and matching release bundle. Keep the backup mount read-only
 throughout: validation stages the snapshot's database inside `DATA_DIRECTORY`
 rather than opening it in place, so no step writes to a recovery point. Do not
 run either command against the live service or outside the shared lock. If
@@ -245,6 +265,21 @@ Cleanup checks the exact container name, volume name, run ID, labels,
 directory, and marker before removing anything. A mismatched resource is
 preserved and fails the unit. Duration over one hour also fails the unit so the
 monitor opens the RTO alert without the drill itself invoking Telegram.
+
+On 2026-09-27, the first isolated drill against the current Rust image
+(`790ecdb66593d0bff685bc2c537cbe3e7f88735e`, digest `17ad1b354820181a…`)
+and snapshot `daily/2026-09-27T20-20-12-399Z` failed at `20:31:28Z`: an
+in-place SQLite `mode=ro` audit had created unlisted WAL/SHM sidecars. All six
+manifest-listed files still matched their hashes. The operator preserved
+root-owned diagnostics at
+`/var/lib/rental-apartments-ops/diagnostic-issue50-20260927T203128Z`, then
+removed only those two proven extra files under the operations lock and
+verified the complete manifest again. The unmodified drill passed at
+`20:36:37Z` with exit status 0 in 7,000 ms; the live container identity and
+start time were unchanged, and no temporary drill resources remained.
+Independent read-only verification confirmed the successful drill, exact
+manifest, preserved diagnostics, and unchanged live container. The normal
+monitor reported healthy readiness and zero firing alerts at `20:40:22Z`.
 
 Inspect the schedule and last drill:
 

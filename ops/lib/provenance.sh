@@ -184,7 +184,8 @@ provenance_verify_v3_release() {
     .provenanceKind == $provenance_kind and
     .runtime == "rust" and
     .deployableStateBackends == ["sqlite"] and
-    .deployableRuntimes == ["node", "rust"] and
+    (.deployableRuntimes == ["node", "rust"] or
+      .deployableRuntimes == ["rust"]) and
     .cutoverRollbackContract == "preserve-live-state-v1" and
     .sourceDirty == false and
     (.rustVersion | type == "string" and test("^[0-9]+\\.[0-9]+\\.[0-9]+$")) and

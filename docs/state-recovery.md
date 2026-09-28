@@ -48,35 +48,11 @@ starts. Validating an older snapshot with the candidate does not make the
 candidate's upgraded live database readable by the older image. Retain the old
 snapshot and immutable image together through candidate acceptance.
 
-### Retired pre-SQLite recovery point
+### Unsupported pre-SQLite snapshots
 
-A snapshot taken before the SQLite cutover carries a manifest-v1 body naming
-the five JSON state files and no `state.sqlite3` beside them. **No release in
-this tree can read one.** It is not a restorable backup, and it must not be
-counted as a recovery point when judging RPO. `backup`, `backup:validate`, and
-`restore` all refuse it by name:
-
-```
-Backup predates the SQLite cutover and cannot be restored by this release
-```
-
-Nothing can create such a snapshot any more, and no command will migrate JSON
-state into the database. On 2026-09-27, after the current Rust image passed an
-isolated restore of its SQLite recovery point, the operator released the sole
-protected pre-SQLite entry. Its JSON snapshot and pinned Node image are gone;
-the production retention index now contains only Rust releases.
-
-### Releasing the stranded rollback point
-
-This historical operation was destructive and irreversible: the snapshot was
-the only copy of pre-migration JSON state. The operator named the exact image
-`ghcr.io/monkeysees/arm-rental@sha256:6ab96bd5cee7ca06dd772a4fb815b45ee610359f5a2649c753157e1f37398711`
-to `ops/unprotect-migration-rollback`. The operation emitted
-`migration-unprotection.completed`, removed only its registered snapshot
-`protected/pre-sqlite-2026-08-19T07-32-32-202Z`, and never stopped the live
-Rust service. Retention-aware cleanup then removed that Node image and its
-matching metadata image. The index has no protected entry; there is no
-counterpart operation to create one.
+Manifest-v1 JSON snapshots are not restorable by this release and must not be
+counted as recovery points when judging RPO. `backup:validate` and `restore`
+refuse them; no command migrates JSON state into SQLite.
 
 ## Automated daily backup
 

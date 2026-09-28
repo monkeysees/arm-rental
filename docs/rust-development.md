@@ -5,9 +5,7 @@
 and its CLI is
 [`experiments/rust-replay/src/bin/rental-app.rs`](../experiments/rust-replay/src/bin/rental-app.rs).
 The crate path retains its experimental name as part of the exact Git-object
-release producer contract; it is the maintained Rust application. The older
-`rental-replay` binary and Node comparison reports are historical test
-provenance, not deployment entrypoints.
+release producer contract; it is the maintained Rust application.
 
 ## Local checks and service
 
@@ -72,7 +70,7 @@ package manager or compiler. Its Cargo lock, source-input, executable, curl
 and transport hashes are carried in labels and `components.json`. Metadata
 binds those hashes to the immutable registry digest, source and transport
 manifests, Compose, and the exact Git operations archive. See the
-[release runbook](release-and-rollback.md#cargo-provenance-transition-49).
+[release runbook](release-and-rollback.md#cargo-provenance-contract).
 
 Inspect the local image without starting the application:
 
@@ -128,8 +126,3 @@ restore and source smoke through the reviewed host operations wrapper with the
 service stopped where the singleton lease requires it. The current host
 procedures are in [operational runbooks](operational-runbooks.md),
 [source operations](source-operations.md), and [health and readiness](health-readiness.md).
-
-The frozen Node differential oracle, prototype image assemblers and older
-resource experiments are retained only as dated design evidence in Git history
-and the [parity ledger](rust-parity.md). They are not current build, release or
-recovery instructions.

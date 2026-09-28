@@ -8,15 +8,14 @@ the candidate Rust application to generate expected values.
 ## Provenance
 
 The frozen Node production source is commit
-`b5a4f09cebf62999af06e35e8f132c9e9dc45e12` on `main`, as recorded in
-[`docs/rust-parity.md`](../../docs/rust-parity.md). Its schema and formatting
+`b5a4f09cebf62999af06e35e8f132c9e9dc45e12` on `main`. Its schema and formatting
 sources were byte-identical to the working branch at fixture capture and
 review (`git diff --quiet b5a4f09cebf62999af06e35e8f132c9e9dc45e12 --`
 followed by the paths below returned zero). The `src/` paths below refer to
 that archived Node source, which is no longer in the active tree.
 
 `fixtures/schema-v1-populated.sql` uses the Node `SCHEMA_V1` physical schema
-from `src/sqlite-schema.js`, also retained as `test/fixtures/sqlite-v2.sql`.
+from the archived `src/sqlite-schema.js`.
 The inserted identities and history decisions were hand-authored synthetic
 data. Versions 2–5 were obtained by applying, in order, the Node baseline's
 version-2 SQL and `migrateIncrementalCrawl`, `migrateCompactDecisions`, and

@@ -12,8 +12,6 @@ into another handbook.
 | Rotate Telegram token                                    | [Telegram token rotation](token-rotation.md)                                                    |
 | Validate List.am source access or investigate challenges | [List.am source operations](source-operations.md)                                               |
 | Restore persistent state                                 | [Persistent-state restore](state-recovery.md#restore-procedure)                                 |
-| Historical state-backend cutover                         | [State backend transition record](release-and-rollback.md#state-backend-transitions)            |
-| Retired pre-SQLite rollback point                        | [Retirement record](state-recovery.md#releasing-the-stranded-rollback-point)                    |
 | Malformed, incompatible, or target-mismatched state      | [Incompatible-state recovery](startup-preflight.md#incompatible-state)                          |
 | Stale crawling                                           | [Stale-crawl response](runtime-incidents.md#stale-crawling)                                     |
 | Telegram private or channel failure                      | [Telegram delivery response](runtime-incidents.md#telegram-private-or-channel-delivery-failure) |

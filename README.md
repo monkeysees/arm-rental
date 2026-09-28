@@ -45,10 +45,7 @@ population grows.
 
 The [Rust development guide](docs/rust-development.md) describes the production
 `rental-app` service, maintenance commands, image build and independent
-acceptance checks. The [parity ledger](docs/rust-parity.md) records the frozen
-Node comparison baseline and Rust acceptance evidence. Rust production was
-accepted on 2026-09-27; the historical Node implementation is no longer a
-supported service or rollback image.
+acceptance checks.
 
 Private delivery makes one promise about time: a user is only ever sent
 listings that List.am posted or changed within the last 24 hours. Everything the
@@ -366,15 +363,10 @@ Python, production contract and native-image gates.
 Production runs the Rust `rental-app` image built with pinned Rust 1.94.0 and
 checksum-verified curl-impersonate 2.2.2 on Linux AMD64. Its final image
 contains the native executable, required shared libraries, certificates and
-licenses, with no Node, shell or package manager. The accepted 2026-09-27
-[schema-2 Rust intermediate](docs/evidence/issue49-stage1-receipt.json) at
-source `9c95f8f3efb161f507cc26c33312a64dcfa3c6e0` carried legacy
-package-lock provenance and a verifier for both schema-2 and schema-3 releases.
-The schema-3 Rust release contract uses Cargo and source-input provenance with
-no package-lock input. See [Rust image build
-and acceptance](docs/rust-development.md#production-image-and-provenance) and the
-[release runbook](docs/release-and-rollback.md#cargo-provenance-transition-49)
-for subsequent live acceptance evidence.
+licenses, with no Node, shell or package manager. The schema-3 Rust release
+contract uses Cargo and source-input provenance. See [Rust image build and
+acceptance](docs/rust-development.md#production-image-and-provenance) and the
+[release runbook](docs/release-and-rollback.md#cargo-provenance-contract).
 
 Build and inspect a schema-3 candidate from the exact checked-out Git revision
 using a new empty work directory:
@@ -396,8 +388,7 @@ The producer needs Python 3.11 or newer, Git, and Docker. Release metadata and
 host verification also use Bash, jq, GNU tar, and GNU coreutils (including
 `sha256sum`). The publisher binds the scanned immutable image to canonical
 source and transport manifests, Compose, and an exact Git operations archive.
-The host verifies the schema-3 bundle before deployment. The historical Node
-source and npm release path are retired.
+The host verifies the schema-3 bundle before deployment.
 
 Mount `/app/.data` on durable storage and supply the production environment.
 The image contains the HTTP executable and needs no runtime downloads.

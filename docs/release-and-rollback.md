@@ -22,9 +22,8 @@ they cannot falsely report that a requested mutation completed.
 
 `publish-production.yml` runs only after a successful `Required CI` push to
 `main`. It checks out that workflow's exact commit and builds the Rust image
-from committed Git inputs. The first Rust promotion followed an accepted Node
-bridge; that is historical cutover evidence. The publisher verifies the image's
-runtime, source and provenance identities, packaged service and HTTP closure, then runs
+from committed Git inputs. The publisher verifies the image's runtime, source
+and provenance identities, packaged service and HTTP closure, then runs
 the blocking Trivy scan before pushing.
 GitHub Actions concurrency serializes publication and does not cancel an
 in-progress publisher.
@@ -53,25 +52,7 @@ A runtime or deployable-capability contraction holds that pointer for operator
 promotion; a failed quality gate, provenance check, scan, candidate push, or
 metadata push cannot change host discovery.
 
-### Cargo provenance transition (#49)
-
-The intermediate Rust release publishes schema-2 metadata with
-`package-lock.json` and its image label, so the deployed predecessor can verify
-it. Its metadata advertises
-`deployableProvenanceContracts: ["legacy-package-lock-v2", "cargo-source-v3"]`
-only when the archived host verifier matches the source being published. The
-host verifier accepts both contracts after that intermediate release is
-deployed. The schema-3 publisher requires the committed, sanitized
-`docs/evidence/issue49-stage1-receipt.json` operator acceptance record before
-its first registry push. That record binds the stage-1 source revision, exact
-image digest, successful deployment receipt name/hash/time, validated snapshot,
-and observed live host image. The publisher compares it with the pulled current
-image and its fully verified metadata and archived verifier capability. It also
-checks that the candidate covers the current SQLite schema range before the
-first push. This
-record is an operator attestation of direct host evidence, not a cryptographic
-remote attestation. A published pointer or marker alone does not prove that the
-host has deployed the verifier.
+### Cargo provenance contract
 
 Schema-3 metadata is the separate `cargo-source-v1` Rust contract. It requires
 an exact Rust runtime, clean source, source revision, immutable image digest,
@@ -79,8 +60,7 @@ Cargo lock, Rust executable, curl executable, transport closure, SQLite schema
 range, production Compose, and operations archive. The image labels and
 `components.json` must agree with the metadata, and the host hashes the actual
 files extracted from the image. Schema 3 has no package-lock field, artifact,
-or label; unknown and mixed provenance claims fail. Historical schema-2 Node
-releases may omit the runtime label and retain their package-lock verification.
+or label; unknown and mixed provenance claims fail.
 
 The schema-3 metadata bundle contains `source-inputs.json` and
 `transport-files.json`. Each is one newline-terminated `jq --compact-output
@@ -109,12 +89,8 @@ push. The host's manifest check does not rediscover an undeclared library. The
 host also re-verifies a cached release directory, including its artifact set
 and executable modes, before using it.
 
-The initial schema-2-to-schema-3 release stays behind the `production` pointer
-even though both images run Rust/SQLite. Promotion requires an operator to
-report the deployed intermediate revision and immutable digest; the workflow
-re-verifies both exact images and metadata bundles before moving the pointer.
-Later schema-3-to-schema-3 publication verifies the exact current release and
-can advance normally. A missing, mismatched, or unknown contract fails before
+Schema-3-to-schema-3 publication verifies the exact current release and can
+advance normally. A missing, mismatched, or unknown contract fails before
 pointer mutation.
 
 ### Rust-only runtime capability transition (#50)
@@ -132,15 +108,8 @@ promotion workflow confirms the bridge is running on the host. A later
 Rust-only-to-bridge expansion and a schema-3-to-schema-2 downgrade are both
 refused before production stops.
 
-The intermediate bridge at source `cee50575e31f08f2e70e9b4d275e236ba9e05df7`
-and digest `c98d61e1…` was accepted on the host on 2026-09-27. Its success
-receipt is `20260927T214134Z-success-c98d61e1ba3aa523.json` with validated
-predeploy snapshot `daily/2026-09-27T21-35-17-704Z`. The immutable snapshot
-and live SQLite state had the same identity, source/channel binding, schema 6,
-offset and all 717,673 decision rows; the following normal deploy poll was a
-successful no-op. The [sanitized bridge attestation](evidence/issue50-bridge-receipt.json)
-binds the deployed image, receipt and archived verifier bytes. This bridge
-advertised both runtime capabilities for the transition while running Rust.
+The [sanitized bridge attestation](evidence/issue50-bridge-receipt.json)
+remains an input to the release gate.
 
 An unattended schema-3-to-schema-2 provenance downgrade is refused before
 the service stops. The retired pre-SQLite Node image and snapshot cannot be a
@@ -154,38 +123,6 @@ and digest `6d2808e1…` has one recognized Cargo-capable archived verifier
 variant. Verification still binds its exact source, image, release bundle and
 payload; this exception does not admit other schema-2 verifier variants or
 restore Node capability.
-
-### Historical first upgrade to the HTTP transport
-
-The preceding release's deployer requires `SYS_ADMIN` in candidate Compose.
-The HTTP release drops all capabilities and enables `no-new-privileges`, so
-that older deployer rejects it before stopping the running application. The
-normal timer has already verified and staged the release bundle at this point;
-it cannot complete this one transition automatically.
-
-After publication, let the normal deployer stage the candidate. Confirm its
-journal failed at Compose validation, with the application still ready, and
-obtain the exact revision and digest from the successful publication record.
-Run the new staged deployer once, using those values (replace both examples):
-
-```sh
-revision=FULL_40_CHARACTER_SOURCE_REVISION
-digest=FULL_64_CHARACTER_IMAGE_DIGEST_WITHOUT_SHA256_PREFIX
-[[ "$revision" =~ ^[0-9a-f]{40}$ && "$digest" =~ ^[0-9a-f]{64}$ ]]
-release="/var/lib/rental-apartments/releases/${revision}-${digest:0:16}"
-sudo jq --exit-status --arg revision "$revision" --arg digest "sha256:$digest" \
-  '.sourceRevision == $revision and .imageDigest == $digest' \
-  "$release/release-metadata.json"
-sudo "$release/ops/deploy" --actor operator:http-transport-upgrade
-```
-
-Use only the root-owned bundle staged and verified by the regular deployer;
-do not invoke an arbitrary downloaded script or repoint `current` manually.
-The new deployer repeats candidate validation, takes the normal snapshot, and
-performs the existing stop-first deployment and rollback checks. Once it
-succeeds, the stable launcher uses the new current release and subsequent
-updates are unattended again. If it fails, retain the receipt and follow the
-rollback procedure below.
 
 ### State backend transitions
 
@@ -206,213 +143,6 @@ Every release in this tree declares `sqlite`, so today the first case is the
 only one reached. The machinery stays because it is what would gate any future
 backend or storage change; it is not a path back to JSON, which no release can
 read.
-
-### Historical runtime transition to Rust
-
-The older Node bridge can start Rust, but its rollback path restores the
-predeploy snapshot after a rejected candidate. The updated Node bridge was
-published first with `PRODUCTION_RUNTIME: node` and advanced the discovery
-pointer through the same-runtime path. It declares both deployable runtimes and
-the `preserve-live-state-v1` rollback contract. With the publisher now set to
-`rust`, publication requires that marker on the current pointer and holds the
-Rust candidate for explicit promotion. Confirm the host has deployed the
-updated bridge before that promotion; publication alone is not host acceptance.
-
-On 2026-09-26, the host accepted Node bridge
-`db93d9b9633c92296c75cf4226b2d4e9ad8496a5` at image digest
-`sha256:d43d07fea3e961d7ec6d966e0ca1e28b387925314b57a8eccc7553a289163a82`.
-Its successful receipt completed at `22:35:06Z`, with validated snapshot
-`daily/2026-09-26T22-28-50-466Z`. The normal deploy launcher then succeeded and
-the unattended timer resumed. This records the prerequisite Node bridge
-acceptance; the later Rust cutover has its own live evidence below.
-
-For a host still running the older deployer, pause its unattended timer until
-the first updated bridge rollout is accepted. The earlier #47 update failed
-when discovery displaced the retained image reference. While the application
-stays live, stage the
-immutable Node release from its metadata-bound digest using the existing
-`deployment_extract_release_bundle`, `deployment_verify_release`,
-`deployment_validate_operations_archive`, and `deployment_fetch_release`
-checks. Refuse any pre-existing release directory that has not been verified
-against those inputs. Then invoke that staged release's `ops/deploy` once with
-an operator actor; verify its receipt, image digest, service readiness, backup
-mount and operations lock before re-enabling the timer. Do not unpause the old
-launcher and let it retry the transition. Check the one-time command against
-the published revision and digest before execution.
-
-Once the bridge is current, a Rust candidate can be published, but the
-publisher holds the discovery pointer for this runtime change even though both
-images use SQLite. Confirm the deployed bridge revision with `rentalctl status`
-and use `promote-production.yml` with that exact revision to advance the
-pointer. A Node image retained for rollback still requires the Node command
-contract in its own historical release bundle; removing Node from the new Rust
-image does not remove that rollback path.
-
-A held cutover is deliberate. Publishing the bridge is not the same as the host
-having deployed it, and only the host knows which. Confirm the deployed
-revision on the host, then run `promote-production.yml` with the revision to
-promote and the deployed bridge revision. It refuses unless the reported
-revision matches the release `production` names, so a host that has not yet
-converged cannot be promoted past.
-
-Expected publication evidence is the successful
-`Publish production / Publish / scanned production digest` check, the immutable
-candidate digest, and its metadata object. Retain the GitHub run URL; never put
-tokens or rendered environment files in release evidence.
-
-Before requesting the pointer move, run the
-[archived disposable Node-to-Rust cutover drill](https://github.com/monkeysees/arm-rental/blob/790ecdb66593d0bff685bc2c537cbe3e7f88735e/experiments/native-cutover/README.md)
-with the accepted image IDs and retain its sanitized `report.json`. It checks a
-Node-created predeploy snapshot, failed native startup and exact-row Node
-rollback, then native readiness, crawl, new delivery and prior acknowledgement
-continuity on the same SQLite mount. It restarts the retained Node service after
-each restore and checks readiness, crawl, and offset continuity through local
-HTTPS peers. It does not replace the host bridge,
-backup mount, operations lock, or live delivery checks below.
-
-The disposable drill exposes a rollback boundary: Node preserved a listing
-acknowledged by Rust when restarted against compatible live schema-6 state,
-but resent it after restoring the older predeploy snapshot. On a failed Rust
-candidate with a retained Node predecessor, the updated unattended deployer
-stops and confirms the candidate is stopped, inspects the live database
-read-only, checks its schema against the prior release, and restarts Node on
-that live state. If inspection, compatibility, or restart fails, it leaves the
-service stopped and alerts for operator recovery. The validated predeploy
-snapshot and retained Node image remain available for explicit restore, which
-can replay work accepted after the snapshot. Other runtime transitions retain
-snapshot rollback.
-
-### First live Rust attempt and recovery (2026-09-27)
-
-The operator explicitly promoted source revision
-`a3b20894ca82785bb80110373a6aef31b427c5f1` at image digest
-`sha256:d7a453d84daa3935cdd4825f6684a25bc98f7506c85d79ba00668509426b223d`.
-The host validated predeploy snapshot `daily/2026-09-27T17-45-07-234Z` and
-observed Rust readiness, source integrity and successful crawls through the
-six-minute deployment window. Final `systemctl start rental-apartments.service`
-then failed because the installed unit still used the old direct Compose
-invocation and its Node-only `user: node` setting. The candidate was rejected;
-this attempt was **not** a Rust production acceptance.
-
-Guarded `compatible-live` rollback completed at `17:51:45Z` and restored the
-healthy Node bridge at digest
-`sha256:d43d07fea3e961d7ec6d966e0ca1e28b387925314b57a8eccc7553a289163a82`.
-The failed receipt is `20260927T175145Z-failed-d7a453d84daa3935.json`. The
-installed SQLite identity, schema, source binding, update offset `930892921`,
-and the fixed 39,358-row acknowledged-delivery cohort remained unchanged. The
-rollback retained live state instead of restoring the older snapshot, so it did
-not discard acknowledgements made after that snapshot. No new live listings
-were observed during the attempted rollout; this is state-continuity evidence,
-not a live-message delivery result.
-
-Before retry, the operator backed up the old unit to
-`/var/lib/rental-apartments-ops/unit-backups/rental-apartments.service.pre-rust-20260927T175638Z`
-and installed the approved bridge unit, whose full-file SHA-256 is
-`b9744b143cd10bb102dd5c79e2bad5af6ff193af43a1c30017be9861f5c61d34`.
-The loaded start, reload and stop commands use the stable release launcher,
-there are no drop-ins, and the Node service remained healthy after daemon
-reload. Verify this effective unit and the backup mount before a Rust candidate
-can stop the previous service; repository unit files alone do not prove the
-host has the compatible unit installed.
-Follow-up source commit `0b4d68221b7bcde30fb378fc6998fdcab9f497f2`
-adds a pre-stop check for this effective unit. It was not part of the promoted
-`a3b20894ca82785bb80110373a6aef31b427c5f1` image or its operations bundle;
-the operator verified the installed unit separately before retry.
-
-### Accepted Rust deployment and continuity (2026-09-27)
-
-The normal deployment timer retried the same immutable Rust candidate after
-the approved unit repair. Receipt
-`20260927T180637Z-success-d7a453d84daa3935.json` completed at `18:06:37Z`
-for source `a3b20894ca82785bb80110373a6aef31b427c5f1` and image
-`ghcr.io/monkeysees/arm-rental@sha256:d7a453d84daa3935cdd4825f6684a25bc98f7506c85d79ba00668509426b223d`.
-The host validated snapshot `daily/2026-09-27T18-00-19-960Z` on its independent
-backup volume before starting Rust on the existing SQLite volume. The receipt
-reports success with rollback not attempted; the running container and current
-image pointer match the immutable digest. The loaded runtime-aware service unit
-succeeded, readiness is healthy with no firing alerts, and the 18:10 deployment
-poll was a successful no-op. The backup mount and timers remain healthy.
-
-Independent read-only host review confirmed the same database identity
-`46960c40-1fef-4de1-aaa0-745699ed87e0`, schema 6, source/channel binding
-and Telegram offset `930892921`. All 716,231 decision rows in the retry
-snapshot remain unchanged in live Rust state. Two acknowledgements from the
-first-attempt cohort had their `decidedAt` refreshed by the recovered Node
-service at `17:59:38Z`, before the retry snapshot; they were not lost or
-replayed. Later Rust crawls with matching source-integrity records naturally
-sent six and one private notifications, respectively, and committed seven new
-status-0 acknowledgements. The previous Node digest and matching recovery
-snapshot were retained for rollback at the time of this first Rust deployment.
-
-This acceptance proves the observed host readiness, crawl, durable delivery
-continuity and supported guarded recovery from the failed first attempt. The
-recipients' Telegram inboxes were not inspected externally, and no deliberate
-rollback of the healthy Rust service was performed. This first Rust release
-carried package-lock provenance for its host verifier; the later Cargo
-provenance deployment and Node retirement are recorded below.
-
-### Accepted Cargo provenance deployment (2026-09-27)
-
-After the intermediate schema-2 verifier was accepted on the host, main
-Required CI [36346630538](https://github.com/monkeysees/arm-rental/actions/runs/36346630538)
-and publication [36347296675](https://github.com/monkeysees/arm-rental/actions/runs/36347296675)
-passed for source `790ecdb66593d0bff685bc2c537cbe3e7f88735e`. Publication
-held the discovery pointer until explicit promotion
-[36347593011](https://github.com/monkeysees/arm-rental/actions/runs/36347593011).
-The promoted image is
-`ghcr.io/monkeysees/arm-rental@sha256:17ad1b354820181a3a2092d999a9e6cc53474f1516b8b01af1f0da2d9de96e33`;
-its metadata image digest is
-`sha256:fe264a5e112a928cf415a319e8936dcbd35ea3f796d992641658d3803428a721`.
-
-The unattended host deployment completed at `20:26:29Z` with success receipt
-`20260927T202629Z-success-17ad1b354820181a.json` (SHA-256
-`b0d33ab1c18138e23f8b7f66d0603c4205efb670784bfe629e24e7a472a7f49c`).
-It validated snapshot `daily/2026-09-27T20-20-12-399Z` using the version-3
-manifest, then started the candidate on the same SQLite database identity
-`46960c40-1fef-4de1-aaa0-745699ed87e0`, schema 6. Readiness, source
-integrity, crawls, and the deployment and backup timers were healthy. The
-Telegram update offset remained `930892924`.
-
-Independent read-only review found all 717,431 predeployment decision keys in
-live state, with no missing keys, status changes, or new keys. Two existing
-status-0 rows had `decidedAt` refreshed at `20:21:55–56Z`, matching a natural
-crawl that reported `updatedCount: 1` and `notifiedCount: 2`. This is durable
-state and application-log evidence; recipients' external Telegram inboxes were
-not inspected. No deliberate rollback of the healthy release was performed.
-The installed release uses schema-3 `cargo-source-v1` provenance, with no
-package-lock metadata field, artifact, or image label. Retention contains this
-release and two prior Rust digests (`6d2808e1…` and `98ecade8…`). A separate
-protected pre-SQLite Node image and JSON snapshot were still pinned at this
-acceptance point. That pair could not recover the current SQLite state; the
-ordinary SQLite-era Node rollback image had rotated out of retention.
-
-### Isolated Rust recovery and Node retirement (2026-09-27)
-
-After the schema-3 release was accepted, the operator ran the existing
-`rental-restore-drill.service` against validated snapshot
-`daily/2026-09-27T20-20-12-399Z`. The first drill refused that snapshot because
-a read-only audit had opened its SQLite file without `immutable=1` and created
-an empty WAL and 32 KiB SHM sidecar outside its six-file manifest. All six
-manifest files still matched their recorded hashes. The two inspection-created
-sidecars and their hashes were preserved as diagnostics; under the operations
-lock the operator verified no open reader, removed only those two exact files,
-and revalidated the full manifest. The unchanged isolated drill then passed at
-`20:36:37Z` without stopping, restarting, or changing the live Rust container
-or its SQLite state. Future inspection of a sealed snapshot uses `immutable=1`
-or a private copy.
-
-With that recovery proof and explicit retirement approval, the operator used
-`ops/unprotect-migration-rollback` to release the sole historical pre-SQLite
-entry: Node image
-`ghcr.io/monkeysees/arm-rental@sha256:6ab96bd5cee7ca06dd772a4fb815b45ee610359f5a2649c753157e1f37398711`
-and snapshot
-`/mnt/rental-apartments-backups/protected/pre-sqlite-2026-08-19T07-32-32-202Z`.
-The supported retention-aware image-cleanup service then removed the unretained
-Node image and its metadata image. Its dry-run afterward found no removal
-candidate. The current Rust image and two ordinary Rust rollback entries,
-their snapshots, and the healthy live container remained unchanged. The
-historical release directory may remain as inert evidence; it is not a
-recoverable Node image or snapshot.
 
 ## Host prerequisites and safe checks
 
@@ -497,10 +227,9 @@ For a new digest, `ops/deploy`:
 The retention index keeps the current and two prior evidence records. Release
 directories, digest-pinned Docker images, receipts, and associated deployment
 snapshots must not be manually removed while referenced by that index.
-The one `protectedReleases` entry left from the SQLite cutover was released
-under #50 and its pre-SQLite snapshot and Node images were retired. No current
-release can create a new protected entry. Only the current-plus-two Rust
-retention set is available for rollback; see [state recovery](state-recovery.md).
+No current release can create a new `protectedReleases` entry. Only the
+current-plus-two Rust retention set is available for rollback; see
+[state recovery](state-recovery.md).
 
 After a candidate is accepted, deployment performs retention-aware image
 cleanup. A weekly timer retries the same idempotent operation as a safety net:
@@ -560,10 +289,8 @@ pre-deletion snapshot of both bot and private-delivery state.
 On a failed Rust candidate, unattended recovery stops and confirms the
 candidate is stopped, validates the matching predeploy snapshot, restores it
 with the prior immutable Rust release, then requires readiness. The failed
-receipt records `rollback.stateStrategy: snapshot-restore`. The historical
-first cutover used `compatible-live` to recover its Node predecessor without
-erasing Rust acknowledgements; that path is no longer an available rollback
-target. A successful recovery emits
+receipt records `rollback.stateStrategy: snapshot-restore`. A successful
+recovery emits
 `deployment.rollback.completed`, records `rollback.result: completed`, opens a
 deployment alert, and leaves `rental-deploy.service` failed so the incident is
 visible.

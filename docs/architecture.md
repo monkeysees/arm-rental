@@ -36,9 +36,7 @@ canonical AMD amount drives all price filtering and channel price-band hashtags.
 The live service is Rust. Its production modules are under
 `experiments/rust-replay/src/production/`; `rental-app` exposes serving,
 maintenance, state, recovery, source smoke and health commands. The former Node
-implementation and its recovery image have been retired. The dated cutover
-evidence remains in [Rust parity](rust-parity.md) and the
-[release runbook](release-and-rollback.md).
+implementation and its recovery image have been retired.
 
 ### Rust service
 
@@ -47,8 +45,8 @@ The Rust service has one `rental-app` executable under
 fixture protocol. The service uses the production SQLite application ID and
 schema 6, including transactional upgrades from supported older schemas. Its
 configuration catalog and Russian bot vocabulary preserve the accepted
-behavior contract. See [Rust parity](rust-parity.md) for local and live
-acceptance evidence and remaining limits.
+behavior contract. See [Rust development](rust-development.md) for local
+acceptance checks.
 
 Source parsing, filters, crawl commits, Telegram control handling, private
 classification, channel publication, health and recovery are separate modules.
@@ -225,10 +223,8 @@ installation and the verified current release thereafter. Deployment shares
 the global operations lock, snapshots before mutation, verifies startup and a
 complete observation window, atomically advances runtime pointers, and
 recovers the prior digest on failure. A failed candidate restores its matching
-predeploy Rust snapshot before the previous Rust image restarts. The first Rust
-cutover had a guarded compatible-live recovery path for its Node predecessor;
-that path is historical. Failed candidate digests are quarantined to prevent
-retry loops.
+predeploy Rust snapshot before the previous Rust image restarts. Failed
+candidate digests are quarantined to prevent retry loops.
 
 The host deploys each candidate with the operations bundle of the release it is
 already running, so a candidate whose state backend that release cannot deploy
@@ -244,11 +240,8 @@ matches the release `production` names. An unreadable pointer fails closed
 rather than reading as a first publication.
 
 Deployment refuses a release that does not declare the SQLite backend or an
-unsupported runtime capability. The protected pre-SQLite Node image and
-snapshot were retired under [#50](https://github.com/monkeysees/arm-rental/issues/50)
-after the isolated Rust restore drill. No protected Node recovery entry remains;
-normal retention holds the current Rust release and at most two Rust rollback
-releases.
+unsupported runtime capability. Normal retention holds the current Rust
+release and at most two Rust rollback releases.
 
 Accepted deployments update a retention index containing the current release
 and at most two rollback releases before invoking retention-aware image
@@ -399,15 +392,8 @@ inputs, not unrelated working-tree files. The producer uses Python 3.11 or
 newer, Git, and Docker; metadata and host verification also require Bash, jq,
 GNU tar, and GNU coreutils (including `sha256sum`).
 
-On 2026-09-27, the host accepted a schema-2 Rust intermediate at
-source `9c95f8f3efb161f507cc26c33312a64dcfa3c6e0`. Its metadata retained
-the legacy package-lock digest and its host verifier supported both schema-2
-and schema-3 contracts. The schema-3 Rust release removes that provenance
-input; the [release runbook](release-and-rollback.md#cargo-provenance-transition-49)
-records its separate publication and live acceptance evidence.
-The first live schema-3 Rust release followed with exact Cargo and source-input
-provenance. Both receipts remain dated evidence; new releases follow the
-Rust-only producer and verifier contract.
+The [release runbook](release-and-rollback.md#cargo-provenance-contract)
+describes the current Cargo and source-input verifier contract.
 
 ### Continuous integration and artifact provenance
 
@@ -594,7 +580,5 @@ The [Rust development guide](rust-development.md) gives the current local
 checks. Required CI builds and tests the production image with synthetic
 Telegram, List.am and CBA peers, a 500-recipient capacity workload, lifecycle
 and recovery checks, provenance verification and a blocking vulnerability
-scan. The independent [parity ledger](rust-parity.md) records the historical
-Node comparison and dated live Rust acceptance. Earlier `src/*.js` module
-walkthroughs are available through Git history as historical design evidence;
-they are not current runtime or operator instructions.
+scan. The [Rust development guide](rust-development.md) describes the active
+acceptance checks.

@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Remove archived migration and benchmark material, obsolete replay fixtures, and superseded acceptance evidence; keep current Rust operations and verification paths.
+
 - Retire the approved pre-SQLite Node recovery pair and replace Node application, test, release, and host command paths with Rust and Python tooling, frozen parity fixtures, and guarded Rust rollback.
 
 - Prepare the deployed verifier for Rust-only runtime claims after the approved retirement of the protected Node recovery pair.

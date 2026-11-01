@@ -16,7 +16,7 @@ unicode-normalization = "=0.1.25"
 sha2 = "=0.11.0"
 url = "=2.5.8"
 
-roxmltree = "=0.21.1"
+roxmltree = "=0.21.2"
 
 [profile.release]
 strip = true
